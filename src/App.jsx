@@ -47,16 +47,6 @@ function PrincipalRoute({ children }) {
 }
 
 // Requires at least editor role (blocks viewers)
-function EditorRoute({ children }) {
-  const { userData, loading } = useAuth();
-  if (loading) return null;
-  const role = userData?.role;
-  if (role !== 'global_admin' && role !== 'principal' && role !== 'editor') {
-    return <Navigate to="/" />;
-  }
-  return children;
-}
-
 function SchoolRequiredRoute({ children }) {
   const { userData, selectedSchool, loading } = useAuth();
   if (loading) return null;
@@ -99,7 +89,7 @@ export default function App() {
             <Route path="files" element={<ApprovedRoute><SchoolRequiredRoute><FileManager /></SchoolRequiredRoute></ApprovedRoute>} />
             <Route path="teams" element={<ApprovedRoute><SchoolRequiredRoute><Teams /></SchoolRequiredRoute></ApprovedRoute>} />
             <Route path="messages" element={<ApprovedRoute><Messages /></ApprovedRoute>} />
-            <Route path="notifications" element={<ApprovedRoute><Notifications /></ApprovedRoute>} />
+            <Route path="notifications" element={<Notifications />} />
             <Route path="holidays" element={<ApprovedRoute><SchoolRequiredRoute><HolidayManager /></SchoolRequiredRoute></ApprovedRoute>} />
             <Route path="schools" element={<AdminRoute><SchoolManagement /></AdminRoute>} />
             <Route path="settings" element={<Settings />} />

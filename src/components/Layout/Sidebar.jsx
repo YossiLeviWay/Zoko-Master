@@ -38,17 +38,17 @@ import { AVATAR_OPTIONS, AVATAR_ICON_PATHS } from '../../data/avatars';
 import './Layout.css';
 
 const NAV_ITEMS = [
-  { path: '/', icon: Home, label: 'דשבורד', all: true },
-  { path: '/calendar', icon: Calendar, label: 'לוח שנה', requiresSchool: true, viewerAllowed: true },
-  { path: '/categories', icon: LayoutGrid, label: 'קטגוריות', requiresSchool: true, viewerAllowed: true },
-  { path: '/staff', icon: Users, label: 'סגל וקהילה', requiresSchool: true, viewerAllowed: true },
-  { path: '/tasks', icon: CheckSquare, label: 'משימות', requiresSchool: true, viewerAllowed: true },
-  { path: '/files', icon: FolderOpen, label: 'קבצים', requiresSchool: true, viewerAllowed: true },
-  { path: '/teams', icon: Users, label: 'צוותים', requiresSchool: true, viewerAllowed: true },
-  { path: '/messages', icon: MessageCircle, label: 'הודעות', all: true },
-  { path: '/holidays', icon: Sun, label: 'חופשות וחגים', requiresSchool: true, viewerAllowed: true },
-  { path: '/schools', icon: School, label: 'ניהול מוסדות', roles: ['global_admin'] },
-  { path: '/settings', icon: Settings, label: 'הגדרות', all: true }
+  { path: '/', icon: Home, label: 'דשבורד' },
+  { path: '/calendar', icon: Calendar, label: 'לוח שנה', requiresSchool: true },
+  { path: '/categories', icon: LayoutGrid, label: 'קטגוריות', requiresSchool: true },
+  { path: '/staff', icon: Users, label: 'סגל וקהילה', requiresSchool: true },
+  { path: '/tasks', icon: CheckSquare, label: 'משימות', requiresSchool: true },
+  { path: '/files', icon: FolderOpen, label: 'קבצים', requiresSchool: true },
+  { path: '/teams', icon: Users, label: 'צוותים', requiresSchool: true },
+  { path: '/messages', icon: MessageCircle, label: 'הודעות' },
+  { path: '/holidays', icon: Sun, label: 'חופשות וחגים', requiresSchool: true },
+  { path: '/schools', icon: School, label: 'ניהול מוסדות', adminOnly: true },
+  { path: '/settings', icon: Settings, label: 'הגדרות' }
 ];
 
 const NOTIF_TYPE_ICONS = {
@@ -89,7 +89,7 @@ function formatNotifTime(dateStr) {
 export default function Sidebar() {
   const isMobile = useIsMobile();
   const [collapsed, setCollapsed] = useState(isMobile);
-  const { logout, userData, currentUser, selectedSchool, isPending, isViewer } = useAuth();
+  const { logout, userData, currentUser, selectedSchool, isPending } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -182,25 +182,12 @@ export default function Sidebar() {
 
   const schoolId = selectedSchool || userData?.schoolId;
   const userIsPending = isPending();
-  const userIsViewer = isViewer();
-  const ROLE_RANK = { global_admin: 4, principal: 3, editor: 2, viewer: 1 };
 
   function canSeeItem(item) {
-    // Pending users can only see dashboard
     if (userIsPending) return item.path === '/';
+    if (item.adminOnly) return userData?.role === 'global_admin';
     if (item.requiresSchool && !schoolId) return false;
-    // Role-specific items
-    if (item.roles && userData?.role) {
-      if (!item.roles.includes(userData.role)) return false;
-    }
-    // Viewer restrictions: only dashboard, calendar, staff list
-    if (userIsViewer && !item.all && !item.viewerAllowed) return false;
-    // minRole check
-    if (item.minRole && userData?.role) {
-      if ((ROLE_RANK[userData.role] || 0) < (ROLE_RANK[item.minRole] || 0)) return false;
-    }
-    if (item.all || item.requiresSchool || item.roles) return true;
-    return false;
+    return true;
   }
 
   async function handleLogout() {

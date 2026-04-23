@@ -16,12 +16,16 @@ import {
   arrayRemove
 } from 'firebase/firestore';
 import Header from '../Layout/Header';
+import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
+import { usePermissions } from '../../hooks/usePermissions';
 import { Plus, Trash2, Edit3, Users, X, Search, UserPlus, UserMinus, Shield } from 'lucide-react';
 import '../Gantt/Gantt.css';
 import './Teams.css';
 
 export default function Teams() {
   const { userData, selectedSchool, isPrincipal, isGlobalAdmin } = useAuth();
+  const { permissions } = usePermissions();
+  const [showPermissionsPanel, setShowPermissionsPanel] = useState(false);
   const [teams, setTeams] = useState([]);
   const [staff, setStaff] = useState([]);
   const [showForm, setShowForm] = useState(false);
@@ -197,7 +201,8 @@ export default function Teams() {
 
   return (
     <div className="page">
-      <Header title="צוותים" />
+      <Header title="צוותים" onPermissions={() => setShowPermissionsPanel(true)} />
+      {showPermissionsPanel && <PagePermissionsPanel feature="teams" onClose={() => setShowPermissionsPanel(false)} />}
       <div className="page-content">
         <div className="page-toolbar">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>

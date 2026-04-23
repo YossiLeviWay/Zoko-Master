@@ -4,6 +4,8 @@ import { db } from '../../firebase';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy, writeBatch } from 'firebase/firestore';
 import { ISRAELI_HOLIDAYS } from '../../data/holidays';
 import Header from '../Layout/Header';
+import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
+import { usePermissions } from '../../hooks/usePermissions';
 import { Plus, Trash2, Edit3, Save, X, Search, Send, Calendar, Filter, Download, CalendarPlus } from 'lucide-react';
 import './Holidays.css';
 
@@ -44,6 +46,8 @@ function loadSavedFilters() {
 
 export default function HolidayManager() {
   const { userData, selectedSchool, isGlobalAdmin, isPrincipal } = useAuth();
+  const { permissions } = usePermissions();
+  const [showPermissionsPanel, setShowPermissionsPanel] = useState(false);
   const [holidays, setHolidays] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -308,12 +312,13 @@ export default function HolidayManager() {
     }
   }
 
-  const canEdit = admin || isPrincipal();
+  const canEdit = permissions.holidays_edit;
   const activeColumnCount = Object.keys(columnData).length;
 
   return (
     <div className="page">
-      <Header title="ניהול חגים וחופשות" />
+      <Header title="ניהול חגים וחופשות" onPermissions={() => setShowPermissionsPanel(true)} />
+      {showPermissionsPanel && <PagePermissionsPanel feature="holidays" onClose={() => setShowPermissionsPanel(false)} />}
       <div className="page-content">
         <div className="page-toolbar">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>

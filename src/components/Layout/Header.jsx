@@ -3,7 +3,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../../firebase';
 import { collection, getDocs, query, where, onSnapshot, updateDoc, doc, orderBy, limit as firestoreLimit } from 'firebase/firestore';
-import { Building2, ChevronDown, Check, Bell, CheckCheck, MessageCircle, CheckSquare, Calendar, Users, FolderOpen, UserPlus, AlertCircle } from 'lucide-react';
+import { Building2, ChevronDown, Check, Bell, CheckCheck, MessageCircle, CheckSquare, Calendar, Users, FolderOpen, UserPlus, AlertCircle, Shield } from 'lucide-react';
 import './Layout.css';
 
 const NOTIF_TYPE_ICONS = {
@@ -31,8 +31,9 @@ function formatNotifTime(dateStr) {
   return d.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' });
 }
 
-export default function Header({ title }) {
-  const { userData, currentUser, selectedSchool, switchSchool, isGlobalAdmin } = useAuth();
+export default function Header({ title, onPermissions }) {
+  const { userData, currentUser, selectedSchool, switchSchool, isGlobalAdmin, isPrincipal } = useAuth();
+  const canManagePermissions = isGlobalAdmin() || isPrincipal();
   const navigate = useNavigate();
   const [schools, setSchools] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -143,6 +144,25 @@ export default function Header({ title }) {
       </div>
 
       <div className="header-left">
+        {/* Permissions button — visible to principal/admin only */}
+        {onPermissions && canManagePermissions && (
+          <button
+            onClick={onPermissions}
+            title="ניהול הרשאות"
+            style={{
+              display: 'flex', alignItems: 'center', gap: '0.35rem',
+              padding: '0.4rem 0.75rem', borderRadius: 8,
+              border: '1px solid #e2e8f0', background: '#f8fafc',
+              cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600,
+              color: '#475569', transition: 'all 0.15s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = '#eff6ff'; e.currentTarget.style.color = '#2563eb'; e.currentTarget.style.borderColor = '#bfdbfe'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.color = '#475569'; e.currentTarget.style.borderColor = '#e2e8f0'; }}
+          >
+            <Shield size={15} />
+            הרשאות
+          </button>
+        )}
         {/* Notification bell */}
         <div className="header-notif-wrap" ref={notifBellRef}>
           <button

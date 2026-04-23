@@ -3,6 +3,8 @@ import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { db, storage } from '../../firebase';
 import PermissionsMenu from '../Shared/PermissionsMenu';
+import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
+import { usePermissions } from '../../hooks/usePermissions';
 import {
   collection,
   query,
@@ -56,6 +58,8 @@ import './Files.css';
 
 export default function FileManager() {
   const { userData, currentUser, selectedSchool, isPrincipal, isGlobalAdmin, isViewer } = useAuth();
+  const { permissions } = usePermissions();
+  const [showPermissionsPanel, setShowPermissionsPanel] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const uid = currentUser?.uid;
   const [folders, setFolders] = useState([]);
@@ -91,6 +95,7 @@ export default function FileManager() {
 
   const schoolId = selectedSchool || userData?.schoolId;
   const canManage = isPrincipal() || isGlobalAdmin();
+  const canUploadFiles = permissions.files_upload;
 
   function userCanAccessFolder(folder) {
     if (canManage) return true;
@@ -113,7 +118,7 @@ export default function FileManager() {
   }
 
   function userCanCreateFiles() {
-    if (isViewer()) return false;
+    if (!canUploadFiles) return false;
     if (canManage) return true;
     const folder = folders.find(f => f.id === selectedFolder);
     if (!folder) return false;
@@ -369,7 +374,7 @@ export default function FileManager() {
   }, [editingFile?.id]);
 
   async function deleteFolder(folderId) {
-    if (isViewer()) return;
+    if (!canUploadFiles) return;
     if (!confirm('האם למחוק תיקייה זו וכל תוכנה?')) return;
     const filesSnap = await getDocs(
       query(collection(db, `files_${schoolId}`), where('folderId', '==', folderId))
@@ -386,7 +391,7 @@ export default function FileManager() {
   }
 
   async function deleteFile(fileItem) {
-    if (isViewer()) return;
+    if (!canUploadFiles) return;
     if (!confirm('האם למחוק קובץ זה?')) return;
     if (fileItem.storagePath) {
       try { await deleteObject(ref(storage, fileItem.storagePath)); } catch {}
@@ -396,7 +401,7 @@ export default function FileManager() {
   }
 
   async function duplicateFile(fileItem) {
-    if (!schoolId || isViewer()) return;
+    if (!schoolId || !canUploadFiles) return;
     try {
       const { id, ...data } = fileItem;
       await addDoc(collection(db, `files_${schoolId}`), {
@@ -725,7 +730,8 @@ export default function FileManager() {
 
   return (
     <div className="page">
-      <Header title="קבצים ותיקיות" />
+      <Header title="קבצים ותיקיות" onPermissions={() => setShowPermissionsPanel(true)} />
+      {showPermissionsPanel && <PagePermissionsPanel feature="files" onClose={() => setShowPermissionsPanel(false)} />}
       <div className="page-content">
         <div className={`files-layout ${fullscreen ? 'files-layout--fullscreen' : ''}`}>
           {/* Right panel - File tree */}
@@ -862,7 +868,7 @@ export default function FileManager() {
                         {fullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
                       </button>
                     )}
-                    {!isViewer() && (
+                    {!!canUploadFiles && (
                       <>
                         <span className="autosave-status">
                           <span className={`autosave-dot-inline ${fileSaving ? 'autosave-dot-inline--saving' : ''}`} />
@@ -878,7 +884,7 @@ export default function FileManager() {
                         </button>
                       </>
                     )}
-                    {isViewer() && <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>צפייה בלבד</span>}
+                    {!canUploadFiles && <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>צפייה בלבד</span>}
                     <button
                       className={`icon-btn ${showHistory ? 'icon-btn--active' : ''}`}
                       onClick={toggleHistory}
@@ -894,24 +900,24 @@ export default function FileManager() {
                     <SpreadsheetEditor
                       key={editingFile.id}
                       data={typeof editingFile.content === 'string' ? JSON.parse(editingFile.content) : editingFile.content}
-                      onChange={isViewer() ? undefined : (newData) => {
+                      onChange={!canUploadFiles ? undefined : (newData) => {
                         const json = JSON.stringify(newData);
                         setEditingFile(prev => ({ ...prev, content: json }));
                         autoSave(json);
                       }}
                       onToggleFullscreen={() => setFullscreen(!fullscreen)}
                       isFullscreen={fullscreen}
-                      readOnly={isViewer()}
+                      readOnly={!canUploadFiles}
                     />
                   ) : (
                     <DocumentEditor
                       key={editingFile.id}
                       content={editingFile.content || ''}
-                      onChange={isViewer() ? undefined : (newContent) => {
+                      onChange={!canUploadFiles ? undefined : (newContent) => {
                         setEditingFile(prev => ({ ...prev, content: newContent }));
                         autoSave(newContent);
                       }}
-                      readOnly={isViewer()}
+                      readOnly={!canUploadFiles}
                     />
                   )}
                 </div>
@@ -997,7 +1003,7 @@ export default function FileManager() {
                         )}
                       </div>
                     )}
-                    {!isViewer() && (
+                    {!!canUploadFiles && (
                       <label className="upload-btn">
                         <Upload size={14} />
                         {uploading ? 'מעלה...' : 'העלאת קובץ'}
@@ -1126,7 +1132,7 @@ export default function FileManager() {
               הורדה
             </a>
           )}
-          {contextMenu.type === 'file' && (contextMenu.item.fileType === 'spreadsheet' || contextMenu.item.fileType === 'document') && !isViewer() && (
+          {contextMenu.type === 'file' && (contextMenu.item.fileType === 'spreadsheet' || contextMenu.item.fileType === 'document') && !!canUploadFiles && (
             <button className="context-menu-item" onClick={() => {
               duplicateFile(contextMenu.item);
               setContextMenu(null);

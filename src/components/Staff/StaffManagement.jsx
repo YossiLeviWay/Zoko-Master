@@ -20,6 +20,7 @@ import {
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updatePassword, updateEmail, deleteUser, signOut as firebaseSignOut } from 'firebase/auth';
 import { secondaryAuth } from '../../firebase';
 import Header from '../Layout/Header';
+import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
 import { Edit3, Trash2, Shield, Search, X, UserPlus, CheckCircle, XCircle, Lock, ChevronDown, ChevronUp, Save, Filter, Phone, Mail, User, MessageCircle, Briefcase, Eye, Key, Copy, RefreshCw, Users, Plus, Trash, Check, AlertCircle } from 'lucide-react';
 import RolesManager from './RolesManager';
 import '../Gantt/Gantt.css';
@@ -170,6 +171,7 @@ function getPermissionsForRole(role) {
 
 export default function StaffManagement() {
   const { userData, selectedSchool, isPrincipal, isGlobalAdmin, approveUser, rejectUser } = useAuth();
+  const [showPermissionsPanel, setShowPermissionsPanel] = useState(false);
   const navigate = useNavigate();
   const [staff, setStaff] = useState([]);
   const [pendingUsers, setPendingUsers] = useState([]);
@@ -873,7 +875,8 @@ export default function StaffManagement() {
 
   return (
     <div className="page">
-      <Header title="סגל וקהילה" />
+      <Header title="סגל וקהילה" onPermissions={() => setShowPermissionsPanel(true)} />
+      {showPermissionsPanel && <PagePermissionsPanel feature="staff" onClose={() => setShowPermissionsPanel(false)} />}
       <div className="page-content">
         <div className="page-toolbar">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>

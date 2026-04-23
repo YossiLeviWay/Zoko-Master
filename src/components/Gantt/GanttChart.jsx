@@ -18,6 +18,8 @@ import {
 import Header from '../Layout/Header';
 import EventModal from './EventModal';
 import YearlyOverview from './YearlyOverview';
+import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
+import { usePermissions } from '../../hooks/usePermissions';
 import { ChevronDown, Eye, Plus, Search, Settings } from 'lucide-react';
 import './Gantt.css';
 
@@ -88,6 +90,8 @@ export default function GanttChart() {
   const [calendarTasks, setCalendarTasks] = useState([]);
 
   const schoolId = selectedSchool || userData?.schoolId;
+  const { permissions } = usePermissions();
+  const [showPermissionsPanel, setShowPermissionsPanel] = useState(false);
 
   // Load user's team memberships for visibility filtering
   useEffect(() => {
@@ -222,6 +226,7 @@ export default function GanttChart() {
 
   // Filter events based on team visibility
   const canSeeAllEvents = isGlobalAdmin() || isPrincipal();
+  const canEditCalendar = permissions.calendar_edit;
 
   function isEventVisible(event) {
     if (canSeeAllEvents) return true;
@@ -379,7 +384,8 @@ export default function GanttChart() {
 
   return (
     <div className="gantt-page">
-      <Header title="לוח שנה" />
+      <Header title="לוח שנה" onPermissions={() => setShowPermissionsPanel(true)} />
+      {showPermissionsPanel && <PagePermissionsPanel feature="calendar" onClose={() => setShowPermissionsPanel(false)} />}
 
       <div className="gantt-controls">
         <div className="gantt-nav">

@@ -17,6 +17,8 @@ import {
 } from 'firebase/firestore';
 import Header from '../Layout/Header';
 import ChatPanel from './ChatPanel';
+import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
+import { usePermissions } from '../../hooks/usePermissions';
 import { Plus, Trash2, MessageSquare, Clock, AlertTriangle, AlertCircle, ChevronDown, X, Search, Filter, Users, Edit3, Save, Pin, Paperclip, FileText, ExternalLink, Table2, FileEdit } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import '../Gantt/Gantt.css';
@@ -45,6 +47,8 @@ const ASSIGNEE_TYPES = {
 
 export default function TaskBoard() {
   const { userData, selectedSchool, currentUser, isViewer, isPrincipal, isGlobalAdmin } = useAuth();
+  const { permissions } = usePermissions();
+  const [showPermissionsPanel, setShowPermissionsPanel] = useState(false);
   const uid = currentUser?.uid;
   const [tasks, setTasks] = useState([]);
   const [showForm, setShowForm] = useState(false);
@@ -304,6 +308,7 @@ export default function TaskBoard() {
   }
 
   const isAdmin = isPrincipal() || isGlobalAdmin();
+  const canEditTasks = permissions.tasks_edit;
 
   // Filter tasks
   const filteredTasks = tasks.filter(task => {
@@ -338,11 +343,12 @@ export default function TaskBoard() {
 
   return (
     <div className="page">
-      <Header title="משימות" />
+      <Header title="משימות" onPermissions={() => setShowPermissionsPanel(true)} />
+      {showPermissionsPanel && <PagePermissionsPanel feature="tasks" onClose={() => setShowPermissionsPanel(false)} />}
       <div className="page-content">
         <div className="page-toolbar">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-            {!isViewer() && (
+            {canEditTasks && (
               <button className="btn btn-primary" onClick={() => setShowForm(true)}>
                 <Plus size={16} />
                 משימה חדשה
@@ -648,7 +654,7 @@ export default function TaskBoard() {
                 </div>
 
                 <div className="task-status-wrap">
-                  {isViewer() ? (
+                  {!canEditTasks ? (
                     <span className="task-status-badge" style={{ color: status.color, borderColor: status.color }}>{status.label}</span>
                   ) : (
                     <select
@@ -672,7 +678,7 @@ export default function TaskBoard() {
                   >
                     <Pin size={15} style={isPinned ? { color: '#2563eb' } : undefined} />
                   </button>
-                  {!isViewer() && (
+                  {canEditTasks && (
                     <button
                       className="icon-btn"
                       title="עריכה"
@@ -688,7 +694,7 @@ export default function TaskBoard() {
                   >
                     <MessageSquare size={15} />
                   </button>
-                  {!isViewer() && (
+                  {canEditTasks && (
                     <button
                       className="icon-btn icon-btn--danger"
                       title="מחיקה"
