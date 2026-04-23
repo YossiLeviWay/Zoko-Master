@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Zoko-Master</title>
+    <script>
+      // GitHub Pages SPA redirect
+      // Stores the current URL in sessionStorage and redirects to base path
+      // index.html picks it up via history.replaceState
+      sessionStorage.redirect = location.href;
+      location.replace(location.pathname.split('/').slice(0, 2).join('/') + '/');
+    </script>
+  </head>
+  <body></body>
+</html>

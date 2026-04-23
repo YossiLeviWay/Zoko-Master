@@ -1,0 +1,304 @@
+/* ===== School Selector — Full-page Overlay ===== */
+.school-selector-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay, 200);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(4px);
+  direction: rtl;
+  font-family: 'Inter', sans-serif;
+}
+
+.school-selector-card {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.16), 0 4px 12px rgba(0, 0, 0, 0.08);
+  width: 100%;
+  max-width: 600px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  margin: 1rem;
+  overflow: hidden;
+  animation: schoolSelectorIn 0.25s ease-out;
+}
+
+@keyframes schoolSelectorIn {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ── Header ── */
+.school-selector-header {
+  text-align: center;
+  padding: 2rem 2rem 1rem;
+}
+
+.school-selector-icon {
+  color: #2563eb;
+  margin-bottom: 0.5rem;
+}
+
+.school-selector-title {
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: #1e293b;
+  margin: 0 0 0.35rem;
+}
+
+.school-selector-subtitle {
+  font-size: 0.85rem;
+  color: #64748b;
+  margin: 0;
+}
+
+/* ── Search ── */
+.school-selector-search {
+  position: relative;
+  padding: 0 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.school-selector-search-icon {
+  position: absolute;
+  right: 2.25rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.school-selector-search-input {
+  width: 100%;
+  padding: 0.65rem 2.5rem 0.65rem 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  font-family: 'Inter', sans-serif;
+  color: #1e293b;
+  background: #f8fafc;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  direction: rtl;
+}
+
+.school-selector-search-input::placeholder {
+  color: #94a3b8;
+}
+
+.school-selector-search-input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  background: #fff;
+}
+
+/* ── School list ── */
+.school-selector-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 1.5rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.school-selector-empty {
+  text-align: center;
+  padding: 2rem 1rem;
+  color: #94a3b8;
+  font-size: 0.88rem;
+}
+
+/* ── School item ── */
+.school-selector-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  text-align: right;
+  font-family: 'Inter', sans-serif;
+  transition: all 0.15s;
+}
+
+.school-selector-item:hover {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.school-selector-item.selected {
+  border-color: #2563eb;
+  background: #eff6ff;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.school-selector-item-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: #f1f5f9;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+
+.school-selector-item:hover .school-selector-item-icon,
+.school-selector-item.selected .school-selector-item-icon {
+  background: #dbeafe;
+  color: #2563eb;
+}
+
+.school-selector-item-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.school-selector-item-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.school-selector-item-address {
+  font-size: 0.78rem;
+  color: #94a3b8;
+  margin-top: 0.15rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.school-selector-item-check {
+  color: #2563eb;
+  flex-shrink: 0;
+}
+
+/* ===== School Selector — Inline (Dropdown) Mode ===== */
+.school-selector-inline {
+  direction: rtl;
+  font-family: 'Inter', sans-serif;
+  display: flex;
+  flex-direction: column;
+  max-height: 280px;
+}
+
+.school-selector-inline-search {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.65rem;
+  border-bottom: 1px solid #f1f5f9;
+  color: #94a3b8;
+}
+
+.school-selector-inline-search input {
+  flex: 1;
+  border: none;
+  outline: none;
+  font-size: 0.8rem;
+  font-family: 'Inter', sans-serif;
+  color: #1e293b;
+  background: transparent;
+  direction: rtl;
+}
+
+.school-selector-inline-search input::placeholder {
+  color: #cbd5e1;
+}
+
+.school-selector-inline-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.35rem;
+}
+
+.school-selector-inline-empty {
+  text-align: center;
+  padding: 1rem 0.5rem;
+  color: #94a3b8;
+  font-size: 0.8rem;
+}
+
+.school-selector-inline-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-family: 'Inter', sans-serif;
+  color: #475569;
+  cursor: pointer;
+  text-align: right;
+  transition: all 0.15s;
+}
+
+.school-selector-inline-item:hover {
+  background: #f1f5f9;
+}
+
+.school-selector-inline-item.active {
+  background: #eff6ff;
+  color: #2563eb;
+  font-weight: 600;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 640px) {
+  .school-selector-card {
+    max-height: 90vh;
+    margin: 0.5rem;
+    border-radius: 12px 12px 0 0;
+    max-width: 100%;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    animation: schoolSelectorSlideUp 0.3s ease-out;
+  }
+
+  @keyframes schoolSelectorSlideUp {
+    from {
+      transform: translateY(100%);
+    }
+    to {
+      transform: translateY(0);
+    }
+  }
+
+  .school-selector-header {
+    padding: 1.5rem 1.5rem 0.75rem;
+  }
+
+  .school-selector-search {
+    padding: 0 1rem;
+  }
+
+  .school-selector-list {
+    padding: 0 1rem 1rem;
+  }
+}

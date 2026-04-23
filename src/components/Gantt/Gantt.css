@@ -1,0 +1,902 @@
+/* ===== Gantt Page ===== */
+.gantt-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.gantt-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1.5rem;
+  background: #fff;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.gantt-nav {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.gantt-select-wrap {
+  position: relative;
+}
+
+.gantt-select {
+  appearance: none;
+  padding: 0.45rem 2rem 0.45rem 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+  min-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gantt-select:focus {
+  outline: none;
+  border-color: #2563eb;
+}
+
+.gantt-select-icon {
+  position: absolute;
+  left: 0.6rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.gantt-controls-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Day Settings */
+.gantt-day-settings {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 1.5rem;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.gantt-day-settings-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #475569;
+  white-space: nowrap;
+}
+
+.gantt-day-toggles {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.gantt-day-toggle {
+  padding: 0.3rem 0.6rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 0.78rem;
+  font-family: 'Inter', sans-serif;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-weight: 600;
+}
+
+.gantt-day-toggle:hover {
+  border-color: #93c5fd;
+}
+
+.gantt-day-toggle--active {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+
+.gantt-day-toggle--active:hover {
+  background: #1d4ed8;
+}
+
+.gantt-holiday-badge {
+  padding: 0.35rem 0.75rem;
+  background: #fef3c7;
+  color: #92400e;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.gantt-yearly-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 1rem;
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: 'Inter', sans-serif;
+}
+
+.gantt-yearly-btn:hover {
+  background: #dbeafe;
+}
+
+/* Search bar */
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  min-width: 180px;
+}
+
+.search-bar input {
+  border: none;
+  background: transparent;
+  font-size: 0.82rem;
+  font-family: 'Inter', sans-serif;
+  color: #1e293b;
+  width: 100%;
+  outline: none;
+}
+
+.search-bar svg {
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+/* ===== Table ===== */
+.gantt-table-wrap {
+  flex: 1;
+  overflow: auto;
+  padding: 0.75rem;
+}
+
+.gantt-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  min-width: 800px;
+}
+
+.gantt-table th,
+.gantt-table td {
+  border: 1px solid #e2e8f0;
+  padding: 0;
+  vertical-align: top;
+}
+
+.gantt-table th {
+  background: #f8fafc;
+  padding: 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #475569;
+  text-align: center;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.gantt-category-col {
+  width: 100px;
+  min-width: 100px;
+}
+
+.gantt-day-header {
+  position: relative;
+  user-select: none;
+}
+
+.gantt-resize-handle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.2s;
+}
+
+.gantt-resize-handle:hover {
+  background: #2563eb;
+}
+
+.gantt-week-start td {
+  border-top: 2px solid #cbd5e1;
+}
+
+.gantt-week-label {
+  background: #f1f5f9;
+  text-align: center;
+  padding: 0.4rem !important;
+}
+
+.gantt-week-num {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #475569;
+}
+
+.gantt-week-dates {
+  font-size: 0.65rem;
+  color: #94a3b8;
+}
+
+.gantt-category-cell {
+  background: #f8fafc;
+  padding: 0.3rem !important;
+  font-size: 0.72rem;
+  color: #64748b;
+  text-align: center;
+}
+
+/* ===== Cells ===== */
+.gantt-cell {
+  min-height: 42px;
+  padding: 2px 3px !important;
+  cursor: pointer;
+  transition: background 0.15s;
+  position: relative;
+}
+
+.gantt-cell:hover {
+  background: #f0f9ff;
+}
+
+.gantt-cell--dim {
+  background: #fafafa;
+  opacity: 0.5;
+}
+
+.gantt-cell--today {
+  background: #eff6ff;
+  box-shadow: inset 0 0 0 2px #2563eb;
+}
+
+/* Week date header row */
+.gantt-week-dates-row td {
+  border-top: 2px solid #cbd5e1;
+}
+
+.gantt-date-header-cell {
+  text-align: center;
+  padding: 0.25rem 0.2rem !important;
+  background: #f1f5f9;
+  line-height: 1.2;
+}
+
+.gantt-date-header-num {
+  display: block;
+  font-size: 1rem;
+  font-weight: 800;
+  color: #2563eb;
+}
+
+.gantt-date-header-full {
+  display: block;
+  font-size: 0.62rem;
+  color: #94a3b8;
+  margin-top: 1px;
+}
+
+.gantt-cell-cat {
+  font-size: 0.72rem;
+  color: #1e3a5f;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 2px;
+  background: rgba(37, 99, 235, 0.12);
+  padding: 1px 5px;
+  border-radius: 3px;
+  letter-spacing: -0.01em;
+  border-right: 2px solid #2563eb;
+}
+
+.gantt-cell--holiday {
+  background: #fffbeb;
+}
+
+.gantt-cell--holiday:hover {
+  background: #fef3c7;
+}
+
+.gantt-holiday-tag {
+  font-size: 0.65rem;
+  color: #78350f;
+  background: #fde68a;
+  padding: 1px 4px;
+  border-radius: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 1px;
+  font-weight: 700;
+}
+
+.gantt-task-tag {
+  font-size: 0.62rem;
+  color: #1e40af;
+  background: #dbeafe;
+  padding: 1px 4px;
+  border-radius: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 1px;
+  font-weight: 600;
+  max-width: 100%;
+}
+
+.gantt-row-resize-handle {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  cursor: row-resize;
+  background: transparent;
+  z-index: 5;
+}
+
+.gantt-row-resize-handle:hover {
+  background: #2563eb;
+}
+
+/* ===== Events ===== */
+.gantt-event {
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: #334155;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 1px;
+  cursor: pointer;
+  transition: all 0.15s;
+  line-height: 1.4;
+}
+
+.gantt-event:hover {
+  filter: brightness(0.95);
+  transform: scale(1.02);
+}
+
+.gantt-event--highlight {
+  box-shadow: 0 0 0 2px #3b82f6, 0 0 8px rgba(59, 130, 246, 0.4);
+  z-index: 2;
+  transform: scale(1.04);
+}
+
+.gantt-event--dim {
+  opacity: 0.25;
+}
+
+.search-count {
+  font-size: 0.7rem;
+  color: #64748b;
+  white-space: nowrap;
+  padding-inline-start: 0.25rem;
+}
+
+/* ===== Tooltip ===== */
+.gantt-tooltip {
+  position: fixed;
+  background: #1e293b;
+  color: #fff;
+  padding: 0.6rem 0.8rem;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  z-index: 1000;
+  pointer-events: none;
+  max-width: 260px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  line-height: 1.5;
+}
+
+.gantt-tooltip strong {
+  display: block;
+  margin-bottom: 0.2rem;
+}
+
+.gantt-tooltip span {
+  color: #94a3b8;
+  font-size: 0.72rem;
+}
+
+.gantt-tooltip p {
+  margin: 0.3rem 0 0;
+  color: #cbd5e1;
+  font-size: 0.72rem;
+}
+
+/* ===== Modal ===== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  backdrop-filter: blur(2px);
+  padding: 1rem;
+}
+
+.modal-content {
+  background: #fff;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.15);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.modal-close {
+  background: #f1f5f9;
+  border: none;
+  border-radius: 8px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #64748b;
+  transition: all 0.2s;
+}
+
+.modal-close:hover {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.modal-form {
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.modal-form .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.modal-form .form-group label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.modal-form .form-group input,
+.modal-form .form-group select,
+.modal-form .form-group textarea {
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-family: 'Inter', sans-serif;
+  background: #f8fafc;
+  color: #1e293b;
+  resize: vertical;
+}
+
+.modal-form .form-group input:focus,
+.modal-form .form-group select:focus,
+.modal-form .form-group textarea:focus {
+  outline: none;
+  border-color: #2563eb;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.modal-form .form-row {
+  display: flex;
+  gap: 0.75rem;
+}
+
+/* ===== Color Picker ===== */
+.color-picker {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.color-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.color-swatch:hover {
+  transform: scale(1.15);
+}
+
+.color-swatch.active {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px #2563eb;
+}
+
+/* ===== Buttons ===== */
+.modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.btn {
+  padding: 0.55rem 1.2rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: 'Inter', sans-serif;
+}
+
+.btn-primary {
+  background: #2563eb;
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: #1d4ed8;
+}
+
+.btn-secondary {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.btn-secondary:hover {
+  background: #e2e8f0;
+}
+
+.btn-danger {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.btn-danger:hover {
+  background: #fee2e2;
+}
+
+/* ===== Yearly Overview ===== */
+.yearly-overlay {
+  align-items: flex-start;
+  padding: 2rem;
+}
+
+.yearly-content {
+  background: #fff;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 1100px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.15);
+}
+
+.yearly-loading {
+  padding: 3rem;
+  text-align: center;
+  color: #64748b;
+}
+
+.yearly-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  padding: 0.5rem;
+}
+
+.yearly-month {
+  padding: 0.75rem;
+  border: 1px solid #f1f5f9;
+}
+
+.yearly-month-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.yearly-empty {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  margin: 0;
+}
+
+.yearly-events {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.yearly-event-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+  color: #475569;
+}
+
+.yearly-event-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.yearly-event-title {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.yearly-event-date {
+  color: #94a3b8;
+  font-size: 0.65rem;
+}
+
+.yearly-more {
+  font-size: 0.7rem;
+  color: #2563eb;
+  font-weight: 500;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 900px) {
+  .yearly-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .gantt-controls {
+    flex-direction: column;
+    gap: 0.4rem;
+    align-items: stretch;
+    padding: 0.5rem 0.75rem;
+  }
+
+  .gantt-nav {
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+
+  .gantt-controls-actions {
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+
+  .gantt-day-settings {
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    padding: 0.4rem 0.75rem;
+  }
+
+  .gantt-day-toggles {
+    flex-wrap: wrap;
+    gap: 0.25rem;
+  }
+
+  .gantt-day-toggle {
+    padding: 0.25rem 0.45rem;
+    font-size: 0.72rem;
+  }
+
+  .gantt-table-wrap {
+    padding: 0.25rem;
+  }
+
+  .gantt-table {
+    min-width: 600px;
+  }
+
+  .gantt-category-col {
+    width: 70px;
+    min-width: 70px;
+  }
+
+  .gantt-week-num {
+    font-size: 0.6rem;
+  }
+
+  .gantt-week-dates {
+    font-size: 0.55rem;
+  }
+
+  .search-bar {
+    min-width: 120px;
+  }
+
+  .modal-overlay {
+    padding: 0.5rem;
+  }
+
+  .modal-content {
+    max-width: 95vw;
+    margin: 0;
+    border-radius: 12px;
+  }
+
+  .modal-header {
+    padding: 0.85rem 1rem;
+  }
+
+  .modal-header h3 {
+    font-size: 0.95rem;
+  }
+
+  .modal-form {
+    padding: 1rem;
+    gap: 0.85rem;
+  }
+
+  .modal-form .form-row {
+    flex-direction: column;
+    gap: 0.85rem;
+  }
+
+  .modal-form .form-group input,
+  .modal-form .form-group select,
+  .modal-form .form-group textarea {
+    font-size: 0.82rem;
+    padding: 0.5rem 0.65rem;
+  }
+
+  .modal-actions {
+    flex-wrap: wrap;
+  }
+
+  .color-picker {
+    gap: 0.3rem;
+  }
+
+  .color-swatch {
+    width: 24px;
+    height: 24px;
+  }
+
+  .gantt-holiday-badge {
+    font-size: 0.72rem;
+    padding: 0.25rem 0.55rem;
+  }
+
+  .gantt-yearly-btn {
+    font-size: 0.78rem;
+    padding: 0.4rem 0.75rem;
+  }
+}
+
+@media (max-width: 600px) {
+  .yearly-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .gantt-select {
+    font-size: 0.78rem;
+    padding: 0.35rem 1.5rem 0.35rem 0.5rem;
+    min-width: 70px;
+  }
+
+  .gantt-yearly-btn {
+    font-size: 0.75rem;
+    padding: 0.35rem 0.75rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .yearly-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .gantt-controls {
+    padding: 0.4rem 0.5rem;
+  }
+
+  .gantt-nav {
+    gap: 0.25rem;
+  }
+
+  .gantt-select {
+    font-size: 0.72rem;
+    padding: 0.3rem 1.2rem 0.3rem 0.4rem;
+    min-width: 60px;
+  }
+
+  .gantt-table {
+    min-width: 500px;
+  }
+
+  .gantt-event {
+    font-size: 0.62rem;
+    padding: 1px 3px;
+  }
+
+  .gantt-cell-cat {
+    font-size: 0.65rem;
+    padding: 0px 3px;
+  }
+
+  .gantt-holiday-tag {
+    font-size: 0.58rem;
+  }
+
+  .gantt-task-tag {
+    font-size: 0.55rem;
+  }
+
+  .modal-content {
+    max-width: 100%;
+    border-radius: 10px;
+  }
+
+  .modal-header {
+    padding: 0.75rem;
+  }
+
+  .modal-form {
+    padding: 0.75rem;
+  }
+
+  .btn {
+    padding: 0.45rem 0.85rem;
+    font-size: 0.78rem;
+  }
+}

@@ -1,0 +1,75 @@
+/* ═══════════════════════════════════════════════════════
+   Typography System
+   Serif headings (Playfair Display) + Clean body (Inter)
+   ═══════════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,700&family=Inter:wght@300;400;500;600;700&family=Caveat:wght@400;500;600;700&display=swap');
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--surface-ink);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Playfair Display', Georgia, 'Times New Roman', serif;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--surface-ink);
+  letter-spacing: -0.01em;
+}
+
+h1 { font-size: clamp(2rem, 5vw, 3.5rem); }
+h2 { font-size: clamp(1.5rem, 3.5vw, 2.5rem); }
+h3 { font-size: clamp(1.25rem, 2.5vw, 1.75rem); }
+h4 { font-size: 1.25rem; }
+
+p {
+  max-width: 65ch;
+  margin-bottom: 1em;
+}
+
+.font-handwritten {
+  font-family: 'Caveat', cursive;
+}
+
+.text-muted {
+  color: var(--surface-ink-muted);
+}
+
+.text-faint {
+  color: var(--surface-ink-faint);
+}
+
+.text-accent {
+  color: var(--era-accent);
+}
+
+.text-brand {
+  color: var(--brand-purple);
+}
+
+/* Small caps for era labels */
+.era-label {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--surface-ink-faint);
+}
+
+/* Pull quotes */
+.pull-quote {
+  font-family: 'Playfair Display', serif;
+  font-style: italic;
+  font-size: 1.5rem;
+  line-height: 1.4;
+  border-left: 3px solid var(--era-accent, var(--brand-purple));
+  padding-left: var(--space-lg);
+  margin: var(--space-2xl) 0;
+  color: var(--surface-ink-muted);
+}

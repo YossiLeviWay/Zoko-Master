@@ -1,0 +1,34 @@
+/* ===== Notifications Page ===== */
+
+.view-toggle {
+  display: flex;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.toggle-btn {
+  padding: 0.4rem 0.85rem;
+  border: none;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+  transition: all 0.15s;
+}
+
+.toggle-btn.active {
+  background: #2563eb;
+  color: #fff;
+}
+
+.toggle-btn:hover {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.toggle-btn.active:hover {
+  background: #1d4ed8;
+}

@@ -1,0 +1,143 @@
+/* ═══════════════════════════════════════════════════════
+   Animation System
+   Ink-bleed transitions, parallax, ornamental reveals
+   ═══════════════════════════════════════════════════════ */
+
+/* ═══ Ink Bleed Page Transition ═══ */
+.ink-transition {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-transition);
+  background: var(--brand-purple-deep);
+  clip-path: circle(0% at var(--cx, 50%) var(--cy, 50%));
+  pointer-events: none;
+  transition: clip-path var(--duration-slow) var(--ease-out);
+}
+
+.ink-transition.active {
+  clip-path: circle(150% at var(--cx, 50%) var(--cy, 50%));
+  pointer-events: all;
+}
+
+.ink-transition.reveal {
+  clip-path: circle(150% at var(--cx, 50%) var(--cy, 50%));
+  animation: ink-recede var(--duration-slow) var(--ease-out) forwards;
+  animation-delay: 100ms;
+}
+
+@keyframes ink-recede {
+  to {
+    clip-path: circle(0% at var(--cx, 50%) var(--cy, 50%));
+  }
+}
+
+/* ═══ Fade In Up ═══ */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in-up {
+  animation: fadeInUp 0.6s var(--ease-out) both;
+}
+
+/* Stagger children */
+.stagger > * {
+  animation: fadeInUp 0.5s var(--ease-out) both;
+}
+.stagger > *:nth-child(1) { animation-delay: 0ms; }
+.stagger > *:nth-child(2) { animation-delay: 60ms; }
+.stagger > *:nth-child(3) { animation-delay: 120ms; }
+.stagger > *:nth-child(4) { animation-delay: 180ms; }
+.stagger > *:nth-child(5) { animation-delay: 240ms; }
+.stagger > *:nth-child(6) { animation-delay: 300ms; }
+.stagger > *:nth-child(7) { animation-delay: 360ms; }
+.stagger > *:nth-child(8) { animation-delay: 420ms; }
+.stagger > *:nth-child(9) { animation-delay: 480ms; }
+.stagger > *:nth-child(10) { animation-delay: 540ms; }
+
+/* ═══ SVG Line Draw ═══ */
+@keyframes drawLine {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+
+.draw-on-scroll {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
+
+.draw-on-scroll.visible {
+  animation: drawLine 1.5s var(--ease-out) forwards;
+}
+
+/* ═══ Ken Burns (Portrait zoom) ═══ */
+@keyframes kenBurns {
+  from { transform: scale(1); }
+  to { transform: scale(1.08); }
+}
+
+/* ═══ Slow Rotate (Ornamental frames) ═══ */
+@keyframes slowRotate {
+  to { transform: rotate(360deg); }
+}
+
+/* ═══ Page Turn 3D ═══ */
+.page-turn-container {
+  perspective: 1200px;
+}
+
+.page-turn {
+  transform-origin: left center;
+  transition: transform 0.8s var(--ease-out);
+  backface-visibility: hidden;
+}
+
+.page-turn.flipped {
+  transform: rotateY(-180deg);
+}
+
+/* ═══ Pulse Glow ═══ */
+@keyframes pulseGlow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(134, 59, 255, 0);
+  }
+  50% {
+    box-shadow: 0 0 20px 4px rgba(134, 59, 255, 0.15);
+  }
+}
+
+/* ═══ Scale on hover ═══ */
+.hover-lift {
+  transition: transform var(--duration-normal) var(--ease-out),
+              box-shadow var(--duration-normal) var(--ease-out);
+}
+
+.hover-lift:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-card-hover);
+}
+
+/* ═══ Scroll-driven parallax fallback ═══ */
+.parallax-hero {
+  transform: translateY(calc(var(--scroll-progress, 0) * -40px));
+  transition: transform 16ms linear;
+}
+
+/* ═══ Entrance from viewport ═══ */
+.reveal-on-scroll {
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.6s var(--ease-out), transform 0.6s var(--ease-out);
+}
+
+.reveal-on-scroll.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
