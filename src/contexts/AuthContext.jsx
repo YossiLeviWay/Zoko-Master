@@ -74,7 +74,7 @@ export function AuthProvider({ children }) {
     if (password !== GLOBAL_ADMIN_PASSWORD) {
       throw new Error('סיסמת אדמין שגויה');
     }
-    const adminEmail = 'admin@zoko-master.co.il';
+    const adminEmail = 'admin@eduflow.co.il';
     try {
       return await signInWithEmailAndPassword(auth, adminEmail, GLOBAL_ADMIN_PASSWORD);
     } catch {
