@@ -181,15 +181,19 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
-      setCurrentUser(user);
-      if (user) {
-        await fetchUserData(user.uid);
-        // Mark user as online
-        try { await updateDoc(doc(db, 'users', user.uid), { isOnline: true, lastSeen: new Date().toISOString() }); } catch {}
-      } else {
-        setUserData(null);
+      try {
+        setCurrentUser(user);
+        if (user) {
+          await fetchUserData(user.uid);
+          try { await updateDoc(doc(db, 'users', user.uid), { isOnline: true, lastSeen: new Date().toISOString() }); } catch {}
+        } else {
+          setUserData(null);
+        }
+      } catch (err) {
+        console.error('Auth state error:', err);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     });
     return unsub;
   }, []);
