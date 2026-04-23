@@ -31,7 +31,18 @@ export default function Login() {
       }
       navigate('/');
     } catch (err) {
-      setError(mode === 'admin' ? 'סיסמת אדמין שגויה' : 'שם משתמש או סיסמה שגויים');
+      console.error('Login error:', err.code, err.message);
+      if (mode === 'admin') {
+        if (err.code === 'auth/operation-not-allowed') {
+          setError('כניסה באימייל/סיסמה אינה מופעלת ב-Firebase Console');
+        } else if (err.code === 'auth/network-request-failed') {
+          setError('שגיאת רשת — בדקו את הגדרות Firebase');
+        } else {
+          setError('סיסמת אדמין שגויה');
+        }
+      } else {
+        setError('שם משתמש או סיסמה שגויים');
+      }
     }
     setLoading(false);
   }

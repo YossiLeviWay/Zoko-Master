@@ -75,25 +75,39 @@ export function AuthProvider({ children }) {
       throw new Error('סיסמת אדמין שגויה');
     }
     const adminEmail = 'admin@eduflow.co.il';
+    let cred;
     try {
-      return await signInWithEmailAndPassword(auth, adminEmail, GLOBAL_ADMIN_PASSWORD);
-    } catch {
-      const cred = await createUserWithEmailAndPassword(auth, adminEmail, GLOBAL_ADMIN_PASSWORD);
-      await setDoc(doc(db, 'users', cred.user.uid), {
-        uid: cred.user.uid,
-        email: adminEmail,
-        fullName: 'מנהל מערכת',
-        role: 'global_admin',
-        jobTitle: 'מנהל על',
-        schoolId: '',
-        schoolIds: [],
-        pendingSchools: [],
-        phone: '',
-        avatar: '',
-        createdAt: new Date().toISOString()
-      });
-      return cred;
+      cred = await signInWithEmailAndPassword(auth, adminEmail, GLOBAL_ADMIN_PASSWORD);
+    } catch (signInErr) {
+      if (signInErr.code === 'auth/invalid-credential' || signInErr.code === 'auth/user-not-found') {
+        cred = await createUserWithEmailAndPassword(auth, adminEmail, GLOBAL_ADMIN_PASSWORD);
+      } else {
+        console.error('Admin sign-in error:', signInErr.code, signInErr.message);
+        throw signInErr;
+      }
     }
+    try {
+      const userRef = doc(db, 'users', cred.user.uid);
+      const snap = await getDoc(userRef);
+      if (!snap.exists()) {
+        await setDoc(userRef, {
+          uid: cred.user.uid,
+          email: adminEmail,
+          fullName: 'מנהל מערכת',
+          role: 'global_admin',
+          jobTitle: 'מנהל על',
+          schoolId: '',
+          schoolIds: [],
+          pendingSchools: [],
+          phone: '',
+          avatar: '',
+          createdAt: new Date().toISOString()
+        });
+      }
+    } catch (firestoreErr) {
+      console.warn('Could not write admin doc:', firestoreErr.code, firestoreErr.message);
+    }
+    return cred;
   }
 
   async function logout() {
