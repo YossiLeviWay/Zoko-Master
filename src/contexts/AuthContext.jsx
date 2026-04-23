@@ -121,19 +121,38 @@ export function AuthProvider({ children }) {
   }
 
   async function fetchUserData(uid) {
-    const docSnap = await getDoc(doc(db, 'users', uid));
-    if (docSnap.exists()) {
-      const data = docSnap.data();
-      setUserData(data);
-      // Handle both new schoolIds array and old schoolId field
-      if (data.schoolIds && data.schoolIds.length > 0) {
-        setSelectedSchool(data.schoolIds[0]);
-      } else if (data.schoolId) {
-        setSelectedSchool(data.schoolId);
+    try {
+      const docSnap = await getDoc(doc(db, 'users', uid));
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setUserData(data);
+        if (data.schoolIds && data.schoolIds.length > 0) {
+          setSelectedSchool(data.schoolIds[0]);
+        } else if (data.schoolId) {
+          setSelectedSchool(data.schoolId);
+        }
+        return data;
       }
-      return data;
+    } catch (err) {
+      console.warn('fetchUserData error:', err.code, err.message);
     }
     return null;
+  }
+
+  function buildFallbackUserData(user) {
+    const isAdmin = user.email === 'admin@eduflow.co.il';
+    return {
+      uid: user.uid,
+      email: user.email || '',
+      fullName: user.displayName || (isAdmin ? 'מנהל מערכת' : user.email?.split('@')[0] || 'משתמש'),
+      role: isAdmin ? 'global_admin' : 'viewer',
+      jobTitle: isAdmin ? 'מנהל על' : '',
+      schoolId: '',
+      schoolIds: [],
+      pendingSchools: [],
+      avatar: '',
+      phone: '',
+    };
   }
 
   async function approveUser(userId, schoolId) {
@@ -184,7 +203,16 @@ export function AuthProvider({ children }) {
       try {
         setCurrentUser(user);
         if (user) {
-          await fetchUserData(user.uid);
+          const data = await fetchUserData(user.uid);
+          if (!data) {
+            // Firestore doc missing or rules blocked — use Auth info as fallback
+            const fallback = buildFallbackUserData(user);
+            setUserData(fallback);
+            // Try to create the missing doc
+            try {
+              await setDoc(doc(db, 'users', user.uid), { ...fallback, createdAt: new Date().toISOString() });
+            } catch {}
+          }
           try { await updateDoc(doc(db, 'users', user.uid), { isOnline: true, lastSeen: new Date().toISOString() }); } catch {}
         } else {
           setUserData(null);
