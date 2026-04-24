@@ -32,9 +32,11 @@ import {
   CheckCheck,
   FileText,
   UserPlus,
-  AlertCircle
+  AlertCircle,
+  GraduationCap
 } from 'lucide-react';
 import { AVATAR_OPTIONS, AVATAR_ICON_PATHS } from '../../data/avatars';
+import NavPermissionsPanel, { PATH_TO_PERMISSION as PATH_TO_PERMISSION_SIDEBAR } from '../Shared/NavPermissionsPanel';
 import './Layout.css';
 
 const NAV_ITEMS = [
@@ -45,6 +47,7 @@ const NAV_ITEMS = [
   { path: '/tasks', icon: CheckSquare, label: 'משימות', requiresSchool: true },
   { path: '/files', icon: FolderOpen, label: 'קבצים', requiresSchool: true },
   { path: '/teams', icon: Users, label: 'צוותים', requiresSchool: true },
+  { path: '/students', icon: GraduationCap, label: 'תלמידים', requiresSchool: true },
   { path: '/messages', icon: MessageCircle, label: 'הודעות' },
   { path: '/holidays', icon: Sun, label: 'חופשות וחגים', requiresSchool: true },
   { path: '/schools', icon: School, label: 'ניהול מוסדות', adminOnly: true },
@@ -89,7 +92,7 @@ function formatNotifTime(dateStr) {
 export default function Sidebar() {
   const isMobile = useIsMobile();
   const [collapsed, setCollapsed] = useState(isMobile);
-  const { logout, userData, currentUser, selectedSchool, isPending } = useAuth();
+  const { logout, userData, currentUser, selectedSchool, isPending, isPrincipal, isGlobalAdmin } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -99,6 +102,19 @@ export default function Sidebar() {
   const [showNotifPopup, setShowNotifPopup] = useState(false);
   const notifPopupRef = useRef(null);
   const notifBellRef = useRef(null);
+
+  // Nav right-click permissions panel
+  const [navPermPanel, setNavPermPanel] = useState(null); // { item, x, y }
+  const canManagePermissions = isPrincipal() || isGlobalAdmin();
+  const schoolId = selectedSchool || userData?.schoolId;
+
+  function handleNavContextMenu(e, item) {
+    if (!canManagePermissions) return;
+    if (item.adminOnly || item.path === '/' || !PATH_TO_PERMISSION_SIDEBAR[item.path]) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setNavPermPanel({ item, x: e.clientX, y: e.clientY });
+  }
 
   // Auto-collapse on route change for mobile
   useEffect(() => {
@@ -180,7 +196,6 @@ export default function Sidebar() {
     }
   }
 
-  const schoolId = selectedSchool || userData?.schoolId;
   const userIsPending = isPending();
 
   function canSeeItem(item) {
@@ -249,7 +264,11 @@ export default function Sidebar() {
           const isNotifications = item.path === '/notifications';
 
           return (
-            <div key={item.path} className="sidebar-link-wrapper">
+            <div
+              key={item.path}
+              className="sidebar-link-wrapper"
+              onContextMenu={e => handleNavContextMenu(e, item)}
+            >
               <NavLink
                 to={item.path}
                 end={item.path === '/'}
@@ -369,6 +388,16 @@ export default function Sidebar() {
         </button>
       </div>
     </aside>
+
+    {/* Nav right-click permissions panel */}
+    {navPermPanel && (
+      <NavPermissionsPanel
+        item={navPermPanel.item}
+        anchor={{ x: navPermPanel.x, y: navPermPanel.y }}
+        schoolId={schoolId}
+        onClose={() => setNavPermPanel(null)}
+      />
+    )}
     </>
   );
 }

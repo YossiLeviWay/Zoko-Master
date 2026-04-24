@@ -50,7 +50,9 @@ import {
   MoreVertical,
   Copy,
   History,
-  Clock
+  Clock,
+  Printer,
+  FileDown
 } from 'lucide-react';
 import { createNotifications } from '../../utils/notifications';
 import '../Gantt/Gantt.css';
@@ -413,6 +415,61 @@ export default function FileManager() {
       });
     } catch (err) {
       alert('שגיאה בשכפול: ' + err.message);
+    }
+  }
+
+  function exportFile(file) {
+    if (!file) return;
+    if (file.fileType === 'document') {
+      // Export document as HTML → print/PDF
+      const content = typeof file.content === 'string' ? file.content : '';
+      const printWindow = window.open('', '_blank');
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html dir="rtl" lang="he">
+        <head>
+          <meta charset="UTF-8">
+          <title>${file.name}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 2cm; direction: rtl; }
+            @media print { body { padding: 1cm; } }
+          </style>
+        </head>
+        <body>${content}</body>
+        </html>
+      `);
+      printWindow.document.close();
+      printWindow.focus();
+      setTimeout(() => { printWindow.print(); }, 300);
+    } else if (file.fileType === 'spreadsheet') {
+      // Export spreadsheet as CSV
+      try {
+        const data = typeof file.content === 'string' ? JSON.parse(file.content) : file.content;
+        const rows = data?.rows || data?.data || [];
+        const csvRows = rows.map(row => {
+          const cells = Array.isArray(row) ? row : (row.cells || []);
+          return cells.map(cell => {
+            const val = typeof cell === 'object' ? (cell?.text ?? cell?.v ?? '') : (cell ?? '');
+            return `"${String(val).replace(/"/g, '""')}"`;
+          }).join(',');
+        });
+        const csvContent = '﻿' + csvRows.join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `${file.name}.csv`;
+        link.click();
+        URL.revokeObjectURL(link.href);
+      } catch {
+        alert('לא ניתן לייצא את הגיליון');
+      }
+    } else if (file.url) {
+      // Uploaded file — open download
+      const link = document.createElement('a');
+      link.href = file.url;
+      link.download = file.name || 'קובץ';
+      link.target = '_blank';
+      link.click();
     }
   }
 
@@ -885,6 +942,13 @@ export default function FileManager() {
                       </>
                     )}
                     {!canUploadFiles && <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>צפייה בלבד</span>}
+                    <button
+                      className="icon-btn"
+                      onClick={() => exportFile(editingFile)}
+                      title={editingFile.fileType === 'document' ? 'הדפסה / ייצוא PDF' : 'ייצוא CSV'}
+                    >
+                      {editingFile.fileType === 'document' ? <Printer size={15} /> : <FileDown size={15} />}
+                    </button>
                     <button
                       className={`icon-btn ${showHistory ? 'icon-btn--active' : ''}`}
                       onClick={toggleHistory}

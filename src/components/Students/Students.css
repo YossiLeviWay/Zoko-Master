@@ -1,0 +1,578 @@
+/* ===== Students Grid ===== */
+.students-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.student-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  text-align: center;
+  transition: box-shadow 0.2s;
+}
+
+.student-card:hover {
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+}
+
+.student-card-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+
+.student-card-name {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.student-card-class {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #64748b;
+}
+
+.student-card-track {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.student-card-actions {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+/* ===== Program Badges ===== */
+.student-program-badge {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border-radius: 20px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.student-program--full_matriculation {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.student-program--tech_matriculation {
+  background: #f0fdf4;
+  color: #16a34a;
+}
+
+.student-program--professional_cert {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.student-program--completion_cert {
+  background: #fdf4ff;
+  color: #9333ea;
+}
+
+/* ===== Progress Bar ===== */
+.student-progress-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.student-progress-bar {
+  flex: 1;
+  height: 6px;
+  background: #e2e8f0;
+  border-radius: 99px;
+  overflow: hidden;
+  min-width: 60px;
+}
+
+.student-progress-fill {
+  height: 100%;
+  background: #3b82f6;
+  border-radius: 99px;
+  transition: width 0.4s ease;
+}
+
+.student-progress-text {
+  font-size: 0.72rem;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+/* ===== Student Form Grid ===== */
+.student-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.form-hint {
+  font-size: 0.72rem;
+  color: #f59e0b;
+  margin-top: 0.2rem;
+  display: block;
+}
+
+/* ===== Subjects ===== */
+.student-subjects-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  min-height: 28px;
+}
+
+.student-subject-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: #eff6ff;
+  color: #2563eb;
+  border-radius: 20px;
+  padding: 0.2rem 0.6rem;
+  font-size: 0.78rem;
+}
+
+.student-subject-chip button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 0;
+  color: #94a3b8;
+}
+
+.student-subject-chip button:hover {
+  color: #ef4444;
+}
+
+/* ===== TrackManager ===== */
+.tracks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.track-item {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.track-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: #f8fafc;
+  cursor: pointer;
+  gap: 0.5rem;
+}
+
+.track-item-header:hover {
+  background: #f1f5f9;
+}
+
+.track-item-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #1e293b;
+}
+
+.track-requirements-preview {
+  padding: 0.75rem 1rem;
+  background: #fff;
+  border-top: 1px solid #e2e8f0;
+}
+
+.req-preview-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.req-preview-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  color: #334155;
+}
+
+.req-type-badge {
+  display: inline-block;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.req-type--exam { background: #dbeafe; color: #1d4ed8; }
+.req-type--eval { background: #d1fae5; color: #065f46; }
+.req-type--practical { background: #fef3c7; color: #92400e; }
+.req-type--project { background: #ede9fe; color: #5b21b6; }
+.req-type--other { background: #f1f5f9; color: #475569; }
+
+/* ===== Requirement Add Form ===== */
+.req-add-form {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.req-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.req-edit-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.req-edit-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  flex: 1;
+}
+
+.req-num {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.req-name-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #1e293b;
+  padding: 0;
+  outline: none;
+  border-bottom: 1px solid transparent;
+  font-family: inherit;
+}
+
+.req-name-input:focus {
+  border-bottom-color: #3b82f6;
+}
+
+/* ===== Student Profile ===== */
+.student-profile-avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.student-profile-section {
+  padding: 0.75rem 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.student-profile-section:last-child {
+  border-bottom: none;
+}
+
+.student-profile-section-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 0.6rem 0;
+}
+
+.student-info-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: #f1f5f9;
+  color: #475569;
+  border-radius: 6px;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.8rem;
+}
+
+/* ===== Requirement Checklist ===== */
+.req-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.req-checklist-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  transition: background 0.15s;
+  user-select: none;
+}
+
+.req-checklist-item--clickable {
+  cursor: pointer;
+}
+
+.req-checklist-item--clickable:hover {
+  background: #f8fafc;
+}
+
+.req-status--done {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.req-status--in_progress {
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.req-status--pending {
+  background: #fff;
+}
+
+.req-checklist-name {
+  font-size: 0.85rem;
+  color: #1e293b;
+  font-weight: 500;
+  flex: 1;
+}
+
+.req-checklist-units {
+  font-size: 0.78rem;
+  color: #64748b;
+}
+
+.req-optional-badge {
+  display: inline-block;
+  font-size: 0.68rem;
+  background: #fef3c7;
+  color: #92400e;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  margin-right: 0.3rem;
+}
+
+.req-checklist-desc {
+  font-size: 0.72rem;
+  color: #94a3b8;
+  margin: 0.2rem 0 0;
+}
+
+.req-status-label {
+  font-size: 0.72rem;
+  color: #94a3b8;
+  white-space: nowrap;
+  align-self: center;
+}
+
+/* ===== Recommendations ===== */
+.recommendations-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.recommendation-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  background: #eff6ff;
+  border-radius: 8px;
+  border: 1px solid #bfdbfe;
+}
+
+/* ===== Class Permissions Manager ===== */
+.class-perm-class-list {
+  width: 130px;
+  flex-shrink: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow-y: auto;
+  background: #f8fafc;
+}
+
+.class-perm-list-title {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.class-perm-class-item {
+  padding: 0.55rem 0.75rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.3rem;
+  transition: background 0.12s;
+}
+
+.class-perm-class-item:hover { background: #f1f5f9; }
+
+.class-perm-class-item--active {
+  background: #eff6ff;
+  color: #2563eb;
+  font-weight: 600;
+}
+
+.class-perm-class-count {
+  background: #3b82f6;
+  color: #fff;
+  border-radius: 99px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.05rem 0.35rem;
+  min-width: 16px;
+  text-align: center;
+}
+
+.class-perm-editor {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.class-perm-editor-title {
+  font-size: 0.9rem;
+  color: #475569;
+  margin-bottom: 0.5rem;
+}
+
+.class-perm-section-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.35rem;
+}
+
+.class-perm-staff-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-height: 140px;
+  overflow-y: auto;
+  margin-bottom: 0.5rem;
+}
+
+.class-perm-staff-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid #f1f5f9;
+  background: #fff;
+}
+
+.class-perm-staff-item--assigned {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.class-perm-team-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  background: #f8fafc;
+  color: #475569;
+  transition: all 0.15s;
+}
+
+.class-perm-team-chip:hover { background: #f1f5f9; }
+
+.class-perm-team-chip--active {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #2563eb;
+  font-weight: 600;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 600px) {
+  .student-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .students-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 400px) {
+  .students-grid {
+    grid-template-columns: 1fr;
+  }
+}

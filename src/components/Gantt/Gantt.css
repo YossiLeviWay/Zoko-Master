@@ -137,6 +137,26 @@
   background: #dbeafe;
 }
 
+.gantt-today-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.85rem;
+  background: #f0fdf4;
+  color: #16a34a;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: 'Inter', sans-serif;
+}
+
+.gantt-today-btn:hover {
+  background: #dcfce7;
+}
+
 /* Search bar */
 .search-bar {
   display: flex;

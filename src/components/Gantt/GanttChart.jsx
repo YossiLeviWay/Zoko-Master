@@ -20,7 +20,7 @@ import EventModal from './EventModal';
 import YearlyOverview from './YearlyOverview';
 import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
 import { usePermissions } from '../../hooks/usePermissions';
-import { ChevronDown, Eye, Plus, Search, Settings } from 'lucide-react';
+import { CalendarDays, ChevronDown, Eye, Plus, Search, Settings } from 'lucide-react';
 import './Gantt.css';
 
 const HEBREW_DAYS = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
@@ -413,6 +413,14 @@ export default function GanttChart() {
             </select>
             <ChevronDown size={14} className="gantt-select-icon" />
           </div>
+          <button
+            className="gantt-today-btn"
+            onClick={() => { setYear(now.getFullYear()); setMonth(now.getMonth()); }}
+            title="קפוץ להיום"
+          >
+            <CalendarDays size={14} />
+            היום
+          </button>
         </div>
         <div className="gantt-controls-actions">
           <div className="search-bar" style={{ minWidth: 140 }}>

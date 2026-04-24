@@ -11,6 +11,7 @@ import TaskBoard from './components/Tasks/TaskBoard';
 import FileManager from './components/Files/FileManager';
 import SchoolManagement from './components/Schools/SchoolManagement';
 import Teams from './components/Teams/Teams';
+import Students from './components/Students/Students';
 import Messages from './components/Messages/Messages';
 import HolidayManager from './components/Holidays/HolidayManager';
 import Settings from './components/Settings/Settings';
@@ -88,6 +89,7 @@ export default function App() {
             <Route path="tasks" element={<ApprovedRoute><SchoolRequiredRoute><TaskBoard /></SchoolRequiredRoute></ApprovedRoute>} />
             <Route path="files" element={<ApprovedRoute><SchoolRequiredRoute><FileManager /></SchoolRequiredRoute></ApprovedRoute>} />
             <Route path="teams" element={<ApprovedRoute><SchoolRequiredRoute><Teams /></SchoolRequiredRoute></ApprovedRoute>} />
+            <Route path="students" element={<ApprovedRoute><SchoolRequiredRoute><Students /></SchoolRequiredRoute></ApprovedRoute>} />
             <Route path="messages" element={<ApprovedRoute><Messages /></ApprovedRoute>} />
             <Route path="notifications" element={<Notifications />} />
             <Route path="holidays" element={<ApprovedRoute><SchoolRequiredRoute><HolidayManager /></SchoolRequiredRoute></ApprovedRoute>} />
