@@ -4,25 +4,18 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
-  onAuthStateChanged,
-  updatePassword
+  onAuthStateChanged
 } from 'firebase/auth';
 import {
   doc,
   getDoc,
   setDoc,
   updateDoc,
-  collection,
-  query,
-  where,
-  getDocs,
   arrayUnion,
   arrayRemove
 } from 'firebase/firestore';
 
 const AuthContext = createContext();
-
-const GLOBAL_ADMIN_PASSWORD = '123qwe123';
 
 export function useAuth() {
   return useContext(AuthContext);
@@ -56,56 +49,12 @@ export function AuthProvider({ children }) {
 
   async function login(email, password) {
     const cred = await signInWithEmailAndPassword(auth, email, password);
-    // Check if admin set a new password for this user
-    try {
-      const userDoc = await getDoc(doc(db, 'users', cred.user.uid));
-      const data = userDoc.data();
-      if (data?._pendingPassword) {
-        await updatePassword(cred.user, data._pendingPassword);
-        await updateDoc(doc(db, 'users', cred.user.uid), { _pendingPassword: '', _authPassword: data._pendingPassword });
-      }
-    } catch (err) {
-      console.warn('Could not apply pending password:', err);
-    }
-    return cred;
-  }
-
-  async function loginAsAdmin(password) {
-    if (password !== GLOBAL_ADMIN_PASSWORD) {
-      throw new Error('סיסמת אדמין שגויה');
-    }
-    const adminEmail = 'admin@eduflow.co.il';
-    let cred;
-    try {
-      cred = await signInWithEmailAndPassword(auth, adminEmail, GLOBAL_ADMIN_PASSWORD);
-    } catch (signInErr) {
-      if (signInErr.code === 'auth/invalid-credential' || signInErr.code === 'auth/user-not-found') {
-        cred = await createUserWithEmailAndPassword(auth, adminEmail, GLOBAL_ADMIN_PASSWORD);
-      } else {
-        console.error('Admin sign-in error:', signInErr.code, signInErr.message);
-        throw signInErr;
-      }
-    }
-    try {
-      const userRef = doc(db, 'users', cred.user.uid);
-      const snap = await getDoc(userRef);
-      if (!snap.exists()) {
-        await setDoc(userRef, {
-          uid: cred.user.uid,
-          email: adminEmail,
-          fullName: 'מנהל מערכת',
-          role: 'global_admin',
-          jobTitle: 'מנהל על',
-          schoolId: '',
-          schoolIds: [],
-          pendingSchools: [],
-          phone: '',
-          avatar: '',
-          createdAt: new Date().toISOString()
-        });
-      }
-    } catch (firestoreErr) {
-      console.warn('Could not write admin doc:', firestoreErr.code, firestoreErr.message);
+    const userDoc = await getDoc(doc(db, 'users', cred.user.uid));
+    if (userDoc.data()?.disabled) {
+      await signOut(auth);
+      const error = new Error('החשבון הושבת. יש לפנות למנהל המערכת.');
+      error.code = 'auth/user-disabled';
+      throw error;
     }
     return cred;
   }
@@ -140,13 +89,12 @@ export function AuthProvider({ children }) {
   }
 
   function buildFallbackUserData(user) {
-    const isAdmin = user.email === 'admin@eduflow.co.il';
     return {
       uid: user.uid,
       email: user.email || '',
-      fullName: user.displayName || (isAdmin ? 'מנהל מערכת' : user.email?.split('@')[0] || 'משתמש'),
-      role: isAdmin ? 'global_admin' : 'viewer',
-      jobTitle: isAdmin ? 'מנהל על' : '',
+      fullName: user.displayName || user.email?.split('@')[0] || 'משתמש',
+      role: 'viewer',
+      jobTitle: '',
       schoolId: '',
       schoolIds: [],
       pendingSchools: [],
@@ -201,9 +149,14 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
       try {
-        setCurrentUser(user);
         if (user) {
           const data = await fetchUserData(user.uid);
+          if (data?.disabled) {
+            setCurrentUser(null);
+            setUserData(null);
+            await signOut(auth);
+            return;
+          }
           if (!data) {
             // Firestore doc missing or rules blocked — use Auth info as fallback
             const fallback = buildFallbackUserData(user);
@@ -211,11 +164,20 @@ export function AuthProvider({ children }) {
             // Try to create the missing doc
             try {
               await setDoc(doc(db, 'users', user.uid), { ...fallback, createdAt: new Date().toISOString() });
-            } catch {}
+            } catch (error) {
+              console.warn('Could not create missing user profile:', error);
+            }
           }
-          try { await updateDoc(doc(db, 'users', user.uid), { isOnline: true, lastSeen: new Date().toISOString() }); } catch {}
+          setCurrentUser(user);
+          try {
+            await updateDoc(doc(db, 'users', user.uid), { isOnline: true, lastSeen: new Date().toISOString() });
+          } catch (error) {
+            console.warn('Could not update online status:', error);
+          }
         } else {
+          setCurrentUser(null);
           setUserData(null);
+          setSelectedSchool(null);
         }
       } catch (err) {
         console.error('Auth state error:', err);
@@ -230,18 +192,20 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     if (!currentUser) return;
     const interval = setInterval(() => {
-      try { updateDoc(doc(db, 'users', currentUser.uid), { lastSeen: new Date().toISOString(), isOnline: true }); } catch {}
+      updateDoc(doc(db, 'users', currentUser.uid), { lastSeen: new Date().toISOString(), isOnline: true })
+        .catch(() => {});
     }, 120000);
     // Mark offline on page close
     function handleBeforeUnload() {
-      try { navigator.sendBeacon && updateDoc(doc(db, 'users', currentUser.uid), { isOnline: false, lastSeen: new Date().toISOString() }); } catch {}
+      updateDoc(doc(db, 'users', currentUser.uid), { isOnline: false, lastSeen: new Date().toISOString() })
+        .catch(() => {});
     }
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => {
       clearInterval(interval);
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [currentUser?.uid]);
+  }, [currentUser]);
 
   const value = {
     currentUser,
@@ -250,7 +214,6 @@ export function AuthProvider({ children }) {
     loading,
     register,
     login,
-    loginAsAdmin,
     logout,
     switchSchool,
     isGlobalAdmin,

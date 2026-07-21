@@ -3,8 +3,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../firebase';
 import { usePermissions } from '../../hooks/usePermissions';
 import {
-  collection, query, where, getDocs, addDoc, updateDoc,
-  deleteDoc, doc, onSnapshot, orderBy, getDoc
+  collection, getDocs, addDoc, updateDoc,
+  deleteDoc, doc, onSnapshot, getDoc
 } from 'firebase/firestore';
 import Header from '../Layout/Header';
 import PagePermissionsPanel from '../Shared/PagePermissionsPanel';

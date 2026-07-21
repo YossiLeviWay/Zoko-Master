@@ -10,8 +10,6 @@ import {
   limit,
   updateDoc,
   doc,
-  arrayUnion,
-  arrayRemove,
   onSnapshot
 } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
@@ -105,10 +103,8 @@ export default function Dashboard() {
   const [activityFeed, setActivityFeed] = useState([]);
   const [activityLoading, setActivityLoading] = useState(false);
   const [schoolStats, setSchoolStats] = useState([]);
-  const [systemSummary, setSystemSummary] = useState({ totalUsers: 0, totalFiles: 0, totalTasks: 0, totalSchools: 0 });
   const [allSchoolEvents, setAllSchoolEvents] = useState([]);
   const [recentAnnouncements, setRecentAnnouncements] = useState([]);
-  const [announcementTeams, setAnnouncementTeams] = useState([]);
 
   // Personal tasks
   const [myTasks, setMyTasks] = useState([]);
@@ -417,20 +413,6 @@ export default function Dashboard() {
     return unsub;
   }, [selectedSchool]);
 
-  // Load teams for resolving team names in announcements
-  useEffect(() => {
-    if (!selectedSchool) return;
-    async function loadTeams() {
-      try {
-        const snap = await getDocs(collection(db, `teams_${selectedSchool}`));
-        setAnnouncementTeams(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      } catch (err) {
-        console.error('Error loading teams for dashboard:', err);
-      }
-    }
-    loadTeams();
-  }, [selectedSchool]);
-
   // Fetch pending users for admin/principal
   useEffect(() => {
     if (!isGlobalAdmin() && !isPrincipal()) {
@@ -535,8 +517,6 @@ export default function Dashboard() {
         // 3. Per-school summary stats
         const statsArr = [];
         const today = new Date().toISOString().split('T')[0];
-        let totalFiles = 0;
-        let totalTasks = 0;
         for (const school of allSchools) {
           const staffList = allUsers.filter(u => {
             const sids = u.schoolIds || [];
@@ -550,7 +530,7 @@ export default function Dashboard() {
           try {
             const evSnap = await getDocs(query(collection(db, `events_${school.id}`), where('date', '>=', today)));
             eventCount = evSnap.size;
-          } catch (e) { /* collection may not exist */ }
+          } catch { /* collection may not exist */ }
           try {
             const tkSnap = await getDocs(collection(db, `tasks_${school.id}`));
             taskCount = tkSnap.size;
@@ -559,7 +539,7 @@ export default function Dashboard() {
               if (t.createdAt && t.createdAt > lastActivity) lastActivity = t.createdAt;
               if (t.updatedAt && t.updatedAt > lastActivity) lastActivity = t.updatedAt;
             });
-          } catch (e) { /* collection may not exist */ }
+          } catch { /* collection may not exist */ }
           try {
             const flSnap = await getDocs(collection(db, `files_${school.id}`));
             fileCount = flSnap.size;
@@ -567,13 +547,11 @@ export default function Dashboard() {
               const f = d.data();
               if (f.createdAt && f.createdAt > lastActivity) lastActivity = f.createdAt;
             });
-          } catch (e) { /* collection may not exist */ }
+          } catch { /* collection may not exist */ }
           // Check staff creation dates for last activity
           staffList.forEach(u => {
             if (u.createdAt && u.createdAt > lastActivity) lastActivity = u.createdAt;
           });
-          totalFiles += fileCount;
-          totalTasks += taskCount;
           statsArr.push({
             id: school.id,
             name: school.name || school.id,
@@ -587,12 +565,6 @@ export default function Dashboard() {
           });
         }
         setSchoolStats(statsArr);
-        setSystemSummary({
-          totalSchools: allSchools.length,
-          totalUsers: allUsers.filter(u => u.role !== 'global_admin').length,
-          totalFiles,
-          totalTasks,
-        });
 
         // 4. Fetch recent events across all schools
         const allEvents = [];
@@ -609,7 +581,7 @@ export default function Dashboard() {
                 schoolName: school.name || school.id,
               });
             });
-          } catch (e) {
+          } catch {
             // Collection may not exist
           }
         }

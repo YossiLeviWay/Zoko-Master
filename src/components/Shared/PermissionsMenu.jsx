@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../firebase';
-import { collection, getDocs, query, where, doc, updateDoc, getDoc, setDoc } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, getDoc, setDoc } from 'firebase/firestore';
 import { Shield, Eye, Edit3, Users, X, ChevronDown } from 'lucide-react';
 
 /**
@@ -21,7 +21,6 @@ export default function PermissionsMenu({ resourceType, resourceId, resourceName
   const { userData, isGlobalAdmin, isPrincipal } = useAuth();
   const [staff, setStaff] = useState([]);
   const [teams, setTeams] = useState([]);
-  const [roles, setRoles] = useState([]);
   const [permissions, setPermissions] = useState({ viewers: [], editors: [], viewerTeams: [], editorTeams: [], public: true });
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('view'); // view, edit
@@ -29,19 +28,6 @@ export default function PermissionsMenu({ resourceType, resourceId, resourceName
   const menuRef = useRef(null);
 
   const canManage = isGlobalAdmin() || isPrincipal();
-  if (!canManage) return null;
-
-  useEffect(() => {
-    loadData();
-  }, [schoolId, resourceId]);
-
-  useEffect(() => {
-    function handleClickOutside(e) {
-      if (menuRef.current && !menuRef.current.contains(e.target)) onClose();
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [onClose]);
 
   async function loadData() {
     setLoading(true);
@@ -60,20 +46,30 @@ export default function PermissionsMenu({ resourceType, resourceId, resourceName
       const teamSnap = await getDocs(collection(db, `teams_${schoolId}`));
       setTeams(teamSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
-      // Load custom roles
-      const rolesSnap = await getDocs(collection(db, `roles_${schoolId}`));
-      setRoles(rolesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-
       // Load existing permissions for this resource
       const permDoc = await getDoc(doc(db, 'resource_permissions', `${resourceType}_${resourceId}`));
       if (permDoc.exists()) {
-        setPermissions({ ...permissions, ...permDoc.data() });
+        setPermissions(current => ({ ...current, ...permDoc.data() }));
       }
     } catch (err) {
       console.error('Error loading permissions data:', err);
     }
     setLoading(false);
   }
+
+  useEffect(() => {
+    if (canManage) loadData();
+  }, [canManage, schoolId, resourceId]);
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) onClose();
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [onClose]);
+
+  if (!canManage) return null;
 
   async function savePermissions() {
     try {

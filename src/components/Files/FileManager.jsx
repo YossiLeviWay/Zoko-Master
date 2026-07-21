@@ -21,6 +21,7 @@ import {
   arrayRemove
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { escapeHtml, sanitizeHtml } from '../../utils/sanitizeHtml';
 import Header from '../Layout/Header';
 import SpreadsheetEditor from './SpreadsheetEditor';
 import DocumentEditor from './DocumentEditor';
@@ -59,7 +60,7 @@ import '../Gantt/Gantt.css';
 import './Files.css';
 
 export default function FileManager() {
-  const { userData, currentUser, selectedSchool, isPrincipal, isGlobalAdmin, isViewer } = useAuth();
+  const { userData, currentUser, selectedSchool, isPrincipal, isGlobalAdmin } = useAuth();
   const { permissions } = usePermissions();
   const [showPermissionsPanel, setShowPermissionsPanel] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -98,6 +99,7 @@ export default function FileManager() {
   const schoolId = selectedSchool || userData?.schoolId;
   const canManage = isPrincipal() || isGlobalAdmin();
   const canUploadFiles = permissions.files_upload;
+  const canDeleteFiles = permissions.files_delete;
 
   function userCanAccessFolder(folder) {
     if (canManage) return true;
@@ -235,7 +237,7 @@ export default function FileManager() {
         uploadedBy: userData?.fullName || '',
         createdAt: new Date().toISOString()
       });
-    } catch (err) {
+    } catch {
       alert('שגיאה בהעלאת הקובץ');
     }
     setUploading(false);
@@ -376,7 +378,7 @@ export default function FileManager() {
   }, [editingFile?.id]);
 
   async function deleteFolder(folderId) {
-    if (!canUploadFiles) return;
+    if (!canDeleteFiles) return;
     if (!confirm('האם למחוק תיקייה זו וכל תוכנה?')) return;
     const filesSnap = await getDocs(
       query(collection(db, `files_${schoolId}`), where('folderId', '==', folderId))
@@ -393,7 +395,7 @@ export default function FileManager() {
   }
 
   async function deleteFile(fileItem) {
-    if (!canUploadFiles) return;
+    if (!canDeleteFiles) return;
     if (!confirm('האם למחוק קובץ זה?')) return;
     if (fileItem.storagePath) {
       try { await deleteObject(ref(storage, fileItem.storagePath)); } catch {}
@@ -405,7 +407,8 @@ export default function FileManager() {
   async function duplicateFile(fileItem) {
     if (!schoolId || !canUploadFiles) return;
     try {
-      const { id, ...data } = fileItem;
+      const data = { ...fileItem };
+      delete data.id;
       await addDoc(collection(db, `files_${schoolId}`), {
         ...data,
         name: (data.name || 'קובץ') + ' - עותק',
@@ -422,14 +425,19 @@ export default function FileManager() {
     if (!file) return;
     if (file.fileType === 'document') {
       // Export document as HTML → print/PDF
-      const content = typeof file.content === 'string' ? file.content : '';
+      const content = sanitizeHtml(typeof file.content === 'string' ? file.content : '');
+      const safeName = escapeHtml(file.name || 'מסמך');
       const printWindow = window.open('', '_blank');
+      if (!printWindow) {
+        alert('הדפדפן חסם את חלון ההדפסה. יש לאפשר חלונות קופצים ולנסות שוב.');
+        return;
+      }
       printWindow.document.write(`
         <!DOCTYPE html>
         <html dir="rtl" lang="he">
         <head>
           <meta charset="UTF-8">
-          <title>${file.name}</title>
+          <title>${safeName}</title>
           <style>
             body { font-family: Arial, sans-serif; padding: 2cm; direction: rtl; }
             @media print { body { padding: 1cm; } }
@@ -721,7 +729,7 @@ export default function FileManager() {
               >
                 <Pin size={11} style={isPinnedFolder ? { color: '#2563eb' } : undefined} />
               </button>
-              {canManage && (
+              {canDeleteFiles && (
                 <button
                   className="tree-delete-btn"
                   onClick={() => deleteFolder(folder.id)}
@@ -766,7 +774,7 @@ export default function FileManager() {
                           <Download size={10} />
                         </a>
                       )}
-                      {canManage && (
+                      {canDeleteFiles && (
                         <button className="tree-delete-btn" onClick={() => deleteFile(f)} title="מחיקה">
                           <Trash2 size={10} />
                         </button>
@@ -1123,7 +1131,7 @@ export default function FileManager() {
                               <Download size={13} />
                             </a>
                           )}
-                          {canManage && (
+                          {canDeleteFiles && (
                             <button className="icon-btn icon-btn--danger" onClick={() => deleteFile(f)} title="מחיקה">
                               <Trash2 size={13} />
                             </button>
@@ -1206,7 +1214,7 @@ export default function FileManager() {
             </button>
           )}
           <div className="context-menu-divider" />
-          {canManage && (
+          {canDeleteFiles && (
             <button className="context-menu-item context-menu-item--danger" onClick={() => {
               if (contextMenu.type === 'folder') deleteFolder(contextMenu.item.id);
               else deleteFile(contextMenu.item);
@@ -1266,7 +1274,7 @@ export default function FileManager() {
             <Info size={14} />
             מידע על התיקייה
           </button>
-          {canManage && (
+          {canDeleteFiles && (
             <>
               <div className="context-menu-divider" />
               <button className="context-menu-item context-menu-item--danger" onClick={() => {

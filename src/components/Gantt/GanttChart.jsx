@@ -11,7 +11,6 @@ import {
   updateDoc,
   deleteDoc,
   doc,
-  getDocs,
   getDoc,
   setDoc
 } from 'firebase/firestore';
@@ -72,7 +71,6 @@ export default function GanttChart() {
   const [month, setMonth] = useState(paramMonth !== null ? Number(paramMonth) : now.getMonth());
   const [events, setEvents] = useState([]);
   const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
-  const [categoryDocs, setCategoryDocs] = useState([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
   const [selectedDate, setSelectedDate] = useState(null);
@@ -214,7 +212,6 @@ export default function GanttChart() {
     if (!schoolId) return;
     const unsub = onSnapshot(collection(db, `categories_${schoolId}`), (snap) => {
       const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setCategoryDocs(docs);
       if (docs.length > 0) {
         setCategories(docs.map(d => d.name));
       } else {
@@ -261,6 +258,7 @@ export default function GanttChart() {
   }
 
   function handleCellClick(date, category) {
+    if (!canEditCalendar) return;
     setSelectedDate(date);
     setSelectedCategory(category);
     setEditingEvent(null);
@@ -269,6 +267,7 @@ export default function GanttChart() {
 
   function handleEventClick(e, event) {
     e.stopPropagation();
+    if (!canEditCalendar) return;
     setEditingEvent(event);
     setSelectedDate(null);
     setSelectedCategory(event.category);
@@ -276,7 +275,7 @@ export default function GanttChart() {
   }
 
   async function handleSaveEvent(eventData) {
-    if (!schoolId) return;
+    if (!canEditCalendar || !schoolId) return;
     try {
       const colRef = collection(db, `events_${schoolId}`);
       if (editingEvent) {
@@ -298,7 +297,7 @@ export default function GanttChart() {
   }
 
   async function handleDeleteEvent() {
-    if (!editingEvent || !schoolId) return;
+    if (!canEditCalendar || !editingEvent || !schoolId) return;
     try {
       await deleteDoc(doc(db, `events_${schoolId}`, editingEvent.id));
       setModalOpen(false);

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../../firebase';
@@ -8,7 +8,6 @@ import {
   where,
   getDocs,
   updateDoc,
-  deleteDoc,
   doc,
   setDoc,
   arrayUnion,
@@ -17,11 +16,12 @@ import {
   orderBy,
   limit
 } from 'firebase/firestore';
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updatePassword, updateEmail, deleteUser, signOut as firebaseSignOut } from 'firebase/auth';
+import { createUserWithEmailAndPassword, sendPasswordResetEmail, signOut as firebaseSignOut } from 'firebase/auth';
 import { secondaryAuth } from '../../firebase';
 import Header from '../Layout/Header';
 import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
-import { Edit3, Trash2, Shield, Search, X, UserPlus, CheckCircle, XCircle, Lock, ChevronDown, ChevronUp, Save, Filter, Phone, Mail, User, MessageCircle, Briefcase, Eye, Key, Copy, RefreshCw, Users, Plus, Trash, Check, AlertCircle } from 'lucide-react';
+import { usePermissions } from '../../hooks/usePermissions';
+import { Edit3, Trash2, Shield, Search, X, UserPlus, CheckCircle, XCircle, Lock, ChevronDown, ChevronUp, Save, Filter, Phone, Mail, User, MessageCircle, Briefcase, Eye, Key, RefreshCw, Users, Plus, Trash, Check, AlertCircle } from 'lucide-react';
 import RolesManager from './RolesManager';
 import '../Gantt/Gantt.css';
 import './Staff.css';
@@ -61,6 +61,8 @@ const DEFAULT_PERMISSIONS = {
   tasks_assign: false,
   teams_view: true,
   teams_edit: false,
+  students_view: true,
+  students_edit: false,
   files_view: true,
   files_upload: false,
   files_delete: false,
@@ -110,6 +112,13 @@ const PERMISSION_GROUPS = [
     permissions: [
       { key: 'teams_view', label: 'צפייה בצוותים' },
       { key: 'teams_edit', label: 'ניהול צוותים' },
+    ]
+  },
+  {
+    label: 'תלמידים',
+    permissions: [
+      { key: 'students_view', label: 'צפייה בתלמידים' },
+      { key: 'students_edit', label: 'עריכת תלמידים' },
     ]
   },
   {
@@ -171,6 +180,7 @@ function getPermissionsForRole(role) {
 
 export default function StaffManagement() {
   const { userData, selectedSchool, isPrincipal, isGlobalAdmin, approveUser, rejectUser } = useAuth();
+  const { permissions } = usePermissions();
   const [showPermissionsPanel, setShowPermissionsPanel] = useState(false);
   const navigate = useNavigate();
   const [staff, setStaff] = useState([]);
@@ -195,12 +205,11 @@ export default function StaffManagement() {
 
   // Edit modal
   const [editUser, setEditUser] = useState(null);
-  const [editForm, setEditForm] = useState({ fullName: '', email: '', phone: '', role: '', jobTitle: '', assignedSchoolId: '', newPassword: '', customRoleIds: [], teamIds: [] });
+  const [editForm, setEditForm] = useState({ fullName: '', email: '', phone: '', role: '', jobTitle: '', assignedSchoolId: '', customRoleIds: [], teamIds: [] });
   const [editError, setEditError] = useState('');
-  const [passwordSaved, setPasswordSaved] = useState(false);
   const [schoolsToRemove, setSchoolsToRemove] = useState([]);
-  const [generatedPassword, setGeneratedPassword] = useState('');
   const [resetPasswordLoading, setResetPasswordLoading] = useState(false);
+  const [resetPasswordSent, setResetPasswordSent] = useState(false);
 
   const [schools, setSchools] = useState([]);
   const [permissionsUser, setPermissionsUser] = useState(null);
@@ -227,7 +236,7 @@ export default function StaffManagement() {
 
   const schoolId = selectedSchool || userData?.schoolId;
   const isAdmin = isGlobalAdmin();
-  const canEdit = isPrincipal() || isAdmin;
+  const canEdit = permissions.staff_edit;
   const canApprove = isPrincipal() || isAdmin;
 
   useEffect(() => {
@@ -280,7 +289,7 @@ export default function StaffManagement() {
   async function loadAllStaff() {
     try {
       const snap = await getDocs(collection(db, 'users'));
-      const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const all = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(user => !user.disabled);
       setStaff(all);
     } catch (err) {
       console.error('Error loading all staff:', err);
@@ -335,18 +344,8 @@ export default function StaffManagement() {
       setEditError('שם מלא הוא שדה חובה');
       return;
     }
-    if (!editForm.email.trim()) {
-      setEditError('דוא"ל הוא שדה חובה');
-      return;
-    }
-    if (editForm.newPassword && editForm.newPassword.length < 6) {
-      setEditError('הסיסמא חייבת להכיל לפחות 6 תווים');
-      return;
-    }
-
     const updateData = {
       fullName: editForm.fullName.trim(),
-      email: editForm.email.trim(),
       phone: editForm.phone.trim(),
       role: editForm.role,
       jobTitle: editForm.jobTitle,
@@ -357,35 +356,6 @@ export default function StaffManagement() {
       updateData.schoolIds = arrayUnion(editForm.assignedSchoolId);
     }
 
-    // Sync email/password changes directly to Firebase Auth
-    const emailChanged = editForm.email.trim() !== (editUser.email || '');
-    const passwordChanged = !!editForm.newPassword;
-    if (emailChanged || passwordChanged) {
-      const currentPassword = editUser._authPassword || editUser._pendingPassword;
-      if (currentPassword && editUser.email) {
-        try {
-          const cred = await signInWithEmailAndPassword(secondaryAuth, editUser.email, currentPassword);
-          if (passwordChanged) {
-            await updatePassword(cred.user, editForm.newPassword);
-            updateData._authPassword = editForm.newPassword;
-          }
-          if (emailChanged) {
-            await updateEmail(cred.user, editForm.email.trim());
-          }
-          await firebaseSignOut(secondaryAuth);
-        } catch (authErr) {
-          console.warn('Could not update Firebase Auth:', authErr);
-          // Fallback to _pendingPassword for password changes
-          if (passwordChanged) {
-            updateData._pendingPassword = editForm.newPassword;
-          }
-        }
-      } else if (passwordChanged) {
-        // No stored password, fallback to _pendingPassword
-        updateData._pendingPassword = editForm.newPassword;
-      }
-    }
-
     try {
       await updateDoc(doc(db, 'users', editUser.id), updateData);
       // Remove schools one by one
@@ -393,9 +363,6 @@ export default function StaffManagement() {
         await updateDoc(doc(db, 'users', editUser.id), {
           schoolIds: arrayRemove(sid)
         });
-      }
-      if (editForm.newPassword) {
-        setPasswordSaved(true);
       }
       setEditUser(null);
       isAdmin ? loadAllStaff() : loadStaff();
@@ -405,21 +372,17 @@ export default function StaffManagement() {
   }
 
   async function handleDelete(userId) {
-    if (!confirm('האם להסיר משתמש זה?')) return;
+    if (!confirm('האם להשבית משתמש זה ולהסיר את הגישה שלו למסגרות?')) return;
     try {
-      // Try to delete from Firebase Auth using stored password
-      const userDoc = await getDoc(doc(db, 'users', userId));
-      const data = userDoc.data();
-      const password = data?._authPassword || data?._pendingPassword;
-      if (password && data?.email) {
-        try {
-          const cred = await signInWithEmailAndPassword(secondaryAuth, data.email, password);
-          await deleteUser(cred.user);
-        } catch (authErr) {
-          console.warn('Could not delete from Firebase Auth:', authErr);
-        }
-      }
-      await deleteDoc(doc(db, 'users', userId));
+      await updateDoc(doc(db, 'users', userId), {
+        disabled: true,
+        isOnline: false,
+        schoolId: '',
+        schoolIds: [],
+        pendingSchools: [],
+        disabledAt: new Date().toISOString(),
+        disabledBy: userData?.uid || '',
+      });
     } catch (err) {
       console.error('Error deleting user:', err);
     }
@@ -435,52 +398,24 @@ export default function StaffManagement() {
       role: user.role,
       jobTitle: user.jobTitle || '',
       assignedSchoolId: '',
-      newPassword: '',
       customRoleIds: user.customRoleIds || [],
       teamIds: user.teamIds || [],
     });
     setSchoolsToRemove([]);
     setEditError('');
-    setPasswordSaved(false);
-    setGeneratedPassword('');
-  }
-
-  function generateRandomPassword() {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
-    let password = '';
-    for (let i = 0; i < 10; i++) {
-      password += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return password;
+    setResetPasswordSent(false);
   }
 
   async function handleResetPassword() {
     if (!editUser) return;
     setResetPasswordLoading(true);
     setEditError('');
-    const newPass = generateRandomPassword();
-
-    const currentPassword = editUser._authPassword || editUser._pendingPassword;
-    const updateData = { _authPassword: newPass };
-
-    if (currentPassword && editUser.email) {
-      try {
-        const cred = await signInWithEmailAndPassword(secondaryAuth, editUser.email, currentPassword);
-        await updatePassword(cred.user, newPass);
-        await firebaseSignOut(secondaryAuth);
-      } catch (authErr) {
-        console.warn('Could not update Firebase Auth directly, using pending password:', authErr);
-        updateData._pendingPassword = newPass;
-      }
-    } else {
-      updateData._pendingPassword = newPass;
-    }
-
+    setResetPasswordSent(false);
     try {
-      await updateDoc(doc(db, 'users', editUser.id), updateData);
-      setGeneratedPassword(newPass);
+      await sendPasswordResetEmail(secondaryAuth, editUser.email);
+      setResetPasswordSent(true);
     } catch (err) {
-      setEditError('שגיאה באיפוס הסיסמה: ' + err.message);
+      setEditError('לא ניתן לשלוח קישור לאיפוס סיסמה: ' + err.message);
     }
     setResetPasswordLoading(false);
   }
@@ -547,8 +482,7 @@ export default function StaffManagement() {
         avatarStyle: addForm.avatarStyle || 'default',
         phone: '',
         avatar: '',
-        createdAt: new Date().toISOString(),
-        _authPassword: addForm.password
+        createdAt: new Date().toISOString()
       });
 
       setShowAddModal(false);
@@ -656,7 +590,6 @@ export default function StaffManagement() {
           phone: '',
           avatar: '',
           createdAt: new Date().toISOString(),
-          _authPassword: row.password,
         });
         results.push({ name: row.fullName, success: true });
       } catch (err) {
@@ -707,8 +640,8 @@ export default function StaffManagement() {
   // Can the logged-in user edit this staff member?
   function canEditUser(user) {
     if (isAdmin) return true;
-    if (!isPrincipal()) return false;
-    // Principal can edit only viewer/editor in their own school (not other principals/admins)
+    if (!canEdit) return false;
+    // School-scoped managers can edit only viewer/editor accounts in their school.
     const userSchoolIds = user.schoolIds || (user.schoolId ? [user.schoolId] : []);
     const inMySchool = userSchoolIds.includes(schoolId);
     const isHigherRole = user.role === 'principal' || user.role === 'global_admin';
@@ -719,7 +652,7 @@ export default function StaffManagement() {
   // Principals can delete editors/viewers in their school; admins can delete anyone
   function canDeleteUser(user) {
     if (isAdmin) return true;
-    if (!isPrincipal()) return false;
+    if (!permissions.staff_delete) return false;
     const userSchoolIds = user.schoolIds || (user.schoolId ? [user.schoolId] : []);
     const inMySchool = userSchoolIds.includes(schoolId);
     const isHigherRole = user.role === 'principal' || user.role === 'global_admin';
@@ -1170,11 +1103,13 @@ export default function StaffManagement() {
                     <input
                       type="email"
                       value={editForm.email}
-                      onChange={e => setEditForm(prev => ({ ...prev, email: e.target.value }))}
                       placeholder="email@example.com"
                       dir="ltr"
-                      required
+                      disabled
                     />
+                    <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+                      שינוי כתובת התחברות דורש Firebase Admin SDK בצד שרת.
+                    </span>
                   </div>
                   <div className="form-group">
                     <label>
@@ -1310,30 +1245,11 @@ export default function StaffManagement() {
                     </div>
                   )}
 
-                  {/* Password Change Section */}
-                  <div className="form-group">
-                    <label>
-                      <Lock size={14} style={{ display: 'inline', verticalAlign: 'middle', marginLeft: '0.3rem' }} />
-                      קביעת סיסמא חדשה
-                    </label>
-                    <input
-                      type="password"
-                      value={editForm.newPassword}
-                      onChange={e => setEditForm(prev => ({ ...prev, newPassword: e.target.value }))}
-                      placeholder="סיסמא חדשה (לפחות 6 תווים)"
-                      dir="ltr"
-                      minLength={6}
-                    />
-                    <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
-                      הסיסמא תיכנס לתוקף בכניסה הבאה של המשתמש למערכת. השאירו ריק אם אין צורך בשינוי.
-                    </span>
-                  </div>
-
-                  {/* Admin Reset Password */}
+                  {/* Password reset */}
                   <div className="form-group">
                     <label>
                       <Key size={14} style={{ display: 'inline', verticalAlign: 'middle', marginLeft: '0.3rem' }} />
-                      איפוס סיסמה אקראי
+                      איפוס סיסמה
                     </label>
                     <button
                       type="button"
@@ -1343,64 +1259,15 @@ export default function StaffManagement() {
                       style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', width: 'fit-content' }}
                     >
                       <RefreshCw size={14} className={resetPasswordLoading ? 'spin' : ''} />
-                      {resetPasswordLoading ? 'מאפס...' : 'הנפק סיסמה אקראית'}
+                      {resetPasswordLoading ? 'שולח...' : 'שליחת קישור איפוס'}
                     </button>
                     <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
-                      הסיסמה תיווצר באופן אקראי ותוצג רק לך. העבר/י אותה למשתמש מחוץ למערכת.
+                      Firebase ישלח למשתמש קישור חד-פעמי ומאובטח לאיפוס הסיסמה.
                     </span>
-
-                    {generatedPassword && (
-                      <div style={{
-                        marginTop: '0.5rem',
-                        background: '#f0fdf4',
-                        border: '1px solid #bbf7d0',
-                        borderRadius: 8,
-                        padding: '0.75rem 1rem',
-                      }}>
-                        <div style={{ fontSize: '0.78rem', color: '#16a34a', fontWeight: 600, marginBottom: '0.35rem' }}>
-                          הסיסמה החדשה נוצרה בהצלחה:
-                        </div>
-                        <div style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.5rem',
-                          background: '#fff',
-                          border: '1px solid #d1d5db',
-                          borderRadius: 6,
-                          padding: '0.5rem 0.75rem',
-                        }}>
-                          <code style={{
-                            flex: 1,
-                            fontSize: '1.05rem',
-                            fontWeight: 700,
-                            letterSpacing: '0.05em',
-                            color: '#1e293b',
-                            direction: 'ltr',
-                            userSelect: 'all',
-                          }}>
-                            {generatedPassword}
-                          </code>
-                          <button
-                            type="button"
-                            onClick={() => { navigator.clipboard.writeText(generatedPassword); }}
-                            style={{
-                              background: 'none',
-                              border: '1px solid #d1d5db',
-                              borderRadius: 4,
-                              cursor: 'pointer',
-                              padding: '0.3rem',
-                              display: 'flex',
-                              alignItems: 'center',
-                            }}
-                            title="העתק סיסמה"
-                          >
-                            <Copy size={14} />
-                          </button>
-                        </div>
-                        <div style={{ fontSize: '0.7rem', color: '#f59e0b', marginTop: '0.35rem', fontWeight: 500 }}>
-                          שימו לב: הסיסמה לא תוצג שוב לאחר סגירת החלון. העתיקו אותה עכשיו.
-                        </div>
-                      </div>
+                    {resetPasswordSent && (
+                      <span style={{ fontSize: '0.78rem', color: '#16a34a', fontWeight: 600 }}>
+                        קישור האיפוס נשלח בהצלחה.
+                      </span>
                     )}
                   </div>
 
