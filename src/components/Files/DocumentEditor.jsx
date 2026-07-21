@@ -24,6 +24,7 @@ import {
   Merge,
 } from 'lucide-react';
 import './Editors.css';
+import { sanitizeHtml } from '../../utils/sanitizeHtml';
 
 const TEXT_COLORS = [
   { label: 'Black', value: '#1e293b' },
@@ -69,8 +70,9 @@ export default function DocumentEditor({ content, onChange, readOnly = false }) 
   // Initialize content
   useEffect(() => {
     if (editorRef.current && content !== undefined) {
-      if (editorRef.current.innerHTML !== content) {
-        editorRef.current.innerHTML = content || '';
+      const safeContent = sanitizeHtml(content || '');
+      if (editorRef.current.innerHTML !== safeContent) {
+        editorRef.current.innerHTML = safeContent;
       }
     }
   }, [content]);
@@ -102,7 +104,7 @@ export default function DocumentEditor({ content, onChange, readOnly = false }) 
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
       if (editorRef.current) {
-        onChange?.(editorRef.current.innerHTML);
+        onChange?.(sanitizeHtml(editorRef.current.innerHTML));
       }
       setSaveStatus('saved');
     }, 800);
@@ -176,6 +178,13 @@ export default function DocumentEditor({ content, onChange, readOnly = false }) 
 
   function handleInput() {
     triggerSave();
+  }
+
+  function handlePaste(e) {
+    const clipboardHtml = e.clipboardData?.getData('text/html');
+    if (!clipboardHtml) return;
+    e.preventDefault();
+    execCommand('insertHTML', sanitizeHtml(clipboardHtml));
   }
 
   function handleKeyDown(e) {
@@ -460,6 +469,7 @@ export default function DocumentEditor({ content, onChange, readOnly = false }) 
           className="editor-content"
           contentEditable={!readOnly}
           onInput={handleInput}
+          onPaste={handlePaste}
           onKeyDown={handleKeyDown}
           onContextMenu={handleContextMenu}
           suppressContentEditableWarning

@@ -10,6 +10,8 @@
 
 ## התקנה מקומית
 
+נדרש Node.js 20.19 ומעלה.
+
 ```bash
 npm install
 ```
@@ -38,7 +40,23 @@ VITE_FIREBASE_APP_ID=...
 הפרויקט מוגדר לפריסה אוטומטית דרך GitHub Actions.  
 הוסיפו את משתני הסביבה ב-**Settings → Secrets and variables → Actions** של ה-repo.
 
-## כניסת אדמין
+## יצירת מנהל מערכת
 
-סיסמת האדמין המוגדרת: `123qwe123`  
-ניתן לשנות את `GLOBAL_ADMIN_PASSWORD` ב-[src/contexts/AuthContext.jsx](src/contexts/AuthContext.jsx).
+אין סיסמת מנהל שמוטמעת בקוד הלקוח. צרו משתמש Email/Password ב-Firebase
+Authentication, צרו עבור אותו UID מסמך באוסף `users`, והגדירו בו
+`role: "global_admin"`. מנהלים ומשתמשים נכנסים מאותו טופס התחברות.
+
+> אם גרסה ישנה של האפליקציה כבר הייתה בשימוש, מחקו ממסמכי `users` את השדות
+> `_authPassword` ו-`_pendingPassword`. גרסה זו אינה קוראת או שומרת סיסמאות
+> ב-Firestore; איפוס סיסמה מתבצע באמצעות קישור האיפוס של Firebase.
+> בנוסף, אפסו מיד את סיסמת חשבון המנהל הישן, מכיוון שהסיסמה הקודמת הופיעה
+> בקוד ובהיסטוריית Git ולכן יש להתייחס אליה כסיסמה שנחשפה.
+
+## בדיקות
+
+```bash
+npm run lint
+npm run build
+# או את שניהם יחד:
+npm run check
+```

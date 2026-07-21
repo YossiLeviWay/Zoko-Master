@@ -15,6 +15,8 @@ export const VIEWER_DEFAULTS = {
   tasks_assign: false,
   teams_view: true,
   teams_edit: false,
+  students_view: true,
+  students_edit: false,
   files_view: true,
   files_upload: false,
   files_delete: false,
@@ -33,22 +35,25 @@ export const FULL_PERMISSIONS = Object.fromEntries(
 );
 
 export function usePermissions() {
-  const { userData, selectedSchool, isGlobalAdmin, isPrincipal } = useAuth();
+  const { userData, selectedSchool } = useAuth();
   const [permissions, setPermissions] = useState(VIEWER_DEFAULTS);
   const [loading, setLoading] = useState(true);
 
   const schoolId = selectedSchool || userData?.schoolId;
 
   useEffect(() => {
+    let cancelled = false;
+
     if (!userData) {
+      setPermissions(VIEWER_DEFAULTS);
       setLoading(false);
-      return;
+      return undefined;
     }
 
-    if (isGlobalAdmin() || isPrincipal()) {
+    if (userData.role === 'global_admin' || userData.role === 'principal') {
       setPermissions(FULL_PERMISSIONS);
       setLoading(false);
-      return;
+      return undefined;
     }
 
     async function resolve() {
@@ -57,16 +62,18 @@ export function usePermissions() {
       // Merge all custom roles (OR logic — any role that grants a permission enables it)
       const roleIds = userData.customRoleIds || [];
       if (roleIds.length > 0 && schoolId) {
-        for (const roleId of roleIds) {
-          try {
-            const roleDoc = await getDoc(doc(db, `roles_${schoolId}`, roleId));
+        const roleDocs = await Promise.all(roleIds.map(roleId =>
+          getDoc(doc(db, `roles_${schoolId}`, roleId)).catch(() => null)
+        ));
+        for (const roleDoc of roleDocs) {
+          if (roleDoc) {
             if (roleDoc.exists()) {
               const rp = roleDoc.data().permissions || {};
               for (const [key, val] of Object.entries(rp)) {
                 if (val === true) base[key] = true;
               }
             }
-          } catch {}
+          }
         }
       }
 
@@ -76,11 +83,15 @@ export function usePermissions() {
         if (val !== undefined) base[key] = val;
       }
 
-      setPermissions(base);
-      setLoading(false);
+      if (!cancelled) {
+        setPermissions(base);
+        setLoading(false);
+      }
     }
 
+    setLoading(true);
     resolve();
+    return () => { cancelled = true; };
   }, [userData?.uid, userData?.role, userData?.customRoleIds, userData?.permissions, schoolId]);
 
   return { permissions, loading };

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../firebase';
-import { collection, query, where, getDocs, orderBy, updateDoc, doc, deleteDoc, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, orderBy, updateDoc, doc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import Header from '../Layout/Header';
 import { Bell, Check, Trash2, CheckCheck, Calendar, Users, FileText, MessageCircle, Shield, Clock } from 'lucide-react';
 import './Notifications.css';
@@ -17,7 +17,7 @@ const ICON_MAP = {
 };
 
 export default function Notifications() {
-  const { userData, currentUser } = useAuth();
+  const { currentUser } = useAuth();
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all'); // all, unread

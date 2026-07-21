@@ -37,7 +37,7 @@ export default function Teams() {
 
   const schoolId = selectedSchool || userData?.schoolId;
   const isAdmin = isPrincipal() || isGlobalAdmin();
-  const hasTeamsPermission = isAdmin || userData?.permissions?.teams_edit;
+  const hasTeamsPermission = isAdmin || permissions.teams_edit;
   const canEdit = hasTeamsPermission;
 
   // Check if user can manage a specific team (admin, has teams_edit permission, or is team manager)

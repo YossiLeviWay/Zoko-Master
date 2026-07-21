@@ -120,7 +120,6 @@ function evaluateFormula(value, rows) {
     });
     const safe = mathExpr.replace(/[^0-9+\-*/().%\s]/g, '');
     if (!safe.trim()) return 'שגיאה';
-    // eslint-disable-next-line no-new-func
     const result = new Function('return ' + safe)();
     return isNaN(result) || !isFinite(result) ? 'שגיאה' : Math.round(result * 10000) / 10000;
   } catch {
@@ -861,10 +860,6 @@ export default function ExcelWriter() {
     return mergedCells.find(m =>
       ri >= m.startRow && ri <= m.endRow && ci >= m.startCol && ci <= m.endCol
     );
-  }
-
-  function isMergeOrigin(ri, ci) {
-    return mergedCells.some(m => m.startRow === ri && m.startCol === ci);
   }
 
   function isMergedButNotOrigin(ri, ci) {

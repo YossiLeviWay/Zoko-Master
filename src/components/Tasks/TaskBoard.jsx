@@ -25,7 +25,7 @@ import '../Gantt/Gantt.css';
 import './Tasks.css';
 import SpreadsheetEditor from '../Files/SpreadsheetEditor';
 import DocumentEditor from '../Files/DocumentEditor';
-import { createNotification, createNotifications } from '../../utils/notifications';
+import { createNotifications } from '../../utils/notifications';
 
 const PRIORITY_CONFIG = {
   high: { label: 'גבוהה', icon: AlertCircle, color: '#ef4444', bg: '#fef2f2' },

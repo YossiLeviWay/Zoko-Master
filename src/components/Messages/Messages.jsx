@@ -17,7 +17,7 @@ import {
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import Header from '../Layout/Header';
-import { createNotification, createNotifications } from '../../utils/notifications';
+import { createNotification } from '../../utils/notifications';
 import { Send, Search, Mail, Circle, Trash2, X, Shield, Megaphone, Users, MessageCircle, ImagePlus, Pin } from 'lucide-react';
 import './Messages.css';
 

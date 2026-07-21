@@ -6,9 +6,7 @@ import {
   addDoc,
   updateDoc,
   deleteDoc,
-  doc,
-  query,
-  where
+  doc
 } from 'firebase/firestore';
 import Header from '../Layout/Header';
 import { Plus, Edit3, Trash2, UserCheck, X, Search } from 'lucide-react';

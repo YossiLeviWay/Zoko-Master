@@ -6,17 +6,15 @@ import { auth } from '../../firebase';
 import './Auth.css';
 
 export default function Login() {
-  const [mode, setMode] = useState('user');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [adminPassword, setAdminPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showReset, setShowReset] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
   const [resetStatus, setResetStatus] = useState(''); // 'sent' | 'error'
   const [resetLoading, setResetLoading] = useState(false);
-  const { login, loginAsAdmin } = useAuth();
+  const { login } = useAuth();
   const navigate = useNavigate();
 
   async function handleSubmit(e) {
@@ -24,22 +22,16 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      if (mode === 'admin') {
-        await loginAsAdmin(adminPassword);
-      } else {
-        await login(email, password);
-      }
+      await login(email.trim(), password);
       navigate('/');
     } catch (err) {
       console.error('Login error:', err.code, err.message);
-      if (mode === 'admin') {
-        if (err.code === 'auth/operation-not-allowed') {
-          setError('כניסה באימייל/סיסמה אינה מופעלת ב-Firebase Console');
-        } else if (err.code === 'auth/network-request-failed') {
-          setError('שגיאת רשת — בדקו את הגדרות Firebase');
-        } else {
-          setError('סיסמת אדמין שגויה');
-        }
+      if (err.code === 'auth/user-disabled') {
+        setError('החשבון הושבת. יש לפנות למנהל המערכת.');
+      } else if (err.code === 'auth/operation-not-allowed') {
+        setError('כניסה באימייל/סיסמה אינה מופעלת ב-Firebase Console');
+      } else if (err.code === 'auth/network-request-failed') {
+        setError('שגיאת רשת — בדקו את החיבור ונסו שוב');
       } else {
         setError('שם משתמש או סיסמה שגויים');
       }
@@ -55,7 +47,7 @@ export default function Login() {
     try {
       await sendPasswordResetEmail(auth, resetEmail.trim());
       setResetStatus('sent');
-    } catch (err) {
+    } catch {
       setResetStatus('error');
     }
     setResetLoading(false);
@@ -71,70 +63,40 @@ export default function Login() {
 
         {!showReset ? (
           <>
-            <div className="auth-tabs">
-              <button
-                className={`auth-tab ${mode === 'user' ? 'active' : ''}`}
-                onClick={() => setMode('user')}
-              >
-                כניסת משתמש
-              </button>
-              <button
-                className={`auth-tab ${mode === 'admin' ? 'active' : ''}`}
-                onClick={() => setMode('admin')}
-              >
-                כניסת אדמין
-              </button>
-            </div>
-
             {error && <div className="auth-error">{error}</div>}
 
             <form onSubmit={handleSubmit} className="auth-form">
-              {mode === 'user' ? (
-                <>
-                  <div className="form-group">
-                    <label>דוא"ל</label>
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="הזינו כתובת דוא״ל"
-                      required
-                      dir="ltr"
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>סיסמה</label>
-                    <input
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="הזינו סיסמה"
-                      required
-                      dir="ltr"
-                    />
-                  </div>
-                </>
-              ) : (
-                <div className="form-group">
-                  <label>סיסמת מנהל מערכת</label>
-                  <input
-                    type="password"
-                    value={adminPassword}
-                    onChange={(e) => setAdminPassword(e.target.value)}
-                    placeholder="הזינו סיסמת אדמין"
-                    required
-                    dir="ltr"
-                  />
-                </div>
-              )}
+              <div className="form-group">
+                <label>דוא"ל</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="הזינו כתובת דוא״ל"
+                  autoComplete="email"
+                  required
+                  dir="ltr"
+                />
+              </div>
+              <div className="form-group">
+                <label>סיסמה</label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="הזינו סיסמה"
+                  autoComplete="current-password"
+                  required
+                  dir="ltr"
+                />
+              </div>
 
               <button type="submit" className="auth-btn" disabled={loading}>
                 {loading ? 'מתחבר...' : 'כניסה'}
               </button>
             </form>
 
-            {mode === 'user' && (
-              <>
+            <>
                 <p className="auth-link" style={{ marginTop: '0.75rem', marginBottom: '0' }}>
                   <button
                     onClick={() => { setShowReset(true); setResetEmail(email); setResetStatus(''); }}
@@ -146,8 +108,7 @@ export default function Login() {
                 <p className="auth-link" style={{ marginTop: '0.5rem' }}>
                   אין לך חשבון? <Link to="/register">הרשמה</Link>
                 </p>
-              </>
-            )}
+            </>
           </>
         ) : (
           <>

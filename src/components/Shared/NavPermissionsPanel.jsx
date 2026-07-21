@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { db } from '../../firebase';
 import {
-  collection, query, where, getDocs, doc, updateDoc, getDoc
+  collection, query, where, getDocs, doc, updateDoc
 } from 'firebase/firestore';
 import { Shield, X, Check, Users, Save } from 'lucide-react';
 
