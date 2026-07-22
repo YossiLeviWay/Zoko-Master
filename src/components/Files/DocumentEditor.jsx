@@ -24,7 +24,7 @@ import {
   Merge,
 } from 'lucide-react';
 import './Editors.css';
-import { sanitizeHtml } from '../../utils/sanitizeHtml';
+import { sanitizeDocumentHtml } from '../../services/htmlSanitizer';
 
 const TEXT_COLORS = [
   { label: 'Black', value: '#1e293b' },
@@ -70,7 +70,7 @@ export default function DocumentEditor({ content, onChange, readOnly = false }) 
   // Initialize content
   useEffect(() => {
     if (editorRef.current && content !== undefined) {
-      const safeContent = sanitizeHtml(content || '');
+      const safeContent = sanitizeDocumentHtml(content);
       if (editorRef.current.innerHTML !== safeContent) {
         editorRef.current.innerHTML = safeContent;
       }
@@ -104,7 +104,9 @@ export default function DocumentEditor({ content, onChange, readOnly = false }) 
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
       if (editorRef.current) {
-        onChange?.(sanitizeHtml(editorRef.current.innerHTML));
+        const safeContent = sanitizeDocumentHtml(editorRef.current.innerHTML);
+        if (editorRef.current.innerHTML !== safeContent) editorRef.current.innerHTML = safeContent;
+        onChange?.(safeContent);
       }
       setSaveStatus('saved');
     }, 800);
@@ -180,11 +182,18 @@ export default function DocumentEditor({ content, onChange, readOnly = false }) 
     triggerSave();
   }
 
-  function handlePaste(e) {
-    const clipboardHtml = e.clipboardData?.getData('text/html');
-    if (!clipboardHtml) return;
-    e.preventDefault();
-    execCommand('insertHTML', sanitizeHtml(clipboardHtml));
+  function handlePaste(event) {
+    event.preventDefault();
+    const clipboard = event.clipboardData;
+    const richText = clipboard?.getData('text/html');
+    const plainText = clipboard?.getData('text/plain') || '';
+    const plainTextContainer = document.createElement('div');
+    plainTextContainer.textContent = plainText;
+    const safeContent = richText
+      ? sanitizeDocumentHtml(richText)
+      : plainTextContainer.innerHTML;
+    document.execCommand('insertHTML', false, safeContent);
+    triggerSave();
   }
 
   function handleKeyDown(e) {

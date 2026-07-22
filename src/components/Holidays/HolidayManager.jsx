@@ -129,7 +129,7 @@ export default function HolidayManager() {
       }
       alert(`${toSync.length} חגים שוגרו ללוח השנה בהצלחה!`);
     } catch (err) {
-      alert('שגיאה בשיגור ללוח השנה: ' + err.message);
+      alert('שגיאה בשיגור ללוח השנה: ');
     } finally {
       setSyncingType(null);
     }
@@ -212,8 +212,7 @@ export default function HolidayManager() {
       const schoolsSnap = await getDocs(collection(db, 'schools'));
       // Broadcast the current holidays (from the selected school or current view)
       const sourceHolidays = holidays.map(h => {
-        const data = { ...h };
-        delete data.id;
+        const { id: _id, ...data } = h;
         return data;
       });
 
@@ -240,8 +239,8 @@ export default function HolidayManager() {
 
       alert('החגים שוגרו בהצלחה לכל המוסדות!');
     } catch (err) {
-      console.error('Broadcast error:', err);
-      alert('שגיאה בשיגור החגים: ' + err.message);
+      console.error('Broadcast error:');
+      alert('שגיאה בשיגור החגים: ');
     } finally {
       setBroadcasting(false);
     }
@@ -264,7 +263,7 @@ export default function HolidayManager() {
       }
       alert('החגים נטענו בהצלחה!');
     } catch (err) {
-      alert('שגיאה בטעינת החגים: ' + err.message);
+      alert('שגיאה בטעינת החגים: ');
     }
   }
 

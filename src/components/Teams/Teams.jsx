@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../firebase';
 import { createNotification } from '../../utils/notifications';
@@ -11,10 +11,9 @@ import {
   updateDoc,
   deleteDoc,
   doc,
-  onSnapshot,
-  arrayUnion,
-  arrayRemove
+  onSnapshot
 } from 'firebase/firestore';
+import { updateTeamMembership } from '../../services/adminUserService';
 import Header from '../Layout/Header';
 import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -57,12 +56,7 @@ export default function Teams() {
     return unsub;
   }, [schoolId]);
 
-  useEffect(() => {
-    if (!schoolId) return;
-    loadStaff();
-  }, [schoolId]);
-
-  async function loadStaff() {
+  const loadStaff = useCallback(async () => {
     // Support both old schoolId and new schoolIds
     const results = [];
     const seen = new Set();
@@ -90,7 +84,12 @@ export default function Teams() {
     } catch {}
 
     setStaff(results);
-  }
+  }, [schoolId]);
+
+  useEffect(() => {
+    if (!schoolId) return;
+    loadStaff();
+  }, [schoolId, loadStaff]);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -129,15 +128,10 @@ export default function Teams() {
   async function addMember(teamId, userId) {
     const team = teams.find(t => t.id === teamId);
     if (!team || (team.memberIds || []).includes(userId)) return;
-    await updateDoc(doc(db, `teams_${schoolId}`, teamId), {
-      memberIds: [...(team.memberIds || []), userId]
-    });
-    // Sync teamIds on user doc
-    try {
-      await updateDoc(doc(db, 'users', userId), { teamIds: arrayUnion(teamId) });
-    } catch (err) { console.warn('Could not sync teamIds:', err); }
+    await updateTeamMembership({ schoolId, teamId, userId, action: 'add' });
     // Notify the added user
     createNotification(userId, {
+      schoolId,
       title: `הוספת לצוות "${team.name}"`,
       body: `${userData?.fullName || 'מנהל'} הוסיף/ה אותך לצוות`,
       type: 'staff',
@@ -148,13 +142,7 @@ export default function Teams() {
   async function removeMember(teamId, userId) {
     const team = teams.find(t => t.id === teamId);
     if (!team) return;
-    await updateDoc(doc(db, `teams_${schoolId}`, teamId), {
-      memberIds: (team.memberIds || []).filter(id => id !== userId)
-    });
-    // Sync teamIds on user doc
-    try {
-      await updateDoc(doc(db, 'users', userId), { teamIds: arrayRemove(teamId) });
-    } catch (err) { console.warn('Could not sync teamIds:', err); }
+    await updateTeamMembership({ schoolId, teamId, userId, action: 'remove' });
   }
 
   async function toggleManager(teamId, userId) {

@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { db } from '../../firebase';
 import {
-  collection, query, where, getDocs, doc, updateDoc
+  collection, query, where, getDocs
 } from 'firebase/firestore';
+import { updateStaffUser } from '../../services/adminUserService';
 import { Shield, X, Check, Users, Save } from 'lucide-react';
 
 // Maps nav path → Firestore permission key
@@ -82,7 +83,7 @@ export default function NavPermissionsPanel({ item, anchor, schoolId, onClose })
         });
         setPermissions(pmap);
       } catch (err) {
-        console.error('Error loading staff for nav permissions:', err);
+        console.error('Error loading staff for nav permissions:');
       }
       setLoading(false);
     }
@@ -120,15 +121,17 @@ export default function NavPermissionsPanel({ item, anchor, schoolId, onClose })
         .filter(u => u.role !== 'principal')
         .map(u => {
           const currentPerms = u.permissions || {};
-          return updateDoc(doc(db, 'users', u.id), {
-            permissions: { ...currentPerms, [permKey]: !!permissions[u.id] }
+          return updateStaffUser({
+            userId: u.id,
+            schoolId,
+            permissions: { ...currentPerms, [permKey]: !!permissions[u.id] },
           });
         });
       await Promise.all(updates);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (err) {
-      alert('שגיאה בשמירה: ' + err.message);
+      alert('שגיאה בשמירה: ');
     }
     setSaving(false);
   }

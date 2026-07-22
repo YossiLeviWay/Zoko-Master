@@ -3,11 +3,13 @@ import { db } from '../../firebase';
 import {
   collection,
   getDocs,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  doc
 } from 'firebase/firestore';
+import {
+  createSchool,
+  deleteSchool,
+  setUserRole,
+  updateSchool,
+} from '../../services/adminUserService';
 import Header from '../Layout/Header';
 import { Plus, Edit3, Trash2, UserCheck, X, Search } from 'lucide-react';
 import '../Gantt/Gantt.css';
@@ -47,18 +49,17 @@ export default function SchoolManagement() {
     if (!form.name.trim()) return;
 
     if (editing) {
-      await updateDoc(doc(db, 'schools', editing), {
+      await updateSchool({
+        schoolId: editing,
         name: form.name,
         address: form.address,
         phone: form.phone
       });
     } else {
-      await addDoc(collection(db, 'schools'), {
+      await createSchool({
         name: form.name,
         address: form.address,
         phone: form.phone,
-        principalId: '',
-        createdAt: new Date().toISOString()
       });
     }
     setForm({ name: '', address: '', phone: '', principalId: '' });
@@ -69,7 +70,7 @@ export default function SchoolManagement() {
 
   async function handleDelete(id) {
     if (!confirm('האם למחוק את המוסד?')) return;
-    await deleteDoc(doc(db, 'schools', id));
+    await deleteSchool({ schoolId: id, confirmDelete: true });
     loadSchools();
   }
 
@@ -80,14 +81,7 @@ export default function SchoolManagement() {
   }
 
   async function assignPrincipal(schoolId, userId) {
-    // Remove old principal role if exists
-    const school = schools.find(s => s.id === schoolId);
-    if (school?.principalId) {
-      await updateDoc(doc(db, 'users', school.principalId), { role: 'viewer' });
-    }
-    // Set new principal
-    await updateDoc(doc(db, 'users', userId), { role: 'principal', schoolId });
-    await updateDoc(doc(db, 'schools', schoolId), { principalId: userId });
+    await setUserRole({ userId, schoolId, role: 'principal', assignAsPrincipal: true });
     setAssignModal(null);
     setAssignSearch('');
     loadSchools();

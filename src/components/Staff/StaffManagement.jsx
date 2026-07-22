@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { db } from '../../firebase';
+import { auth, db } from '../../firebase';
 import {
   collection,
   query,
@@ -9,19 +9,24 @@ import {
   getDocs,
   updateDoc,
   doc,
-  setDoc,
-  arrayUnion,
-  arrayRemove,
   getDoc,
+  arrayUnion,
   orderBy,
   limit
 } from 'firebase/firestore';
-import { createUserWithEmailAndPassword, sendPasswordResetEmail, signOut as firebaseSignOut } from 'firebase/auth';
-import { secondaryAuth } from '../../firebase';
+import { sendPasswordResetEmail } from 'firebase/auth';
+import {
+  approveSchoolMembership,
+  createStaffUser,
+  deleteStaffUser,
+  removeSchoolMembership,
+  requestStaffPasswordReset,
+  setUserRole,
+  updateStaffUser,
+} from '../../services/adminUserService';
 import Header from '../Layout/Header';
 import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
-import { usePermissions } from '../../hooks/usePermissions';
-import { Edit3, Trash2, Shield, Search, X, UserPlus, CheckCircle, XCircle, Lock, ChevronDown, ChevronUp, Save, Filter, Phone, Mail, User, MessageCircle, Briefcase, Eye, Key, RefreshCw, Users, Plus, Trash, Check, AlertCircle } from 'lucide-react';
+import { Edit3, Trash2, Shield, Search, X, UserPlus, CheckCircle, XCircle, ChevronDown, ChevronUp, Save, Filter, Phone, Mail, User, MessageCircle, Briefcase, Eye, Key, RefreshCw, Users, Plus, Trash, Check, AlertCircle } from 'lucide-react';
 import RolesManager from './RolesManager';
 import '../Gantt/Gantt.css';
 import './Staff.css';
@@ -180,7 +185,6 @@ function getPermissionsForRole(role) {
 
 export default function StaffManagement() {
   const { userData, selectedSchool, isPrincipal, isGlobalAdmin, approveUser, rejectUser } = useAuth();
-  const { permissions } = usePermissions();
   const [showPermissionsPanel, setShowPermissionsPanel] = useState(false);
   const navigate = useNavigate();
   const [staff, setStaff] = useState([]);
@@ -193,12 +197,12 @@ export default function StaffManagement() {
 
   // Add modal
   const [showAddModal, setShowAddModal] = useState(false);
-  const [addForm, setAddForm] = useState({ fullName: '', email: '', jobTitle: '', role: 'viewer', schoolId: '', password: '', avatarStyle: 'default' });
+  const [addForm, setAddForm] = useState({ fullName: '', email: '', jobTitle: '', role: 'viewer', schoolId: '', avatarStyle: 'default' });
   const [addError, setAddError] = useState('');
 
   // Bulk add modal
   const [showBulkModal, setShowBulkModal] = useState(false);
-  const EMPTY_BULK_ROW = { fullName: '', email: '', jobTitle: '', password: '', role: 'viewer' };
+  const EMPTY_BULK_ROW = { fullName: '', email: '', jobTitle: '', role: 'viewer' };
   const [bulkRows, setBulkRows] = useState(() => Array.from({ length: 5 }, () => ({ ...EMPTY_BULK_ROW })));
   const [bulkError, setBulkError] = useState('');
   const [bulkProgress, setBulkProgress] = useState(null); // { current, total, results: [{ name, success, error }] }
@@ -208,8 +212,8 @@ export default function StaffManagement() {
   const [editForm, setEditForm] = useState({ fullName: '', email: '', phone: '', role: '', jobTitle: '', assignedSchoolId: '', customRoleIds: [], teamIds: [] });
   const [editError, setEditError] = useState('');
   const [schoolsToRemove, setSchoolsToRemove] = useState([]);
+  const [resetEmailSent, setResetEmailSent] = useState(false);
   const [resetPasswordLoading, setResetPasswordLoading] = useState(false);
-  const [resetPasswordSent, setResetPasswordSent] = useState(false);
 
   const [schools, setSchools] = useState([]);
   const [permissionsUser, setPermissionsUser] = useState(null);
@@ -236,52 +240,43 @@ export default function StaffManagement() {
 
   const schoolId = selectedSchool || userData?.schoolId;
   const isAdmin = isGlobalAdmin();
-  const canEdit = permissions.staff_edit;
+  const canEdit = isPrincipal() || isAdmin;
   const canApprove = isPrincipal() || isAdmin;
 
   useEffect(() => {
     loadSchools();
   }, []);
 
-  useEffect(() => {
-    if (!schoolId) return;
-    loadCustomRoles();
-    loadTeams();
-  }, [schoolId]);
-
-  async function loadCustomRoles() {
+  const loadCustomRoles = useCallback(async () => {
     try {
       const snap = await getDocs(collection(db, `roles_${schoolId}`));
       setCustomRoles(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (err) {
-      console.error('Error loading custom roles:', err);
+      console.error('Error loading custom roles:');
     }
-  }
+  }, [schoolId]);
 
-  async function loadTeams() {
+  const loadTeams = useCallback(async () => {
     try {
       const snap = await getDocs(collection(db, `teams_${schoolId}`));
       setTeams(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (err) {
-      console.error('Error loading teams:', err);
-    }
-  }
-
-  useEffect(() => {
-    if (isAdmin) {
-      loadAllStaff();
-    } else if (schoolId) {
-      loadStaff();
-      loadPendingUsers();
+      console.error('Error loading teams:');
     }
   }, [schoolId]);
+
+  useEffect(() => {
+    if (!schoolId) return;
+    loadCustomRoles();
+    loadTeams();
+  }, [schoolId, loadCustomRoles, loadTeams]);
 
   async function loadSchools() {
     try {
       const snap = await getDocs(collection(db, 'schools'));
       setSchools(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (err) {
-      console.error('Error loading schools:', err);
+      console.error('Error loading schools:');
     }
   }
 
@@ -289,15 +284,15 @@ export default function StaffManagement() {
   async function loadAllStaff() {
     try {
       const snap = await getDocs(collection(db, 'users'));
-      const all = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(user => !user.disabled);
+      const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       setStaff(all);
     } catch (err) {
-      console.error('Error loading all staff:', err);
+      console.error('Error loading all staff:');
     }
   }
 
   // Principal: load only current school's users
-  async function loadStaff() {
+  const loadStaff = useCallback(async () => {
     const q1 = query(collection(db, 'users'), where('schoolIds', 'array-contains', schoolId));
     const snap1 = await getDocs(q1);
     const staffMap = new Map();
@@ -316,13 +311,22 @@ export default function StaffManagement() {
     });
 
     setStaff(Array.from(staffMap.values()));
-  }
+  }, [schoolId]);
 
-  async function loadPendingUsers() {
+  const loadPendingUsers = useCallback(async () => {
     const q = query(collection(db, 'users'), where('pendingSchools', 'array-contains', schoolId));
     const snap = await getDocs(q);
     setPendingUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-  }
+  }, [schoolId]);
+
+  useEffect(() => {
+    if (isAdmin) {
+      loadAllStaff();
+    } else if (schoolId) {
+      loadStaff();
+      loadPendingUsers();
+    }
+  }, [schoolId, isAdmin, loadStaff, loadPendingUsers]);
 
   async function handleApprove(userId) {
     await approveUser(userId, schoolId);
@@ -344,47 +348,44 @@ export default function StaffManagement() {
       setEditError('שם מלא הוא שדה חובה');
       return;
     }
-    const updateData = {
-      fullName: editForm.fullName.trim(),
-      phone: editForm.phone.trim(),
-      role: editForm.role,
-      jobTitle: editForm.jobTitle,
-      customRoleIds: editForm.customRoleIds || [],
-      teamIds: editForm.teamIds || [],
-    };
-    if (editForm.assignedSchoolId) {
-      updateData.schoolIds = arrayUnion(editForm.assignedSchoolId);
+    if (!editForm.email.trim()) {
+      setEditError('דוא"ל הוא שדה חובה');
+      return;
     }
-
     try {
-      await updateDoc(doc(db, 'users', editUser.id), updateData);
-      // Remove schools one by one
+      await updateStaffUser({
+        userId: editUser.id,
+        schoolId,
+        fullName: editForm.fullName.trim(),
+        email: editForm.email.trim(),
+        phone: editForm.phone.trim(),
+        jobTitle: editForm.jobTitle.trim(),
+        customRoleIds: editForm.customRoleIds || [],
+        teamIds: editForm.teamIds || [],
+      });
+      if (editForm.role !== editUser.role) {
+        await setUserRole({ userId: editUser.id, schoolId, role: editForm.role });
+      }
+      if (editForm.assignedSchoolId) {
+        await approveSchoolMembership({ userId: editUser.id, schoolId: editForm.assignedSchoolId });
+      }
       for (const sid of schoolsToRemove) {
-        await updateDoc(doc(db, 'users', editUser.id), {
-          schoolIds: arrayRemove(sid)
-        });
+        await removeSchoolMembership({ userId: editUser.id, schoolId: sid });
       }
       setEditUser(null);
       isAdmin ? loadAllStaff() : loadStaff();
-    } catch (err) {
-      setEditError('שגיאה בשמירה: ' + err.message);
+    } catch {
+      setEditError('לא ניתן לשמור את השינויים. בדקו את ההרשאה ונסו שוב.');
     }
   }
 
   async function handleDelete(userId) {
-    if (!confirm('האם להשבית משתמש זה ולהסיר את הגישה שלו למסגרות?')) return;
+    if (!confirm('האם להתחיל מחיקה מלאה של המשתמש?')) return;
+    if (!confirm('אישור נוסף: הפעולה תשבית את החשבון ותסיר את פרופיל המשתמש. להמשיך?')) return;
     try {
-      await updateDoc(doc(db, 'users', userId), {
-        disabled: true,
-        isOnline: false,
-        schoolId: '',
-        schoolIds: [],
-        pendingSchools: [],
-        disabledAt: new Date().toISOString(),
-        disabledBy: userData?.uid || '',
-      });
-    } catch (err) {
-      console.error('Error deleting user:', err);
+      await deleteStaffUser({ userId, schoolId, confirmDelete: true });
+    } catch {
+      alert('לא ניתן למחוק את המשתמש. הפעולה בוטלה.');
     }
     isAdmin ? loadAllStaff() : loadStaff();
   }
@@ -403,21 +404,22 @@ export default function StaffManagement() {
     });
     setSchoolsToRemove([]);
     setEditError('');
-    setResetPasswordSent(false);
+    setResetEmailSent(false);
   }
 
   async function handleResetPassword() {
     if (!editUser) return;
     setResetPasswordLoading(true);
     setEditError('');
-    setResetPasswordSent(false);
     try {
-      await sendPasswordResetEmail(secondaryAuth, editUser.email);
-      setResetPasswordSent(true);
-    } catch (err) {
-      setEditError('לא ניתן לשלוח קישור לאיפוס סיסמה: ' + err.message);
+      await requestStaffPasswordReset({ userId: editUser.id, schoolId });
+      await sendPasswordResetEmail(auth, editUser.email);
+      setResetEmailSent(true);
+    } catch {
+      setEditError('לא ניתן לשלוח כרגע קישור לאיפוס סיסמה.');
+    } finally {
+      setResetPasswordLoading(false);
     }
-    setResetPasswordLoading(false);
   }
 
   async function openPermissions(user) {
@@ -441,10 +443,10 @@ export default function StaffManagement() {
   async function savePermissions() {
     if (!permissionsUser) return;
     try {
-      await updateDoc(doc(db, 'users', permissionsUser.id), { permissions: permissionsForm });
+      await updateStaffUser({ userId: permissionsUser.id, schoolId, permissions: permissionsForm });
       setPermissionsUser(null);
-    } catch (err) {
-      alert('שגיאה בשמירת ההרשאות: ' + err.message);
+    } catch {
+      alert('לא ניתן לשמור את ההרשאות.');
     }
   }
 
@@ -459,41 +461,25 @@ export default function StaffManagement() {
   async function handleAddStaff(e) {
     e.preventDefault();
     if (!addForm.fullName.trim() || !addForm.email.trim()) return;
-    if (!addForm.password || addForm.password.length < 6) {
-      setAddError('הסיסמא חייבת להכיל לפחות 6 תווים');
-      return;
-    }
     setAddError('');
     const targetSchoolId = addForm.schoolId || schoolId;
 
     try {
-      const cred = await createUserWithEmailAndPassword(secondaryAuth, addForm.email, addForm.password);
-      await firebaseSignOut(secondaryAuth);
-      await setDoc(doc(db, 'users', cred.user.uid), {
-        uid: cred.user.uid,
-        email: addForm.email,
-        fullName: addForm.fullName,
-        jobTitle: addForm.jobTitle,
+      await createStaffUser({
+        email: addForm.email.trim(),
+        fullName: addForm.fullName.trim(),
+        jobTitle: addForm.jobTitle.trim(),
         role: addForm.role,
         schoolId: targetSchoolId,
-        schoolIds: [targetSchoolId],
-        pendingSchools: [],
-        permissions: getPermissionsForRole(addForm.role),
         avatarStyle: addForm.avatarStyle || 'default',
-        phone: '',
-        avatar: '',
-        createdAt: new Date().toISOString()
       });
+      await sendPasswordResetEmail(auth, addForm.email.trim());
 
       setShowAddModal(false);
-      setAddForm({ fullName: '', email: '', jobTitle: '', role: 'viewer', schoolId: '', password: '', avatarStyle: 'default' });
+      setAddForm({ fullName: '', email: '', jobTitle: '', role: 'viewer', schoolId: '', avatarStyle: 'default' });
       isAdmin ? loadAllStaff() : loadStaff();
-    } catch (err) {
-      if (err.code === 'auth/email-already-in-use') {
-        setAddError('כתובת הדוא"ל כבר קיימת במערכת');
-      } else {
-        setAddError('שגיאה בהוספת המשתמש: ' + err.message);
-      }
+    } catch {
+      setAddError('לא ניתן ליצור את ההזמנה. בדקו את הפרטים וההרשאה.');
     }
   }
 
@@ -525,7 +511,7 @@ export default function StaffManagement() {
     if (!pasteData.includes('\t') && !pasteData.includes('\n')) return; // normal single-cell paste
     e.preventDefault();
 
-    const fields = ['fullName', 'email', 'jobTitle', 'password', 'role'];
+    const fields = ['fullName', 'email', 'jobTitle', 'role'];
     const startCol = fields.indexOf(startField);
     const lines = pasteData.split('\n').filter(line => line.trim());
 
@@ -561,11 +547,6 @@ export default function StaffManagement() {
       setBulkError('יש למלא לפחות שורה אחת עם שם ואימייל');
       return;
     }
-    const invalidPasswords = validRows.filter(r => !r.password || r.password.length < 6);
-    if (invalidPasswords.length > 0) {
-      setBulkError('כל השורות המלאות חייבות לכלול סיסמה (לפחות 6 תווים)');
-      return;
-    }
     setBulkError('');
     const targetSchoolId = schoolId;
     const results = [];
@@ -574,27 +555,18 @@ export default function StaffManagement() {
     for (let i = 0; i < validRows.length; i++) {
       const row = validRows[i];
       try {
-        const cred = await createUserWithEmailAndPassword(secondaryAuth, row.email.trim(), row.password);
-        await firebaseSignOut(secondaryAuth);
-        await setDoc(doc(db, 'users', cred.user.uid), {
-          uid: cred.user.uid,
+        await createStaffUser({
           email: row.email.trim(),
           fullName: row.fullName.trim(),
           jobTitle: row.jobTitle.trim(),
           role: row.role,
           schoolId: targetSchoolId,
-          schoolIds: [targetSchoolId],
-          pendingSchools: [],
-          permissions: getPermissionsForRole(row.role),
           avatarStyle: 'default',
-          phone: '',
-          avatar: '',
-          createdAt: new Date().toISOString(),
         });
+        await sendPasswordResetEmail(auth, row.email.trim());
         results.push({ name: row.fullName, success: true });
-      } catch (err) {
-        const errorMsg = err.code === 'auth/email-already-in-use' ? 'אימייל כבר קיים' : err.message;
-        results.push({ name: row.fullName, success: false, error: errorMsg });
+      } catch {
+        results.push({ name: row.fullName, success: false, error: 'ההזמנה לא נוצרה' });
       }
       setBulkProgress({ current: i + 1, total: validRows.length, results: [...results] });
     }
@@ -640,8 +612,8 @@ export default function StaffManagement() {
   // Can the logged-in user edit this staff member?
   function canEditUser(user) {
     if (isAdmin) return true;
-    if (!canEdit) return false;
-    // School-scoped managers can edit only viewer/editor accounts in their school.
+    if (!isPrincipal()) return false;
+    // Principal can edit only viewer/editor in their own school (not other principals/admins)
     const userSchoolIds = user.schoolIds || (user.schoolId ? [user.schoolId] : []);
     const inMySchool = userSchoolIds.includes(schoolId);
     const isHigherRole = user.role === 'principal' || user.role === 'global_admin';
@@ -652,7 +624,7 @@ export default function StaffManagement() {
   // Principals can delete editors/viewers in their school; admins can delete anyone
   function canDeleteUser(user) {
     if (isAdmin) return true;
-    if (!permissions.staff_delete) return false;
+    if (!isPrincipal()) return false;
     const userSchoolIds = user.schoolIds || (user.schoolId ? [user.schoolId] : []);
     const inMySchool = userSchoolIds.includes(schoolId);
     const isHigherRole = user.role === 'principal' || user.role === 'global_admin';
@@ -702,7 +674,7 @@ export default function StaffManagement() {
       const tasksSnap = await getDocs(collection(db, `tasks_${schoolId}`));
       setTaskList(tasksSnap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (err) {
-      console.error('Error loading tasks:', err);
+      console.error('Error loading tasks:');
       setTaskList([]);
     }
     setTaskListLoading(false);
@@ -717,7 +689,7 @@ export default function StaffManagement() {
       setTaskAttachUser(null);
       setTaskList([]);
     } catch (err) {
-      console.error('Error assigning user to task:', err);
+      console.error('Error assigning user to task:');
     }
   }
 
@@ -736,7 +708,7 @@ export default function StaffManagement() {
       const tasksSnap = await getDocs(tasksQuery);
       setProfileTasks(tasksSnap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (err) {
-      console.error('Error loading profile tasks:', err);
+      console.error('Error loading profile tasks:');
     }
     try {
       const announcementsQuery = query(
@@ -763,7 +735,7 @@ export default function StaffManagement() {
         }
       }
     } catch (err) {
-      console.error('Error loading profile activity:', err);
+      console.error('Error loading profile activity:');
     }
     setProfileLoading(false);
   }
@@ -1103,13 +1075,11 @@ export default function StaffManagement() {
                     <input
                       type="email"
                       value={editForm.email}
+                      onChange={e => setEditForm(prev => ({ ...prev, email: e.target.value }))}
                       placeholder="email@example.com"
                       dir="ltr"
-                      disabled
+                      required
                     />
-                    <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
-                      שינוי כתובת התחברות דורש Firebase Admin SDK בצד שרת.
-                    </span>
                   </div>
                   <div className="form-group">
                     <label>
@@ -1245,7 +1215,6 @@ export default function StaffManagement() {
                     </div>
                   )}
 
-                  {/* Password reset */}
                   <div className="form-group">
                     <label>
                       <Key size={14} style={{ display: 'inline', verticalAlign: 'middle', marginLeft: '0.3rem' }} />
@@ -1262,12 +1231,12 @@ export default function StaffManagement() {
                       {resetPasswordLoading ? 'שולח...' : 'שליחת קישור איפוס'}
                     </button>
                     <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
-                      Firebase ישלח למשתמש קישור חד-פעמי ומאובטח לאיפוס הסיסמה.
+                      קישור מאובטח יישלח ישירות לכתובת הדוא"ל של המשתמש. הסיסמה אינה נחשפת למנהל.
                     </span>
-                    {resetPasswordSent && (
-                      <span style={{ fontSize: '0.78rem', color: '#16a34a', fontWeight: 600 }}>
-                        קישור האיפוס נשלח בהצלחה.
-                      </span>
+                    {resetEmailSent && (
+                      <div style={{ marginTop: '0.5rem', color: '#16a34a', fontSize: '0.78rem', fontWeight: 600 }}>
+                        קישור האיפוס נשלח.
+                      </div>
                     )}
                   </div>
 
@@ -1317,23 +1286,8 @@ export default function StaffManagement() {
                       required
                     />
                   </div>
-                  <div className="form-group">
-                    <label>
-                      <Lock size={14} style={{ display: 'inline', verticalAlign: 'middle', marginLeft: '0.3rem' }} />
-                      סיסמא
-                    </label>
-                    <input
-                      type="password"
-                      value={addForm.password}
-                      onChange={e => setAddForm(prev => ({ ...prev, password: e.target.value }))}
-                      placeholder="סיסמא (לפחות 6 תווים)"
-                      dir="ltr"
-                      required
-                      minLength={6}
-                    />
-                    <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
-                      הסיסמא תשמש את איש הצוות להתחברות למערכת
-                    </span>
+                  <div style={{ fontSize: '0.76rem', color: '#64748b', background: '#f8fafc', padding: '0.65rem', borderRadius: 8 }}>
+                    לאחר יצירת החשבון יישלח למשתמש קישור מאובטח לקביעת סיסמה.
                   </div>
                   <div className="form-group">
                     <label>תפקיד</label>
@@ -1386,7 +1340,7 @@ export default function StaffManagement() {
                     <div style={{ color: '#ef4444', fontSize: '0.8rem', fontWeight: 500 }}>{addError}</div>
                   )}
                   <div className="modal-actions">
-                    <button type="submit" className="btn btn-primary">הוספה</button>
+                    <button type="submit" className="btn btn-primary">יצירה ושליחת הזמנה</button>
                     <button type="button" className="btn btn-secondary" onClick={() => setShowAddModal(false)}>ביטול</button>
                   </div>
                 </form>
@@ -1410,7 +1364,7 @@ export default function StaffManagement() {
                 {!bulkProgress ? (
                   <>
                     <p style={{ fontSize: '0.78rem', color: '#64748b', margin: '0 0 0.5rem' }}>
-                      מלאו את הטבלה או הדביקו נתונים מאקסל (שם, אימייל, תפקיד, סיסמה, הרשאה). ניתן להדביק שורות וטורים ישירות מגיליון אלקטרוני.
+                      מלאו את הטבלה או הדביקו נתונים מאקסל (שם, אימייל, תפקיד, הרשאה). לכל משתמש יישלח קישור מאובטח לקביעת סיסמה.
                     </p>
                     <div className="bulk-table-wrapper">
                       <table className="bulk-table">
@@ -1420,7 +1374,6 @@ export default function StaffManagement() {
                             <th>שם מלא</th>
                             <th>אימייל</th>
                             <th>תפקיד</th>
-                            <th>סיסמה</th>
                             <th>הרשאה</th>
                             <th style={{ width: 36 }}></th>
                           </tr>
@@ -1454,16 +1407,6 @@ export default function StaffManagement() {
                                   onChange={e => updateBulkRow(idx, 'jobTitle', e.target.value)}
                                   onPaste={e => handleBulkPaste(e, idx, 'jobTitle')}
                                   placeholder="תפקיד"
-                                  className="bulk-input"
-                                />
-                              </td>
-                              <td>
-                                <input
-                                  value={row.password}
-                                  onChange={e => updateBulkRow(idx, 'password', e.target.value)}
-                                  onPaste={e => handleBulkPaste(e, idx, 'password')}
-                                  placeholder="סיסמה (6+ תווים)"
-                                  dir="ltr"
                                   className="bulk-input"
                                 />
                               </td>

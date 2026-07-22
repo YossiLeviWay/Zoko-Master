@@ -1,0 +1,449 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function hasCurrentUser() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function currentUser() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function activeUser() {
+      return hasCurrentUser()
+        && (!('accountStatus' in currentUser()) || currentUser().accountStatus == 'active');
+    }
+
+    function isGlobalAdmin() {
+      return signedIn()
+        && request.auth.token.keys().hasAny(['global_admin'])
+        && request.auth.token.global_admin == true;
+    }
+
+    function isSchoolMember(schoolId) {
+      return activeUser() && (
+        isGlobalAdmin()
+        || (currentUser().schoolId is string && currentUser().schoolId == schoolId)
+        || (currentUser().schoolIds is list && schoolId in currentUser().schoolIds)
+      );
+    }
+
+    function isSchoolPrincipal(schoolId) {
+      return isSchoolMember(schoolId) && currentUser().role == 'principal';
+    }
+
+    function canViewSchoolResource(schoolId) {
+      return isSchoolMember(schoolId);
+    }
+
+    function canEditSchoolResource(schoolId) {
+      return isGlobalAdmin()
+        || isSchoolPrincipal(schoolId)
+        || (isSchoolMember(schoolId) && currentUser().role == 'editor');
+    }
+
+    function canManageSchoolUsers(schoolId) {
+      return isGlobalAdmin() || isSchoolPrincipal(schoolId);
+    }
+
+    function hasPermission(schoolId, permission) {
+      return canManageSchoolUsers(schoolId)
+        || (
+          isSchoolMember(schoolId)
+          && currentUser().permissions is map
+          && permission in currentUser().permissions
+          && currentUser().permissions[permission] == true
+        );
+    }
+
+    function hasStudentDataAccess(schoolId) {
+      return (
+          isGlobalAdmin()
+          && request.auth.token.keys().hasAny(['student_data_access'])
+          && request.auth.token.student_data_access == true
+        )
+        || (!isGlobalAdmin() && isSchoolMember(schoolId));
+    }
+
+    function canViewStudents(schoolId) {
+      return hasStudentDataAccess(schoolId)
+        && (canEditSchoolResource(schoolId) || hasPermission(schoolId, 'students_view'));
+    }
+
+    function canEditStudents(schoolId) {
+      return hasStudentDataAccess(schoolId)
+        && (isSchoolPrincipal(schoolId) || hasPermission(schoolId, 'students_edit'));
+    }
+
+    function hasNoPasswordFields(data) {
+      return !data.keys().hasAny(['_authPassword', '_pendingPassword', 'password', 'passwordHash']);
+    }
+
+    function safeSelfProfileUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'fullName',
+        'phone',
+        'jobTitle',
+        'avatar',
+        'avatarStyle',
+        'dashboardPreferences',
+        'isOnline',
+        'lastSeen'
+      ]) && hasNoPasswordFields(request.resource.data);
+    }
+
+    function userBelongsToSchool(userData, schoolId) {
+      return (userData.schoolId is string && userData.schoolId == schoolId)
+        || (userData.schoolIds is list && schoolId in userData.schoolIds);
+    }
+
+    function sharesSchool(userData) {
+      return activeUser() && (
+        (userData.schoolId is string && isSchoolMember(userData.schoolId))
+        || (
+          userData.schoolIds is list
+          && currentUser().schoolIds is list
+          && userData.schoolIds.hasAny(currentUser().schoolIds)
+        )
+        || (
+          userData.schoolIds is list
+          && currentUser().schoolId is string
+          && currentUser().schoolId in userData.schoolIds
+        )
+      );
+    }
+
+    function isConversationParticipant(conversationId) {
+      return signedIn()
+        && request.auth.uid in get(
+          /databases/$(database)/documents/conversations/$(conversationId)
+        ).data.participants;
+    }
+
+    function validConversationCreate(data) {
+      return activeUser()
+        && data.participants is list
+        && data.participants.size() == 2
+        && request.auth.uid in data.participants
+        && data.schoolId is string
+        && isSchoolMember(data.schoolId)
+        && exists(/databases/$(database)/documents/users/$(data.participants[0]))
+        && exists(/databases/$(database)/documents/users/$(data.participants[1]))
+        && userBelongsToSchool(
+          get(/databases/$(database)/documents/users/$(data.participants[0])).data,
+          data.schoolId
+        )
+        && userBelongsToSchool(
+          get(/databases/$(database)/documents/users/$(data.participants[1])).data,
+          data.schoolId
+        );
+    }
+
+    function taskVisibleToCurrentUser(schoolId, data) {
+      return canEditSchoolResource(schoolId)
+        || (
+          isSchoolMember(schoolId)
+          && (
+            !('assigneeType' in data)
+            || data.assigneeType == 'all_school'
+            || (data.assigneeIds is list && request.auth.uid in data.assigneeIds)
+            || (
+              data.assigneeType == 'team'
+              && currentUser().teamIds is list
+              && data.assigneeTeamId in currentUser().teamIds
+            )
+          )
+        );
+    }
+
+    function classVisibleToCurrentUser(schoolId, data) {
+      let settingsPath = /databases/$(database)/documents/schools/$(schoolId)/settings/class_permissions;
+      return canEditStudents(schoolId)
+        || !exists(settingsPath)
+        || !(get(settingsPath).data.classes is map)
+        || !('className' in data)
+        || !(data.className in get(settingsPath).data.classes)
+        || (
+          get(settingsPath).data.classes[data.className].teacherIds is list
+          && request.auth.uid in get(settingsPath).data.classes[data.className].teacherIds
+        )
+        || (
+          get(settingsPath).data.classes[data.className].teamIds is list
+          && currentUser().teamIds is list
+          && get(settingsPath).data.classes[data.className].teamIds.hasAny(currentUser().teamIds)
+        );
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn() && (
+        request.auth.uid == userId
+        || isGlobalAdmin()
+        || sharesSchool(resource.data)
+      );
+      allow create: if false;
+      allow update: if signedIn()
+        && request.auth.uid == userId
+        && safeSelfProfileUpdate();
+      allow delete: if false;
+    }
+
+    match /schools/{schoolId} {
+      allow read: if isSchoolMember(schoolId);
+      allow create, update, delete: if false;
+
+      match /tasks/{taskId} {
+        allow read: if taskVisibleToCurrentUser(schoolId, resource.data);
+        allow create, update, delete: if hasPermission(schoolId, 'tasks_edit');
+
+        match /chat/{messageId} {
+          allow read: if taskVisibleToCurrentUser(
+            schoolId,
+            get(/databases/$(database)/documents/schools/$(schoolId)/tasks/$(taskId)).data
+          );
+          allow create: if taskVisibleToCurrentUser(
+              schoolId,
+              get(/databases/$(database)/documents/schools/$(schoolId)/tasks/$(taskId)).data
+            )
+            && request.resource.data.authorId == request.auth.uid;
+          allow update: if false;
+          allow delete: if request.auth.uid == resource.data.authorId || canManageSchoolUsers(schoolId);
+        }
+      }
+
+      match /students/{studentId} {
+        allow read: if canViewStudents(schoolId) && classVisibleToCurrentUser(schoolId, resource.data);
+        allow create, update, delete: if canEditStudents(schoolId);
+      }
+
+      match /files/{fileId} {
+        allow read: if canViewSchoolResource(schoolId);
+        allow create, update: if hasPermission(schoolId, 'files_upload');
+        allow delete: if hasPermission(schoolId, 'files_delete');
+      }
+
+      match /folders/{folderId} {
+        allow read: if canViewSchoolResource(schoolId);
+        allow create, update: if hasPermission(schoolId, 'files_upload');
+        allow delete: if hasPermission(schoolId, 'files_delete');
+      }
+
+      match /fileHistory/{entryId} {
+        allow read: if canViewSchoolResource(schoolId);
+        allow create: if hasPermission(schoolId, 'files_upload')
+          && request.resource.data.userId == request.auth.uid;
+        allow update, delete: if false;
+      }
+
+      match /teams/{teamId} {
+        allow read: if canViewSchoolResource(schoolId);
+        allow create, update, delete: if hasPermission(schoolId, 'teams_edit');
+      }
+
+      match /events/{eventId} {
+        allow read: if canViewSchoolResource(schoolId);
+        allow create, update, delete: if hasPermission(schoolId, 'calendar_edit');
+      }
+
+      match /holidays/{holidayId} {
+        allow read: if canViewSchoolResource(schoolId);
+        allow create, update, delete: if hasPermission(schoolId, 'holidays_edit');
+      }
+
+      match /categories/{categoryId} {
+        allow read: if canViewSchoolResource(schoolId);
+        allow create, update, delete: if hasPermission(schoolId, 'categories_edit');
+      }
+
+      match /roles/{roleId} {
+        allow read: if canViewSchoolResource(schoolId);
+        allow create, update, delete: if canManageSchoolUsers(schoolId);
+      }
+
+      match /tracks/{trackId} {
+        allow read: if canViewStudents(schoolId);
+        allow create, update, delete: if canEditStudents(schoolId);
+      }
+
+      match /settings/{settingId} {
+        allow read: if canViewSchoolResource(schoolId);
+        allow create, update: if canManageSchoolUsers(schoolId);
+        allow delete: if false;
+      }
+
+      match /sheets/{sheetId} {
+        allow read: if canViewSchoolResource(schoolId) && (
+          canEditSchoolResource(schoolId)
+          || !('sharedWith' in resource.data)
+          || resource.data.sharedWith.size() == 0
+          || request.auth.uid in resource.data.sharedWith
+          || resource.data.sharedWith.hasAny(currentUser().teamIds)
+        );
+        allow create, update, delete: if hasPermission(schoolId, 'data_mapping_edit');
+      }
+    }
+
+    match /conversations/{conversationId} {
+      allow read: if signedIn() && request.auth.uid in resource.data.participants;
+      allow create: if validConversationCreate(request.resource.data);
+      allow update: if signedIn()
+        && request.auth.uid in resource.data.participants
+        && request.resource.data.participants == resource.data.participants
+        && request.resource.data.schoolId == resource.data.schoolId;
+      allow delete: if signedIn() && request.auth.uid in resource.data.participants;
+
+      match /messages/{messageId} {
+        allow read: if isConversationParticipant(conversationId);
+        allow create: if isConversationParticipant(conversationId)
+          && request.resource.data.senderId == request.auth.uid;
+        allow update: if false;
+        allow delete: if isConversationParticipant(conversationId)
+          && request.auth.uid == resource.data.senderId;
+      }
+    }
+
+    match /announcements/{announcementId} {
+      allow read: if activeUser()
+        && resource.data.schoolId is string
+        && isSchoolMember(resource.data.schoolId)
+        && (
+          resource.data.target == 'all'
+          || (currentUser().teamIds is list && resource.data.target in currentUser().teamIds)
+        );
+      allow create: if request.resource.data.schoolId is string
+        && hasPermission(request.resource.data.schoolId, 'messages_send')
+        && request.resource.data.senderId == request.auth.uid;
+      allow update: if false;
+      allow delete: if signedIn() && (
+        request.auth.uid == resource.data.senderId
+        || canManageSchoolUsers(resource.data.schoolId)
+      );
+    }
+
+    match /notifications/{notificationId} {
+      allow read, delete: if signedIn() && resource.data.userId == request.auth.uid;
+      allow update: if signedIn()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow create: if false;
+    }
+
+    match /resource_permissions/{permissionId} {
+      allow read: if resource.data.schoolId is string && isSchoolMember(resource.data.schoolId);
+      allow create: if request.resource.data.schoolId is string
+        && canManageSchoolUsers(request.resource.data.schoolId);
+      allow update, delete: if resource.data.schoolId is string
+        && canManageSchoolUsers(resource.data.schoolId);
+    }
+
+    match /auditLogs/{auditId} {
+      allow read: if isGlobalAdmin() || (
+        resource.data.schoolId is string && isSchoolPrincipal(resource.data.schoolId)
+      );
+      allow create, update, delete: if false;
+    }
+
+    match /securityRateLimits/{limitId} {
+      allow read, write: if false;
+    }
+
+    function legacyPrimarySchoolCollection(collectionName, prefix) {
+      return collectionName.matches('^' + prefix + '[A-Za-z0-9_-]+$')
+        && activeUser()
+        && (
+          isGlobalAdmin()
+          || (
+            currentUser().schoolId is string
+            && collectionName == prefix + currentUser().schoolId
+          )
+        );
+    }
+
+    function legacyDocumentSchoolAccess(collectionName, prefix, data) {
+      return collectionName.matches('^' + prefix + '[A-Za-z0-9_-]+$')
+        && (
+          legacyPrimarySchoolCollection(collectionName, prefix)
+          || (data.schoolId is string && isSchoolMember(data.schoolId))
+        );
+    }
+
+    function legacyReadAllowed(collectionName, data) {
+      return legacyDocumentSchoolAccess(collectionName, 'tasks_', data)
+        || legacyDocumentSchoolAccess(collectionName, 'files_', data)
+        || legacyDocumentSchoolAccess(collectionName, 'file_history_', data)
+        || legacyDocumentSchoolAccess(collectionName, 'folders_', data)
+        || legacyDocumentSchoolAccess(collectionName, 'teams_', data)
+        || legacyDocumentSchoolAccess(collectionName, 'events_', data)
+        || legacyDocumentSchoolAccess(collectionName, 'holidays_', data)
+        || legacyDocumentSchoolAccess(collectionName, 'categories_', data)
+        || legacyDocumentSchoolAccess(collectionName, 'roles_', data)
+        || legacyDocumentSchoolAccess(collectionName, 'tracks_', data)
+        || legacyDocumentSchoolAccess(collectionName, 'settings_', data)
+        || legacyDocumentSchoolAccess(collectionName, 'sheets_', data);
+    }
+
+    function legacyWriteAllowed(collectionName, data) {
+      return legacyReadAllowed(collectionName, data)
+        && !collectionName.matches('^(roles|settings)_.*$')
+        && (isGlobalAdmin() || currentUser().role in ['principal', 'editor']);
+    }
+
+    function legacySensitiveWriteAllowed(collectionName, data) {
+      return legacyReadAllowed(collectionName, data)
+        && collectionName.matches('^(roles|settings)_.*$')
+        && (isGlobalAdmin() || currentUser().role == 'principal');
+    }
+
+    function legacyStudentReadAllowed(collectionName, data) {
+      return legacyDocumentSchoolAccess(collectionName, 'students_', data)
+        && (
+          (
+            request.auth.token.keys().hasAny(['student_data_access'])
+            && request.auth.token.student_data_access == true
+          )
+          || !isGlobalAdmin()
+        );
+    }
+
+    function legacyStudentWriteAllowed(collectionName, data) {
+      return legacyStudentReadAllowed(collectionName, data)
+        && (
+          isGlobalAdmin()
+          || currentUser().role == 'principal'
+          || (
+            currentUser().permissions is map
+            && 'students_edit' in currentUser().permissions
+            && currentUser().permissions.students_edit == true
+          )
+        );
+    }
+
+    match /{legacyCollection}/{documentId} {
+      allow read: if legacyReadAllowed(legacyCollection, resource.data)
+        || legacyStudentReadAllowed(legacyCollection, resource.data);
+      allow create: if legacyWriteAllowed(legacyCollection, request.resource.data)
+        || legacySensitiveWriteAllowed(legacyCollection, request.resource.data)
+        || legacyStudentWriteAllowed(legacyCollection, request.resource.data);
+      allow update, delete: if legacyWriteAllowed(legacyCollection, resource.data)
+        || legacySensitiveWriteAllowed(legacyCollection, resource.data)
+        || legacyStudentWriteAllowed(legacyCollection, resource.data);
+    }
+
+    match /{legacyCollection}/{taskId}/chat/{messageId} {
+      allow read: if legacyPrimarySchoolCollection(legacyCollection, 'tasks_');
+      allow create: if legacyPrimarySchoolCollection(legacyCollection, 'tasks_')
+        && request.resource.data.authorId == request.auth.uid;
+      allow update: if false;
+      allow delete: if request.auth.uid == resource.data.authorId;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

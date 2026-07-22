@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { db } from '../../firebase';
 import {
-  collection,
   query,
   orderBy,
   onSnapshot,
@@ -9,21 +8,21 @@ import {
 } from 'firebase/firestore';
 import { X, Send } from 'lucide-react';
 import './Tasks.css';
+import { schoolSubcollection } from '../../services/firestore/paths';
 
 export default function ChatPanel({ task, schoolId, currentUser, onClose }) {
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const bottomRef = useRef(null);
 
-  const chatPath = `tasks_${schoolId}/${task.id}/chat`;
-
   useEffect(() => {
-    const q = query(collection(db, chatPath), orderBy('createdAt', 'asc'));
+    const chatRef = schoolSubcollection(db, schoolId, 'tasks', task.id, 'chat');
+    const q = query(chatRef, orderBy('createdAt', 'asc'));
     const unsub = onSnapshot(q, (snap) => {
       setMessages(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
     return unsub;
-  }, [chatPath]);
+  }, [schoolId, task.id]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -32,7 +31,7 @@ export default function ChatPanel({ task, schoolId, currentUser, onClose }) {
   async function handleSend(e) {
     e.preventDefault();
     if (!text.trim()) return;
-    await addDoc(collection(db, chatPath), {
+    await addDoc(schoolSubcollection(db, schoolId, 'tasks', task.id, 'chat'), {
       text: text.trim(),
       author: currentUser?.fullName || 'משתמש',
       authorId: currentUser?.uid || '',

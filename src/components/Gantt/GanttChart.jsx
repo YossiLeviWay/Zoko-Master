@@ -89,6 +89,7 @@ export default function GanttChart() {
 
   const schoolId = selectedSchool || userData?.schoolId;
   const { permissions } = usePermissions();
+  const canEditCalendar = permissions.calendar_edit;
   const [showPermissionsPanel, setShowPermissionsPanel] = useState(false);
 
   // Load user's team memberships for visibility filtering
@@ -163,7 +164,7 @@ export default function GanttChart() {
     try {
       await setDoc(doc(db, `settings_${schoolId}`, 'calendar'), { visibleDays: days }, { merge: true });
     } catch (err) {
-      console.error('Error saving day settings:', err);
+      console.error('Error saving day settings:');
     }
   }
 
@@ -223,8 +224,6 @@ export default function GanttChart() {
 
   // Filter events based on team visibility
   const canSeeAllEvents = isGlobalAdmin() || isPrincipal();
-  const canEditCalendar = permissions.calendar_edit;
-
   function isEventVisible(event) {
     if (canSeeAllEvents) return true;
     if (!event.visibleTo || event.visibleTo === 'all') return true;
@@ -291,8 +290,8 @@ export default function GanttChart() {
       }
       setModalOpen(false);
     } catch (err) {
-      console.error('Error saving event:', err);
-      alert('שגיאה בשמירת האירוע: ' + err.message);
+      console.error('Error saving event:');
+      alert('שגיאה בשמירת האירוע: ');
     }
   }
 
@@ -302,7 +301,7 @@ export default function GanttChart() {
       await deleteDoc(doc(db, `events_${schoolId}`, editingEvent.id));
       setModalOpen(false);
     } catch (err) {
-      alert('שגיאה במחיקת האירוע: ' + err.message);
+      alert('שגיאה במחיקת האירוע: ');
     }
   }
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../firebase';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
@@ -87,18 +87,18 @@ export default function RolesManager({ schoolId, onClose }) {
 
   const canManage = isGlobalAdmin() || isPrincipal();
 
-  useEffect(() => {
-    loadRoles();
-  }, [schoolId]);
-
-  async function loadRoles() {
+  const loadRoles = useCallback(async () => {
     try {
       const snap = await getDocs(collection(db, `roles_${schoolId}`));
       setRoles(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (err) {
-      console.error('Error loading roles:', err);
+      console.error('Error loading roles:');
     }
-  }
+  }, [schoolId]);
+
+  useEffect(() => {
+    loadRoles();
+  }, [loadRoles]);
 
   async function saveRole() {
     if (!editForm.name.trim()) return;
@@ -123,7 +123,7 @@ export default function RolesManager({ schoolId, onClose }) {
       setEditForm({ name: '', description: '', permissions: { ...DEFAULT_ROLE_PERMISSIONS } });
       loadRoles();
     } catch (err) {
-      console.error('Error saving role:', err);
+      console.error('Error saving role:');
     }
   }
 
@@ -133,7 +133,7 @@ export default function RolesManager({ schoolId, onClose }) {
       await deleteDoc(doc(db, `roles_${schoolId}`, roleId));
       loadRoles();
     } catch (err) {
-      console.error('Error deleting role:', err);
+      console.error('Error deleting role:');
     }
   }
 

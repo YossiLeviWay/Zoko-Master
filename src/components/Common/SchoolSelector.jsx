@@ -21,7 +21,7 @@ export default function SchoolSelector({ onSelect, inline = false }) {
         }));
         setSchools(list);
       } catch (err) {
-        console.error('Failed to fetch schools:', err);
+        console.error('Failed to fetch schools:');
       } finally {
         setLoading(false);
       }

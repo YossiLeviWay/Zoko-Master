@@ -184,7 +184,7 @@ export default function SpreadsheetEditor({ data, onChange, readOnly = false, on
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
   const [zoomLevel, setZoomLevel] = useState(100);
-  const [fontSize] = useState(13);
+  const fontSize = 13;
   const [freezeRow, setFreezeRow] = useState(initialData.freezeRow || 0); // number of frozen rows from top
   const [freezeCol, setFreezeCol] = useState(initialData.freezeCol || 0); // number of frozen cols from right
   const saveTimerRef = useRef(null);
@@ -223,7 +223,7 @@ export default function SpreadsheetEditor({ data, onChange, readOnly = false, on
     } else if (!selectedCell) {
       setFormulaValue('');
     }
-  }, [selectedCell, cells]);
+  }, [selectedCell, cells, formulaSelectMode]);
 
   // Check if a cell is part of a merge (but not the origin)
   function getMergeForCell(ri, ci) {

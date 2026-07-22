@@ -21,7 +21,6 @@ import {
   arrayRemove
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
-import { escapeHtml, sanitizeHtml } from '../../utils/sanitizeHtml';
 import Header from '../Layout/Header';
 import SpreadsheetEditor from './SpreadsheetEditor';
 import DocumentEditor from './DocumentEditor';
@@ -99,9 +98,8 @@ export default function FileManager() {
   const schoolId = selectedSchool || userData?.schoolId;
   const canManage = isPrincipal() || isGlobalAdmin();
   const canUploadFiles = permissions.files_upload;
-  const canDeleteFiles = permissions.files_delete;
 
-  function userCanAccessFolder(folder) {
+  const userCanAccessFolder = useCallback((folder) => {
     if (canManage) return true;
     if (folder.visibility === 'principal_only') return false;
     // Check resource_permissions for this folder
@@ -119,7 +117,7 @@ export default function FileManager() {
     if (folder.visibility === 'all') return true;
     if (folder.allowedUsers && folder.allowedUsers.includes(userData?.uid)) return true;
     return false;
-  }
+  }, [canManage, folderPerms, userData]);
 
   function userCanCreateFiles() {
     if (!canUploadFiles) return false;
@@ -170,7 +168,7 @@ export default function FileManager() {
       setFolders(allFolders.filter(f => userCanAccessFolder(f)));
     });
     return unsub;
-  }, [schoolId, canManage, userData, folderPerms]);
+  }, [schoolId, userCanAccessFolder]);
 
   // Load all files for all folders
   useEffect(() => {
@@ -197,7 +195,7 @@ export default function FileManager() {
       // Clear the param so it doesn't re-trigger
       setSearchParams({}, { replace: true });
     }
-  }, [searchParams, files]);
+  }, [searchParams, files, editingFile, setSearchParams]);
 
   async function createFolder(e) {
     e.preventDefault();
@@ -214,7 +212,7 @@ export default function FileManager() {
       setFolderName('');
       setShowNewFolder(false);
     } catch (err) {
-      alert('שגיאה ביצירת תיקייה: ' + err.message);
+      alert('שגיאה ביצירת תיקייה: ');
     }
   }
 
@@ -237,7 +235,7 @@ export default function FileManager() {
         uploadedBy: userData?.fullName || '',
         createdAt: new Date().toISOString()
       });
-    } catch {
+    } catch (err) {
       alert('שגיאה בהעלאת הקובץ');
     }
     setUploading(false);
@@ -269,11 +267,11 @@ export default function FileManager() {
       setCreateInFolder(null);
       setEditingFile({ id: newDoc.id, name: newFileName.trim(), fileType: newFileType, content: initialContent });
     } catch (err) {
-      alert('שגיאה ביצירת קובץ: ' + err.message);
+      alert('שגיאה ביצירת קובץ: ');
     }
   }
 
-  function computeSpreadsheetChanges(oldContent, newContent) {
+  const computeSpreadsheetChanges = useCallback((oldContent, newContent) => {
     try {
       const oldData = typeof oldContent === 'string' ? JSON.parse(oldContent) : oldContent;
       const newData = typeof newContent === 'string' ? JSON.parse(newContent) : newContent;
@@ -293,9 +291,9 @@ export default function FileManager() {
       }
       return changes.slice(0, 50); // limit to 50 changes per save
     } catch { return []; }
-  }
+  }, []);
 
-  async function saveFileContent(content) {
+  const saveFileContent = useCallback(async (content) => {
     if (!editingFile || !schoolId) return;
     setFileSaving(true);
     const prevContent = lastSavedContentRef.current;
@@ -340,6 +338,7 @@ export default function FileManager() {
           const otherIds = folder.allowedUsers.filter(id => id !== uid);
           if (otherIds.length > 0) {
             createNotifications(otherIds, {
+              schoolId,
               title: `הקובץ "${editingFile.name}" נערך`,
               body: `${userData?.fullName || 'משתמש'} ערך/ה את הקובץ`,
               type: 'file',
@@ -349,10 +348,10 @@ export default function FileManager() {
         }
       }
     } catch (err) {
-      alert('שגיאה בשמירה: ' + err.message);
+      alert('שגיאה בשמירה: ');
     }
     setFileSaving(false);
-  }
+  }, [computeSpreadsheetChanges, editingFile, folders, schoolId, uid, userData?.fullName]);
 
   // Auto-save: debounce 1 second after last change
   const autoSave = useCallback((content) => {
@@ -362,7 +361,7 @@ export default function FileManager() {
         saveFileContent(content);
       }
     }, 1000);
-  }, [editingFile?.id, schoolId]);
+  }, [saveFileContent]);
 
   useEffect(() => {
     return () => {
@@ -375,10 +374,10 @@ export default function FileManager() {
     if (editingFile) {
       lastSavedContentRef.current = editingFile.content;
     }
-  }, [editingFile?.id]);
+  }, [editingFile]);
 
   async function deleteFolder(folderId) {
-    if (!canDeleteFiles) return;
+    if (!canUploadFiles) return;
     if (!confirm('האם למחוק תיקייה זו וכל תוכנה?')) return;
     const filesSnap = await getDocs(
       query(collection(db, `files_${schoolId}`), where('folderId', '==', folderId))
@@ -395,7 +394,7 @@ export default function FileManager() {
   }
 
   async function deleteFile(fileItem) {
-    if (!canDeleteFiles) return;
+    if (!canUploadFiles) return;
     if (!confirm('האם למחוק קובץ זה?')) return;
     if (fileItem.storagePath) {
       try { await deleteObject(ref(storage, fileItem.storagePath)); } catch {}
@@ -407,8 +406,7 @@ export default function FileManager() {
   async function duplicateFile(fileItem) {
     if (!schoolId || !canUploadFiles) return;
     try {
-      const data = { ...fileItem };
-      delete data.id;
+      const { id: _id, ...data } = fileItem;
       await addDoc(collection(db, `files_${schoolId}`), {
         ...data,
         name: (data.name || 'קובץ') + ' - עותק',
@@ -417,7 +415,7 @@ export default function FileManager() {
         pinnedBy: [],
       });
     } catch (err) {
-      alert('שגיאה בשכפול: ' + err.message);
+      alert('שגיאה בשכפול: ');
     }
   }
 
@@ -425,19 +423,14 @@ export default function FileManager() {
     if (!file) return;
     if (file.fileType === 'document') {
       // Export document as HTML → print/PDF
-      const content = sanitizeHtml(typeof file.content === 'string' ? file.content : '');
-      const safeName = escapeHtml(file.name || 'מסמך');
+      const content = typeof file.content === 'string' ? file.content : '';
       const printWindow = window.open('', '_blank');
-      if (!printWindow) {
-        alert('הדפדפן חסם את חלון ההדפסה. יש לאפשר חלונות קופצים ולנסות שוב.');
-        return;
-      }
       printWindow.document.write(`
         <!DOCTYPE html>
         <html dir="rtl" lang="he">
         <head>
           <meta charset="UTF-8">
-          <title>${safeName}</title>
+          <title>${file.name}</title>
           <style>
             body { font-family: Arial, sans-serif; padding: 2cm; direction: rtl; }
             @media print { body { padding: 1cm; } }
@@ -634,7 +627,7 @@ export default function FileManager() {
         await updateDoc(doc(db, `files_${schoolId}`, renamingItem.id), { name: renameValue.trim() });
       }
     } catch (err) {
-      alert('שגיאה בשינוי שם: ' + err.message);
+      alert('שגיאה בשינוי שם: ');
     }
     setRenamingItem(null);
     setRenameValue('');
@@ -729,7 +722,7 @@ export default function FileManager() {
               >
                 <Pin size={11} style={isPinnedFolder ? { color: '#2563eb' } : undefined} />
               </button>
-              {canDeleteFiles && (
+              {canManage && (
                 <button
                   className="tree-delete-btn"
                   onClick={() => deleteFolder(folder.id)}
@@ -774,7 +767,7 @@ export default function FileManager() {
                           <Download size={10} />
                         </a>
                       )}
-                      {canDeleteFiles && (
+                      {canManage && (
                         <button className="tree-delete-btn" onClick={() => deleteFile(f)} title="מחיקה">
                           <Trash2 size={10} />
                         </button>
@@ -1131,7 +1124,7 @@ export default function FileManager() {
                               <Download size={13} />
                             </a>
                           )}
-                          {canDeleteFiles && (
+                          {canManage && (
                             <button className="icon-btn icon-btn--danger" onClick={() => deleteFile(f)} title="מחיקה">
                               <Trash2 size={13} />
                             </button>
@@ -1214,7 +1207,7 @@ export default function FileManager() {
             </button>
           )}
           <div className="context-menu-divider" />
-          {canDeleteFiles && (
+          {canManage && (
             <button className="context-menu-item context-menu-item--danger" onClick={() => {
               if (contextMenu.type === 'folder') deleteFolder(contextMenu.item.id);
               else deleteFile(contextMenu.item);
@@ -1274,7 +1267,7 @@ export default function FileManager() {
             <Info size={14} />
             מידע על התיקייה
           </button>
-          {canDeleteFiles && (
+          {canManage && (
             <>
               <div className="context-menu-divider" />
               <button className="context-menu-item context-menu-item--danger" onClick={() => {

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { getDoc } from 'firebase/firestore';
+import { schoolDoc } from '../services/firestore/paths';
 
 export const VIEWER_DEFAULTS = {
   calendar_view: true,
@@ -35,25 +36,23 @@ export const FULL_PERMISSIONS = Object.fromEntries(
 );
 
 export function usePermissions() {
-  const { userData, selectedSchool } = useAuth();
+  const { userData, selectedSchool, isGlobalAdmin, isPrincipal } = useAuth();
   const [permissions, setPermissions] = useState(VIEWER_DEFAULTS);
   const [loading, setLoading] = useState(true);
 
   const schoolId = selectedSchool || userData?.schoolId;
+  const hasFullAccess = isGlobalAdmin() || isPrincipal();
 
   useEffect(() => {
-    let cancelled = false;
-
     if (!userData) {
-      setPermissions(VIEWER_DEFAULTS);
       setLoading(false);
-      return undefined;
+      return;
     }
 
-    if (userData.role === 'global_admin' || userData.role === 'principal') {
+    if (hasFullAccess) {
       setPermissions(FULL_PERMISSIONS);
       setLoading(false);
-      return undefined;
+      return;
     }
 
     async function resolve() {
@@ -62,18 +61,16 @@ export function usePermissions() {
       // Merge all custom roles (OR logic — any role that grants a permission enables it)
       const roleIds = userData.customRoleIds || [];
       if (roleIds.length > 0 && schoolId) {
-        const roleDocs = await Promise.all(roleIds.map(roleId =>
-          getDoc(doc(db, `roles_${schoolId}`, roleId)).catch(() => null)
-        ));
-        for (const roleDoc of roleDocs) {
-          if (roleDoc) {
+        for (const roleId of roleIds) {
+          try {
+            const roleDoc = await getDoc(schoolDoc(db, schoolId, 'roles', roleId));
             if (roleDoc.exists()) {
               const rp = roleDoc.data().permissions || {};
               for (const [key, val] of Object.entries(rp)) {
                 if (val === true) base[key] = true;
               }
             }
-          }
+          } catch {}
         }
       }
 
@@ -83,16 +80,12 @@ export function usePermissions() {
         if (val !== undefined) base[key] = val;
       }
 
-      if (!cancelled) {
-        setPermissions(base);
-        setLoading(false);
-      }
+      setPermissions(base);
+      setLoading(false);
     }
 
-    setLoading(true);
     resolve();
-    return () => { cancelled = true; };
-  }, [userData?.uid, userData?.role, userData?.customRoleIds, userData?.permissions, schoolId]);
+  }, [hasFullAccess, schoolId, userData]);
 
   return { permissions, loading };
 }

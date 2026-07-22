@@ -92,6 +92,8 @@ const HOLIDAY_BORDER_COLORS = {
 export default function Dashboard() {
   const { currentUser, userData, selectedSchool, isGlobalAdmin, isPrincipal, isPending, approveUser, rejectUser } = useAuth();
   const navigate = useNavigate();
+  const globalAdmin = isGlobalAdmin();
+  const principal = isPrincipal();
   const [events, setEvents] = useState([]);
   const [taskStats, setTaskStats] = useState({ total: 0, pending: 0, completed: 0, overdue: 0 });
   const [staffCount, setStaffCount] = useState(0);
@@ -161,7 +163,7 @@ export default function Dashboard() {
         'dashboardPreferences.widgets': newWidgets,
       });
     } catch (err) {
-      console.error('Error saving widget config:', err);
+      console.error('Error saving widget config:');
     }
   }
 
@@ -277,7 +279,7 @@ export default function Dashboard() {
       setHiddenEventCategories(newHiddenEvents);
       setHiddenHolidayTypes(newHiddenHolidays);
     } catch (err) {
-      console.error('Error saving filter preferences:', err);
+      console.error('Error saving filter preferences:');
     }
   }
 
@@ -386,7 +388,7 @@ export default function Dashboard() {
         const snap = await getDocs(collection(db, 'schools'));
         setSchools(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       } catch (err) {
-        console.error('Error loading schools:', err);
+        console.error('Error loading schools:');
       }
     }
     loadSchools();
@@ -403,26 +405,26 @@ export default function Dashboard() {
     const unsub = onSnapshot(q, (snap) => {
       let anns = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       // Filter: show announcements for target='all' or matching schoolId
-      if (!isGlobalAdmin()) {
+      if (!globalAdmin) {
         anns = anns.filter(a => a.target === 'all' || a.schoolId === selectedSchool);
       }
       setRecentAnnouncements(anns.slice(0, 3));
     }, (err) => {
-      console.error('Error loading announcements for dashboard:', err);
+      console.error('Error loading announcements for dashboard:');
     });
     return unsub;
-  }, [selectedSchool]);
+  }, [selectedSchool, globalAdmin]);
 
   // Fetch pending users for admin/principal
   useEffect(() => {
-    if (!isGlobalAdmin() && !isPrincipal()) {
+    if (!globalAdmin && !principal) {
       setPendingUsers([]);
       return;
     }
 
     async function fetchPendingUsers() {
       try {
-        if (isGlobalAdmin()) {
+        if (globalAdmin) {
           // Admin sees ALL pending users across all schools
           const usersRef = collection(db, 'users');
           const snap = await getDocs(usersRef);
@@ -430,7 +432,7 @@ export default function Dashboard() {
             .map(d => ({ id: d.id, ...d.data() }))
             .filter(u => u.pendingSchools && u.pendingSchools.length > 0);
           setPendingUsers(pending);
-        } else if (isPrincipal() && selectedSchool) {
+        } else if (principal && selectedSchool) {
           // Principal sees only pending users for their school(s)
           const userSchools = userData?.schoolIds || [];
           const schoolId = selectedSchool || (userSchools.length > 0 ? userSchools[0] : userData?.schoolId);
@@ -441,16 +443,16 @@ export default function Dashboard() {
           }
         }
       } catch (err) {
-        console.error('Error fetching pending users:', err);
+        console.error('Error fetching pending users:');
       }
     }
 
     fetchPendingUsers();
-  }, [selectedSchool, userData]);
+  }, [selectedSchool, userData, globalAdmin, principal]);
 
   // Activity feed for global admin - shows significant events across all schools
   useEffect(() => {
-    if (!isGlobalAdmin()) return;
+    if (!globalAdmin) return;
 
     async function fetchActivityFeed() {
       setActivityLoading(true);
@@ -530,7 +532,7 @@ export default function Dashboard() {
           try {
             const evSnap = await getDocs(query(collection(db, `events_${school.id}`), where('date', '>=', today)));
             eventCount = evSnap.size;
-          } catch { /* collection may not exist */ }
+          } catch (e) { /* collection may not exist */ }
           try {
             const tkSnap = await getDocs(collection(db, `tasks_${school.id}`));
             taskCount = tkSnap.size;
@@ -539,7 +541,7 @@ export default function Dashboard() {
               if (t.createdAt && t.createdAt > lastActivity) lastActivity = t.createdAt;
               if (t.updatedAt && t.updatedAt > lastActivity) lastActivity = t.updatedAt;
             });
-          } catch { /* collection may not exist */ }
+          } catch (e) { /* collection may not exist */ }
           try {
             const flSnap = await getDocs(collection(db, `files_${school.id}`));
             fileCount = flSnap.size;
@@ -547,7 +549,7 @@ export default function Dashboard() {
               const f = d.data();
               if (f.createdAt && f.createdAt > lastActivity) lastActivity = f.createdAt;
             });
-          } catch { /* collection may not exist */ }
+          } catch (e) { /* collection may not exist */ }
           // Check staff creation dates for last activity
           staffList.forEach(u => {
             if (u.createdAt && u.createdAt > lastActivity) lastActivity = u.createdAt;
@@ -581,7 +583,7 @@ export default function Dashboard() {
                 schoolName: school.name || school.id,
               });
             });
-          } catch {
+          } catch (e) {
             // Collection may not exist
           }
         }
@@ -592,14 +594,14 @@ export default function Dashboard() {
         feed.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
         setActivityFeed(feed.slice(0, 20));
       } catch (err) {
-        console.error('Error fetching activity feed:', err);
+        console.error('Error fetching activity feed:');
       } finally {
         setActivityLoading(false);
       }
     }
 
     fetchActivityFeed();
-  }, [selectedSchool, userData]);
+  }, [selectedSchool, userData, globalAdmin]);
 
   useEffect(() => {
     if (!selectedSchool) {
@@ -654,7 +656,7 @@ export default function Dashboard() {
 
         setStaffCount(staffIds.size);
       } catch (err) {
-        console.error('Error fetching dashboard data:', err);
+        console.error('Error fetching dashboard data:');
       } finally {
         setLoading(false);
       }
@@ -918,7 +920,7 @@ export default function Dashboard() {
     }
   }
 
-  const canApprove = isGlobalAdmin() || isPrincipal();
+  const canApprove = globalAdmin || principal;
 
   return (
     <div className="page">
@@ -950,7 +952,7 @@ export default function Dashboard() {
                     <th>שם</th>
                     <th>דוא"ל</th>
                     <th>תפקיד</th>
-                    {isGlobalAdmin() && <th>מוסד</th>}
+                    {globalAdmin && <th>מוסד</th>}
                     <th>פעולות</th>
                   </tr>
                 </thead>
@@ -958,7 +960,7 @@ export default function Dashboard() {
                   {pendingUsers.map(user => {
                     // For admin: show each pending school as a separate row
                     const pendingSchoolIds = user.pendingSchools || [];
-                    if (isGlobalAdmin()) {
+                    if (globalAdmin) {
                       return pendingSchoolIds.map(psId => (
                         <tr key={`${user.id}-${psId}`}>
                           <td className="td-bold">
@@ -1360,7 +1362,7 @@ export default function Dashboard() {
         </div>
 
         {/* Admin School Summary Stats */}
-        {isGlobalAdmin() && schoolStats.length > 0 && (
+        {globalAdmin && schoolStats.length > 0 && (
           <div className="dashboard-section" style={{ marginTop: '1rem' }}>
             <div className="section-header">
               <School size={18} />
@@ -1397,7 +1399,7 @@ export default function Dashboard() {
         )}
 
         {/* Admin Cross-School Events */}
-        {isGlobalAdmin() && allSchoolEvents.length > 0 && (
+        {globalAdmin && allSchoolEvents.length > 0 && (
           <div className="dashboard-section" style={{ marginTop: '1rem' }}>
             <div className="section-header">
               <Calendar size={18} />
@@ -1438,7 +1440,7 @@ export default function Dashboard() {
         )}
 
         {/* Admin Activity Feed */}
-        {isGlobalAdmin() && (
+        {globalAdmin && (
           <div className="dashboard-section" style={{ marginTop: '1rem' }}>
             <div className="section-header">
               <Activity size={18} />

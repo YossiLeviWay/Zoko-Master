@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { db } from '../../firebase';
 import {
-  collection, query, where, getDocs, doc, setDoc, getDoc
+  collection, query, where, getDocs, setDoc, getDoc
 } from 'firebase/firestore';
 import {
   X, Save, Users, UserPlus, UserMinus, Search, Shield
 } from 'lucide-react';
+import { schoolCollection, schoolDoc } from '../../services/firestore/paths';
 
 export default function ClassPermissionsManager({ schoolId, classes, onClose }) {
   const [staff, setStaff] = useState([]);
@@ -34,11 +35,11 @@ export default function ClassPermissionsManager({ schoolId, classes, onClose }) 
         setStaff(results.filter(u => u.role !== 'global_admin'));
 
         // Load teams
-        const teamSnap = await getDocs(collection(db, `teams_${schoolId}`));
+        const teamSnap = await getDocs(schoolCollection(db, schoolId, 'teams'));
         setTeams(teamSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
         // Load existing class permissions
-        const permDoc = await getDoc(doc(db, `settings_${schoolId}`, 'class_permissions'));
+        const permDoc = await getDoc(schoolDoc(db, schoolId, 'settings', 'class_permissions'));
         if (permDoc.exists()) {
           setClassPerms(permDoc.data().classes || {});
         } else {
@@ -48,12 +49,12 @@ export default function ClassPermissionsManager({ schoolId, classes, onClose }) 
           setClassPerms(initial);
         }
       } catch (err) {
-        console.error('Error loading class permissions:', err);
+        console.error('Error loading class permissions:');
       }
       setLoading(false);
     }
     load();
-  }, [schoolId]);
+  }, [schoolId, classes]);
 
   function getPermsForClass(className) {
     return classPerms[className] || { teacherIds: [], teamIds: [] };
@@ -83,14 +84,14 @@ export default function ClassPermissionsManager({ schoolId, classes, onClose }) 
     setSaving(true);
     try {
       await setDoc(
-        doc(db, `settings_${schoolId}`, 'class_permissions'),
+        schoolDoc(db, schoolId, 'settings', 'class_permissions'),
         { classes: classPerms },
         { merge: true }
       );
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (err) {
-      alert('שגיאה בשמירה: ' + err.message);
+      alert('שגיאה בשמירה: ');
     }
     setSaving(false);
   }

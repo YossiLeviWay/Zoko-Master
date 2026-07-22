@@ -10,8 +10,6 @@
 
 ## התקנה מקומית
 
-נדרש Node.js 20.19 ומעלה.
-
 ```bash
 npm install
 ```
@@ -33,6 +31,8 @@ VITE_FIREBASE_PROJECT_ID=...
 VITE_FIREBASE_STORAGE_BUCKET=...
 VITE_FIREBASE_MESSAGING_SENDER_ID=...
 VITE_FIREBASE_APP_ID=...
+VITE_FIREBASE_FUNCTIONS_REGION=europe-west1
+VITE_FIREBASE_APPCHECK_SITE_KEY=...
 ```
 
 ## פריסה ל-GitHub Pages
@@ -40,23 +40,12 @@ VITE_FIREBASE_APP_ID=...
 הפרויקט מוגדר לפריסה אוטומטית דרך GitHub Actions.  
 הוסיפו את משתני הסביבה ב-**Settings → Secrets and variables → Actions** של ה-repo.
 
-## יצירת מנהל מערכת
+## זהויות והרשאות
 
-אין סיסמת מנהל שמוטמעת בקוד הלקוח. צרו משתמש Email/Password ב-Firebase
-Authentication, צרו עבור אותו UID מסמך באוסף `users`, והגדירו בו
-`role: "global_admin"`. מנהלים ומשתמשים נכנסים מאותו טופס התחברות.
+- אין כניסת מנהל באמצעות סיסמה משותפת. מנהלים נכנסים באמצעות חשבון Firebase Authentication אישי כמו כל משתמש אחר.
+- הרשאות מערכת מרכזיות מוקצות רק בצד השרת. `global_admin` דורש Firebase custom claim, וחברות במוסדות נשמרת ב-Firestore ומאומתת בשרת וב-Security Rules.
+- הרשמה ציבורית מושבתת. חשבונות חדשים נוצרים בתהליך הזמנה מאושר בלבד ואינם בוחרים לעצמם תפקיד, מוסד או הרשאות.
 
-> אם גרסה ישנה של האפליקציה כבר הייתה בשימוש, מחקו ממסמכי `users` את השדות
-> `_authPassword` ו-`_pendingPassword`. גרסה זו אינה קוראת או שומרת סיסמאות
-> ב-Firestore; איפוס סיסמה מתבצע באמצעות קישור האיפוס של Firebase.
-> בנוסף, אפסו מיד את סיסמת חשבון המנהל הישן, מכיוון שהסיסמה הקודמת הופיעה
-> בקוד ובהיסטוריית Git ולכן יש להתייחס אליה כסיסמה שנחשפה.
+הסיסמה המשותפת שהופיעה בעבר בקוד ובתיעוד נחשבת חשופה. יש להחליף ולבטל אותה בחשבון הישן ולבטל את כל ה-refresh tokens שלו. הסרתה מהגרסה הנוכחית אינה מוחקת אותה מהיסטוריית Git.
 
-## בדיקות
-
-```bash
-npm run lint
-npm run build
-# או את שניהם יחד:
-npm run check
-```
+App Check נאכף ב־Cloud Functions. לפני שימוש בסביבת staging או production יש לרשום אפליקציית Web עם reCAPTCHA Enterprise ב־Firebase Console ולהגדיר את ה־site key כמשתנה סביבה; אין לשמור מפתחות שרת או debug tokens בריפו.

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { db } from '../../firebase';
-import { doc, updateDoc } from 'firebase/firestore';
+import { updateDoc } from 'firebase/firestore';
+import { schoolDoc } from '../../services/firestore/paths';
 import {
   X, Edit3, GraduationCap, Phone, CheckCircle2,
   Circle, AlertCircle, BookOpen, MessageSquare, Plus, Trash2
@@ -48,12 +49,12 @@ export default function StudentProfile({ student, tracks, schoolId, canEdit, onC
     const updated = { ...reqStatus, [reqId]: next };
     setReqStatus(updated);
     try {
-      await updateDoc(doc(db, `students_${schoolId}`, student.id), {
+      await updateDoc(schoolDoc(db, schoolId, 'students', student.id), {
         requirementStatus: updated,
         updatedAt: new Date().toISOString(),
       });
     } catch (err) {
-      console.error('Error updating requirement status:', err);
+      console.error('Error updating requirement status:');
     }
   }
 
@@ -67,25 +68,25 @@ export default function StudentProfile({ student, tracks, schoolId, canEdit, onC
       i === index ? { ...s, status: next } : s
     );
     try {
-      await updateDoc(doc(db, `students_${schoolId}`, student.id), {
+      await updateDoc(schoolDoc(db, schoolId, 'students', student.id), {
         additionalSubjects: updatedSubjects,
         updatedAt: new Date().toISOString(),
       });
     } catch (err) {
-      console.error('Error updating subject status:', err);
+      console.error('Error updating subject status:');
     }
   }
 
   async function saveNotes() {
     setSaving(true);
     try {
-      await updateDoc(doc(db, `students_${schoolId}`, student.id), {
+      await updateDoc(schoolDoc(db, schoolId, 'students', student.id), {
         notes,
         updatedAt: new Date().toISOString(),
       });
       setEditingNotes(false);
     } catch (err) {
-      console.error('Error saving notes:', err);
+      console.error('Error saving notes:');
     }
     setSaving(false);
   }
@@ -101,12 +102,12 @@ export default function StudentProfile({ student, tracks, schoolId, canEdit, onC
     setNewNote('');
     setShowRecommendationForm(false);
     try {
-      await updateDoc(doc(db, `students_${schoolId}`, student.id), {
+      await updateDoc(schoolDoc(db, schoolId, 'students', student.id), {
         recommendations: updated,
         updatedAt: new Date().toISOString(),
       });
     } catch (err) {
-      console.error('Error saving recommendation:', err);
+      console.error('Error saving recommendation:');
     }
   }
 
@@ -114,12 +115,12 @@ export default function StudentProfile({ student, tracks, schoolId, canEdit, onC
     const updated = recommendations.filter((_, i) => i !== index);
     setRecommendations(updated);
     try {
-      await updateDoc(doc(db, `students_${schoolId}`, student.id), {
+      await updateDoc(schoolDoc(db, schoolId, 'students', student.id), {
         recommendations: updated,
         updatedAt: new Date().toISOString(),
       });
     } catch (err) {
-      console.error('Error removing recommendation:', err);
+      console.error('Error removing recommendation:');
     }
   }
 

@@ -9,7 +9,6 @@ import {
   addDoc,
   updateDoc,
   deleteDoc,
-  doc,
   orderBy,
   getDocs,
   arrayUnion,
@@ -26,6 +25,7 @@ import './Tasks.css';
 import SpreadsheetEditor from '../Files/SpreadsheetEditor';
 import DocumentEditor from '../Files/DocumentEditor';
 import { createNotifications } from '../../utils/notifications';
+import { schoolCollection, schoolDoc } from '../../services/firestore/paths';
 
 const PRIORITY_CONFIG = {
   high: { label: 'גבוהה', icon: AlertCircle, color: '#ef4444', bg: '#fef2f2' },
@@ -83,7 +83,7 @@ export default function TaskBoard() {
   useEffect(() => {
     if (!schoolId) return;
     const q = query(
-      collection(db, `tasks_${schoolId}`),
+      schoolCollection(db, schoolId, 'tasks'),
       orderBy('createdAt', 'desc')
     );
     const unsub = onSnapshot(q, (snap) => {
@@ -114,7 +114,7 @@ export default function TaskBoard() {
 
   useEffect(() => {
     if (!schoolId) return;
-    const unsub = onSnapshot(collection(db, `teams_${schoolId}`), (snap) => {
+    const unsub = onSnapshot(schoolCollection(db, schoolId, 'teams'), (snap) => {
       setTeams(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
     return unsub;
@@ -123,7 +123,7 @@ export default function TaskBoard() {
   // Load files for attachment picker
   useEffect(() => {
     if (!schoolId) return;
-    const unsub = onSnapshot(collection(db, `files_${schoolId}`), (snap) => {
+    const unsub = onSnapshot(schoolCollection(db, schoolId, 'files'), (snap) => {
       setAllFiles(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     }, () => setAllFiles([]));
     return unsub;
@@ -132,7 +132,7 @@ export default function TaskBoard() {
   // Load folders for file path display
   useEffect(() => {
     if (!schoolId) return;
-    const unsub = onSnapshot(collection(db, `folders_${schoolId}`), (snap) => {
+    const unsub = onSnapshot(schoolCollection(db, schoolId, 'folders'), (snap) => {
       setAllFolders(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     }, () => setAllFolders([]));
     return unsub;
@@ -205,11 +205,11 @@ export default function TaskBoard() {
       createdAt: new Date().toISOString()
     };
 
-    await addDoc(collection(db, `tasks_${schoolId}`), taskData);
+    await addDoc(schoolCollection(db, schoolId, 'tasks'), taskData);
 
     // Send notifications to assignees
     const notifTitle = `משימה חדשה: ${form.title}`;
-    const notifOpts = { title: notifTitle, body: form.description?.slice(0, 80) || '', type: 'task', link: '/tasks' };
+    const notifOpts = { schoolId, title: notifTitle, body: form.description?.slice(0, 80) || '', type: 'task', link: '/tasks' };
     if (form.assigneeType === 'individual' && form.assigneeIds.length > 0) {
       const otherIds = form.assigneeIds.filter(id => id !== currentUser?.uid);
       if (otherIds.length > 0) createNotifications(otherIds, notifOpts);
@@ -247,7 +247,7 @@ export default function TaskBoard() {
 
   async function saveEdit() {
     if (!editingTask || !editForm || !schoolId) return;
-    await updateDoc(doc(db, `tasks_${schoolId}`, editingTask), {
+    await updateDoc(schoolDoc(db, schoolId, 'tasks', editingTask), {
       title: editForm.title,
       description: editForm.description,
       priority: editForm.priority,
@@ -269,19 +269,19 @@ export default function TaskBoard() {
   }
 
   async function updateTaskStatus(taskId, newStatus) {
-    await updateDoc(doc(db, `tasks_${schoolId}`, taskId), { status: newStatus });
+    await updateDoc(schoolDoc(db, schoolId, 'tasks', taskId), { status: newStatus });
   }
 
   async function togglePinTask(taskId, isPinned) {
     if (!uid || !schoolId) return;
-    await updateDoc(doc(db, `tasks_${schoolId}`, taskId), {
+    await updateDoc(schoolDoc(db, schoolId, 'tasks', taskId), {
       pinnedBy: isPinned ? arrayRemove(uid) : arrayUnion(uid)
     });
   }
 
   async function deleteTask(taskId) {
     if (!confirm('האם למחוק משימה זו?')) return;
-    await deleteDoc(doc(db, `tasks_${schoolId}`, taskId));
+    await deleteDoc(schoolDoc(db, schoolId, 'tasks', taskId));
   }
 
   function isOverdue(dueDate) {

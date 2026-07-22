@@ -38,7 +38,7 @@ export default function Settings() {
       await fetchUserData(currentUser.uid);
       setSaved(true);
     } catch (err) {
-      alert('שגיאה בשמירה: ' + err.message);
+      alert('שגיאה בשמירה: ');
     }
     setSaving(false);
   }

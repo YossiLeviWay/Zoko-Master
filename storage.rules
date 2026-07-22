@@ -1,0 +1,116 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function currentUser() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function activeUser() {
+      return signedIn()
+        && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
+        && (!('accountStatus' in currentUser()) || currentUser().accountStatus == 'active');
+    }
+
+    function isGlobalAdmin() {
+      return signedIn()
+        && request.auth.token.keys().hasAny(['global_admin'])
+        && request.auth.token.global_admin == true;
+    }
+
+    function isSchoolMember(schoolId) {
+      return activeUser() && (
+        isGlobalAdmin()
+        || (currentUser().schoolId is string && currentUser().schoolId == schoolId)
+        || (currentUser().schoolIds is list && schoolId in currentUser().schoolIds)
+      );
+    }
+
+    function isSchoolPrincipal(schoolId) {
+      return isSchoolMember(schoolId) && currentUser().role == 'principal';
+    }
+
+    function hasPermission(schoolId, permission) {
+      return isGlobalAdmin()
+        || isSchoolPrincipal(schoolId)
+        || (
+          isSchoolMember(schoolId)
+          && currentUser().permissions is map
+          && permission in currentUser().permissions
+          && currentUser().permissions[permission] == true
+        );
+    }
+
+    function safeGeneralUpload(filename) {
+      return request.resource != null
+        && request.resource.size < 25 * 1024 * 1024
+        && request.resource.contentType is string
+        && request.resource.contentType.matches(
+          '^(image/(jpeg|png|gif|webp)|text/(plain|csv)|application/(pdf|msword|vnd\\.openxmlformats-officedocument\\..+|vnd\\.ms-excel|vnd\\.ms-powerpoint|zip))$'
+        )
+        && !filename.matches('(?i).+\\.(exe|dll|bat|cmd|com|msi|ps1|sh|js|mjs|html|htm|svg|jar|apk)$');
+    }
+
+    function safeImageUpload(filename, maxBytes) {
+      return request.resource != null
+        && request.resource.size < maxBytes
+        && request.resource.contentType is string
+        && request.resource.contentType.matches('^image/(jpeg|png|gif|webp)$')
+        && !filename.matches('(?i).+\\.(svg|html|htm|js|mjs)$');
+    }
+
+    function isConversationParticipant(conversationId) {
+      return signedIn()
+        && request.auth.uid in firestore.get(
+          /databases/(default)/documents/conversations/$(conversationId)
+        ).data.participants;
+    }
+
+    match /schools/{schoolId}/files/{fileId}/{filename} {
+      allow read: if isSchoolMember(schoolId);
+      allow create, update: if hasPermission(schoolId, 'files_upload')
+        && safeGeneralUpload(filename);
+      allow delete: if hasPermission(schoolId, 'files_delete');
+    }
+
+    match /schools/{schoolId}/chat-images/{conversationId}/{filename} {
+      allow read: if isSchoolMember(schoolId) && isConversationParticipant(conversationId);
+      allow create: if isSchoolMember(schoolId)
+        && isConversationParticipant(conversationId)
+        && safeImageUpload(filename, 10 * 1024 * 1024);
+      allow update: if false;
+      allow delete: if isConversationParticipant(conversationId);
+    }
+
+    match /users/{userId}/avatars/{filename} {
+      allow read: if signedIn();
+      allow create, update: if request.auth.uid == userId
+        && safeImageUpload(filename, 5 * 1024 * 1024);
+      allow delete: if request.auth.uid == userId;
+    }
+
+    // Transitional legacy paths. Remove after the verified nested migration window.
+    match /schools/{schoolId}/{folderId}/{filename} {
+      allow read: if isSchoolMember(schoolId);
+      allow create, update: if hasPermission(schoolId, 'files_upload')
+        && safeGeneralUpload(filename);
+      allow delete: if hasPermission(schoolId, 'files_delete');
+    }
+
+    match /chat_images/{conversationId}/{filename} {
+      allow read: if isConversationParticipant(conversationId);
+      allow create: if isConversationParticipant(conversationId)
+        && safeImageUpload(filename, 10 * 1024 * 1024);
+      allow update: if false;
+      allow delete: if isConversationParticipant(conversationId);
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
