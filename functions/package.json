@@ -9,7 +9,8 @@
   "scripts": {
     "lint": "eslint .",
     "test": "node --test",
-    "serve": "firebase emulators:start --only functions"
+    "serve": "firebase emulators:start --only functions",
+    "security:remove-password-fields": "node scripts/remove-password-fields.js"
   },
   "dependencies": {
     "firebase-admin": "^13.4.0",

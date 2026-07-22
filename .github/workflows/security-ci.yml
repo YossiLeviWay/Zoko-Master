@@ -1,0 +1,44 @@
+name: Security CI
+
+on:
+  pull_request:
+  push:
+    branches: [security-hardening]
+
+permissions:
+  contents: read
+
+jobs:
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan current source tree with Gitleaks
+        run: docker run --rm -v "${{ github.workspace }}:/repo" zricethezav/gitleaks:v8.28.0 dir /repo --redact --no-banner
+
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      - run: npm --prefix functions ci
+      - run: npm run lint
+      - run: npm --prefix functions run lint
+      - name: Build client with isolated demo configuration
+        run: npm run build
+        env:
+          VITE_FIREBASE_API_KEY: demo-api-key
+          VITE_FIREBASE_AUTH_DOMAIN: demo-zoko-security.firebaseapp.com
+          VITE_FIREBASE_PROJECT_ID: demo-zoko-security
+          VITE_FIREBASE_STORAGE_BUCKET: demo-zoko-security.appspot.com
+          VITE_FIREBASE_MESSAGING_SENDER_ID: '000000000000'
+          VITE_FIREBASE_APP_ID: '1:000000000000:web:0000000000000000'
+      - run: npm run test:emulator

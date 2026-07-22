@@ -17,4 +17,10 @@ export default [
       'no-console': 'error',
     },
   },
+  {
+    files: ['scripts/**/*.js'],
+    rules: {
+      'no-console': 'off',
+    },
+  },
 ];
