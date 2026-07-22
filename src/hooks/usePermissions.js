@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
-import { getDoc } from 'firebase/firestore';
-import { schoolDoc } from '../services/firestore/paths';
+import { getDoc, getDocs, query, where } from 'firebase/firestore';
+import { schoolCollection, schoolDoc } from '../services/firestore/paths';
 
 export const VIEWER_DEFAULTS = {
   calendar_view: true,
@@ -16,8 +16,26 @@ export const VIEWER_DEFAULTS = {
   tasks_assign: false,
   teams_view: true,
   teams_edit: false,
-  students_view: true,
+  classes_view: false,
+  classes_create: false,
+  classes_update: false,
+  classes_archive: false,
+  classes_assign_teacher: false,
+  students_view: false,
   students_edit: false,
+  students_create: false,
+  students_update: false,
+  students_archive: false,
+  students_transfer_class: false,
+  students_manage_programs: false,
+  students_add_notes: false,
+  students_view_notes: false,
+  attendance_create: false,
+  attendance_view: false,
+  attendance_edit: false,
+  attendance_manage_legend: false,
+  attendance_manage_dates: false,
+  attendance_block_days: false,
   files_view: true,
   files_upload: false,
   files_delete: false,
@@ -38,6 +56,7 @@ export const FULL_PERMISSIONS = Object.fromEntries(
 export function usePermissions() {
   const { userData, selectedSchool, isGlobalAdmin, isPrincipal } = useAuth();
   const [permissions, setPermissions] = useState(VIEWER_DEFAULTS);
+  const [schoolWidePermissions, setSchoolWidePermissions] = useState({});
   const [loading, setLoading] = useState(true);
 
   const schoolId = selectedSchool || userData?.schoolId;
@@ -45,18 +64,22 @@ export function usePermissions() {
 
   useEffect(() => {
     if (!userData) {
+      setPermissions(VIEWER_DEFAULTS);
+      setSchoolWidePermissions({});
       setLoading(false);
       return;
     }
 
     if (hasFullAccess) {
       setPermissions(FULL_PERMISSIONS);
+      setSchoolWidePermissions(FULL_PERMISSIONS);
       setLoading(false);
       return;
     }
 
     async function resolve() {
       let base = { ...VIEWER_DEFAULTS };
+      const explicit = {};
 
       // Merge all custom roles (OR logic — any role that grants a permission enables it)
       const roleIds = userData.customRoleIds || [];
@@ -67,7 +90,10 @@ export function usePermissions() {
             if (roleDoc.exists()) {
               const rp = roleDoc.data().permissions || {};
               for (const [key, val] of Object.entries(rp)) {
-                if (val === true) base[key] = true;
+                if (val === true) {
+                  base[key] = true;
+                  explicit[key] = true;
+                }
               }
             }
           } catch {}
@@ -77,15 +103,45 @@ export function usePermissions() {
       // Apply individual overrides stored directly on the user doc
       const userPerms = userData.permissions || {};
       for (const [key, val] of Object.entries(userPerms)) {
-        if (val !== undefined) base[key] = val;
+        if (val !== undefined) {
+          base[key] = val;
+          explicit[key] = val;
+        }
+      }
+
+      // A homeroom teacher or explicitly assigned class staff member must be able
+      // to open the page, while their Firestore access remains scoped per class.
+      if (!base.students_view && schoolId && userData.uid) {
+        try {
+          const classesRef = schoolCollection(db, schoolId, 'classes');
+          const [teacherClasses, staffClasses] = await Promise.all([
+            getDocs(query(classesRef, where('teacherId', '==', userData.uid))),
+            getDocs(query(classesRef, where('staffIds', 'array-contains', userData.uid))),
+          ]);
+          if (!teacherClasses.empty || !staffClasses.empty) {
+            base.students_view = true;
+            base.classes_view = true;
+          } else {
+            const legacySettings = await getDoc(schoolDoc(db, schoolId, 'settings', 'class_permissions'));
+            const legacyClasses = legacySettings.data()?.classes || {};
+            const legacyAssigned = Object.values(legacyClasses).some(classAccess => (
+              classAccess?.teacherIds?.includes(userData.uid)
+              || classAccess?.teamIds?.some(teamId => userData.teamIds?.includes(teamId))
+            ));
+            if (legacyAssigned) base.students_view = true;
+          }
+        } catch {
+          // The page stays hidden when class membership cannot be verified.
+        }
       }
 
       setPermissions(base);
+      setSchoolWidePermissions(explicit);
       setLoading(false);
     }
 
     resolve();
   }, [hasFullAccess, schoolId, userData]);
 
-  return { permissions, loading };
+  return { permissions, schoolWidePermissions, loading };
 }

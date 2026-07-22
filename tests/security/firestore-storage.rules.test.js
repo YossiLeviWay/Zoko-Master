@@ -12,8 +12,12 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
+  query,
   setDoc,
   updateDoc,
+  where,
+  writeBatch,
 } from 'firebase/firestore';
 import { getBytes, ref, uploadBytes } from 'firebase/storage';
 
@@ -42,6 +46,50 @@ function user({ schoolId, role = 'viewer', permissions = {}, teamIds = [], statu
     permissions,
     teamIds,
     accountStatus: status,
+  };
+}
+
+function classRecord({ teacherId = '', staffIds = [], schoolId = SCHOOL_A, name = 'Class A' } = {}) {
+  return {
+    name,
+    normalizedName: name.toLowerCase(),
+    gradeLevel: 'י׳',
+    academicYear: '2026-2027',
+    schoolId,
+    teacherId,
+    staffIds,
+    trackIds: [],
+    programTypes: [],
+    studyDays: ['0', '1', '2', '3', '4'],
+    status: 'active',
+    createdBy: 'principal_a',
+    updatedBy: 'principal_a',
+    createdAt: 'created',
+    updatedAt: 'created',
+  };
+}
+
+function studentRecord({ classId = 'class_a', schoolId = SCHOOL_A, name = 'Student A' } = {}) {
+  return {
+    firstName: name.split(' ')[0],
+    lastName: name.split(' ').slice(1).join(' '),
+    fullName: name,
+    schoolId,
+    classId,
+    className: classId === 'class_b' ? 'Class B' : 'Class A',
+    gradeLevel: 'י׳',
+    academicYear: '2026-2027',
+    trackId: '',
+    trackIds: [],
+    programType: '',
+    programTypes: [],
+    status: 'active',
+    joinedAt: '2026-09-01',
+    endDate: '',
+    createdBy: 'principal_a',
+    updatedBy: 'principal_a',
+    createdAt: 'created',
+    updatedAt: 'created',
   };
 }
 
@@ -262,6 +310,158 @@ test('global admin needs the dedicated claim to read student data', async () => 
   }).firestore();
   await assertFails(getDoc(doc(withoutStudentClaim, `schools/${SCHOOL_B}/students/student_1`)));
   await assertSucceeds(getDoc(doc(withStudentClaim, `schools/${SCHOOL_B}/students/student_1`)));
+});
+
+test('principal creates a class while class editor cannot replace its teacher without permission', async () => {
+  await seedFirestore({
+    'users/principal_a': user({ schoolId: SCHOOL_A, role: 'principal' }),
+    'users/class_editor': user({
+      schoolId: SCHOOL_A,
+      permissions: { classes_view: true, classes_update: true },
+    }),
+    'users/teacher_a': user({ schoolId: SCHOOL_A }),
+  });
+  const principalDb = context('principal_a').firestore();
+  const classRef = doc(principalDb, `schools/${SCHOOL_A}/classes/class_a`);
+  await assertSucceeds(setDoc(classRef, classRecord({ teacherId: 'teacher_a' })));
+
+  const editorRef = doc(context('class_editor').firestore(), `schools/${SCHOOL_A}/classes/class_a`);
+  await assertSucceeds(updateDoc(editorRef, {
+    name: 'Updated Class', updatedBy: 'class_editor', updatedAt: 'later',
+  }));
+  await assertFails(updateDoc(editorRef, {
+    teacherId: 'class_editor', updatedBy: 'class_editor', updatedAt: 'later-again',
+  }));
+});
+
+test('homeroom teacher reads and edits only students in the assigned class', async () => {
+  await seedFirestore({
+    'users/teacher_a': user({ schoolId: SCHOOL_A }),
+    'users/teacher_b': user({ schoolId: SCHOOL_A }),
+    [`schools/${SCHOOL_A}/classes/class_a`]: classRecord({ teacherId: 'teacher_a' }),
+    [`schools/${SCHOOL_A}/classes/class_b`]: classRecord({ teacherId: 'teacher_b', name: 'Class B' }),
+    [`schools/${SCHOOL_A}/students/student_a`]: studentRecord(),
+    [`schools/${SCHOOL_A}/students/student_b`]: studentRecord({ classId: 'class_b', name: 'Student B' }),
+  });
+  const teacherDb = context('teacher_a').firestore();
+  await assertSucceeds(getDoc(doc(teacherDb, `schools/${SCHOOL_A}/classes/class_a`)));
+  await assertFails(getDoc(doc(teacherDb, `schools/${SCHOOL_A}/classes/class_b`)));
+  await assertSucceeds(getDoc(doc(teacherDb, `schools/${SCHOOL_A}/students/student_a`)));
+  await assertFails(getDoc(doc(teacherDb, `schools/${SCHOOL_A}/students/student_b`)));
+  await assertSucceeds(getDocs(query(
+    collection(teacherDb, `schools/${SCHOOL_A}/classes`),
+    where('teacherId', '==', 'teacher_a'),
+  )));
+  await assertSucceeds(getDocs(query(
+    collection(teacherDb, `schools/${SCHOOL_A}/students`),
+    where('classId', '==', 'class_a'),
+  )));
+  await assertSucceeds(updateDoc(doc(teacherDb, `schools/${SCHOOL_A}/students/student_a`), {
+    fullName: 'Updated Student', updatedBy: 'teacher_a', updatedAt: 'later',
+  }));
+  await assertFails(updateDoc(doc(teacherDb, `schools/${SCHOOL_A}/students/student_a`), {
+    classId: 'class_b', className: 'Class B', updatedBy: 'teacher_a', updatedAt: 'later',
+  }));
+  await assertFails(updateDoc(doc(teacherDb, `schools/${SCHOOL_A}/students/student_a`), {
+    trackIds: ['track_a'], updatedBy: 'teacher_a', updatedAt: 'later',
+  }));
+  await assertFails(deleteDoc(doc(teacherDb, `schools/${SCHOOL_A}/students/student_a`)));
+});
+
+test('teacher creates a student only in the class they teach', async () => {
+  await seedFirestore({
+    'users/teacher_a': user({ schoolId: SCHOOL_A }),
+    'users/teacher_b': user({ schoolId: SCHOOL_A }),
+    [`schools/${SCHOOL_A}/classes/class_a`]: classRecord({ teacherId: 'teacher_a' }),
+    [`schools/${SCHOOL_A}/classes/class_b`]: classRecord({ teacherId: 'teacher_b', name: 'Class B' }),
+  });
+  const db = context('teacher_a').firestore();
+  const batch = writeBatch(db);
+  batch.set(
+    doc(db, `schools/${SCHOOL_A}/students/student_a`),
+    { ...studentRecord(), createdBy: 'teacher_a', updatedBy: 'teacher_a' },
+  );
+  batch.set(doc(db, `schools/${SCHOOL_A}/students/student_a/history/created`), {
+    type: 'student_created', schoolId: SCHOOL_A, studentId: 'student_a',
+    nextClassId: 'class_a', createdBy: 'teacher_a',
+  });
+  await assertSucceeds(batch.commit());
+  await assertFails(setDoc(
+    doc(db, `schools/${SCHOOL_A}/students/student_b`),
+    { ...studentRecord({ classId: 'class_b' }), createdBy: 'teacher_a', updatedBy: 'teacher_a' },
+  ));
+});
+
+test('student transfer and archive permissions are granular and tenant fields stay immutable', async () => {
+  await seedFirestore({
+    'users/transfer_a': user({ schoolId: SCHOOL_A, permissions: { students_transfer_class: true } }),
+    'users/archive_a': user({ schoolId: SCHOOL_A, permissions: { students_archive: true } }),
+    [`schools/${SCHOOL_A}/classes/class_a`]: classRecord(),
+    [`schools/${SCHOOL_A}/classes/class_b`]: classRecord({ name: 'Class B' }),
+    [`schools/${SCHOOL_A}/students/student_a`]: studentRecord(),
+    [`schools/${SCHOOL_B}/classes/class_b`]: classRecord({ schoolId: SCHOOL_B, name: 'School B Class' }),
+    [`schools/${SCHOOL_B}/students/student_b`]: studentRecord({ schoolId: SCHOOL_B, classId: 'class_b' }),
+  });
+  const transferRef = doc(context('transfer_a').firestore(), `schools/${SCHOOL_A}/students/student_a`);
+  await assertSucceeds(updateDoc(transferRef, {
+    classId: 'class_b', className: 'Class B', academicYear: '2026-2027', gradeLevel: 'י׳',
+    joinedAt: '2026-10-01', updatedBy: 'transfer_a', updatedAt: 'later',
+  }));
+  await assertFails(updateDoc(transferRef, {
+    schoolId: SCHOOL_B, updatedBy: 'transfer_a', updatedAt: 'later',
+  }));
+  await assertFails(updateDoc(
+    doc(context('transfer_a').firestore(), `schools/${SCHOOL_B}/students/student_b`),
+    { className: 'Forged', updatedBy: 'transfer_a', updatedAt: 'later' },
+  ));
+  const archiveRef = doc(context('archive_a').firestore(), `schools/${SCHOOL_A}/students/student_a`);
+  await assertSucceeds(updateDoc(archiveRef, {
+    status: 'archived', endDate: '2026-11-01', updatedBy: 'archive_a', updatedAt: 'archived',
+  }));
+});
+
+test('student notes require class access and separate note permissions', async () => {
+  await seedFirestore({
+    'users/teacher_a': user({
+      schoolId: SCHOOL_A,
+      permissions: { students_view_notes: true, students_add_notes: true },
+    }),
+    'users/peer_a': user({ schoolId: SCHOOL_A, permissions: { students_view_notes: true } }),
+    'users/principal_a': user({ schoolId: SCHOOL_A, role: 'principal' }),
+    [`schools/${SCHOOL_A}/classes/class_a`]: classRecord({ teacherId: 'teacher_a' }),
+    [`schools/${SCHOOL_A}/students/student_a`]: studentRecord(),
+    [`schools/${SCHOOL_A}/students/student_a/notes/class_note`]: {
+      schoolId: SCHOOL_A, studentId: 'student_a', content: 'Class note',
+      visibility: 'class_staff', createdBy: 'principal_a',
+    },
+    [`schools/${SCHOOL_A}/students/student_a/notes/admin_note`]: {
+      schoolId: SCHOOL_A, studentId: 'student_a', content: 'Admin note',
+      visibility: 'school_admin', createdBy: 'principal_a',
+    },
+  });
+  const teacherDb = context('teacher_a').firestore();
+  await assertSucceeds(getDoc(doc(teacherDb, `schools/${SCHOOL_A}/students/student_a/notes/class_note`)));
+  await assertFails(getDoc(doc(teacherDb, `schools/${SCHOOL_A}/students/student_a/notes/admin_note`)));
+  await assertFails(getDoc(doc(context('peer_a').firestore(), `schools/${SCHOOL_A}/students/student_a/notes/class_note`)));
+  await assertSucceeds(getDoc(doc(context('principal_a').firestore(), `schools/${SCHOOL_A}/students/student_a/notes/admin_note`)));
+  await assertSucceeds(setDoc(doc(teacherDb, `schools/${SCHOOL_A}/students/student_a/notes/new_note`), {
+    schoolId: SCHOOL_A,
+    studentId: 'student_a',
+    content: 'New note',
+    visibility: 'class_staff',
+    createdBy: 'teacher_a',
+  }));
+});
+
+test('legacy class and student collections retain class-scoped access', async () => {
+  await seedFirestore({
+    'users/teacher_a': user({ schoolId: SCHOOL_A }),
+    'users/teacher_b': user({ schoolId: SCHOOL_A }),
+    [`classes_${SCHOOL_A}/class_a`]: classRecord({ teacherId: 'teacher_a' }),
+    [`students_${SCHOOL_A}/student_a`]: studentRecord(),
+  });
+  await assertSucceeds(getDoc(doc(context('teacher_a').firestore(), `students_${SCHOOL_A}/student_a`)));
+  await assertFails(getDoc(doc(context('teacher_b').firestore(), `students_${SCHOOL_A}/student_a`)));
 });
 
 test('only conversation participants read messages', async () => {

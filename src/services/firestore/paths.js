@@ -2,6 +2,7 @@ import { collection, doc } from 'firebase/firestore';
 
 const RESOURCE_CONFIG = Object.freeze({
   tasks: { legacy: 'tasks' },
+  classes: { legacy: 'classes' },
   students: { legacy: 'students' },
   files: { legacy: 'files' },
   fileHistory: { legacy: 'file_history' },

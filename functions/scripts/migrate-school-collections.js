@@ -8,6 +8,7 @@ import { isDeepStrictEqual } from 'node:util';
 const RESOURCES = Object.freeze([
   { legacy: 'tasks', nested: 'tasks', copyTaskChat: true },
   { legacy: 'students', nested: 'students' },
+  { legacy: 'classes', nested: 'classes' },
   { legacy: 'files', nested: 'files' },
   { legacy: 'file_history', nested: 'fileHistory' },
   { legacy: 'folders', nested: 'folders' },

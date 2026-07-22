@@ -21,7 +21,9 @@ export const PATH_TO_PERMISSION = {
 };
 
 // Default view permission for each key (viewer defaults = all view = true)
-const DEFAULT_ALLOWED = true;
+function defaultAllowed(permission) {
+  return permission !== 'students_view';
+}
 
 export default function NavPermissionsPanel({ item, anchor, schoolId, onClose }) {
   const panelRef = useRef(null);
@@ -78,7 +80,7 @@ export default function NavPermissionsPanel({ item, anchor, schoolId, onClose })
           if (u.role === 'principal' || u.role === 'editor') {
             pmap[u.id] = true;
           } else {
-            pmap[u.id] = permKey in perms ? !!perms[permKey] : DEFAULT_ALLOWED;
+            pmap[u.id] = permKey in perms ? !!perms[permKey] : defaultAllowed(permKey);
           }
         });
         setPermissions(pmap);

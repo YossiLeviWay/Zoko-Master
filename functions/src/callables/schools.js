@@ -14,7 +14,7 @@ import {
 } from '../validation/schemas.js';
 
 const LEGACY_SCHOOL_RESOURCES = [
-  'tasks', 'students', 'files', 'file_history', 'folders', 'teams', 'events',
+  'tasks', 'classes', 'students', 'files', 'file_history', 'folders', 'teams', 'events',
   'holidays', 'categories', 'roles', 'tracks', 'settings', 'sheets',
 ];
 
