@@ -37,19 +37,20 @@ import {
 } from 'lucide-react';
 import { AVATAR_OPTIONS, AVATAR_ICON_PATHS } from '../../data/avatars';
 import NavPermissionsPanel, { PATH_TO_PERMISSION as PATH_TO_PERMISSION_SIDEBAR } from '../Shared/NavPermissionsPanel';
+import { usePermissions } from '../../hooks/usePermissions';
 import './Layout.css';
 
 const NAV_ITEMS = [
   { path: '/', icon: Home, label: 'דשבורד' },
-  { path: '/calendar', icon: Calendar, label: 'לוח שנה', requiresSchool: true },
-  { path: '/categories', icon: LayoutGrid, label: 'קטגוריות', requiresSchool: true },
-  { path: '/staff', icon: Users, label: 'סגל וקהילה', requiresSchool: true },
-  { path: '/tasks', icon: CheckSquare, label: 'משימות', requiresSchool: true },
-  { path: '/files', icon: FolderOpen, label: 'קבצים', requiresSchool: true },
-  { path: '/teams', icon: Users, label: 'צוותים', requiresSchool: true },
-  { path: '/students', icon: GraduationCap, label: 'תלמידים', requiresSchool: true },
-  { path: '/messages', icon: MessageCircle, label: 'הודעות' },
-  { path: '/holidays', icon: Sun, label: 'חופשות וחגים', requiresSchool: true },
+  { path: '/calendar', icon: Calendar, label: 'לוח שנה', requiresSchool: true, permission: 'calendar_view' },
+  { path: '/categories', icon: LayoutGrid, label: 'קטגוריות', requiresSchool: true, permission: 'categories_view' },
+  { path: '/staff', icon: Users, label: 'סגל וקהילה', requiresSchool: true, permission: 'staff_view' },
+  { path: '/tasks', icon: CheckSquare, label: 'משימות', requiresSchool: true, permission: 'tasks_view' },
+  { path: '/files', icon: FolderOpen, label: 'קבצים', requiresSchool: true, permission: 'files_view' },
+  { path: '/teams', icon: Users, label: 'צוותים', requiresSchool: true, permission: 'teams_view' },
+  { path: '/students', icon: GraduationCap, label: 'תלמידים', requiresSchool: true, permission: 'students_view' },
+  { path: '/messages', icon: MessageCircle, label: 'הודעות', permission: 'messages_send' },
+  { path: '/holidays', icon: Sun, label: 'חופשות וחגים', requiresSchool: true, permission: 'holidays_view' },
   { path: '/schools', icon: School, label: 'ניהול מוסדות', adminOnly: true },
   { path: '/settings', icon: Settings, label: 'הגדרות' }
 ];
@@ -91,6 +92,7 @@ function formatNotifTime(dateStr) {
 
 export default function Sidebar() {
   const isMobile = useIsMobile();
+  const { permissions } = usePermissions();
   const [collapsed, setCollapsed] = useState(isMobile);
   const { logout, userData, currentUser, selectedSchool, isPending, isPrincipal, isGlobalAdmin } = useAuth();
   const navigate = useNavigate();
@@ -202,6 +204,7 @@ export default function Sidebar() {
     if (userIsPending) return item.path === '/';
     if (item.adminOnly) return userData?.role === 'global_admin';
     if (item.requiresSchool && !schoolId) return false;
+    if (item.permission && !permissions[item.permission]) return false;
     return true;
   }
 

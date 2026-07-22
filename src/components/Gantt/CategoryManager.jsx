@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePermissions } from '../../hooks/usePermissions';
 import { db } from '../../firebase';
 import {
   collection,
@@ -20,8 +21,9 @@ const CATEGORY_COLORS = [
 ];
 
 export default function CategoryManager() {
-  const { userData, selectedSchool, isPrincipal, isGlobalAdmin } = useAuth();
-  const canEdit = isPrincipal() || isGlobalAdmin();
+  const { userData, selectedSchool } = useAuth();
+  const { permissions } = usePermissions();
+  const canEdit = permissions.categories_edit;
   const [categories, setCategories] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -39,7 +41,7 @@ export default function CategoryManager() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!form.name.trim() || !schoolId) return;
+    if (!canEdit || !form.name.trim() || !schoolId) return;
 
     if (editing) {
       await updateDoc(doc(db, `categories_${schoolId}`, editing), {
@@ -60,11 +62,13 @@ export default function CategoryManager() {
   }
 
   async function handleDelete(id) {
+    if (!canEdit) return;
     if (!confirm('האם למחוק קטגוריה זו?')) return;
     await deleteDoc(doc(db, `categories_${schoolId}`, id));
   }
 
   function startEdit(cat) {
+    if (!canEdit) return;
     setForm({ name: cat.name, color: cat.color || CATEGORY_COLORS[0] });
     setEditing(cat.id);
     setShowForm(true);

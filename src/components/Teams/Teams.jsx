@@ -16,12 +16,14 @@ import {
 import { updateTeamMembership } from '../../services/adminUserService';
 import Header from '../Layout/Header';
 import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
+import { usePermissions } from '../../hooks/usePermissions';
 import { Plus, Trash2, Edit3, Users, X, Search, UserPlus, UserMinus, Shield } from 'lucide-react';
 import '../Gantt/Gantt.css';
 import './Teams.css';
 
 export default function Teams() {
   const { userData, selectedSchool, isPrincipal, isGlobalAdmin } = useAuth();
+  const { permissions } = usePermissions();
   const [showPermissionsPanel, setShowPermissionsPanel] = useState(false);
   const [teams, setTeams] = useState([]);
   const [staff, setStaff] = useState([]);
@@ -34,7 +36,7 @@ export default function Teams() {
 
   const schoolId = selectedSchool || userData?.schoolId;
   const isAdmin = isPrincipal() || isGlobalAdmin();
-  const hasTeamsPermission = isAdmin || userData?.permissions?.teams_edit;
+  const hasTeamsPermission = isAdmin || permissions.teams_edit;
   const canEdit = hasTeamsPermission;
 
   // Check if user can manage a specific team (admin, has teams_edit permission, or is team manager)

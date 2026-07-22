@@ -18,6 +18,7 @@ import Header from '../Layout/Header';
 import EventModal from './EventModal';
 import YearlyOverview from './YearlyOverview';
 import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
+import { usePermissions } from '../../hooks/usePermissions';
 import { CalendarDays, ChevronDown, Eye, Plus, Search, Settings } from 'lucide-react';
 import './Gantt.css';
 
@@ -87,6 +88,8 @@ export default function GanttChart() {
   const [calendarTasks, setCalendarTasks] = useState([]);
 
   const schoolId = selectedSchool || userData?.schoolId;
+  const { permissions } = usePermissions();
+  const canEditCalendar = permissions.calendar_edit;
   const [showPermissionsPanel, setShowPermissionsPanel] = useState(false);
 
   // Load user's team memberships for visibility filtering
@@ -254,6 +257,7 @@ export default function GanttChart() {
   }
 
   function handleCellClick(date, category) {
+    if (!canEditCalendar) return;
     setSelectedDate(date);
     setSelectedCategory(category);
     setEditingEvent(null);
@@ -262,6 +266,7 @@ export default function GanttChart() {
 
   function handleEventClick(e, event) {
     e.stopPropagation();
+    if (!canEditCalendar) return;
     setEditingEvent(event);
     setSelectedDate(null);
     setSelectedCategory(event.category);
@@ -269,7 +274,7 @@ export default function GanttChart() {
   }
 
   async function handleSaveEvent(eventData) {
-    if (!schoolId) return;
+    if (!canEditCalendar || !schoolId) return;
     try {
       const colRef = collection(db, `events_${schoolId}`);
       if (editingEvent) {
@@ -291,7 +296,7 @@ export default function GanttChart() {
   }
 
   async function handleDeleteEvent() {
-    if (!editingEvent || !schoolId) return;
+    if (!canEditCalendar || !editingEvent || !schoolId) return;
     try {
       await deleteDoc(doc(db, `events_${schoolId}`, editingEvent.id));
       setModalOpen(false);

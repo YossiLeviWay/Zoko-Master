@@ -66,6 +66,8 @@ const DEFAULT_PERMISSIONS = {
   tasks_assign: false,
   teams_view: true,
   teams_edit: false,
+  students_view: true,
+  students_edit: false,
   files_view: true,
   files_upload: false,
   files_delete: false,
@@ -115,6 +117,13 @@ const PERMISSION_GROUPS = [
     permissions: [
       { key: 'teams_view', label: 'צפייה בצוותים' },
       { key: 'teams_edit', label: 'ניהול צוותים' },
+    ]
+  },
+  {
+    label: 'תלמידים',
+    permissions: [
+      { key: 'students_view', label: 'צפייה בתלמידים' },
+      { key: 'students_edit', label: 'עריכת תלמידים' },
     ]
   },
   {

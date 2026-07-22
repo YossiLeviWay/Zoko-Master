@@ -14,6 +14,7 @@ const FEATURE_LABELS = {
   tasks:       { label: 'משימות',         view: 'tasks_view',       edit: 'tasks_edit' },
   files:       { label: 'קבצים',          view: 'files_view',       edit: 'files_upload' },
   teams:       { label: 'צוותים',         view: 'teams_view',       edit: 'teams_edit' },
+  students:    { label: 'תלמידים',        view: 'students_view',    edit: 'students_edit' },
   messages:    { label: 'הודעות',         view: null,               edit: 'messages_send' },
   holidays:    { label: 'חגים וחופשות',  view: 'holidays_view',    edit: 'holidays_edit' },
 };

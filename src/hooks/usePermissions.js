@@ -16,6 +16,8 @@ export const VIEWER_DEFAULTS = {
   tasks_assign: false,
   teams_view: true,
   teams_edit: false,
+  students_view: true,
+  students_edit: false,
   files_view: true,
   files_upload: false,
   files_delete: false,
