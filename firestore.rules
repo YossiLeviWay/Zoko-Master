@@ -63,22 +63,194 @@ service cloud.firestore {
     }
 
     function hasStudentDataAccess(schoolId) {
-      return (
-          isGlobalAdmin()
+      return activeUser() && (
+        (
+          request.auth.token.keys().hasAny(['global_admin'])
+          && request.auth.token.global_admin == true
           && request.auth.token.keys().hasAny(['student_data_access'])
           && request.auth.token.student_data_access == true
+        ) || (
+          !(request.auth.token.keys().hasAny(['global_admin']) && request.auth.token.global_admin == true)
+          && (
+            (currentUser().schoolId is string && currentUser().schoolId == schoolId)
+            || (currentUser().schoolIds is list && schoolId in currentUser().schoolIds)
+          )
         )
-        || (!isGlobalAdmin() && isSchoolMember(schoolId));
+      );
     }
 
-    function canViewStudents(schoolId) {
-      return hasStudentDataAccess(schoolId)
-        && (canEditSchoolResource(schoolId) || hasPermission(schoolId, 'students_view'));
+    function studentPermission(permission) {
+      return currentUser().permissions is map
+        && permission in currentUser().permissions
+        && currentUser().permissions[permission] == true;
     }
 
-    function canEditStudents(schoolId) {
+    function canViewAllStudents(schoolId) {
+      return hasStudentDataAccess(schoolId) && (
+        (request.auth.token.keys().hasAny(['global_admin']) && request.auth.token.global_admin == true)
+        || currentUser().role == 'principal'
+        || studentPermission('students_view')
+        || studentPermission('students_edit')
+        || studentPermission('students_update')
+        || studentPermission('students_archive')
+        || studentPermission('students_transfer_class')
+        || studentPermission('students_manage_programs')
+      );
+    }
+
+    function canManagePrograms(schoolId) {
+      return hasStudentDataAccess(schoolId) && (
+        currentUser().role == 'principal'
+        || studentPermission('students_manage_programs')
+        || studentPermission('students_edit')
+      );
+    }
+
+    function classAssignedToCurrentUser(data) {
+      return (
+          data.teacherId is string
+          && data.teacherId == request.auth.uid
+        ) || (
+          data.staffIds is list
+          && request.auth.uid in data.staffIds
+        );
+    }
+
+    function classTaughtByCurrentUser(data) {
+      return data.teacherId is string && data.teacherId == request.auth.uid;
+    }
+
+    function canViewClass(schoolId, data) {
+      return hasStudentDataAccess(schoolId) && (
+        (request.auth.token.keys().hasAny(['global_admin']) && request.auth.token.global_admin == true)
+        || currentUser().role == 'principal'
+        || studentPermission('students_view')
+        || studentPermission('students_edit')
+        || studentPermission('classes_view')
+        || studentPermission('classes_create')
+        || studentPermission('classes_update')
+        || studentPermission('classes_archive')
+        || studentPermission('classes_assign_teacher')
+        || studentPermission('students_create')
+        || studentPermission('students_update')
+        || studentPermission('students_archive')
+        || studentPermission('students_transfer_class')
+        || studentPermission('students_manage_programs')
+        || ('createdBy' in data && data.createdBy is string && data.createdBy == request.auth.uid)
+        || classAssignedToCurrentUser(data)
+      );
+    }
+
+    function nestedClassExists(schoolId, classId) {
+      return classId is string
+        && classId.size() > 0
+        && exists(/databases/$(database)/documents/schools/$(schoolId)/classes/$(classId));
+    }
+
+    function legacyClassExists(schoolId, classId) {
+      let legacyClasses = 'classes_' + schoolId;
+      return classId is string
+        && classId.size() > 0
+        && exists(/databases/$(database)/documents/$(legacyClasses)/$(classId));
+    }
+
+    function classExists(schoolId, classId) {
+      return nestedClassExists(schoolId, classId) || legacyClassExists(schoolId, classId);
+    }
+
+    function assignedToClass(schoolId, classId) {
+      let legacyClasses = 'classes_' + schoolId;
+      return (
+          nestedClassExists(schoolId, classId)
+          && classAssignedToCurrentUser(
+            get(/databases/$(database)/documents/schools/$(schoolId)/classes/$(classId)).data
+          )
+        ) || (
+          legacyClassExists(schoolId, classId)
+          && classAssignedToCurrentUser(
+            get(/databases/$(database)/documents/$(legacyClasses)/$(classId)).data
+          )
+        );
+    }
+
+    function teachesClass(schoolId, classId) {
+      let legacyClasses = 'classes_' + schoolId;
+      return (
+          nestedClassExists(schoolId, classId)
+          && classTaughtByCurrentUser(
+            get(/databases/$(database)/documents/schools/$(schoolId)/classes/$(classId)).data
+          )
+        ) || (
+          legacyClassExists(schoolId, classId)
+          && classTaughtByCurrentUser(
+            get(/databases/$(database)/documents/$(legacyClasses)/$(classId)).data
+          )
+        );
+    }
+
+    function assignedThroughLegacyClassName(schoolId, data) {
+      let nestedSettings = /databases/$(database)/documents/schools/$(schoolId)/settings/class_permissions;
+      let legacySettingsCollection = 'settings_' + schoolId;
+      let legacySettings = /databases/$(database)/documents/$(legacySettingsCollection)/class_permissions;
+      return 'className' in data && data.className is string && (
+        (
+          exists(nestedSettings)
+          && get(nestedSettings).data.classes is map
+          && data.className in get(nestedSettings).data.classes
+          && get(nestedSettings).data.classes[data.className].teacherIds is list
+          && request.auth.uid in get(nestedSettings).data.classes[data.className].teacherIds
+        ) || (
+          exists(legacySettings)
+          && get(legacySettings).data.classes is map
+          && data.className in get(legacySettings).data.classes
+          && get(legacySettings).data.classes[data.className].teacherIds is list
+          && request.auth.uid in get(legacySettings).data.classes[data.className].teacherIds
+        )
+      );
+    }
+
+    function canViewStudent(schoolId, data) {
+      return hasStudentDataAccess(schoolId) && (
+        (request.auth.token.keys().hasAny(['global_admin']) && request.auth.token.global_admin == true)
+        || currentUser().role == 'principal'
+        || studentPermission('students_view')
+        || studentPermission('students_edit')
+        || studentPermission('students_update')
+        || studentPermission('students_archive')
+        || studentPermission('students_transfer_class')
+        || studentPermission('students_manage_programs')
+        || (
+          'classId' in data
+          && data.classId is string
+          && assignedToClass(schoolId, data.classId)
+        )
+        || assignedThroughLegacyClassName(schoolId, data)
+      );
+    }
+
+    function canCreateStudent(schoolId, data) {
       return hasStudentDataAccess(schoolId)
-        && (isSchoolPrincipal(schoolId) || hasPermission(schoolId, 'students_edit'));
+        && data.classId is string
+        && classExists(schoolId, data.classId)
+        && (
+          currentUser().role == 'principal'
+          || studentPermission('students_create')
+          || studentPermission('students_edit')
+          || teachesClass(schoolId, data.classId)
+        );
+    }
+
+    function canUpdateStudentBase(schoolId, data) {
+      return hasStudentDataAccess(schoolId) && (
+        currentUser().role == 'principal'
+        || studentPermission('students_update')
+        || studentPermission('students_edit')
+        || (
+          'classId' in data
+          && data.classId is string
+          && teachesClass(schoolId, data.classId)
+        )
+      );
     }
 
     function hasNoPasswordFields(data) {
@@ -162,22 +334,154 @@ service cloud.firestore {
         );
     }
 
-    function classVisibleToCurrentUser(schoolId, data) {
-      let settingsPath = /databases/$(database)/documents/schools/$(schoolId)/settings/class_permissions;
-      return canEditStudents(schoolId)
-        || !exists(settingsPath)
-        || !(get(settingsPath).data.classes is map)
-        || !('className' in data)
-        || !(data.className in get(settingsPath).data.classes)
-        || (
-          get(settingsPath).data.classes[data.className].teacherIds is list
-          && request.auth.uid in get(settingsPath).data.classes[data.className].teacherIds
+    function validClassCreate(schoolId, data) {
+      return hasStudentDataAccess(schoolId)
+        && (currentUser().role == 'principal' || studentPermission('classes_create'))
+        && data.keys().hasAll([
+          'name', 'normalizedName', 'academicYear', 'schoolId', 'teacherId',
+          'staffIds', 'status', 'createdBy', 'updatedBy'
+        ])
+        && data.schoolId == schoolId
+        && data.createdBy == request.auth.uid
+        && data.updatedBy == request.auth.uid
+        && data.name is string
+        && data.name.size() > 0
+        && data.academicYear is string
+        && data.academicYear.size() > 0
+        && data.status in ['active', 'archived']
+        && (
+          data.teacherId == ''
+          || currentUser().role == 'principal'
+          || studentPermission('classes_assign_teacher')
         )
-        || (
-          get(settingsPath).data.classes[data.className].teamIds is list
-          && currentUser().teamIds is list
-          && get(settingsPath).data.classes[data.className].teamIds.hasAny(currentUser().teamIds)
+        && (
+          data.status == 'active'
+          || currentUser().role == 'principal'
+          || studentPermission('classes_archive')
         );
+    }
+
+    function safeClassUpdate(schoolId) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return hasStudentDataAccess(schoolId)
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedBy == request.auth.uid
+        && (
+          currentUser().role == 'principal'
+          || (
+            studentPermission('classes_update')
+            && (
+              !changed.hasAny(['teacherId'])
+              || studentPermission('classes_assign_teacher')
+            )
+            && (
+              !changed.hasAny(['status'])
+              || studentPermission('classes_archive')
+            )
+          )
+          || (
+            studentPermission('classes_assign_teacher')
+            && changed.hasOnly(['teacherId', 'updatedBy', 'updatedAt'])
+          )
+          || (
+            studentPermission('classes_archive')
+            && changed.hasOnly(['status', 'updatedBy', 'updatedAt'])
+          )
+        );
+    }
+
+    function validStudentCreate(schoolId, data) {
+      return canCreateStudent(schoolId, data)
+        && data.keys().hasAll([
+          'fullName', 'schoolId', 'classId', 'status', 'createdBy', 'updatedBy'
+        ])
+        && data.schoolId == schoolId
+        && data.createdBy == request.auth.uid
+        && data.updatedBy == request.auth.uid
+        && data.fullName is string
+        && data.fullName.size() > 0
+        && data.status in ['active', 'transferred', 'graduated', 'archived']
+        && (
+          data.status == 'active'
+          || currentUser().role == 'principal'
+          || studentPermission('students_archive')
+        )
+        && (
+          (
+            data.trackIds is list
+            && data.trackIds.size() == 0
+            && data.programTypes is list
+            && data.programTypes.size() == 0
+          )
+          || canManagePrograms(schoolId)
+        );
+    }
+
+    function safeStudentUpdate(schoolId) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return hasStudentDataAccess(schoolId)
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.fullName is string
+        && request.resource.data.fullName.size() > 0
+        && request.resource.data.status in ['active', 'transferred', 'graduated', 'archived']
+        && (
+          changed.hasAny(['classId', 'className', 'gradeLevel', 'academicYear', 'joinedAt'])
+          ? (
+              (currentUser().role == 'principal' || studentPermission('students_transfer_class'))
+              && changed.hasOnly([
+                'classId', 'className', 'gradeLevel', 'academicYear', 'joinedAt',
+                'status', 'endDate', 'updatedBy', 'updatedAt'
+              ])
+              && classExists(schoolId, request.resource.data.classId)
+            )
+          : changed.hasAny(['status', 'endDate'])
+          ? (
+              (currentUser().role == 'principal' || studentPermission('students_archive'))
+              && changed.hasOnly(['status', 'endDate', 'updatedBy', 'updatedAt'])
+            )
+          : changed.hasAny(['trackId', 'trackIds', 'programType', 'programTypes'])
+          ? (
+              canManagePrograms(schoolId)
+              && (
+                canUpdateStudentBase(schoolId, resource.data)
+                || changed.hasOnly([
+                  'trackId', 'trackIds', 'programType', 'programTypes', 'updatedBy', 'updatedAt'
+                ])
+              )
+            )
+          : canUpdateStudentBase(schoolId, resource.data)
+        );
+    }
+
+    function validStudentHistoryCreate(schoolId, studentId, studentData, data) {
+      return hasStudentDataAccess(schoolId)
+        && data.schoolId == schoolId
+        && data.studentId == studentId
+        && data.createdBy == request.auth.uid
+        && (
+          currentUser().role == 'principal'
+          || studentPermission('students_create')
+          || studentPermission('students_update')
+          || studentPermission('students_transfer_class')
+          || studentPermission('students_archive')
+          || studentPermission('students_edit')
+          || canUpdateStudentBase(schoolId, studentData)
+        );
+    }
+
+    function canReadStudentNote(schoolId, studentData, noteData) {
+      return canViewStudent(schoolId, studentData) && (
+        currentUser().role == 'principal'
+        || (
+          noteData.visibility != 'school_admin'
+          && studentPermission('students_view_notes')
+        )
+      );
     }
 
     match /users/{userId} {
@@ -216,9 +520,70 @@ service cloud.firestore {
         }
       }
 
+      match /classes/{classId} {
+        allow read: if canViewClass(schoolId, resource.data);
+        allow create: if validClassCreate(schoolId, request.resource.data);
+        allow update: if safeClassUpdate(schoolId);
+        allow delete: if false;
+
+        match /history/{historyId} {
+          allow read: if canViewClass(
+            schoolId,
+            get(/databases/$(database)/documents/schools/$(schoolId)/classes/$(classId)).data
+          );
+          allow create: if request.resource.data.schoolId == schoolId
+            && request.resource.data.classId == classId
+            && request.resource.data.createdBy == request.auth.uid
+            && hasStudentDataAccess(schoolId)
+            && (
+              currentUser().role == 'principal'
+              || studentPermission('classes_update')
+              || studentPermission('classes_archive')
+              || studentPermission('classes_assign_teacher')
+            );
+          allow update, delete: if false;
+        }
+      }
+
       match /students/{studentId} {
-        allow read: if canViewStudents(schoolId) && classVisibleToCurrentUser(schoolId, resource.data);
-        allow create, update, delete: if canEditStudents(schoolId);
+        allow read: if canViewStudent(schoolId, resource.data);
+        allow create: if validStudentCreate(schoolId, request.resource.data);
+        allow update: if safeStudentUpdate(schoolId);
+        allow delete: if false;
+
+        match /history/{historyId} {
+          allow read: if canViewStudent(
+            schoolId,
+            get(/databases/$(database)/documents/schools/$(schoolId)/students/$(studentId)).data
+          );
+          allow create: if validStudentHistoryCreate(
+            schoolId,
+            studentId,
+            getAfter(/databases/$(database)/documents/schools/$(schoolId)/students/$(studentId)).data,
+            request.resource.data
+          );
+          allow update, delete: if false;
+        }
+
+        match /notes/{noteId} {
+          allow read: if canReadStudentNote(
+            schoolId,
+            get(/databases/$(database)/documents/schools/$(schoolId)/students/$(studentId)).data,
+            resource.data
+          );
+          allow create: if canViewStudent(
+              schoolId,
+              get(/databases/$(database)/documents/schools/$(schoolId)/students/$(studentId)).data
+            )
+            && (currentUser().role == 'principal' || studentPermission('students_add_notes'))
+            && request.resource.data.schoolId == schoolId
+            && request.resource.data.studentId == studentId
+            && request.resource.data.createdBy == request.auth.uid
+            && request.resource.data.content is string
+            && request.resource.data.content.size() > 0
+            && request.resource.data.visibility in ['class_staff', 'school_admin'];
+          allow update, delete: if false;
+        }
       }
 
       match /files/{fileId} {
@@ -266,8 +631,8 @@ service cloud.firestore {
       }
 
       match /tracks/{trackId} {
-        allow read: if canViewStudents(schoolId);
-        allow create, update, delete: if canEditStudents(schoolId);
+        allow read: if hasStudentDataAccess(schoolId) && isSchoolMember(schoolId);
+        allow create, update, delete: if canManagePrograms(schoolId);
       }
 
       match /settings/{settingId} {
@@ -387,6 +752,10 @@ service cloud.firestore {
         || legacyDocumentSchoolAccess(collectionName, 'sheets_', data);
     }
 
+    function legacySchoolId(data) {
+      return data.schoolId is string ? data.schoolId : currentUser().schoolId;
+    }
+
     function legacyWriteAllowed(collectionName, data) {
       return legacyReadAllowed(collectionName, data)
         && !collectionName.matches('^(roles|settings)_.*$')
@@ -401,37 +770,111 @@ service cloud.firestore {
 
     function legacyStudentReadAllowed(collectionName, data) {
       return legacyDocumentSchoolAccess(collectionName, 'students_', data)
-        && (
-          (
-            request.auth.token.keys().hasAny(['student_data_access'])
-            && request.auth.token.student_data_access == true
-          )
-          || !isGlobalAdmin()
-        );
+        && canViewStudent(legacySchoolId(data), data);
     }
 
-    function legacyStudentWriteAllowed(collectionName, data) {
-      return legacyStudentReadAllowed(collectionName, data)
-        && (
-          isGlobalAdmin()
-          || currentUser().role == 'principal'
-          || (
-            currentUser().permissions is map
-            && 'students_edit' in currentUser().permissions
-            && currentUser().permissions.students_edit == true
-          )
-        );
+    function legacyStudentCreateAllowed(collectionName, data) {
+      return legacyDocumentSchoolAccess(collectionName, 'students_', data)
+        && data.schoolId is string
+        && validStudentCreate(data.schoolId, data);
+    }
+
+    function legacyStudentUpdateAllowed(collectionName) {
+      return legacyDocumentSchoolAccess(collectionName, 'students_', resource.data)
+        && safeStudentUpdate(legacySchoolId(resource.data));
+    }
+
+    function legacyClassReadAllowed(collectionName, data) {
+      return legacyDocumentSchoolAccess(collectionName, 'classes_', data)
+        && canViewClass(legacySchoolId(data), data);
+    }
+
+    function legacyClassCreateAllowed(collectionName, data) {
+      return legacyDocumentSchoolAccess(collectionName, 'classes_', data)
+        && data.schoolId is string
+        && validClassCreate(data.schoolId, data);
+    }
+
+    function legacyClassUpdateAllowed(collectionName) {
+      return legacyDocumentSchoolAccess(collectionName, 'classes_', resource.data)
+        && safeClassUpdate(legacySchoolId(resource.data));
     }
 
     match /{legacyCollection}/{documentId} {
       allow read: if legacyReadAllowed(legacyCollection, resource.data)
-        || legacyStudentReadAllowed(legacyCollection, resource.data);
+        || legacyStudentReadAllowed(legacyCollection, resource.data)
+        || legacyClassReadAllowed(legacyCollection, resource.data);
       allow create: if legacyWriteAllowed(legacyCollection, request.resource.data)
         || legacySensitiveWriteAllowed(legacyCollection, request.resource.data)
-        || legacyStudentWriteAllowed(legacyCollection, request.resource.data);
-      allow update, delete: if legacyWriteAllowed(legacyCollection, resource.data)
+        || legacyStudentCreateAllowed(legacyCollection, request.resource.data)
+        || legacyClassCreateAllowed(legacyCollection, request.resource.data);
+      allow update: if legacyWriteAllowed(legacyCollection, resource.data)
         || legacySensitiveWriteAllowed(legacyCollection, resource.data)
-        || legacyStudentWriteAllowed(legacyCollection, resource.data);
+        || legacyStudentUpdateAllowed(legacyCollection)
+        || legacyClassUpdateAllowed(legacyCollection);
+      allow delete: if legacyWriteAllowed(legacyCollection, resource.data)
+        || legacySensitiveWriteAllowed(legacyCollection, resource.data);
+    }
+
+    match /{legacyCollection}/{entityId}/history/{historyId} {
+      allow read: if (
+          legacyCollection.matches('^students_[A-Za-z0-9_-]+$')
+          && canViewStudent(
+            legacySchoolId(get(/databases/$(database)/documents/$(legacyCollection)/$(entityId)).data),
+            get(/databases/$(database)/documents/$(legacyCollection)/$(entityId)).data
+          )
+        ) || (
+          legacyCollection.matches('^classes_[A-Za-z0-9_-]+$')
+          && canViewClass(
+            legacySchoolId(get(/databases/$(database)/documents/$(legacyCollection)/$(entityId)).data),
+            get(/databases/$(database)/documents/$(legacyCollection)/$(entityId)).data
+          )
+        );
+      allow create: if (
+          legacyCollection.matches('^students_[A-Za-z0-9_-]+$')
+          && validStudentHistoryCreate(
+            request.resource.data.schoolId,
+            entityId,
+            getAfter(/databases/$(database)/documents/$(legacyCollection)/$(entityId)).data,
+            request.resource.data
+          )
+        ) || (
+          legacyCollection.matches('^classes_[A-Za-z0-9_-]+$')
+          && request.resource.data.classId == entityId
+          && request.resource.data.createdBy == request.auth.uid
+          && hasStudentDataAccess(request.resource.data.schoolId)
+          && (
+            currentUser().role == 'principal'
+            || studentPermission('classes_update')
+            || studentPermission('classes_archive')
+            || studentPermission('classes_assign_teacher')
+          )
+        );
+      allow update, delete: if false;
+    }
+
+    match /{legacyCollection}/{studentId}/notes/{noteId} {
+      allow read: if legacyCollection.matches('^students_[A-Za-z0-9_-]+$')
+        && canReadStudentNote(
+          legacySchoolId(get(/databases/$(database)/documents/$(legacyCollection)/$(studentId)).data),
+          get(/databases/$(database)/documents/$(legacyCollection)/$(studentId)).data,
+          resource.data
+        );
+      allow create: if legacyCollection.matches('^students_[A-Za-z0-9_-]+$')
+        && request.resource.data.studentId == studentId
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.content is string
+        && request.resource.data.content.size() > 0
+        && request.resource.data.visibility in ['class_staff', 'school_admin']
+        && canViewStudent(
+          request.resource.data.schoolId,
+          get(/databases/$(database)/documents/$(legacyCollection)/$(studentId)).data
+        )
+        && (
+          currentUser().role == 'principal'
+          || studentPermission('students_add_notes')
+        );
+      allow update, delete: if false;
     }
 
     match /{legacyCollection}/{taskId}/chat/{messageId} {
