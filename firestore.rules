@@ -145,12 +145,31 @@ service cloud.firestore {
         );
     }
 
+    function isPersonalTask(data) {
+      return 'scope' in data && data.scope == 'personal';
+    }
+
+    function isAssignedTask(data) {
+      return ('scope' in data && data.scope == 'assigned')
+        || (
+          !('scope' in data)
+          && 'assigneeType' in data
+          && data.assigneeType == 'individual'
+        );
+    }
+
+    function isOrganizationTask(data) {
+      return !isPersonalTask(data);
+    }
+
     function taskVisibleToCurrentUser(schoolId, data) {
-      return canEditSchoolResource(schoolId)
+      return isOrganizationTask(data) && (
+        hasPermission(schoolId, 'tasks_edit')
         || (
           isSchoolMember(schoolId)
           && (
-            !('assigneeType' in data)
+            ('createdBy' in data && data.createdBy is string && data.createdBy == request.auth.uid)
+            || !('assigneeType' in data)
             || data.assigneeType == 'all_school'
             || (data.assigneeIds is list && request.auth.uid in data.assigneeIds)
             || (
@@ -159,7 +178,98 @@ service cloud.firestore {
               && data.assigneeTeamId in currentUser().teamIds
             )
           )
+        )
+      );
+    }
+
+    function validAssignedTaskTarget(schoolId, data) {
+      return data.assigneeIds is list
+        && data.assigneeIds.size() == 1
+        && exists(/databases/$(database)/documents/users/$(data.assigneeIds[0]))
+        && userBelongsToSchool(
+          get(/databases/$(database)/documents/users/$(data.assigneeIds[0])).data,
+          schoolId
         );
+    }
+
+    function validOrganizationTaskCreate(schoolId, data) {
+      return isSchoolMember(schoolId)
+        && data.keys().hasAll(['scope', 'schoolId', 'createdBy', 'title', 'status'])
+        && data.schoolId == schoolId
+        && data.createdBy == request.auth.uid
+        && data.title is string
+        && data.title.size() > 0
+        && (
+          (
+            data.scope == 'assigned'
+            && data.assigneeType == 'individual'
+            && hasPermission(schoolId, 'tasks_assign')
+            && validAssignedTaskTarget(schoolId, data)
+          )
+          || (
+            data.scope == 'team'
+            && data.assigneeType == 'team'
+            && data.teamId is string
+            && data.teamId.size() > 0
+            && data.assigneeTeamId == data.teamId
+            && hasPermission(schoolId, 'tasks_edit')
+          )
+        );
+    }
+
+    function safeOrganizationTaskUpdate(schoolId) {
+      return isOrganizationTask(request.resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'schoolId', 'createdBy', 'ownerId'
+        ]) == false
+        && (
+          hasPermission(schoolId, 'tasks_edit')
+          || (
+            isAssignedTask(resource.data)
+            && resource.data.assigneeIds is list
+            && request.auth.uid in resource.data.assigneeIds
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'status', 'completedAt', 'updatedAt'
+            ])
+          )
+        );
+    }
+
+    function validPersonalTaskCreate(userId, data) {
+      return activeUser()
+        && request.auth.uid == userId
+        && data.keys().hasAll(['scope', 'schoolId', 'ownerId', 'createdBy', 'title', 'status'])
+        && data.scope == 'personal'
+        && data.ownerId == request.auth.uid
+        && data.createdBy == request.auth.uid
+        && data.schoolId is string
+        && isSchoolMember(data.schoolId)
+        && data.title is string
+        && data.title.size() > 0
+        && data.assigneeIds is list
+        && data.assigneeIds.size() == 0
+        && data.teamId == ''
+        && data.assigneeTeamId == '';
+    }
+
+    function personalTaskOwner(userId, data) {
+      return activeUser()
+        && request.auth.uid == userId
+        && data.scope == 'personal'
+        && data.ownerId == request.auth.uid
+        && data.createdBy == request.auth.uid
+        && data.schoolId is string
+        && isSchoolMember(data.schoolId);
+    }
+
+    function safePersonalTaskUpdate(userId) {
+      return personalTaskOwner(userId, resource.data)
+        && personalTaskOwner(userId, request.resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'title', 'description', 'priority', 'status', 'dueDate', 'reminderAt',
+          'completedAt', 'updatedAt', 'tags', 'attachedFileId', 'attachedFileName',
+          'pinnedBy', 'sourceTaskId'
+        ]);
     }
 
     function classVisibleToCurrentUser(schoolId, data) {
@@ -191,6 +301,13 @@ service cloud.firestore {
         && request.auth.uid == userId
         && safeSelfProfileUpdate();
       allow delete: if false;
+
+      match /personalTasks/{taskId} {
+        allow read: if personalTaskOwner(userId, resource.data);
+        allow create: if validPersonalTaskCreate(userId, request.resource.data);
+        allow update: if safePersonalTaskUpdate(userId);
+        allow delete: if personalTaskOwner(userId, resource.data);
+      }
     }
 
     match /schools/{schoolId} {
@@ -199,7 +316,10 @@ service cloud.firestore {
 
       match /tasks/{taskId} {
         allow read: if taskVisibleToCurrentUser(schoolId, resource.data);
-        allow create, update, delete: if hasPermission(schoolId, 'tasks_edit');
+        allow create: if validOrganizationTaskCreate(schoolId, request.resource.data);
+        allow update: if safeOrganizationTaskUpdate(schoolId);
+        allow delete: if isOrganizationTask(resource.data)
+          && hasPermission(schoolId, 'tasks_edit');
 
         match /chat/{messageId} {
           allow read: if taskVisibleToCurrentUser(
@@ -373,8 +493,7 @@ service cloud.firestore {
     }
 
     function legacyReadAllowed(collectionName, data) {
-      return legacyDocumentSchoolAccess(collectionName, 'tasks_', data)
-        || legacyDocumentSchoolAccess(collectionName, 'files_', data)
+      return legacyDocumentSchoolAccess(collectionName, 'files_', data)
         || legacyDocumentSchoolAccess(collectionName, 'file_history_', data)
         || legacyDocumentSchoolAccess(collectionName, 'folders_', data)
         || legacyDocumentSchoolAccess(collectionName, 'teams_', data)
@@ -391,6 +510,76 @@ service cloud.firestore {
       return legacyReadAllowed(collectionName, data)
         && !collectionName.matches('^(roles|settings)_.*$')
         && (isGlobalAdmin() || currentUser().role in ['principal', 'editor']);
+    }
+
+    function legacyCanEditTasks(collectionName, data) {
+      return legacyDocumentSchoolAccess(collectionName, 'tasks_', data)
+        && (
+          isGlobalAdmin()
+          || currentUser().role == 'principal'
+          || currentUser().role == 'editor'
+          || (
+            currentUser().permissions is map
+            && 'tasks_edit' in currentUser().permissions
+            && currentUser().permissions.tasks_edit == true
+          )
+        );
+    }
+
+    function legacyTaskReadAllowed(collectionName, data) {
+      return legacyDocumentSchoolAccess(collectionName, 'tasks_', data)
+        && isOrganizationTask(data)
+        && (
+          legacyCanEditTasks(collectionName, data)
+          || ('createdBy' in data && data.createdBy is string && data.createdBy == request.auth.uid)
+          || !('assigneeType' in data)
+          || data.assigneeType == 'all_school'
+          || (data.assigneeIds is list && request.auth.uid in data.assigneeIds)
+          || (
+            data.assigneeType == 'team'
+            && currentUser().teamIds is list
+            && data.assigneeTeamId in currentUser().teamIds
+          )
+        );
+    }
+
+    function legacyTaskCreateAllowed(collectionName, data) {
+      return collectionName.matches('^tasks_[A-Za-z0-9_-]+$')
+        && data.schoolId is string
+        && collectionName == 'tasks_' + data.schoolId
+        && validOrganizationTaskCreate(data.schoolId, data);
+    }
+
+    function legacyTaskUpdateAllowed(collectionName) {
+      return collectionName.matches('^tasks_[A-Za-z0-9_-]+$')
+        && (
+        (
+          resource.data.schoolId is string
+          && collectionName == 'tasks_' + resource.data.schoolId
+          && safeOrganizationTaskUpdate(resource.data.schoolId)
+        )
+        || (
+          !('schoolId' in resource.data)
+          && legacyCanEditTasks(collectionName, resource.data)
+          && isOrganizationTask(request.resource.data)
+          && request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'createdBy', 'ownerId'
+          ]) == false
+        )
+        || (
+          !('schoolId' in resource.data)
+          && isAssignedTask(resource.data)
+          && resource.data.assigneeIds is list
+          && request.auth.uid in resource.data.assigneeIds
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'completedAt', 'updatedAt'
+          ])
+        )
+      );
+    }
+
+    function legacyTaskDeleteAllowed(collectionName, data) {
+      return legacyCanEditTasks(collectionName, data) && isOrganizationTask(data);
     }
 
     function legacySensitiveWriteAllowed(collectionName, data) {
@@ -424,19 +613,60 @@ service cloud.firestore {
     }
 
     match /{legacyCollection}/{documentId} {
-      allow read: if legacyReadAllowed(legacyCollection, resource.data)
-        || legacyStudentReadAllowed(legacyCollection, resource.data);
-      allow create: if legacyWriteAllowed(legacyCollection, request.resource.data)
-        || legacySensitiveWriteAllowed(legacyCollection, request.resource.data)
-        || legacyStudentWriteAllowed(legacyCollection, request.resource.data);
-      allow update, delete: if legacyWriteAllowed(legacyCollection, resource.data)
-        || legacySensitiveWriteAllowed(legacyCollection, resource.data)
-        || legacyStudentWriteAllowed(legacyCollection, resource.data);
+      allow read: if (
+          legacyCollection.matches('^tasks_[A-Za-z0-9_-]+$')
+          && legacyTaskReadAllowed(legacyCollection, resource.data)
+        ) || (
+          !legacyCollection.matches('^tasks_[A-Za-z0-9_-]+$')
+          && (
+            legacyReadAllowed(legacyCollection, resource.data)
+            || legacyStudentReadAllowed(legacyCollection, resource.data)
+          )
+        );
+      allow create: if (
+          legacyCollection.matches('^tasks_[A-Za-z0-9_-]+$')
+          && legacyTaskCreateAllowed(legacyCollection, request.resource.data)
+        ) || (
+          !legacyCollection.matches('^tasks_[A-Za-z0-9_-]+$')
+          && (
+            legacyWriteAllowed(legacyCollection, request.resource.data)
+            || legacySensitiveWriteAllowed(legacyCollection, request.resource.data)
+            || legacyStudentWriteAllowed(legacyCollection, request.resource.data)
+          )
+        );
+      allow update: if (
+          legacyCollection.matches('^tasks_[A-Za-z0-9_-]+$')
+          && legacyTaskUpdateAllowed(legacyCollection)
+        ) || (
+          !legacyCollection.matches('^tasks_[A-Za-z0-9_-]+$')
+          && (
+            legacyWriteAllowed(legacyCollection, resource.data)
+            || legacySensitiveWriteAllowed(legacyCollection, resource.data)
+            || legacyStudentWriteAllowed(legacyCollection, resource.data)
+          )
+        );
+      allow delete: if (
+          legacyCollection.matches('^tasks_[A-Za-z0-9_-]+$')
+          && legacyTaskDeleteAllowed(legacyCollection, resource.data)
+        ) || (
+          !legacyCollection.matches('^tasks_[A-Za-z0-9_-]+$')
+          && (
+            legacyWriteAllowed(legacyCollection, resource.data)
+            || legacySensitiveWriteAllowed(legacyCollection, resource.data)
+            || legacyStudentWriteAllowed(legacyCollection, resource.data)
+          )
+        );
     }
 
     match /{legacyCollection}/{taskId}/chat/{messageId} {
-      allow read: if legacyPrimarySchoolCollection(legacyCollection, 'tasks_');
-      allow create: if legacyPrimarySchoolCollection(legacyCollection, 'tasks_')
+      allow read: if legacyTaskReadAllowed(
+        legacyCollection,
+        get(/databases/$(database)/documents/$(legacyCollection)/$(taskId)).data
+      );
+      allow create: if legacyTaskReadAllowed(
+          legacyCollection,
+          get(/databases/$(database)/documents/$(legacyCollection)/$(taskId)).data
+        )
         && request.resource.data.authorId == request.auth.uid;
       allow update: if false;
       allow delete: if request.auth.uid == resource.data.authorId;

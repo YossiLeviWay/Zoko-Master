@@ -14,7 +14,15 @@ import {
 } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
 import Header from '../Layout/Header';
-import { Calendar, CheckSquare, Users, Clock, Star, BookOpen, CheckCircle, XCircle, UserCheck, Activity, School, UserPlus, Shield, Megaphone, FileText, BarChart3, SlidersHorizontal, ArrowUpDown, Plus, X, GripVertical, Maximize2, Minimize2, Trash2, Eye, PlusCircle, Columns } from 'lucide-react';
+import { Calendar, CheckSquare, Users, Clock, Star, BookOpen, CheckCircle, XCircle, UserCheck, Activity, School, UserPlus, Shield, Megaphone, FileText, BarChart3, SlidersHorizontal, ArrowUpDown, Plus, X, GripVertical, Maximize2, Minimize2, Trash2, Eye, PlusCircle, Columns, Lock } from 'lucide-react';
+import {
+  isTaskComplete,
+  subscribeOrganizationTasks,
+  subscribePersonalTasks,
+  TASK_SCOPES,
+  taskDueDate,
+  updateTaskStatus,
+} from '../../services/firestore/taskRepository';
 import './Dashboard.css';
 
 const WIDGET_TYPES = {
@@ -339,24 +347,34 @@ export default function Dashboard() {
     return unsub;
   }, [selectedSchool, currentUser?.uid]);
 
-  // Load tasks assigned to current user
+  // Load only the current user's private and directly assigned tasks.
   useEffect(() => {
     if (!selectedSchool || !currentUser?.uid) return;
-    const q = query(collection(db, `tasks_${selectedSchool}`), orderBy('createdAt', 'desc'));
-    const unsub = onSnapshot(q, (snap) => {
-      const allTasks = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      // Filter tasks assigned to current user
-      const userTeamIds = myTeams.filter(t => Array.isArray(t.memberIds) && t.memberIds.includes(currentUser.uid)).map(t => t.id);
-      const filtered = allTasks.filter(task => {
-        if (task.status === 'done' || task.status === 'completed') return false;
-        if (task.assigneeType === 'all_school') return true;
-        if (task.assigneeType === 'team') return userTeamIds.includes(task.assigneeTeamId);
-        if (task.assigneeType === 'individual') return (task.assigneeIds || []).includes(currentUser.uid);
-        return true; // fallback for old tasks without assigneeType
-      });
-      setMyTasks(filtered);
-    }, () => setMyTasks([]));
-    return unsub;
+    let personal = [];
+    let assigned = [];
+    const emit = () => setMyTasks([...personal, ...assigned].filter(task => !isTaskComplete(task)));
+    const unsubscribePersonal = subscribePersonalTasks({
+      db,
+      uid: currentUser.uid,
+      schoolId: selectedSchool,
+      onData: tasks => { personal = tasks; emit(); },
+      onError: () => setMyTasks([]),
+    });
+    const unsubscribeAssigned = subscribeOrganizationTasks({
+      db,
+      uid: currentUser.uid,
+      schoolId: selectedSchool,
+      teamIds: myTeams.filter(team => team.memberIds?.includes(currentUser.uid)).map(team => team.id),
+      onData: tasks => {
+        assigned = tasks.filter(task => task.scope === TASK_SCOPES.ASSIGNED && task.assigneeIds?.includes(currentUser.uid));
+        emit();
+      },
+      onError: () => setMyTasks([]),
+    });
+    return () => {
+      unsubscribePersonal();
+      unsubscribeAssigned();
+    };
   }, [selectedSchool, currentUser?.uid, myTeams]);
 
   // Sort personal tasks
@@ -366,19 +384,36 @@ export default function Dashboard() {
       return (pOrder[a.priority] ?? 1) - (pOrder[b.priority] ?? 1);
     }
     // Sort by due date (no date = last)
-    if (!a.dueDate && !b.dueDate) return 0;
-    if (!a.dueDate) return 1;
-    if (!b.dueDate) return -1;
-    return a.dueDate.localeCompare(b.dueDate);
+    const dueA = taskDueDate(a);
+    const dueB = taskDueDate(b);
+    if (!dueA && !dueB) return 0;
+    if (!dueA) return 1;
+    if (!dueB) return -1;
+    return String(dueA).localeCompare(String(dueB));
   });
 
   function getTaskTeamName(task) {
+    if (task.scope === TASK_SCOPES.PERSONAL) return 'אישית';
     if (task.assigneeType === 'all_school') return 'כל בית הספר';
     if (task.assigneeType === 'team') {
       const team = myTeams.find(t => t.id === task.assigneeTeamId);
       return team?.name || 'צוות';
     }
     return 'אישי';
+  }
+
+  async function completeDashboardTask(task) {
+    try {
+      await updateTaskStatus({
+        db,
+        schoolId: selectedSchool,
+        uid: currentUser.uid,
+        task,
+        status: 'done',
+      });
+    } catch {
+      // The live subscription keeps the item unchanged when the write is rejected.
+    }
   }
 
   // Load schools list for mapping IDs to names
@@ -746,39 +781,51 @@ export default function Dashboard() {
     const statusLabels = { todo: 'לביצוע', in_progress: 'בתהליך', done: 'הושלם' };
 
     switch (widget.type) {
-      case 'my_tasks':
-        if (sortedMyTasks.length === 0) return <p className="section-empty">אין משימות</p>;
+      case 'my_tasks': {
+        const today = new Date().toISOString().slice(0, 10);
+        const dueToday = sortedMyTasks.filter(task => String(taskDueDate(task)).slice(0, 10) === today).length;
+        const overdueCount = sortedMyTasks.filter(task => taskDueDate(task) && String(taskDueDate(task)).slice(0, 10) < today).length;
         return (
           <>
-            <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '0.5rem' }}>
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <span className="my-task-status">להיום: {dueToday}</span>
+              <span className="my-task-due my-task-due--late">באיחור: {overdueCount}</span>
               <button className={`btn btn-sm ${taskSortBy === 'priority' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTaskSortBy('priority')} style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem' }}>
                 <ArrowUpDown size={12} /> דחיפות
               </button>
               <button className={`btn btn-sm ${taskSortBy === 'dueDate' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTaskSortBy('dueDate')} style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem' }}>
                 <ArrowUpDown size={12} /> תאריך יעד
               </button>
+              <button className="btn btn-sm btn-secondary" onClick={() => navigate('/tasks')} style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem', marginInlineStart: 'auto' }}>
+                <Lock size={12} /> משימה אישית חדשה
+              </button>
             </div>
+            {sortedMyTasks.length === 0 && <p className="section-empty">אין משימות אישיות או משימות שהוקצו לך להיום.</p>}
             <div className="my-task-list">
-              {sortedMyTasks.slice(0, 10).map(task => {
-                const overdue = task.dueDate && new Date(task.dueDate) < new Date() && task.status !== 'done';
+              {sortedMyTasks.slice(0, 5).map(task => {
+                const dueDate = taskDueDate(task);
+                const overdue = dueDate && String(dueDate).slice(0, 10) < today;
                 const teamName = getTaskTeamName(task);
                 return (
-                  <div key={task.id} className="my-task-item" style={{ borderRightColor: prioColors[task.priority] || '#f59e0b', cursor: 'pointer' }} onClick={() => navigate('/tasks')}>
+                  <div key={task._key || task.id} className="my-task-item" style={{ borderRightColor: task.scope === TASK_SCOPES.PERSONAL ? '#8b5cf6' : prioColors[task.priority] || '#f59e0b', cursor: 'pointer' }} onClick={() => navigate('/tasks')}>
                     <div className="my-task-main">
                       <span className="my-task-title">{task.title}</span>
                       <div className="my-task-meta">
                         <span className="my-task-priority" style={{ background: prioBgs[task.priority], color: prioColors[task.priority] }}>{prioLabels[task.priority] || 'בינונית'}</span>
-                        <span className="my-task-team"><Users size={10} style={{ verticalAlign: 'middle', marginLeft: '0.15rem' }} />{teamName}</span>
+                        <span className="my-task-team">{task.scope === TASK_SCOPES.PERSONAL ? <Lock size={10} /> : <Users size={10} />}{teamName}</span>
                         <span className="my-task-status" style={{ color: task.status === 'in_progress' ? '#2563eb' : '#64748b' }}>{statusLabels[task.status] || 'לביצוע'}</span>
-                        {task.dueDate && <span className={`my-task-due ${overdue ? 'my-task-due--late' : ''}`}>{new Date(task.dueDate).toLocaleDateString('he-IL')}</span>}
+                        {dueDate && <span className={`my-task-due ${overdue ? 'my-task-due--late' : ''}`}>{new Date(`${String(dueDate).slice(0, 10)}T00:00:00`).toLocaleDateString('he-IL')}</span>}
                       </div>
                     </div>
+                    <button className="icon-btn" onClick={event => { event.stopPropagation(); completeDashboardTask(task); }} aria-label={`סימון ${task.title} כהושלמה`} title="סימון כהושלמה"><CheckCircle size={15} /></button>
                   </div>
                 );
               })}
             </div>
+            <button className="btn btn-link btn-sm" onClick={() => navigate('/tasks')}>כל המשימות שלי</button>
           </>
         );
+      }
       case 'events':
         if (filteredEvents.length === 0) return <p className="section-empty">אין אירועים קרובים</p>;
         return (
