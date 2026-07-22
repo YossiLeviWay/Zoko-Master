@@ -69,3 +69,16 @@ export const notificationSchema = z.object({
   type: z.enum(['calendar', 'staff', 'file', 'message', 'permission', 'system', 'task']),
   link: z.string().trim().max(200).regex(/^\/[A-Za-z0-9/_?=&.-]*$/).optional().default(''),
 }).strict();
+
+const schoolDetails = {
+  name: z.string().trim().min(1).max(120),
+  address: z.string().trim().max(250).optional().default(''),
+  phone: z.string().trim().max(32).optional().default(''),
+};
+
+export const createSchoolSchema = z.object(schoolDetails).strict();
+export const updateSchoolSchema = z.object({ schoolId: id, ...schoolDetails }).strict();
+export const deleteSchoolSchema = z.object({
+  schoolId: id,
+  confirmDelete: z.literal(true),
+}).strict();

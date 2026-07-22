@@ -4,6 +4,7 @@ import {
   approveMembershipHandler,
 } from '../../functions/src/callables/memberships.js';
 import { createNotificationsHandler } from '../../functions/src/callables/notifications.js';
+import { createSchoolHandler, updateSchoolHandler } from '../../functions/src/callables/schools.js';
 import { createStaffHandler, setRoleHandler } from '../../functions/src/callables/staff.js';
 import { adminAuth, adminDb } from '../../functions/src/services/firebaseAdmin.js';
 
@@ -115,4 +116,23 @@ test('authorized server notification validates school and records audit metadata
     .get();
   assert.equal(audit.size, 1);
   assert.deepEqual(audit.docs[0].data().metadata, { recipientCount: 1, type: 'system' });
+});
+
+test('school administration is server-authorized and audited', async () => {
+  await seedUser('principal_a', SCHOOL_A, 'principal');
+  await adminDb.collection('schools').doc(SCHOOL_A).set({ name: 'School A' });
+  await assert.rejects(createSchoolHandler(actorRequest('principal_a', {
+    name: 'Not allowed',
+  })), error => error.code === 'permission-denied');
+  const result = await updateSchoolHandler(actorRequest('principal_a', {
+    schoolId: SCHOOL_A,
+    name: 'Updated A',
+    address: '',
+    phone: '',
+  }));
+  assert.deepEqual(result, { ok: true });
+  const audit = await adminDb.collection('auditLogs')
+    .where('action', '==', 'school.update')
+    .get();
+  assert.equal(audit.size, 1);
 });

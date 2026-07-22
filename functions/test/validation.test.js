@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createStaffSchema,
+  deleteSchoolSchema,
   notificationSchema,
   setRoleSchema,
 } from '../src/validation/schemas.js';
@@ -13,6 +14,14 @@ test('regular staff creation cannot request global_admin', () => {
     role: 'global_admin',
     schoolId: 'school_a',
   }));
+});
+
+test('school deletion requires explicit confirmation', () => {
+  assert.throws(() => deleteSchoolSchema.parse({ schoolId: 'school_a' }));
+  assert.equal(deleteSchoolSchema.parse({
+    schoolId: 'school_a',
+    confirmDelete: true,
+  }).confirmDelete, true);
 });
 
 test('role schema rejects unknown fields and malformed IDs', () => {

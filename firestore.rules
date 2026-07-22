@@ -195,13 +195,7 @@ service cloud.firestore {
 
     match /schools/{schoolId} {
       allow read: if isSchoolMember(schoolId);
-      allow create, delete: if isGlobalAdmin();
-      allow update: if isGlobalAdmin() || (
-        isSchoolPrincipal(schoolId)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'name', 'address', 'phone', 'updatedAt'
-        ])
-      );
+      allow create, update, delete: if false;
 
       match /tasks/{taskId} {
         allow read: if taskVisibleToCurrentUser(schoolId, resource.data);
