@@ -49,7 +49,7 @@ export default function ClassPermissionsManager({ schoolId, classes, onClose }) 
           setClassPerms(initial);
         }
       } catch (err) {
-        console.error('Error loading class permissions:', err);
+        console.error('Error loading class permissions:');
       }
       setLoading(false);
     }
@@ -91,7 +91,7 @@ export default function ClassPermissionsManager({ schoolId, classes, onClose }) 
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (err) {
-      alert('שגיאה בשמירה: ' + err.message);
+      alert('שגיאה בשמירה: ');
     }
     setSaving(false);
   }

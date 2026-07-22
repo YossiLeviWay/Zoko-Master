@@ -165,7 +165,7 @@ export default function Dashboard() {
         'dashboardPreferences.widgets': newWidgets,
       });
     } catch (err) {
-      console.error('Error saving widget config:', err);
+      console.error('Error saving widget config:');
     }
   }
 
@@ -281,7 +281,7 @@ export default function Dashboard() {
       setHiddenEventCategories(newHiddenEvents);
       setHiddenHolidayTypes(newHiddenHolidays);
     } catch (err) {
-      console.error('Error saving filter preferences:', err);
+      console.error('Error saving filter preferences:');
     }
   }
 
@@ -390,7 +390,7 @@ export default function Dashboard() {
         const snap = await getDocs(collection(db, 'schools'));
         setSchools(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       } catch (err) {
-        console.error('Error loading schools:', err);
+        console.error('Error loading schools:');
       }
     }
     loadSchools();
@@ -412,7 +412,7 @@ export default function Dashboard() {
       }
       setRecentAnnouncements(anns.slice(0, 3));
     }, (err) => {
-      console.error('Error loading announcements for dashboard:', err);
+      console.error('Error loading announcements for dashboard:');
     });
     return unsub;
   }, [selectedSchool]);
@@ -425,7 +425,7 @@ export default function Dashboard() {
         const snap = await getDocs(collection(db, `teams_${selectedSchool}`));
         setAnnouncementTeams(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       } catch (err) {
-        console.error('Error loading teams for dashboard:', err);
+        console.error('Error loading teams for dashboard:');
       }
     }
     loadTeams();
@@ -459,7 +459,7 @@ export default function Dashboard() {
           }
         }
       } catch (err) {
-        console.error('Error fetching pending users:', err);
+        console.error('Error fetching pending users:');
       }
     }
 
@@ -620,7 +620,7 @@ export default function Dashboard() {
         feed.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
         setActivityFeed(feed.slice(0, 20));
       } catch (err) {
-        console.error('Error fetching activity feed:', err);
+        console.error('Error fetching activity feed:');
       } finally {
         setActivityLoading(false);
       }
@@ -682,7 +682,7 @@ export default function Dashboard() {
 
         setStaffCount(staffIds.size);
       } catch (err) {
-        console.error('Error fetching dashboard data:', err);
+        console.error('Error fetching dashboard data:');
       } finally {
         setLoading(false);
       }

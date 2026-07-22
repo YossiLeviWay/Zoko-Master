@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../firebase';
-import { collection, getDocs, query, where, doc, updateDoc, getDoc, setDoc } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, getDoc, setDoc } from 'firebase/firestore';
 import { Shield, Eye, Edit3, Users, X, ChevronDown } from 'lucide-react';
 
 /**
@@ -21,7 +21,6 @@ export default function PermissionsMenu({ resourceType, resourceId, resourceName
   const { userData, isGlobalAdmin, isPrincipal } = useAuth();
   const [staff, setStaff] = useState([]);
   const [teams, setTeams] = useState([]);
-  const [roles, setRoles] = useState([]);
   const [permissions, setPermissions] = useState({ viewers: [], editors: [], viewerTeams: [], editorTeams: [], public: true });
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('view'); // view, edit
@@ -29,7 +28,6 @@ export default function PermissionsMenu({ resourceType, resourceId, resourceName
   const menuRef = useRef(null);
 
   const canManage = isGlobalAdmin() || isPrincipal();
-  if (!canManage) return null;
 
   useEffect(() => {
     loadData();
@@ -61,16 +59,13 @@ export default function PermissionsMenu({ resourceType, resourceId, resourceName
       setTeams(teamSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
       // Load custom roles
-      const rolesSnap = await getDocs(collection(db, `roles_${schoolId}`));
-      setRoles(rolesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-
       // Load existing permissions for this resource
       const permDoc = await getDoc(doc(db, 'resource_permissions', `${resourceType}_${resourceId}`));
       if (permDoc.exists()) {
         setPermissions({ ...permissions, ...permDoc.data() });
       }
     } catch (err) {
-      console.error('Error loading permissions data:', err);
+      console.error('Error loading permissions data:');
     }
     setLoading(false);
   }
@@ -88,9 +83,11 @@ export default function PermissionsMenu({ resourceType, resourceId, resourceName
       });
       onClose();
     } catch (err) {
-      console.error('Error saving permissions:', err);
+      console.error('Error saving permissions:');
     }
   }
+
+  if (!canManage) return null;
 
   function toggleUser(userId, type) {
     const key = type === 'view' ? 'viewers' : 'editors';

@@ -63,7 +63,7 @@ export default function PagePermissionsPanel({ feature, onClose }) {
       );
       setStaff(all);
     } catch (err) {
-      console.error('PagePermissionsPanel load error:', err);
+      console.error('PagePermissionsPanel load error:');
     }
   }
 
@@ -79,7 +79,7 @@ export default function PagePermissionsPanel({ feature, onClose }) {
       setSaved(`${user.id}_${permKey}`);
       setTimeout(() => setSaved(null), 1200);
     } catch (err) {
-      console.error('Error toggling permission:', err);
+      console.error('Error toggling permission:');
     }
     setSaving(null);
   }

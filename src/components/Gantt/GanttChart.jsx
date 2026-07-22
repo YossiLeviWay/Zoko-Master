@@ -165,7 +165,7 @@ export default function GanttChart() {
     try {
       await setDoc(doc(db, `settings_${schoolId}`, 'calendar'), { visibleDays: days }, { merge: true });
     } catch (err) {
-      console.error('Error saving day settings:', err);
+      console.error('Error saving day settings:');
     }
   }
 
@@ -292,8 +292,8 @@ export default function GanttChart() {
       }
       setModalOpen(false);
     } catch (err) {
-      console.error('Error saving event:', err);
-      alert('שגיאה בשמירת האירוע: ' + err.message);
+      console.error('Error saving event:');
+      alert('שגיאה בשמירת האירוע: ');
     }
   }
 
@@ -303,7 +303,7 @@ export default function GanttChart() {
       await deleteDoc(doc(db, `events_${schoolId}`, editingEvent.id));
       setModalOpen(false);
     } catch (err) {
-      alert('שגיאה במחיקת האירוע: ' + err.message);
+      alert('שגיאה במחיקת האירוע: ');
     }
   }
 

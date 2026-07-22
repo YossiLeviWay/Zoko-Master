@@ -250,7 +250,7 @@ export default function ExcelWriter() {
       setNewSheetName('');
       setShowNewSheet(false);
     } catch (err) {
-      alert('שגיאה ביצירת הטבלה: ' + err.message);
+      alert('שגיאה ביצירת הטבלה: ');
     }
   }
 
@@ -265,7 +265,7 @@ export default function ExcelWriter() {
         cellStylesJson: JSON.stringify(cellStyles)
       });
     } catch (err) {
-      alert('שגיאה בשמירה: ' + err.message);
+      alert('שגיאה בשמירה: ');
     }
     setSaving(false);
   }
@@ -321,7 +321,7 @@ export default function ExcelWriter() {
     try {
       await updateDoc(doc(db, `sheets_${schoolId}`, sheetId), { name });
     } catch (err) {
-      alert('שגיאה בשינוי שם: ' + err.message);
+      alert('שגיאה בשינוי שם: ');
     }
     setRenamingSheetId(null);
     setRenameValue('');
@@ -356,7 +356,7 @@ export default function ExcelWriter() {
     try {
       await updateDoc(doc(db, `sheets_${schoolId}`, shareSheetId), { sharedWith: shareSelected });
     } catch (err) {
-      alert('שגיאה בשיתוף: ' + err.message);
+      alert('שגיאה בשיתוף: ');
     }
     setShareSheetId(null);
     setShareSelected([]);

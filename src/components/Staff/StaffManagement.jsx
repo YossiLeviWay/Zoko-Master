@@ -249,7 +249,7 @@ export default function StaffManagement() {
       const snap = await getDocs(collection(db, `roles_${schoolId}`));
       setCustomRoles(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (err) {
-      console.error('Error loading custom roles:', err);
+      console.error('Error loading custom roles:');
     }
   }
 
@@ -258,7 +258,7 @@ export default function StaffManagement() {
       const snap = await getDocs(collection(db, `teams_${schoolId}`));
       setTeams(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (err) {
-      console.error('Error loading teams:', err);
+      console.error('Error loading teams:');
     }
   }
 
@@ -276,7 +276,7 @@ export default function StaffManagement() {
       const snap = await getDocs(collection(db, 'schools'));
       setSchools(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (err) {
-      console.error('Error loading schools:', err);
+      console.error('Error loading schools:');
     }
   }
 
@@ -287,7 +287,7 @@ export default function StaffManagement() {
       const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       setStaff(all);
     } catch (err) {
-      console.error('Error loading all staff:', err);
+      console.error('Error loading all staff:');
     }
   }
 
@@ -665,7 +665,7 @@ export default function StaffManagement() {
       const tasksSnap = await getDocs(collection(db, `tasks_${schoolId}`));
       setTaskList(tasksSnap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (err) {
-      console.error('Error loading tasks:', err);
+      console.error('Error loading tasks:');
       setTaskList([]);
     }
     setTaskListLoading(false);
@@ -680,7 +680,7 @@ export default function StaffManagement() {
       setTaskAttachUser(null);
       setTaskList([]);
     } catch (err) {
-      console.error('Error assigning user to task:', err);
+      console.error('Error assigning user to task:');
     }
   }
 
@@ -699,7 +699,7 @@ export default function StaffManagement() {
       const tasksSnap = await getDocs(tasksQuery);
       setProfileTasks(tasksSnap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (err) {
-      console.error('Error loading profile tasks:', err);
+      console.error('Error loading profile tasks:');
     }
     try {
       const announcementsQuery = query(
@@ -726,7 +726,7 @@ export default function StaffManagement() {
         }
       }
     } catch (err) {
-      console.error('Error loading profile activity:', err);
+      console.error('Error loading profile activity:');
     }
     setProfileLoading(false);
   }

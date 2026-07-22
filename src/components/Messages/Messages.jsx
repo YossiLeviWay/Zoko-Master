@@ -120,7 +120,7 @@ export default function Messages() {
         const snap = await getDocs(collection(db, `teams_${schoolId}`));
         setTeams(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       } catch (err) {
-        console.error('Error loading teams:', err);
+        console.error('Error loading teams:');
         setTeams([]);
       }
     }
@@ -142,7 +142,7 @@ export default function Messages() {
       }
       setAnnouncements(anns);
     }, (err) => {
-      console.error('Error loading announcements:', err);
+      console.error('Error loading announcements:');
     });
     return unsub;
   }, [uid, schoolId]);
@@ -179,7 +179,7 @@ export default function Messages() {
       }
       setConversations(merged);
     }, (err) => {
-      console.error('Error loading conversations:', err);
+      console.error('Error loading conversations:');
     });
     return unsub;
   }, [uid]);
@@ -205,7 +205,7 @@ export default function Messages() {
         setMessages(combined);
         setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
       }, (err) => {
-        console.error('Error loading messages:', err);
+        console.error('Error loading messages:');
       });
       unsubs.push(unsub);
     }
@@ -328,7 +328,7 @@ export default function Messages() {
         });
       }
     } catch (err) {
-      console.error('Error deleting message:', err);
+      console.error('Error deleting message:');
     }
     setConfirmDeleteMsg(null);
   }
@@ -363,7 +363,7 @@ export default function Messages() {
         setMessages([]);
       }
     } catch (err) {
-      console.error('Error deleting conversation:', err);
+      console.error('Error deleting conversation:');
     }
     setConfirmDeleteConv(null);
   }
@@ -393,7 +393,7 @@ export default function Messages() {
         unreadBy: otherIds
       });
     } catch (err) {
-      console.error('Error uploading image:', err);
+      console.error('Error uploading image:');
     }
     setUploadingImage(false);
     if (imageInputRef.current) imageInputRef.current.value = '';

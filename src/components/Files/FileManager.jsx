@@ -212,7 +212,7 @@ export default function FileManager() {
       setFolderName('');
       setShowNewFolder(false);
     } catch (err) {
-      alert('שגיאה ביצירת תיקייה: ' + err.message);
+      alert('שגיאה ביצירת תיקייה: ');
     }
   }
 
@@ -267,7 +267,7 @@ export default function FileManager() {
       setCreateInFolder(null);
       setEditingFile({ id: newDoc.id, name: newFileName.trim(), fileType: newFileType, content: initialContent });
     } catch (err) {
-      alert('שגיאה ביצירת קובץ: ' + err.message);
+      alert('שגיאה ביצירת קובץ: ');
     }
   }
 
@@ -348,7 +348,7 @@ export default function FileManager() {
         }
       }
     } catch (err) {
-      alert('שגיאה בשמירה: ' + err.message);
+      alert('שגיאה בשמירה: ');
     }
     setFileSaving(false);
   }
@@ -415,7 +415,7 @@ export default function FileManager() {
         pinnedBy: [],
       });
     } catch (err) {
-      alert('שגיאה בשכפול: ' + err.message);
+      alert('שגיאה בשכפול: ');
     }
   }
 
@@ -627,7 +627,7 @@ export default function FileManager() {
         await updateDoc(doc(db, `files_${schoolId}`, renamingItem.id), { name: renameValue.trim() });
       }
     } catch (err) {
-      alert('שגיאה בשינוי שם: ' + err.message);
+      alert('שגיאה בשינוי שם: ');
     }
     setRenamingItem(null);
     setRenameValue('');

@@ -83,7 +83,7 @@ export default function NavPermissionsPanel({ item, anchor, schoolId, onClose })
         });
         setPermissions(pmap);
       } catch (err) {
-        console.error('Error loading staff for nav permissions:', err);
+        console.error('Error loading staff for nav permissions:');
       }
       setLoading(false);
     }
@@ -131,7 +131,7 @@ export default function NavPermissionsPanel({ item, anchor, schoolId, onClose })
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (err) {
-      alert('שגיאה בשמירה: ' + err.message);
+      alert('שגיאה בשמירה: ');
     }
     setSaving(false);
   }

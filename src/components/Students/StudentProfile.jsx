@@ -54,7 +54,7 @@ export default function StudentProfile({ student, tracks, schoolId, canEdit, onC
         updatedAt: new Date().toISOString(),
       });
     } catch (err) {
-      console.error('Error updating requirement status:', err);
+      console.error('Error updating requirement status:');
     }
   }
 
@@ -73,7 +73,7 @@ export default function StudentProfile({ student, tracks, schoolId, canEdit, onC
         updatedAt: new Date().toISOString(),
       });
     } catch (err) {
-      console.error('Error updating subject status:', err);
+      console.error('Error updating subject status:');
     }
   }
 
@@ -86,7 +86,7 @@ export default function StudentProfile({ student, tracks, schoolId, canEdit, onC
       });
       setEditingNotes(false);
     } catch (err) {
-      console.error('Error saving notes:', err);
+      console.error('Error saving notes:');
     }
     setSaving(false);
   }
@@ -107,7 +107,7 @@ export default function StudentProfile({ student, tracks, schoolId, canEdit, onC
         updatedAt: new Date().toISOString(),
       });
     } catch (err) {
-      console.error('Error saving recommendation:', err);
+      console.error('Error saving recommendation:');
     }
   }
 
@@ -120,7 +120,7 @@ export default function StudentProfile({ student, tracks, schoolId, canEdit, onC
         updatedAt: new Date().toISOString(),
       });
     } catch (err) {
-      console.error('Error removing recommendation:', err);
+      console.error('Error removing recommendation:');
     }
   }
 

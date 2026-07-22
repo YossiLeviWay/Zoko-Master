@@ -132,7 +132,7 @@ export default function Sidebar() {
     const unsub = onSnapshot(q, (snap) => {
       setUnreadCount(snap.size);
     }, (err) => {
-      console.warn('Error listening to notifications count:', err);
+      console.warn('Error listening to notifications count:');
     });
     return unsub;
   }, [currentUser?.uid]);
@@ -149,7 +149,7 @@ export default function Sidebar() {
     const unsub = onSnapshot(q, (snap) => {
       setLatestNotifs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     }, (err) => {
-      console.warn('Error listening to latest notifications:', err);
+      console.warn('Error listening to latest notifications:');
     });
     return unsub;
   }, [currentUser?.uid]);
@@ -183,7 +183,7 @@ export default function Sidebar() {
       const updates = snap.docs.map(d => updateDoc(doc(db, 'notifications', d.id), { read: true }));
       await Promise.all(updates);
     } catch (err) {
-      console.warn('Error marking all notifications as read:', err);
+      console.warn('Error marking all notifications as read:');
     }
   }
 
