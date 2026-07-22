@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react';
 import { db } from '../../firebase';
-import {
-  collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot
-} from 'firebase/firestore';
+import { addDoc, updateDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { Plus, Trash2, Edit3, X, Save, ChevronDown, ChevronUp, GraduationCap } from 'lucide-react';
+import { schoolCollection, schoolDoc } from '../../services/firestore/paths';
 
 const PROGRAM_TYPES = [
   { id: 'full_matriculation', label: 'בגרות מלאה' },
@@ -34,7 +33,7 @@ export default function TrackManager({ schoolId, onClose }) {
 
   useEffect(() => {
     if (!schoolId) return;
-    const unsub = onSnapshot(collection(db, `tracks_${schoolId}`), snap => {
+    const unsub = onSnapshot(schoolCollection(db, schoolId, 'tracks'), snap => {
       setTracks(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
     return unsub;
@@ -69,19 +68,19 @@ export default function TrackManager({ schoolId, onClose }) {
       updatedAt: new Date().toISOString(),
     };
     if (editingTrack === 'new') {
-      await addDoc(collection(db, `tracks_${schoolId}`), {
+      await addDoc(schoolCollection(db, schoolId, 'tracks'), {
         ...data,
         createdAt: new Date().toISOString(),
       });
     } else {
-      await updateDoc(doc(db, `tracks_${schoolId}`, editingTrack), data);
+      await updateDoc(schoolDoc(db, schoolId, 'tracks', editingTrack), data);
     }
     setEditingTrack(null);
   }
 
   async function deleteTrack(trackId) {
     if (!confirm('האם למחוק מגמה זו? הפעולה תשפיע על תלמידים המשויכים אליה.')) return;
-    await deleteDoc(doc(db, `tracks_${schoolId}`, trackId));
+    await deleteDoc(schoolDoc(db, schoolId, 'tracks', trackId));
   }
 
   function addRequirement() {

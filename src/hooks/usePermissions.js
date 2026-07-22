@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { getDoc } from 'firebase/firestore';
+import { schoolDoc } from '../services/firestore/paths';
 
 export const VIEWER_DEFAULTS = {
   calendar_view: true,
@@ -59,7 +60,7 @@ export function usePermissions() {
       if (roleIds.length > 0 && schoolId) {
         for (const roleId of roleIds) {
           try {
-            const roleDoc = await getDoc(doc(db, `roles_${schoolId}`, roleId));
+            const roleDoc = await getDoc(schoolDoc(db, schoolId, 'roles', roleId));
             if (roleDoc.exists()) {
               const rp = roleDoc.data().permissions || {};
               for (const [key, val] of Object.entries(rp)) {

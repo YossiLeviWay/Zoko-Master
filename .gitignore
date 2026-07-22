@@ -9,6 +9,7 @@ lerna-debug.log*
 
 node_modules
 dist
+functions/migration-reports/
 dist-ssr
 *.local
 .env

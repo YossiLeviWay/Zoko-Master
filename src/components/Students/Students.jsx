@@ -2,11 +2,9 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../firebase';
 import { usePermissions } from '../../hooks/usePermissions';
-import {
-  collection, query, where, getDocs, addDoc, updateDoc,
-  deleteDoc, doc, onSnapshot, orderBy, getDoc
-} from 'firebase/firestore';
+import { getDocs, addDoc, updateDoc, deleteDoc, onSnapshot, getDoc } from 'firebase/firestore';
 import Header from '../Layout/Header';
+import { schoolCollection, schoolDoc } from '../../services/firestore/paths';
 import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
 import TrackManager from './TrackManager';
 import StudentProfile from './StudentProfile';
@@ -73,7 +71,7 @@ export default function Students() {
 
   useEffect(() => {
     if (!schoolId) return;
-    const unsub = onSnapshot(collection(db, `students_${schoolId}`), snap => {
+    const unsub = onSnapshot(schoolCollection(db, schoolId, 'students'), snap => {
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       setStudents(list);
       // Derive unique classes
@@ -85,7 +83,7 @@ export default function Students() {
 
   useEffect(() => {
     if (!schoolId) return;
-    const unsub = onSnapshot(collection(db, `tracks_${schoolId}`), snap => {
+    const unsub = onSnapshot(schoolCollection(db, schoolId, 'tracks'), snap => {
       setTracks(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
     return unsub;
@@ -96,13 +94,13 @@ export default function Students() {
     if (!schoolId) return;
     async function loadClassPerms() {
       try {
-        const snap = await getDoc(doc(db, `settings_${schoolId}`, 'class_permissions'));
+        const snap = await getDoc(schoolDoc(db, schoolId, 'settings', 'class_permissions'));
         if (snap.exists()) setClassPermissions(snap.data().classes || {});
       } catch {}
     }
     async function loadTeams() {
       try {
-        const snap = await getDocs(collection(db, `teams_${schoolId}`));
+        const snap = await getDocs(schoolCollection(db, schoolId, 'teams'));
         const myTeams = snap.docs
           .filter(d => (d.data().memberIds || []).includes(userData?.uid))
           .map(d => d.id);
@@ -146,9 +144,9 @@ export default function Students() {
       updatedAt: new Date().toISOString(),
     };
     if (editingStudent) {
-      await updateDoc(doc(db, `students_${schoolId}`, editingStudent), data);
+      await updateDoc(schoolDoc(db, schoolId, 'students', editingStudent), data);
     } else {
-      await addDoc(collection(db, `students_${schoolId}`), {
+      await addDoc(schoolCollection(db, schoolId, 'students'), {
         ...data,
         requirementStatus: {},
         createdAt: new Date().toISOString(),
@@ -160,7 +158,7 @@ export default function Students() {
 
   async function handleDelete(studentId) {
     if (!confirm('האם למחוק תלמיד זה?')) return;
-    await deleteDoc(doc(db, `students_${schoolId}`, studentId));
+    await deleteDoc(schoolDoc(db, schoolId, 'students', studentId));
   }
 
   function addSubject() {
@@ -590,7 +588,7 @@ export default function Students() {
           onClose={() => {
             setShowClassPerms(false);
             // Reload class permissions after save
-            getDoc(doc(db, `settings_${schoolId}`, 'class_permissions'))
+          getDoc(schoolDoc(db, schoolId, 'settings', 'class_permissions'))
               .then(snap => { if (snap.exists()) setClassPermissions(snap.data().classes || {}); })
               .catch(() => {});
           }}
