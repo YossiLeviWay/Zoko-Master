@@ -272,6 +272,7 @@ export default function Messages() {
     // Notify recipients about the new message
     for (const recipientId of otherIds) {
       createNotification(recipientId, {
+        schoolId,
         title: `הודעה חדשה מ${userData?.fullName || 'משתמש'}`,
         body: text.length > 80 ? text.slice(0, 80) + '...' : text,
         type: 'message',

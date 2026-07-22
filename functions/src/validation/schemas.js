@@ -60,3 +60,12 @@ export const teamMembershipSchema = z.object({
   teamId: id,
   action: z.enum(['add', 'remove']),
 }).strict();
+
+export const notificationSchema = z.object({
+  schoolId: id,
+  userIds: z.array(id).min(1).max(50).transform(values => [...new Set(values)]),
+  title: z.string().trim().min(1).max(120),
+  body: z.string().trim().max(500).optional().default(''),
+  type: z.enum(['calendar', 'staff', 'file', 'message', 'permission', 'system', 'task']),
+  link: z.string().trim().max(200).regex(/^\/[A-Za-z0-9/_?=&.-]*$/).optional().default(''),
+}).strict();

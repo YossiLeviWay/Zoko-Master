@@ -10,3 +10,4 @@ export {
   removeSchoolMembership,
 } from './callables/memberships.js';
 export { updateTeamMembership } from './callables/teams.js';
+export { createNotifications } from './callables/notifications.js';

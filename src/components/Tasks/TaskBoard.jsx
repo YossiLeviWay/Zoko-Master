@@ -209,7 +209,7 @@ export default function TaskBoard() {
 
     // Send notifications to assignees
     const notifTitle = `משימה חדשה: ${form.title}`;
-    const notifOpts = { title: notifTitle, body: form.description?.slice(0, 80) || '', type: 'task', link: '/tasks' };
+    const notifOpts = { schoolId, title: notifTitle, body: form.description?.slice(0, 80) || '', type: 'task', link: '/tasks' };
     if (form.assigneeType === 'individual' && form.assigneeIds.length > 0) {
       const otherIds = form.assigneeIds.filter(id => id !== currentUser?.uid);
       if (otherIds.length > 0) createNotifications(otherIds, notifOpts);

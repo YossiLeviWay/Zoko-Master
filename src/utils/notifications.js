@@ -1,5 +1,4 @@
-import { db } from '../firebase';
-import { collection, addDoc } from 'firebase/firestore';
+import { createServerNotifications } from '../services/adminUserService';
 
 /**
  * Create a notification for a user
@@ -10,27 +9,31 @@ import { collection, addDoc } from 'firebase/firestore';
  * @param {string} [options.type] - Type: calendar, staff, file, message, permission, system, task
  * @param {string} [options.link] - Optional route to navigate to
  */
-export async function createNotification(userId, { title, body = '', type = 'system', link = '' }) {
+export async function createNotification(userId, options) {
+  return createNotifications([userId], options);
+}
+
+/**
+ * Create notifications through the authorized server boundary.
+ */
+export async function createNotifications(userIds, {
+  schoolId,
+  title,
+  body = '',
+  type = 'system',
+  link = '',
+}) {
   try {
-    await addDoc(collection(db, 'notifications'), {
-      userId,
+    if (!schoolId || userIds.length === 0) return;
+    await createServerNotifications({
+      schoolId,
+      userIds,
       title,
       body,
       type,
       link,
-      read: false,
-      createdAt: new Date().toISOString(),
     });
-  } catch (err) {
-    console.warn('Failed to create notification:', err);
-  }
-}
-
-/**
- * Create notifications for multiple users
- */
-export async function createNotifications(userIds, options) {
-  for (const userId of userIds) {
-    await createNotification(userId, options);
+  } catch {
+    console.warn('Unable to create notification.');
   }
 }

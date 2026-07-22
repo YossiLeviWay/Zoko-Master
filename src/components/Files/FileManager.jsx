@@ -338,6 +338,7 @@ export default function FileManager() {
           const otherIds = folder.allowedUsers.filter(id => id !== uid);
           if (otherIds.length > 0) {
             createNotifications(otherIds, {
+              schoolId,
               title: `הקובץ "${editingFile.name}" נערך`,
               body: `${userData?.fullName || 'משתמש'} ערך/ה את הקובץ`,
               type: 'file',

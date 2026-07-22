@@ -131,6 +131,7 @@ export default function Teams() {
     await updateTeamMembership({ schoolId, teamId, userId, action: 'add' });
     // Notify the added user
     createNotification(userId, {
+      schoolId,
       title: `הוספת לצוות "${team.name}"`,
       body: `${userData?.fullName || 'מנהל'} הוסיף/ה אותך לצוות`,
       type: 'staff',
