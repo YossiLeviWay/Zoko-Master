@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../firebase';
 import {
@@ -38,11 +38,6 @@ export default function PagePermissionsPanel({ feature, onClose }) {
   const featureMeta = FEATURE_LABELS[feature] || {};
 
   useEffect(() => {
-    if (!schoolId) return;
-    loadStaff();
-  }, [schoolId]);
-
-  useEffect(() => {
     function onOutside(e) {
       if (panelRef.current && !panelRef.current.contains(e.target)) onClose();
     }
@@ -50,7 +45,7 @@ export default function PagePermissionsPanel({ feature, onClose }) {
     return () => document.removeEventListener('mousedown', onOutside);
   }, [onClose]);
 
-  async function loadStaff() {
+  const loadStaff = useCallback(async () => {
     try {
       const q1 = query(collection(db, 'users'), where('schoolIds', 'array-contains', schoolId));
       const q2 = query(collection(db, 'users'), where('schoolId', '==', schoolId));
@@ -65,7 +60,12 @@ export default function PagePermissionsPanel({ feature, onClose }) {
     } catch (err) {
       console.error('PagePermissionsPanel load error:');
     }
-  }
+  }, [schoolId]);
+
+  useEffect(() => {
+    if (!schoolId) return;
+    loadStaff();
+  }, [schoolId, loadStaff]);
 
   async function togglePerm(user, permKey, currentVal) {
     setSaving(`${user.id}_${permKey}`);

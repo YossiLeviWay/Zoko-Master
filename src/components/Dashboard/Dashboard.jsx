@@ -10,8 +10,6 @@ import {
   limit,
   updateDoc,
   doc,
-  arrayUnion,
-  arrayRemove,
   onSnapshot
 } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
@@ -94,6 +92,8 @@ const HOLIDAY_BORDER_COLORS = {
 export default function Dashboard() {
   const { currentUser, userData, selectedSchool, isGlobalAdmin, isPrincipal, isPending, approveUser, rejectUser } = useAuth();
   const navigate = useNavigate();
+  const globalAdmin = isGlobalAdmin();
+  const principal = isPrincipal();
   const [events, setEvents] = useState([]);
   const [taskStats, setTaskStats] = useState({ total: 0, pending: 0, completed: 0, overdue: 0 });
   const [staffCount, setStaffCount] = useState(0);
@@ -105,10 +105,8 @@ export default function Dashboard() {
   const [activityFeed, setActivityFeed] = useState([]);
   const [activityLoading, setActivityLoading] = useState(false);
   const [schoolStats, setSchoolStats] = useState([]);
-  const [systemSummary, setSystemSummary] = useState({ totalUsers: 0, totalFiles: 0, totalTasks: 0, totalSchools: 0 });
   const [allSchoolEvents, setAllSchoolEvents] = useState([]);
   const [recentAnnouncements, setRecentAnnouncements] = useState([]);
-  const [announcementTeams, setAnnouncementTeams] = useState([]);
 
   // Personal tasks
   const [myTasks, setMyTasks] = useState([]);
@@ -407,7 +405,7 @@ export default function Dashboard() {
     const unsub = onSnapshot(q, (snap) => {
       let anns = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       // Filter: show announcements for target='all' or matching schoolId
-      if (!isGlobalAdmin()) {
+      if (!globalAdmin) {
         anns = anns.filter(a => a.target === 'all' || a.schoolId === selectedSchool);
       }
       setRecentAnnouncements(anns.slice(0, 3));
@@ -415,32 +413,18 @@ export default function Dashboard() {
       console.error('Error loading announcements for dashboard:');
     });
     return unsub;
-  }, [selectedSchool]);
-
-  // Load teams for resolving team names in announcements
-  useEffect(() => {
-    if (!selectedSchool) return;
-    async function loadTeams() {
-      try {
-        const snap = await getDocs(collection(db, `teams_${selectedSchool}`));
-        setAnnouncementTeams(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      } catch (err) {
-        console.error('Error loading teams for dashboard:');
-      }
-    }
-    loadTeams();
-  }, [selectedSchool]);
+  }, [selectedSchool, globalAdmin]);
 
   // Fetch pending users for admin/principal
   useEffect(() => {
-    if (!isGlobalAdmin() && !isPrincipal()) {
+    if (!globalAdmin && !principal) {
       setPendingUsers([]);
       return;
     }
 
     async function fetchPendingUsers() {
       try {
-        if (isGlobalAdmin()) {
+        if (globalAdmin) {
           // Admin sees ALL pending users across all schools
           const usersRef = collection(db, 'users');
           const snap = await getDocs(usersRef);
@@ -448,7 +432,7 @@ export default function Dashboard() {
             .map(d => ({ id: d.id, ...d.data() }))
             .filter(u => u.pendingSchools && u.pendingSchools.length > 0);
           setPendingUsers(pending);
-        } else if (isPrincipal() && selectedSchool) {
+        } else if (principal && selectedSchool) {
           // Principal sees only pending users for their school(s)
           const userSchools = userData?.schoolIds || [];
           const schoolId = selectedSchool || (userSchools.length > 0 ? userSchools[0] : userData?.schoolId);
@@ -464,11 +448,11 @@ export default function Dashboard() {
     }
 
     fetchPendingUsers();
-  }, [selectedSchool, userData]);
+  }, [selectedSchool, userData, globalAdmin, principal]);
 
   // Activity feed for global admin - shows significant events across all schools
   useEffect(() => {
-    if (!isGlobalAdmin()) return;
+    if (!globalAdmin) return;
 
     async function fetchActivityFeed() {
       setActivityLoading(true);
@@ -535,8 +519,6 @@ export default function Dashboard() {
         // 3. Per-school summary stats
         const statsArr = [];
         const today = new Date().toISOString().split('T')[0];
-        let totalFiles = 0;
-        let totalTasks = 0;
         for (const school of allSchools) {
           const staffList = allUsers.filter(u => {
             const sids = u.schoolIds || [];
@@ -572,8 +554,6 @@ export default function Dashboard() {
           staffList.forEach(u => {
             if (u.createdAt && u.createdAt > lastActivity) lastActivity = u.createdAt;
           });
-          totalFiles += fileCount;
-          totalTasks += taskCount;
           statsArr.push({
             id: school.id,
             name: school.name || school.id,
@@ -587,12 +567,6 @@ export default function Dashboard() {
           });
         }
         setSchoolStats(statsArr);
-        setSystemSummary({
-          totalSchools: allSchools.length,
-          totalUsers: allUsers.filter(u => u.role !== 'global_admin').length,
-          totalFiles,
-          totalTasks,
-        });
 
         // 4. Fetch recent events across all schools
         const allEvents = [];
@@ -627,7 +601,7 @@ export default function Dashboard() {
     }
 
     fetchActivityFeed();
-  }, [selectedSchool, userData]);
+  }, [selectedSchool, userData, globalAdmin]);
 
   useEffect(() => {
     if (!selectedSchool) {
@@ -946,7 +920,7 @@ export default function Dashboard() {
     }
   }
 
-  const canApprove = isGlobalAdmin() || isPrincipal();
+  const canApprove = globalAdmin || principal;
 
   return (
     <div className="page">
@@ -978,7 +952,7 @@ export default function Dashboard() {
                     <th>שם</th>
                     <th>דוא"ל</th>
                     <th>תפקיד</th>
-                    {isGlobalAdmin() && <th>מוסד</th>}
+                    {globalAdmin && <th>מוסד</th>}
                     <th>פעולות</th>
                   </tr>
                 </thead>
@@ -986,7 +960,7 @@ export default function Dashboard() {
                   {pendingUsers.map(user => {
                     // For admin: show each pending school as a separate row
                     const pendingSchoolIds = user.pendingSchools || [];
-                    if (isGlobalAdmin()) {
+                    if (globalAdmin) {
                       return pendingSchoolIds.map(psId => (
                         <tr key={`${user.id}-${psId}`}>
                           <td className="td-bold">
@@ -1388,7 +1362,7 @@ export default function Dashboard() {
         </div>
 
         {/* Admin School Summary Stats */}
-        {isGlobalAdmin() && schoolStats.length > 0 && (
+        {globalAdmin && schoolStats.length > 0 && (
           <div className="dashboard-section" style={{ marginTop: '1rem' }}>
             <div className="section-header">
               <School size={18} />
@@ -1425,7 +1399,7 @@ export default function Dashboard() {
         )}
 
         {/* Admin Cross-School Events */}
-        {isGlobalAdmin() && allSchoolEvents.length > 0 && (
+        {globalAdmin && allSchoolEvents.length > 0 && (
           <div className="dashboard-section" style={{ marginTop: '1rem' }}>
             <div className="section-header">
               <Calendar size={18} />
@@ -1466,7 +1440,7 @@ export default function Dashboard() {
         )}
 
         {/* Admin Activity Feed */}
-        {isGlobalAdmin() && (
+        {globalAdmin && (
           <div className="dashboard-section" style={{ marginTop: '1rem' }}>
             <div className="section-header">
               <Activity size={18} />

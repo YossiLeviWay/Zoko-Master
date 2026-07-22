@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../firebase';
 import { collection, getDocs, query, where, doc, getDoc, setDoc } from 'firebase/firestore';
@@ -30,10 +30,6 @@ export default function PermissionsMenu({ resourceType, resourceId, resourceName
   const canManage = isGlobalAdmin() || isPrincipal();
 
   useEffect(() => {
-    loadData();
-  }, [schoolId, resourceId]);
-
-  useEffect(() => {
     function handleClickOutside(e) {
       if (menuRef.current && !menuRef.current.contains(e.target)) onClose();
     }
@@ -41,7 +37,7 @@ export default function PermissionsMenu({ resourceType, resourceId, resourceName
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [onClose]);
 
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       // Load staff
@@ -62,13 +58,17 @@ export default function PermissionsMenu({ resourceType, resourceId, resourceName
       // Load existing permissions for this resource
       const permDoc = await getDoc(doc(db, 'resource_permissions', `${resourceType}_${resourceId}`));
       if (permDoc.exists()) {
-        setPermissions({ ...permissions, ...permDoc.data() });
+        setPermissions(prev => ({ ...prev, ...permDoc.data() }));
       }
     } catch (err) {
       console.error('Error loading permissions data:');
     }
     setLoading(false);
-  }
+  }, [resourceId, resourceType, schoolId]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   async function savePermissions() {
     try {
@@ -257,12 +257,13 @@ export default function PermissionsMenu({ resourceType, resourceId, resourceName
 export function useResourcePermission(resourceType, resourceId) {
   const { userData, currentUser, isGlobalAdmin, isPrincipal } = useAuth();
   const [perm, setPerm] = useState({ canView: true, canEdit: false, loading: true });
+  const hasFullAccess = isGlobalAdmin() || isPrincipal();
 
   useEffect(() => {
     if (!currentUser || !resourceId) return;
 
     // Admin and principal have full access
-    if (isGlobalAdmin() || isPrincipal()) {
+    if (hasFullAccess) {
       setPerm({ canView: true, canEdit: true, loading: false });
       return;
     }
@@ -293,7 +294,7 @@ export function useResourcePermission(resourceType, resourceId) {
       }
     }
     check();
-  }, [currentUser, resourceId, resourceType]);
+  }, [currentUser, hasFullAccess, resourceId, resourceType, userData]);
 
   return perm;
 }

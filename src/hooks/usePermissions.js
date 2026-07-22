@@ -39,6 +39,7 @@ export function usePermissions() {
   const [loading, setLoading] = useState(true);
 
   const schoolId = selectedSchool || userData?.schoolId;
+  const hasFullAccess = isGlobalAdmin() || isPrincipal();
 
   useEffect(() => {
     if (!userData) {
@@ -46,7 +47,7 @@ export function usePermissions() {
       return;
     }
 
-    if (isGlobalAdmin() || isPrincipal()) {
+    if (hasFullAccess) {
       setPermissions(FULL_PERMISSIONS);
       setLoading(false);
       return;
@@ -82,7 +83,7 @@ export function usePermissions() {
     }
 
     resolve();
-  }, [userData?.uid, userData?.role, userData?.customRoleIds, userData?.permissions, schoolId]);
+  }, [hasFullAccess, schoolId, userData]);
 
   return { permissions, loading };
 }

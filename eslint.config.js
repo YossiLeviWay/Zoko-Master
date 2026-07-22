@@ -38,7 +38,8 @@ export default defineConfig([
       'react-hooks/set-state-in-effect': 'off',
       'react-hooks/static-components': 'off',
       'react-hooks/use-memo': 'off',
-      'react-refresh/only-export-components': 'warn',
+      // Context and permission modules intentionally colocate providers/hooks.
+      'react-refresh/only-export-components': 'off',
     },
   },
   {

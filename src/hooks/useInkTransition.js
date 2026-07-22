@@ -7,7 +7,6 @@ export function useInkTransition() {
   const navigate = useNavigate();
 
   const trigger = useCallback((e, path) => {
-    const rect = document.documentElement.getBoundingClientRect();
     const cx = ((e.clientX / window.innerWidth) * 100).toFixed(1) + '%';
     const cy = ((e.clientY / window.innerHeight) * 100).toFixed(1) + '%';
 

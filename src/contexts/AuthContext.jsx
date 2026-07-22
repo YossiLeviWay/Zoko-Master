@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { auth, db } from '../firebase';
 import {
   getIdTokenResult,
@@ -93,7 +93,7 @@ export function AuthProvider({ children }) {
     return signOut(auth);
   }
 
-  async function fetchUserData(uid, user = currentUser, claim = globalAdminClaim) {
+  const loadUserData = useCallback(async (uid, user, claim) => {
     if (!user || user.uid !== uid) return null;
     try {
       const snapshot = await getDoc(doc(db, 'users', uid));
@@ -117,6 +117,10 @@ export function AuthProvider({ children }) {
       setSelectedSchool(null);
       return fallback;
     }
+  }, []);
+
+  async function fetchUserData(uid) {
+    return loadUserData(uid, currentUser, globalAdminClaim);
   }
 
   async function approveUser(userId, schoolId) {
@@ -178,7 +182,7 @@ export function AuthProvider({ children }) {
         const token = await getIdTokenResult(user);
         const hasClaim = token.claims.global_admin === true;
         setGlobalAdminClaim(hasClaim);
-        await fetchUserData(user.uid, user, hasClaim);
+        await loadUserData(user.uid, user, hasClaim);
         try {
           await updateDoc(doc(db, 'users', user.uid), {
             isOnline: true,
@@ -192,7 +196,7 @@ export function AuthProvider({ children }) {
       }
     });
     return unsubscribe;
-  }, []);
+  }, [loadUserData]);
 
   useEffect(() => {
     if (!currentUser || !userData?.hasValidUserDocument) return undefined;

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../../firebase';
@@ -238,38 +238,29 @@ export default function StaffManagement() {
     loadSchools();
   }, []);
 
-  useEffect(() => {
-    if (!schoolId) return;
-    loadCustomRoles();
-    loadTeams();
-  }, [schoolId]);
-
-  async function loadCustomRoles() {
+  const loadCustomRoles = useCallback(async () => {
     try {
       const snap = await getDocs(collection(db, `roles_${schoolId}`));
       setCustomRoles(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (err) {
       console.error('Error loading custom roles:');
     }
-  }
+  }, [schoolId]);
 
-  async function loadTeams() {
+  const loadTeams = useCallback(async () => {
     try {
       const snap = await getDocs(collection(db, `teams_${schoolId}`));
       setTeams(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (err) {
       console.error('Error loading teams:');
     }
-  }
+  }, [schoolId]);
 
   useEffect(() => {
-    if (isAdmin) {
-      loadAllStaff();
-    } else if (schoolId) {
-      loadStaff();
-      loadPendingUsers();
-    }
-  }, [schoolId]);
+    if (!schoolId) return;
+    loadCustomRoles();
+    loadTeams();
+  }, [schoolId, loadCustomRoles, loadTeams]);
 
   async function loadSchools() {
     try {
@@ -292,7 +283,7 @@ export default function StaffManagement() {
   }
 
   // Principal: load only current school's users
-  async function loadStaff() {
+  const loadStaff = useCallback(async () => {
     const q1 = query(collection(db, 'users'), where('schoolIds', 'array-contains', schoolId));
     const snap1 = await getDocs(q1);
     const staffMap = new Map();
@@ -311,13 +302,22 @@ export default function StaffManagement() {
     });
 
     setStaff(Array.from(staffMap.values()));
-  }
+  }, [schoolId]);
 
-  async function loadPendingUsers() {
+  const loadPendingUsers = useCallback(async () => {
     const q = query(collection(db, 'users'), where('pendingSchools', 'array-contains', schoolId));
     const snap = await getDocs(q);
     setPendingUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-  }
+  }, [schoolId]);
+
+  useEffect(() => {
+    if (isAdmin) {
+      loadAllStaff();
+    } else if (schoolId) {
+      loadStaff();
+      loadPendingUsers();
+    }
+  }, [schoolId, isAdmin, loadStaff, loadPendingUsers]);
 
   async function handleApprove(userId) {
     await approveUser(userId, schoolId);

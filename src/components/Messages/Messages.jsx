@@ -17,7 +17,7 @@ import {
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import Header from '../Layout/Header';
-import { createNotification, createNotifications } from '../../utils/notifications';
+import { createNotification } from '../../utils/notifications';
 import { Send, Search, Mail, Circle, Trash2, X, Shield, Megaphone, Users, MessageCircle, ImagePlus, Pin } from 'lucide-react';
 import './Messages.css';
 
@@ -47,6 +47,7 @@ export default function Messages() {
   const imageInputRef = useRef(null);
   const uid = currentUser?.uid;
   const schoolId = selectedSchool || userData?.schoolId;
+  const globalAdmin = isGlobalAdmin();
 
   // Tab state: 'chats' or 'announcements'
   const [activeTab, setActiveTab] = useState('chats');
@@ -66,7 +67,7 @@ export default function Messages() {
     if (!uid) return;
     async function loadUsers() {
       let allUsers;
-      if (isGlobalAdmin()) {
+      if (globalAdmin) {
         // Admin can message anyone
         const snap = await getDocs(collection(db, 'users'));
         allUsers = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(u => u.id !== uid);
@@ -110,7 +111,7 @@ export default function Messages() {
       setUsers(allUsers);
     }
     loadUsers();
-  }, [uid, schoolId]);
+  }, [uid, schoolId, globalAdmin]);
 
   // Load teams for announcement targeting
   useEffect(() => {
@@ -137,7 +138,7 @@ export default function Messages() {
     const unsub = onSnapshot(q, (snap) => {
       let anns = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       // Filter: show announcements for target='all' or matching schoolId
-      if (!isGlobalAdmin() && schoolId) {
+      if (!globalAdmin && schoolId) {
         anns = anns.filter(a => a.target === 'all' || a.schoolId === schoolId);
       }
       setAnnouncements(anns);
@@ -145,7 +146,7 @@ export default function Messages() {
       console.error('Error loading announcements:');
     });
     return unsub;
-  }, [uid, schoolId]);
+  }, [uid, schoolId, globalAdmin]);
 
   // Listen to conversations (scoped by school for non-admin)
   useEffect(() => {
@@ -157,7 +158,7 @@ export default function Messages() {
     const unsub = onSnapshot(q, (snap) => {
       let convs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       // Non-admin: filter to only conversations from the current school
-      if (!isGlobalAdmin() && schoolId) {
+      if (!globalAdmin && schoolId) {
         convs = convs.filter(c => !c.schoolId || c.schoolId === schoolId);
       }
       convs.sort((a, b) => (b.lastMessageAt || '').localeCompare(a.lastMessageAt || ''));
@@ -182,7 +183,7 @@ export default function Messages() {
       console.error('Error loading conversations:');
     });
     return unsub;
-  }, [uid]);
+  }, [uid, schoolId, globalAdmin]);
 
   // Listen to messages in active conversation (including merged conversations)
   useEffect(() => {
@@ -216,7 +217,7 @@ export default function Messages() {
       updateDoc(doc(db, 'conversations', activeConv.id), { unreadBy: newUnread });
     }
     return () => unsubs.forEach(u => u());
-  }, [activeConv?.id, uid]);
+  }, [activeConv, uid]);
 
   async function startConversation(otherUser) {
     // Check if conversation already exists (using merged list)

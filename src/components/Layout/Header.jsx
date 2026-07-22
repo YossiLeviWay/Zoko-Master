@@ -33,7 +33,8 @@ function formatNotifTime(dateStr) {
 
 export default function Header({ title, onPermissions }) {
   const { userData, currentUser, selectedSchool, switchSchool, isGlobalAdmin, isPrincipal } = useAuth();
-  const canManagePermissions = isGlobalAdmin() || isPrincipal();
+  const globalAdmin = isGlobalAdmin();
+  const canManagePermissions = globalAdmin || isPrincipal();
   const navigate = useNavigate();
   const [schools, setSchools] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -48,7 +49,7 @@ export default function Header({ title, onPermissions }) {
   const notifBellRef = useRef(null);
 
   useEffect(() => {
-    if (!isGlobalAdmin()) return;
+    if (!globalAdmin) return;
     async function fetchSchools() {
       try {
         const snap = await getDocs(collection(db, 'schools'));
@@ -58,7 +59,7 @@ export default function Header({ title, onPermissions }) {
       }
     }
     fetchSchools();
-  }, [userData]);
+  }, [globalAdmin]);
 
   useEffect(() => {
     function handleClickOutside(e) {
@@ -230,7 +231,7 @@ export default function Header({ title, onPermissions }) {
           </div>
         </div>
 
-      {isGlobalAdmin() && schools.length > 0 && (
+      {globalAdmin && schools.length > 0 && (
         <div className="context-switcher" ref={dropdownRef}>
           <button
             className="context-switcher-btn"

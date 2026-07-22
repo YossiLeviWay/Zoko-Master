@@ -54,7 +54,7 @@ export default function ClassPermissionsManager({ schoolId, classes, onClose }) 
       setLoading(false);
     }
     load();
-  }, [schoolId]);
+  }, [schoolId, classes]);
 
   function getPermsForClass(className) {
     return classPerms[className] || { teacherIds: [], teamIds: [] };

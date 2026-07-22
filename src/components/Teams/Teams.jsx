@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../firebase';
 import { createNotification } from '../../utils/notifications';
@@ -16,14 +16,12 @@ import {
 import { updateTeamMembership } from '../../services/adminUserService';
 import Header from '../Layout/Header';
 import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
-import { usePermissions } from '../../hooks/usePermissions';
 import { Plus, Trash2, Edit3, Users, X, Search, UserPlus, UserMinus, Shield } from 'lucide-react';
 import '../Gantt/Gantt.css';
 import './Teams.css';
 
 export default function Teams() {
   const { userData, selectedSchool, isPrincipal, isGlobalAdmin } = useAuth();
-  const { permissions } = usePermissions();
   const [showPermissionsPanel, setShowPermissionsPanel] = useState(false);
   const [teams, setTeams] = useState([]);
   const [staff, setStaff] = useState([]);
@@ -56,12 +54,7 @@ export default function Teams() {
     return unsub;
   }, [schoolId]);
 
-  useEffect(() => {
-    if (!schoolId) return;
-    loadStaff();
-  }, [schoolId]);
-
-  async function loadStaff() {
+  const loadStaff = useCallback(async () => {
     // Support both old schoolId and new schoolIds
     const results = [];
     const seen = new Set();
@@ -89,7 +82,12 @@ export default function Teams() {
     } catch {}
 
     setStaff(results);
-  }
+  }, [schoolId]);
+
+  useEffect(() => {
+    if (!schoolId) return;
+    loadStaff();
+  }, [schoolId, loadStaff]);
 
   async function handleSubmit(e) {
     e.preventDefault();

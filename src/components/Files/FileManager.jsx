@@ -59,7 +59,7 @@ import '../Gantt/Gantt.css';
 import './Files.css';
 
 export default function FileManager() {
-  const { userData, currentUser, selectedSchool, isPrincipal, isGlobalAdmin, isViewer } = useAuth();
+  const { userData, currentUser, selectedSchool, isPrincipal, isGlobalAdmin } = useAuth();
   const { permissions } = usePermissions();
   const [showPermissionsPanel, setShowPermissionsPanel] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -99,7 +99,7 @@ export default function FileManager() {
   const canManage = isPrincipal() || isGlobalAdmin();
   const canUploadFiles = permissions.files_upload;
 
-  function userCanAccessFolder(folder) {
+  const userCanAccessFolder = useCallback((folder) => {
     if (canManage) return true;
     if (folder.visibility === 'principal_only') return false;
     // Check resource_permissions for this folder
@@ -117,7 +117,7 @@ export default function FileManager() {
     if (folder.visibility === 'all') return true;
     if (folder.allowedUsers && folder.allowedUsers.includes(userData?.uid)) return true;
     return false;
-  }
+  }, [canManage, folderPerms, userData]);
 
   function userCanCreateFiles() {
     if (!canUploadFiles) return false;
@@ -168,7 +168,7 @@ export default function FileManager() {
       setFolders(allFolders.filter(f => userCanAccessFolder(f)));
     });
     return unsub;
-  }, [schoolId, canManage, userData, folderPerms]);
+  }, [schoolId, userCanAccessFolder]);
 
   // Load all files for all folders
   useEffect(() => {
@@ -195,7 +195,7 @@ export default function FileManager() {
       // Clear the param so it doesn't re-trigger
       setSearchParams({}, { replace: true });
     }
-  }, [searchParams, files]);
+  }, [searchParams, files, editingFile, setSearchParams]);
 
   async function createFolder(e) {
     e.preventDefault();
@@ -271,7 +271,7 @@ export default function FileManager() {
     }
   }
 
-  function computeSpreadsheetChanges(oldContent, newContent) {
+  const computeSpreadsheetChanges = useCallback((oldContent, newContent) => {
     try {
       const oldData = typeof oldContent === 'string' ? JSON.parse(oldContent) : oldContent;
       const newData = typeof newContent === 'string' ? JSON.parse(newContent) : newContent;
@@ -291,9 +291,9 @@ export default function FileManager() {
       }
       return changes.slice(0, 50); // limit to 50 changes per save
     } catch { return []; }
-  }
+  }, []);
 
-  async function saveFileContent(content) {
+  const saveFileContent = useCallback(async (content) => {
     if (!editingFile || !schoolId) return;
     setFileSaving(true);
     const prevContent = lastSavedContentRef.current;
@@ -351,7 +351,7 @@ export default function FileManager() {
       alert('שגיאה בשמירה: ');
     }
     setFileSaving(false);
-  }
+  }, [computeSpreadsheetChanges, editingFile, folders, schoolId, uid, userData?.fullName]);
 
   // Auto-save: debounce 1 second after last change
   const autoSave = useCallback((content) => {
@@ -361,7 +361,7 @@ export default function FileManager() {
         saveFileContent(content);
       }
     }, 1000);
-  }, [editingFile?.id, schoolId]);
+  }, [saveFileContent]);
 
   useEffect(() => {
     return () => {
@@ -374,7 +374,7 @@ export default function FileManager() {
     if (editingFile) {
       lastSavedContentRef.current = editingFile.content;
     }
-  }, [editingFile?.id]);
+  }, [editingFile]);
 
   async function deleteFolder(folderId) {
     if (!canUploadFiles) return;
@@ -406,7 +406,7 @@ export default function FileManager() {
   async function duplicateFile(fileItem) {
     if (!schoolId || !canUploadFiles) return;
     try {
-      const { id, ...data } = fileItem;
+      const { id: _id, ...data } = fileItem;
       await addDoc(collection(db, `files_${schoolId}`), {
         ...data,
         name: (data.name || 'קובץ') + ' - עותק',

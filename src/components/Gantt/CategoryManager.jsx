@@ -3,7 +3,6 @@ import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../firebase';
 import {
   collection,
-  getDocs,
   addDoc,
   updateDoc,
   deleteDoc,

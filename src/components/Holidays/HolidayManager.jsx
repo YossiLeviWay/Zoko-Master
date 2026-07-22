@@ -45,7 +45,7 @@ function loadSavedFilters() {
 }
 
 export default function HolidayManager() {
-  const { userData, selectedSchool, isGlobalAdmin, isPrincipal } = useAuth();
+  const { userData, selectedSchool, isGlobalAdmin } = useAuth();
   const { permissions } = usePermissions();
   const [showPermissionsPanel, setShowPermissionsPanel] = useState(false);
   const [holidays, setHolidays] = useState([]);
@@ -212,7 +212,7 @@ export default function HolidayManager() {
       const schoolsSnap = await getDocs(collection(db, 'schools'));
       // Broadcast the current holidays (from the selected school or current view)
       const sourceHolidays = holidays.map(h => {
-        const { id, ...data } = h;
+        const { id: _id, ...data } = h;
         return data;
       });
 

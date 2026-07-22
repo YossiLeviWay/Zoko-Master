@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../firebase';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
@@ -81,18 +81,18 @@ export default function RolesManager({ schoolId, onClose }) {
 
   const canManage = isGlobalAdmin() || isPrincipal();
 
-  useEffect(() => {
-    loadRoles();
-  }, [schoolId]);
-
-  async function loadRoles() {
+  const loadRoles = useCallback(async () => {
     try {
       const snap = await getDocs(collection(db, `roles_${schoolId}`));
       setRoles(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (err) {
       console.error('Error loading roles:');
     }
-  }
+  }, [schoolId]);
+
+  useEffect(() => {
+    loadRoles();
+  }, [loadRoles]);
 
   async function saveRole() {
     if (!editForm.name.trim()) return;

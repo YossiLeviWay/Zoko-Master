@@ -11,7 +11,6 @@ import {
   updateDoc,
   deleteDoc,
   doc,
-  getDocs,
   getDoc,
   setDoc
 } from 'firebase/firestore';
@@ -19,7 +18,6 @@ import Header from '../Layout/Header';
 import EventModal from './EventModal';
 import YearlyOverview from './YearlyOverview';
 import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
-import { usePermissions } from '../../hooks/usePermissions';
 import { CalendarDays, ChevronDown, Eye, Plus, Search, Settings } from 'lucide-react';
 import './Gantt.css';
 
@@ -72,7 +70,6 @@ export default function GanttChart() {
   const [month, setMonth] = useState(paramMonth !== null ? Number(paramMonth) : now.getMonth());
   const [events, setEvents] = useState([]);
   const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
-  const [categoryDocs, setCategoryDocs] = useState([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
   const [selectedDate, setSelectedDate] = useState(null);
@@ -90,7 +87,6 @@ export default function GanttChart() {
   const [calendarTasks, setCalendarTasks] = useState([]);
 
   const schoolId = selectedSchool || userData?.schoolId;
-  const { permissions } = usePermissions();
   const [showPermissionsPanel, setShowPermissionsPanel] = useState(false);
 
   // Load user's team memberships for visibility filtering
@@ -214,7 +210,6 @@ export default function GanttChart() {
     if (!schoolId) return;
     const unsub = onSnapshot(collection(db, `categories_${schoolId}`), (snap) => {
       const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setCategoryDocs(docs);
       if (docs.length > 0) {
         setCategories(docs.map(d => d.name));
       } else {
@@ -226,8 +221,6 @@ export default function GanttChart() {
 
   // Filter events based on team visibility
   const canSeeAllEvents = isGlobalAdmin() || isPrincipal();
-  const canEditCalendar = permissions.calendar_edit;
-
   function isEventVisible(event) {
     if (canSeeAllEvents) return true;
     if (!event.visibleTo || event.visibleTo === 'all') return true;
