@@ -26,6 +26,10 @@ function userBelongsToSchool(data, schoolId) {
 function actorMaySend(actor, type) {
   if (actor.globalAdmin || actor.data.role === 'principal') return true;
   if (type === 'message') return actor.schoolIds.size > 0;
+  if (type === 'task') {
+    return actor.data.permissions?.tasks_edit === true
+      || actor.data.permissions?.tasks_assign === true;
+  }
   const permission = REQUIRED_PERMISSION[type];
   return permission && actor.data.permissions?.[permission] === true;
 }
