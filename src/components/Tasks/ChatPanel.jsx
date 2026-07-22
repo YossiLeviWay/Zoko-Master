@@ -4,7 +4,8 @@ import {
   query,
   orderBy,
   onSnapshot,
-  addDoc
+  addDoc,
+  serverTimestamp
 } from 'firebase/firestore';
 import { X, Send } from 'lucide-react';
 import './Tasks.css';
@@ -35,7 +36,7 @@ export default function ChatPanel({ task, schoolId, currentUser, onClose }) {
       text: text.trim(),
       author: currentUser?.fullName || 'משתמש',
       authorId: currentUser?.uid || '',
-      createdAt: new Date().toISOString()
+      createdAt: serverTimestamp()
     });
     setText('');
   }
@@ -47,7 +48,7 @@ export default function ChatPanel({ task, schoolId, currentUser, onClose }) {
           <h4 className="chat-title">{task.title}</h4>
           <span className="chat-subtitle">צ׳אט משימה</span>
         </div>
-        <button className="modal-close" onClick={onClose}>
+        <button className="modal-close" onClick={onClose} aria-label="סגירת תגובות המשימה">
           <X size={18} />
         </button>
       </div>
@@ -63,7 +64,7 @@ export default function ChatPanel({ task, schoolId, currentUser, onClose }) {
               <div className="chat-msg-header">
                 <span className="chat-msg-author">{msg.author}</span>
                 <span className="chat-msg-time">
-                  {new Date(msg.createdAt).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}
+                  {(msg.createdAt?.toDate?.() || new Date(msg.createdAt || Date.now())).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}
                 </span>
               </div>
               <div className="chat-msg-text">{msg.text}</div>
@@ -81,7 +82,7 @@ export default function ChatPanel({ task, schoolId, currentUser, onClose }) {
           placeholder="כתבו הודעה..."
           autoFocus
         />
-        <button type="submit" className="chat-send" disabled={!text.trim()}>
+        <button type="submit" className="chat-send" disabled={!text.trim()} aria-label="שליחת תגובה">
           <Send size={16} />
         </button>
       </form>

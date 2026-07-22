@@ -118,6 +118,29 @@ test('authorized server notification validates school and records audit metadata
   assert.deepEqual(audit.docs[0].data().metadata, { recipientCount: 1, type: 'system' });
 });
 
+test('task assign permission may notify only a recipient in the same school', async () => {
+  await seedUser('assigner_a', SCHOOL_A, 'viewer', { permissions: { tasks_assign: true } });
+  await seedUser('recipient_a', SCHOOL_A);
+  await seedUser('recipient_b', SCHOOL_B);
+  const result = await createNotificationsHandler(actorRequest('assigner_a', {
+    schoolId: SCHOOL_A,
+    userIds: ['recipient_a'],
+    title: 'Assigned task',
+    body: '',
+    type: 'task',
+    link: '/tasks?task=task_1',
+  }));
+  assert.equal(result.createdCount, 1);
+  await assert.rejects(createNotificationsHandler(actorRequest('assigner_a', {
+    schoolId: SCHOOL_A,
+    userIds: ['recipient_b'],
+    title: 'Invalid assignment',
+    body: '',
+    type: 'task',
+    link: '/tasks',
+  })), error => error.code === 'permission-denied');
+});
+
 test('school administration is server-authorized and audited', async () => {
   await seedUser('principal_a', SCHOOL_A, 'principal');
   await adminDb.collection('schools').doc(SCHOOL_A).set({ name: 'School A' });
