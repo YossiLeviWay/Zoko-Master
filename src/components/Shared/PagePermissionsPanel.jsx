@@ -2,8 +2,9 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../firebase';
 import {
-  collection, getDocs, query, where, doc, updateDoc, getDoc
+  collection, getDocs, query, where
 } from 'firebase/firestore';
+import { updateStaffUser } from '../../services/adminUserService';
 import { Shield, X, Eye, Edit3, ChevronDown, ChevronUp, Users, Check } from 'lucide-react';
 
 const FEATURE_LABELS = {
@@ -69,12 +70,8 @@ export default function PagePermissionsPanel({ feature, onClose }) {
   async function togglePerm(user, permKey, currentVal) {
     setSaving(`${user.id}_${permKey}`);
     try {
-      const userRef = doc(db, 'users', user.id);
-      const snap = await getDoc(userRef);
-      const existing = snap.data()?.permissions || {};
-      await updateDoc(userRef, {
-        permissions: { ...existing, [permKey]: !currentVal }
-      });
+      const nextPermissions = { ...(user.permissions || {}), [permKey]: !currentVal };
+      await updateStaffUser({ userId: user.id, schoolId, permissions: nextPermissions });
       setStaff(prev => prev.map(u => u.id === user.id
         ? { ...u, permissions: { ...(u.permissions || {}), [permKey]: !currentVal } }
         : u

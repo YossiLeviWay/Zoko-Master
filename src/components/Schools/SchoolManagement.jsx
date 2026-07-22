@@ -10,6 +10,7 @@ import {
   query,
   where
 } from 'firebase/firestore';
+import { setUserRole } from '../../services/adminUserService';
 import Header from '../Layout/Header';
 import { Plus, Edit3, Trash2, UserCheck, X, Search } from 'lucide-react';
 import '../Gantt/Gantt.css';
@@ -82,14 +83,7 @@ export default function SchoolManagement() {
   }
 
   async function assignPrincipal(schoolId, userId) {
-    // Remove old principal role if exists
-    const school = schools.find(s => s.id === schoolId);
-    if (school?.principalId) {
-      await updateDoc(doc(db, 'users', school.principalId), { role: 'viewer' });
-    }
-    // Set new principal
-    await updateDoc(doc(db, 'users', userId), { role: 'principal', schoolId });
-    await updateDoc(doc(db, 'schools', schoolId), { principalId: userId });
+    await setUserRole({ userId, schoolId, role: 'principal', assignAsPrincipal: true });
     setAssignModal(null);
     setAssignSearch('');
     loadSchools();

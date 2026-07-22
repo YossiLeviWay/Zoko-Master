@@ -31,6 +31,7 @@ VITE_FIREBASE_PROJECT_ID=...
 VITE_FIREBASE_STORAGE_BUCKET=...
 VITE_FIREBASE_MESSAGING_SENDER_ID=...
 VITE_FIREBASE_APP_ID=...
+VITE_FIREBASE_FUNCTIONS_REGION=europe-west1
 ```
 
 ## פריסה ל-GitHub Pages
@@ -38,7 +39,10 @@ VITE_FIREBASE_APP_ID=...
 הפרויקט מוגדר לפריסה אוטומטית דרך GitHub Actions.  
 הוסיפו את משתני הסביבה ב-**Settings → Secrets and variables → Actions** של ה-repo.
 
-## כניסת אדמין
+## זהויות והרשאות
 
-סיסמת האדמין המוגדרת: `123qwe123`  
-ניתן לשנות את `GLOBAL_ADMIN_PASSWORD` ב-[src/contexts/AuthContext.jsx](src/contexts/AuthContext.jsx).
+- אין כניסת מנהל באמצעות סיסמה משותפת. מנהלים נכנסים באמצעות חשבון Firebase Authentication אישי כמו כל משתמש אחר.
+- הרשאות מערכת מרכזיות מוקצות רק בצד השרת. `global_admin` דורש Firebase custom claim, וחברות במוסדות נשמרת ב-Firestore ומאומתת בשרת וב-Security Rules.
+- הרשמה ציבורית מושבתת. חשבונות חדשים נוצרים בתהליך הזמנה מאושר בלבד ואינם בוחרים לעצמם תפקיד, מוסד או הרשאות.
+
+הסיסמה המשותפת שהופיעה בעבר בקוד ובתיעוד נחשבת חשופה. יש להחליף ולבטל אותה בחשבון הישן ולבטל את כל ה-refresh tokens שלו. הסרתה מהגרסה הנוכחית אינה מוחקת אותה מהיסטוריית Git.

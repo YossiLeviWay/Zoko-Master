@@ -32,22 +32,11 @@ function ProtectedRoute({ children }) {
 }
 
 function AdminRoute({ children }) {
-  const { userData, loading } = useAuth();
+  const { isGlobalAdmin, loading } = useAuth();
   if (loading) return null;
-  if (userData?.role !== 'global_admin') return <Navigate to="/" />;
+  if (!isGlobalAdmin()) return <Navigate to="/" />;
   return children;
 }
-
-function PrincipalRoute({ children }) {
-  const { userData, loading } = useAuth();
-  if (loading) return null;
-  if (userData?.role !== 'global_admin' && userData?.role !== 'principal') {
-    return <Navigate to="/" />;
-  }
-  return children;
-}
-
-// Requires at least editor role (blocks viewers)
 function SchoolRequiredRoute({ children }) {
   const { userData, selectedSchool, loading } = useAuth();
   if (loading) return null;
@@ -60,7 +49,7 @@ function SchoolRequiredRoute({ children }) {
 
 // Blocks pending users from accessing any route except dashboard
 function ApprovedRoute({ children }) {
-  const { userData, loading, isPending } = useAuth();
+  const { loading, isPending } = useAuth();
   if (loading) return null;
   if (isPending()) return <Navigate to="/" />;
   return children;

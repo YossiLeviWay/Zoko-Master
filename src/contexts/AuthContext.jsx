@@ -1,185 +1,150 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import { auth, db } from '../firebase';
 import {
+  getIdTokenResult,
+  onIdTokenChanged,
   signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
   signOut,
-  onAuthStateChanged,
-  updatePassword
 } from 'firebase/auth';
+import { doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import {
-  doc,
-  getDoc,
-  setDoc,
-  updateDoc,
-  collection,
-  query,
-  where,
-  getDocs,
-  arrayUnion,
-  arrayRemove
-} from 'firebase/firestore';
+  approveSchoolMembership,
+  removeSchoolMembership,
+} from '../services/adminUserService';
 
-const AuthContext = createContext();
-
-const GLOBAL_ADMIN_PASSWORD = '123qwe123';
+const AuthContext = createContext(null);
+const ALLOWED_ROLES = new Set(['viewer', 'editor', 'principal']);
 
 export function useAuth() {
   return useContext(AuthContext);
 }
 
+function minimalPendingUser(user) {
+  return {
+    uid: user.uid,
+    email: user.email || '',
+    fullName: user.displayName || 'משתמש',
+    role: 'viewer',
+    jobTitle: '',
+    schoolId: '',
+    schoolIds: [],
+    pendingSchools: [],
+    permissions: {},
+    customRoleIds: [],
+    teamIds: [],
+    avatar: '',
+    phone: '',
+    accountStatus: 'pending',
+    hasValidUserDocument: false,
+  };
+}
+
+function normalizeUserData(user, data, globalAdminClaim) {
+  if (!data || data.uid !== user.uid) return minimalPendingUser(user);
+
+  const role = globalAdminClaim
+    ? 'global_admin'
+    : ALLOWED_ROLES.has(data.role) ? data.role : 'viewer';
+
+  return {
+    ...data,
+    uid: user.uid,
+    email: user.email || data.email || '',
+    fullName: typeof data.fullName === 'string' ? data.fullName : 'משתמש',
+    role,
+    schoolId: typeof data.schoolId === 'string' ? data.schoolId : '',
+    schoolIds: Array.isArray(data.schoolIds) ? data.schoolIds.filter(id => typeof id === 'string') : [],
+    pendingSchools: Array.isArray(data.pendingSchools)
+      ? data.pendingSchools.filter(id => typeof id === 'string')
+      : [],
+    permissions: data.permissions && typeof data.permissions === 'object' ? data.permissions : {},
+    customRoleIds: Array.isArray(data.customRoleIds) ? data.customRoleIds : [],
+    teamIds: Array.isArray(data.teamIds) ? data.teamIds : [],
+    accountStatus: data.accountStatus || 'active',
+    hasValidUserDocument: true,
+  };
+}
+
 export function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [userData, setUserData] = useState(null);
+  const [globalAdminClaim, setGlobalAdminClaim] = useState(false);
   const [loading, setLoading] = useState(true);
   const [selectedSchool, setSelectedSchool] = useState(null);
 
-  async function register(email, password, userInfo) {
-    const cred = await createUserWithEmailAndPassword(auth, email, password);
-    const schoolId = userInfo.schoolId || '';
-    const userDoc = {
-      uid: cred.user.uid,
-      email,
-      fullName: userInfo.fullName,
-      role: 'viewer',
-      jobTitle: userInfo.jobTitle || '',
-      schoolId: schoolId,
-      schoolIds: [],
-      pendingSchools: schoolId ? [schoolId] : [],
-      phone: userInfo.phone || '',
-      avatar: '',
-      createdAt: new Date().toISOString()
-    };
-    await setDoc(doc(db, 'users', cred.user.uid), userDoc);
-    return cred;
-  }
-
   async function login(email, password) {
-    const cred = await signInWithEmailAndPassword(auth, email, password);
-    // Check if admin set a new password for this user
-    try {
-      const userDoc = await getDoc(doc(db, 'users', cred.user.uid));
-      const data = userDoc.data();
-      if (data?._pendingPassword) {
-        await updatePassword(cred.user, data._pendingPassword);
-        await updateDoc(doc(db, 'users', cred.user.uid), { _pendingPassword: '', _authPassword: data._pendingPassword });
-      }
-    } catch (err) {
-      console.warn('Could not apply pending password:', err);
-    }
-    return cred;
-  }
-
-  async function loginAsAdmin(password) {
-    if (password !== GLOBAL_ADMIN_PASSWORD) {
-      throw new Error('סיסמת אדמין שגויה');
-    }
-    const adminEmail = 'admin@eduflow.co.il';
-    let cred;
-    try {
-      cred = await signInWithEmailAndPassword(auth, adminEmail, GLOBAL_ADMIN_PASSWORD);
-    } catch (signInErr) {
-      if (signInErr.code === 'auth/invalid-credential' || signInErr.code === 'auth/user-not-found') {
-        cred = await createUserWithEmailAndPassword(auth, adminEmail, GLOBAL_ADMIN_PASSWORD);
-      } else {
-        console.error('Admin sign-in error:', signInErr.code, signInErr.message);
-        throw signInErr;
-      }
-    }
-    try {
-      const userRef = doc(db, 'users', cred.user.uid);
-      const snap = await getDoc(userRef);
-      if (!snap.exists()) {
-        await setDoc(userRef, {
-          uid: cred.user.uid,
-          email: adminEmail,
-          fullName: 'מנהל מערכת',
-          role: 'global_admin',
-          jobTitle: 'מנהל על',
-          schoolId: '',
-          schoolIds: [],
-          pendingSchools: [],
-          phone: '',
-          avatar: '',
-          createdAt: new Date().toISOString()
-        });
-      }
-    } catch (firestoreErr) {
-      console.warn('Could not write admin doc:', firestoreErr.code, firestoreErr.message);
-    }
-    return cred;
+    return signInWithEmailAndPassword(auth, email.trim(), password);
   }
 
   async function logout() {
-    // Mark user as offline before signing out
     if (currentUser) {
-      try { await updateDoc(doc(db, 'users', currentUser.uid), { isOnline: false, lastSeen: new Date().toISOString() }); } catch {}
+      try {
+        await updateDoc(doc(db, 'users', currentUser.uid), {
+          isOnline: false,
+          lastSeen: serverTimestamp(),
+        });
+      } catch {
+        // Presence is best-effort and must never block logout.
+      }
     }
     setUserData(null);
     setSelectedSchool(null);
+    setGlobalAdminClaim(false);
     return signOut(auth);
   }
 
-  async function fetchUserData(uid) {
+  async function fetchUserData(uid, user = currentUser, claim = globalAdminClaim) {
+    if (!user || user.uid !== uid) return null;
     try {
-      const docSnap = await getDoc(doc(db, 'users', uid));
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        setUserData(data);
-        if (data.schoolIds && data.schoolIds.length > 0) {
-          setSelectedSchool(data.schoolIds[0]);
-        } else if (data.schoolId) {
-          setSelectedSchool(data.schoolId);
-        }
-        return data;
+      const snapshot = await getDoc(doc(db, 'users', uid));
+      if (!snapshot.exists()) {
+        const fallback = minimalPendingUser(user);
+        setUserData(fallback);
+        setSelectedSchool(null);
+        return fallback;
       }
-    } catch (err) {
-      console.warn('fetchUserData error:', err.code, err.message);
-    }
-    return null;
-  }
 
-  function buildFallbackUserData(user) {
-    const isAdmin = user.email === 'admin@eduflow.co.il';
-    return {
-      uid: user.uid,
-      email: user.email || '',
-      fullName: user.displayName || (isAdmin ? 'מנהל מערכת' : user.email?.split('@')[0] || 'משתמש'),
-      role: isAdmin ? 'global_admin' : 'viewer',
-      jobTitle: isAdmin ? 'מנהל על' : '',
-      schoolId: '',
-      schoolIds: [],
-      pendingSchools: [],
-      avatar: '',
-      phone: '',
-    };
+      const normalized = normalizeUserData(user, snapshot.data(), claim);
+      setUserData(normalized);
+      const memberships = normalized.schoolIds.length > 0
+        ? normalized.schoolIds
+        : normalized.schoolId ? [normalized.schoolId] : [];
+      setSelectedSchool(previous => memberships.includes(previous) ? previous : memberships[0] || null);
+      return normalized;
+    } catch {
+      const fallback = minimalPendingUser(user);
+      setUserData(fallback);
+      setSelectedSchool(null);
+      return fallback;
+    }
   }
 
   async function approveUser(userId, schoolId) {
-    const userRef = doc(db, 'users', userId);
-    await updateDoc(userRef, {
-      pendingSchools: arrayRemove(schoolId),
-      schoolIds: arrayUnion(schoolId)
-    });
+    await approveSchoolMembership({ userId, schoolId });
   }
 
   async function rejectUser(userId, schoolId) {
-    const userRef = doc(db, 'users', userId);
-    await updateDoc(userRef, {
-      pendingSchools: arrayRemove(schoolId)
-    });
+    await removeSchoolMembership({ userId, schoolId, pendingOnly: true });
   }
 
   function switchSchool(schoolId) {
-    setSelectedSchool(schoolId);
+    const memberships = userData?.schoolIds || [];
+    const legacyMembership = userData?.schoolId === schoolId;
+    if (globalAdminClaim || memberships.includes(schoolId) || legacyMembership) {
+      setSelectedSchool(schoolId);
+    }
   }
 
   function isGlobalAdmin() {
-    return userData?.role === 'global_admin';
+    return globalAdminClaim === true;
   }
 
   function isPrincipal() {
-    return userData?.role === 'principal';
+    if (userData?.role !== 'principal') return false;
+    const schoolId = selectedSchool || userData.schoolId;
+    return Boolean(schoolId && (
+      userData.schoolId === schoolId || userData.schoolIds?.includes(schoolId)
+    ));
   }
 
   function isEditor() {
@@ -187,11 +152,10 @@ export function AuthProvider({ children }) {
   }
 
   function isPending() {
-    if (!userData) return false;
-    if (userData.role === 'global_admin') return false;
-    const hasApprovedSchools = (userData.schoolIds && userData.schoolIds.length > 0) || userData.schoolId;
-    const hasPending = userData.pendingSchools && userData.pendingSchools.length > 0;
-    return !hasApprovedSchools && hasPending;
+    if (!userData) return true;
+    if (globalAdminClaim) return false;
+    if (!userData.hasValidUserDocument || userData.accountStatus !== 'active') return true;
+    return !(userData.schoolIds?.length > 0 || userData.schoolId);
   }
 
   function isViewer() {
@@ -199,58 +163,54 @@ export function AuthProvider({ children }) {
   }
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (user) => {
+    const unsubscribe = onIdTokenChanged(auth, async user => {
+      setLoading(true);
+      setCurrentUser(user);
+      if (!user) {
+        setUserData(null);
+        setSelectedSchool(null);
+        setGlobalAdminClaim(false);
+        setLoading(false);
+        return;
+      }
+
       try {
-        setCurrentUser(user);
-        if (user) {
-          const data = await fetchUserData(user.uid);
-          if (!data) {
-            // Firestore doc missing or rules blocked — use Auth info as fallback
-            const fallback = buildFallbackUserData(user);
-            setUserData(fallback);
-            // Try to create the missing doc
-            try {
-              await setDoc(doc(db, 'users', user.uid), { ...fallback, createdAt: new Date().toISOString() });
-            } catch {}
-          }
-          try { await updateDoc(doc(db, 'users', user.uid), { isOnline: true, lastSeen: new Date().toISOString() }); } catch {}
-        } else {
-          setUserData(null);
+        const token = await getIdTokenResult(user);
+        const hasClaim = token.claims.global_admin === true;
+        setGlobalAdminClaim(hasClaim);
+        await fetchUserData(user.uid, user, hasClaim);
+        try {
+          await updateDoc(doc(db, 'users', user.uid), {
+            isOnline: true,
+            lastSeen: serverTimestamp(),
+          });
+        } catch {
+          // A missing/pending profile intentionally cannot create itself.
         }
-      } catch (err) {
-        console.error('Auth state error:', err);
       } finally {
         setLoading(false);
       }
     });
-    return unsub;
+    return unsubscribe;
   }, []);
 
-  // Periodic heartbeat to keep online status fresh (every 2 minutes)
   useEffect(() => {
-    if (!currentUser) return;
-    const interval = setInterval(() => {
-      try { updateDoc(doc(db, 'users', currentUser.uid), { lastSeen: new Date().toISOString(), isOnline: true }); } catch {}
+    if (!currentUser || !userData?.hasValidUserDocument) return undefined;
+    const interval = window.setInterval(() => {
+      updateDoc(doc(db, 'users', currentUser.uid), {
+        lastSeen: serverTimestamp(),
+        isOnline: true,
+      }).catch(() => undefined);
     }, 120000);
-    // Mark offline on page close
-    function handleBeforeUnload() {
-      try { navigator.sendBeacon && updateDoc(doc(db, 'users', currentUser.uid), { isOnline: false, lastSeen: new Date().toISOString() }); } catch {}
-    }
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, [currentUser?.uid]);
+    return () => window.clearInterval(interval);
+  }, [currentUser, userData?.hasValidUserDocument]);
 
   const value = {
     currentUser,
     userData,
     selectedSchool,
     loading,
-    register,
     login,
-    loginAsAdmin,
     logout,
     switchSchool,
     isGlobalAdmin,
@@ -260,12 +220,8 @@ export function AuthProvider({ children }) {
     approveUser,
     rejectUser,
     isPending,
-    isViewer
+    isViewer,
   };
 
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
