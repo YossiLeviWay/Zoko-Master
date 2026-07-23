@@ -407,6 +407,43 @@ service cloud.firestore {
         );
     }
 
+    function validPersonalTaskCreate(userId, data) {
+      return activeUser()
+        && request.auth.uid == userId
+        && data.keys().hasAll(['scope', 'schoolId', 'ownerId', 'createdBy', 'title', 'status'])
+        && data.scope == 'personal'
+        && data.ownerId == request.auth.uid
+        && data.createdBy == request.auth.uid
+        && data.schoolId is string
+        && isSchoolMember(data.schoolId)
+        && data.title is string
+        && data.title.size() > 0
+        && data.assigneeIds is list
+        && data.assigneeIds.size() == 0
+        && data.teamId == ''
+        && data.assigneeTeamId == '';
+    }
+
+    function personalTaskOwner(userId, data) {
+      return activeUser()
+        && request.auth.uid == userId
+        && data.scope == 'personal'
+        && data.ownerId == request.auth.uid
+        && data.createdBy == request.auth.uid
+        && data.schoolId is string
+        && isSchoolMember(data.schoolId);
+    }
+
+    function safePersonalTaskUpdate(userId) {
+      return personalTaskOwner(userId, resource.data)
+        && personalTaskOwner(userId, request.resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'title', 'description', 'priority', 'status', 'dueDate', 'reminderAt',
+          'completedAt', 'updatedAt', 'tags', 'attachedFileId', 'attachedFileName',
+          'pinnedBy', 'sourceTaskId'
+        ]);
+    }
+
     function validClassCreate(schoolId, data) {
       return hasStudentDataAccess(schoolId)
         && (currentUser().role == 'principal' || studentPermission('classes_create'))
@@ -953,19 +990,51 @@ service cloud.firestore {
     }
 
     match /{legacyCollection}/{documentId} {
-      allow read: if legacyReadAllowed(legacyCollection, resource.data)
-        || legacyStudentReadAllowed(legacyCollection, resource.data)
-        || legacyClassReadAllowed(legacyCollection, resource.data);
-      allow create: if legacyWriteAllowed(legacyCollection, request.resource.data)
-        || legacySensitiveWriteAllowed(legacyCollection, request.resource.data)
-        || legacyStudentCreateAllowed(legacyCollection, request.resource.data)
-        || legacyClassCreateAllowed(legacyCollection, request.resource.data);
-      allow update: if legacyWriteAllowed(legacyCollection, resource.data)
-        || legacySensitiveWriteAllowed(legacyCollection, resource.data)
-        || legacyStudentUpdateAllowed(legacyCollection)
-        || legacyClassUpdateAllowed(legacyCollection);
-      allow delete: if legacyWriteAllowed(legacyCollection, resource.data)
-        || legacySensitiveWriteAllowed(legacyCollection, resource.data);
+      allow read: if (
+          legacyCollection.matches('^tasks_[A-Za-z0-9_-]+$')
+          && legacyTaskReadAllowed(legacyCollection, resource.data)
+        ) || (
+          !legacyCollection.matches('^tasks_[A-Za-z0-9_-]+$')
+          && (
+            legacyReadAllowed(legacyCollection, resource.data)
+            || legacyStudentReadAllowed(legacyCollection, resource.data)
+            || legacyClassReadAllowed(legacyCollection, resource.data)
+          )
+        );
+      allow create: if (
+          legacyCollection.matches('^tasks_[A-Za-z0-9_-]+$')
+          && legacyTaskCreateAllowed(legacyCollection, request.resource.data)
+        ) || (
+          !legacyCollection.matches('^tasks_[A-Za-z0-9_-]+$')
+          && (
+            legacyWriteAllowed(legacyCollection, request.resource.data)
+            || legacySensitiveWriteAllowed(legacyCollection, request.resource.data)
+            || legacyStudentCreateAllowed(legacyCollection, request.resource.data)
+            || legacyClassCreateAllowed(legacyCollection, request.resource.data)
+          )
+        );
+      allow update: if (
+          legacyCollection.matches('^tasks_[A-Za-z0-9_-]+$')
+          && legacyTaskUpdateAllowed(legacyCollection)
+        ) || (
+          !legacyCollection.matches('^tasks_[A-Za-z0-9_-]+$')
+          && (
+            legacyWriteAllowed(legacyCollection, resource.data)
+            || legacySensitiveWriteAllowed(legacyCollection, resource.data)
+            || legacyStudentUpdateAllowed(legacyCollection)
+            || legacyClassUpdateAllowed(legacyCollection)
+          )
+        );
+      allow delete: if (
+          legacyCollection.matches('^tasks_[A-Za-z0-9_-]+$')
+          && legacyTaskDeleteAllowed(legacyCollection, resource.data)
+        ) || (
+          !legacyCollection.matches('^tasks_[A-Za-z0-9_-]+$')
+          && (
+            legacyWriteAllowed(legacyCollection, resource.data)
+            || legacySensitiveWriteAllowed(legacyCollection, resource.data)
+          )
+        );
     }
 
     match /{legacyCollection}/{entityId}/history/{historyId} {
