@@ -12,6 +12,23 @@
   min-height: 100vh;
 }
 
+.app-version {
+  position: fixed;
+  bottom: 4px;
+  left: 8px;
+  z-index: 45;
+  direction: ltr;
+  color: #94a3b8;
+  font-size: 0.62rem;
+  line-height: 1;
+  opacity: 0.72;
+  user-select: none;
+}
+
+.app-version:hover {
+  opacity: 1;
+}
+
 /* ===== Sidebar ===== */
 .sidebar {
   width: 240px;
