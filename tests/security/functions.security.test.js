@@ -6,6 +6,26 @@ import {
 import { createNotificationsHandler } from '../../functions/src/callables/notifications.js';
 import { createSchoolHandler, updateSchoolHandler } from '../../functions/src/callables/schools.js';
 import { createStaffHandler, setRoleHandler } from '../../functions/src/callables/staff.js';
+import {
+  assignCustomRoleHandler,
+  createCustomRoleHandler,
+} from '../../functions/src/callables/roles.js';
+import {
+  archivePersonalFileItemHandler,
+  recordPersonalFileAccessHandler,
+  upsertPersonalFileItemHandler,
+} from '../../functions/src/callables/personalFiles.js';
+import {
+  createCvDocumentHandler,
+  finalizeCvDocumentHandler,
+  registerCvPdfHandler,
+  saveCvDraftHandler,
+} from '../../functions/src/callables/cvDocuments.js';
+import {
+  bulkCreateCvDraftsHandler,
+  previewBulkCvDraftsHandler,
+  upsertCvTemplateHandler,
+} from '../../functions/src/callables/cvTemplates.js';
 import { adminAuth, adminDb } from '../../functions/src/services/firebaseAdmin.js';
 
 const SCHOOL_A = 'school_a';
@@ -158,4 +178,254 @@ test('school administration is server-authorized and audited', async () => {
     .where('action', '==', 'school.update')
     .get();
   assert.equal(audit.size, 1);
+});
+
+test('delegated role manager grants only owned and explicitly delegable permissions', async () => {
+  await seedUser('coordinator_a', SCHOOL_A, 'viewer', { customRoleIds: ['delegator_role'] });
+  await seedUser('target_a', SCHOOL_A);
+  await adminAuth.createUser({ uid: 'target_a', email: 'role-target@example.test' });
+  createdAuthUsers.add('target_a');
+  await adminDb.collection(`roles_${SCHOOL_A}`).doc('delegator_role').set({
+    schoolId: SCHOOL_A,
+    name: 'Delegator',
+    status: 'active',
+    permissions: {
+      'permissions.delegate': true,
+      'roles.create': true,
+      'roles.assign': true,
+      'students.view': true,
+    },
+    delegatedPermissionKeys: ['students.view'],
+    accessScope: { type: 'school', classIds: [] },
+  });
+
+  const created = await createCustomRoleHandler(actorRequest('coordinator_a', {
+    schoolId: SCHOOL_A,
+    name: 'Scoped viewer',
+    description: '',
+    permissions: { 'students.view': true },
+    delegatedPermissionKeys: [],
+    accessScope: { type: 'school', classIds: [] },
+  }));
+  assert.ok(created.roleId);
+
+  await assert.rejects(createCustomRoleHandler(actorRequest('coordinator_a', {
+    schoolId: SCHOOL_A,
+    name: 'Escalated editor',
+    description: '',
+    permissions: { 'students.update': true },
+    delegatedPermissionKeys: [],
+    accessScope: { type: 'school', classIds: [] },
+  })), error => error.code === 'permission-denied');
+
+  await assert.rejects(assignCustomRoleHandler(actorRequest('coordinator_a', {
+    schoolId: SCHOOL_A,
+    roleId: created.roleId,
+    userId: 'coordinator_a',
+    action: 'assign',
+    confirmSensitiveChange: true,
+  })), error => error.code === 'permission-denied');
+
+  await assignCustomRoleHandler(actorRequest('coordinator_a', {
+    schoolId: SCHOOL_A,
+    roleId: created.roleId,
+    userId: 'target_a',
+    action: 'assign',
+    confirmSensitiveChange: true,
+  }));
+  const target = (await adminDb.collection('users').doc('target_a').get()).data();
+  assert.deepEqual(target.customRoleAssignments[SCHOOL_A], [created.roleId]);
+  assert.equal(target.rolePermissionsBySchool[SCHOOL_A]['students.view'], true);
+  const audits = await adminDb.collection('auditLogs').where('action', '==', 'role.assign').get();
+  assert.equal(audits.size, 1);
+});
+
+test('class-scoped delegated role cannot be widened to school scope', async () => {
+  await seedUser('class_coordinator', SCHOOL_A, 'viewer', { customRoleIds: ['class_delegator'] });
+  await adminDb.collection(`roles_${SCHOOL_A}`).doc('class_delegator').set({
+    schoolId: SCHOOL_A,
+    name: 'Class delegator',
+    status: 'active',
+    permissions: {
+      'permissions.delegate': true,
+      'roles.create': true,
+      'students.view': true,
+    },
+    delegatedPermissionKeys: ['students.view'],
+    accessScope: { type: 'classes', classIds: ['class_a'] },
+  });
+  await assert.rejects(createCustomRoleHandler(actorRequest('class_coordinator', {
+    schoolId: SCHOOL_A,
+    name: 'Too wide',
+    description: '',
+    permissions: { 'students.view': true },
+    delegatedPermissionKeys: [],
+    accessScope: { type: 'school', classIds: [] },
+  })), error => error.code === 'permission-denied');
+});
+
+test('personal-file mutations require the matching permission and preserve ownership', async () => {
+  await seedUser('viewer_a', SCHOOL_A);
+  await seedUser('employment_a', SCHOOL_A, 'viewer', {
+    permissions: { 'personalFile.view': true, 'cv.manageExperience': true },
+  });
+  await adminDb.doc(`students_${SCHOOL_A}/student_a`).set({
+    schoolId: SCHOOL_A, classId: 'class_a', fullName: 'Student A',
+  });
+  await adminDb.doc(`personal_files_${SCHOOL_A}/student_a`).set({
+    schoolId: SCHOOL_A, studentId: 'student_a', status: 'active',
+  });
+  const payload = {
+    title: '', description: 'Practical work', status: 'active', workplace: 'Zoko',
+    roleTitle: 'Assistant', field: 'Technical', startDate: '2026-01-01', endDate: '',
+    isCurrent: true, workload: '', responsibilities: ['Safe work'], achievements: [],
+    supervisorName: '', recommendationLink: '', attachments: [],
+  };
+  await assert.rejects(upsertPersonalFileItemHandler(actorRequest('viewer_a', {
+    schoolId: SCHOOL_A, studentId: 'student_a', kind: 'experiences', payload,
+  })), error => error.code === 'permission-denied');
+  const result = await upsertPersonalFileItemHandler(actorRequest('employment_a', {
+    schoolId: SCHOOL_A, studentId: 'student_a', kind: 'experiences', payload,
+  }));
+  const item = await adminDb.doc(`personal_files_${SCHOOL_A}/student_a/experiences/${result.itemId}`).get();
+  assert.equal(item.data().schoolId, SCHOOL_A);
+  assert.equal(item.data().studentId, 'student_a');
+  assert.equal(item.data().createdBy, 'employment_a');
+  const audits = await adminDb.collection('auditLogs').where('action', '==', 'personalFile.experiences.create').get();
+  assert.equal(audits.size, 1);
+});
+
+test('class-scoped personal-file role cannot access a student in another class', async () => {
+  await seedUser('coordinator_a', SCHOOL_A, 'viewer', { customRoleIds: ['class_file_role'] });
+  await adminDb.doc(`roles_${SCHOOL_A}/class_file_role`).set({
+    schoolId: SCHOOL_A,
+    status: 'active',
+    permissions: { 'personalFile.view': true, 'personalFile.manage': true },
+    accessScope: { type: 'classes', classIds: ['class_a'] },
+  });
+  await Promise.all(['student_a', 'student_b'].map((studentId, index) => Promise.all([
+    adminDb.doc(`students_${SCHOOL_A}/${studentId}`).set({
+      schoolId: SCHOOL_A, classId: index === 0 ? 'class_a' : 'class_b', fullName: studentId,
+    }),
+    adminDb.doc(`personal_files_${SCHOOL_A}/${studentId}`).set({
+      schoolId: SCHOOL_A, studentId, status: 'active',
+    }),
+  ])));
+  await recordPersonalFileAccessHandler(actorRequest('coordinator_a', {
+    schoolId: SCHOOL_A, studentId: 'student_a', action: 'view',
+  }));
+  await assert.rejects(recordPersonalFileAccessHandler(actorRequest('coordinator_a', {
+    schoolId: SCHOOL_A, studentId: 'student_b', action: 'view',
+  })), error => error.code === 'permission-denied');
+});
+
+test('personal-file archive is soft and audited', async () => {
+  await seedUser('principal_a', SCHOOL_A, 'principal');
+  await adminDb.doc(`students_${SCHOOL_A}/student_a`).set({ schoolId: SCHOOL_A, classId: 'class_a' });
+  await adminDb.doc(`personal_files_${SCHOOL_A}/student_a`).set({ schoolId: SCHOOL_A, studentId: 'student_a', status: 'active' });
+  await adminDb.doc(`personal_files_${SCHOOL_A}/student_a/credentials/credential_a`).set({
+    schoolId: SCHOOL_A, studentId: 'student_a', status: 'verified', createdBy: 'principal_a',
+  });
+  await archivePersonalFileItemHandler(actorRequest('principal_a', {
+    schoolId: SCHOOL_A, studentId: 'student_a', kind: 'credentials', itemId: 'credential_a',
+  }));
+  const item = await adminDb.doc(`personal_files_${SCHOOL_A}/student_a/credentials/credential_a`).get();
+  assert.equal(item.exists, true);
+  assert.equal(item.data().status, 'archived');
+  assert.equal(item.data().archivedBy, 'principal_a');
+});
+
+function cvSnapshot(fullName = 'תלמיד א') {
+  return {
+    personal: { fullName, professionalTitle: 'טכנאי', phone: '', email: '', city: '', birthDate: '', professionalLink: '', photoPath: '' },
+    summary: 'תקציר מאושר', education: [], experiences: [], practicalExperience: [], projects: [], skills: [], credentials: [], recommendations: [], languages: [],
+    sectionOrder: ['summary', 'experiences', 'skills'], hiddenSections: [],
+    design: { templateId: 'classic_professional', templateName: 'קלאסי מקצועי', accentColor: '#607D8B', showPhoto: false, sidebarSections: ['skills'] },
+  };
+}
+
+test('CV lifecycle is server-authorized, snapshots final versions and never overwrites final content', async () => {
+  await seedUser('cv_viewer', SCHOOL_A, 'viewer', { permissions: { 'cv.view': true } });
+  await seedUser('cv_editor', SCHOOL_A, 'viewer', { permissions: {
+    'cv.view': true, 'cv.create': true, 'cv.edit': true, 'cv.finalize': true, 'cv.exportPdf': true,
+  } });
+  await adminDb.doc(`students_${SCHOOL_A}/student_a`).set({ schoolId: SCHOOL_A, classId: 'class_a', fullName: 'תלמיד א' });
+  await adminDb.doc(`personal_files_${SCHOOL_A}/student_a`).set({ schoolId: SCHOOL_A, studentId: 'student_a', status: 'active' });
+  const createInput = {
+    schoolId: SCHOOL_A, studentId: 'student_a', title: 'קורות חיים כלליים', purpose: '',
+    templateId: 'classic_professional', snapshot: cvSnapshot(),
+  };
+  await assert.rejects(createCvDocumentHandler(actorRequest('cv_viewer', createInput)), error => error.code === 'permission-denied');
+  const created = await createCvDocumentHandler(actorRequest('cv_editor', createInput));
+  await saveCvDraftHandler(actorRequest('cv_editor', {
+    schoolId: SCHOOL_A, studentId: 'student_a', documentId: created.documentId,
+    title: 'קורות חיים למשרה טכנית', purpose: 'משרה טכנית', status: 'ready', snapshot: cvSnapshot('תלמיד א — נוסח גרסה'),
+  }));
+  const finalized = await finalizeCvDocumentHandler(actorRequest('cv_editor', {
+    schoolId: SCHOOL_A, studentId: 'student_a', documentId: created.documentId, confirm: true,
+  }));
+  assert.equal(finalized.versionId, 'v001');
+  const version = await adminDb.doc(`personal_files_${SCHOOL_A}/student_a/cvDocuments/${created.documentId}/versions/v001`).get();
+  assert.equal(version.data().snapshot.personal.fullName, 'תלמיד א — נוסח גרסה');
+  await assert.rejects(saveCvDraftHandler(actorRequest('cv_editor', {
+    schoolId: SCHOOL_A, studentId: 'student_a', documentId: created.documentId,
+    title: 'שינוי שקט', purpose: '', status: 'draft', snapshot: cvSnapshot('שונה'),
+  })), error => error.code === 'permission-denied');
+  const exportId = 'export_001';
+  const filename = 'cv_student_2026-07-23.pdf';
+  const attachment = {
+    storagePath: `schools/${SCHOOL_A}/students/student_a/cv/${created.documentId}/v001/${exportId}/${filename}`,
+    originalName: filename, contentType: 'application/pdf', size: 2048,
+  };
+  await assert.rejects(registerCvPdfHandler(actorRequest('cv_editor', {
+    schoolId: SCHOOL_A, studentId: 'student_a', documentId: created.documentId,
+    versionId: 'v001', exportId, attachment: { ...attachment, storagePath: `schools/${SCHOOL_B}/unsafe.pdf` },
+  })), error => error.code === 'permission-denied');
+  await registerCvPdfHandler(actorRequest('cv_editor', {
+    schoolId: SCHOOL_A, studentId: 'student_a', documentId: created.documentId,
+    versionId: 'v001', exportId, attachment,
+  }));
+  const exportRecord = await adminDb.doc(`personal_files_${SCHOOL_A}/student_a/cvDocuments/${created.documentId}/versions/v001/exports/${exportId}`).get();
+  assert.equal(exportRecord.exists, true);
+  const audit = await adminDb.collection('auditLogs').where('action', '==', 'cv.exportPdf').get();
+  assert.equal(audit.size, 1);
+});
+
+test('school CV templates reject personal literals and bulk generation creates separate idempotent drafts', async () => {
+  await seedUser('principal_a', SCHOOL_A, 'principal');
+  await adminDb.doc(`schools/${SCHOOL_A}`).set({ name: 'בית ספר א' });
+  await adminDb.doc(`cv_templates_${SCHOOL_A}/private_template`).set({
+    schoolId: SCHOOL_A, name: 'פרטית', type: 'design', scope: 'personal', status: 'active',
+    createdBy: 'another_user', design: { accentColor: '#607D8B', sectionOrder: ['summary'], sidebarSections: [], showPhotoDefault: false },
+  });
+  await assert.rejects(upsertCvTemplateHandler(actorRequest('principal_a', {
+    schoolId: SCHOOL_A, templateId: 'private_template', name: 'ניסיון עריכה', type: 'design', scope: 'personal', isDefault: false,
+    design: { accentColor: '#607D8B', sectionOrder: ['summary'], sidebarSections: [], showPhotoDefault: false },
+  })), error => error.code === 'permission-denied');
+  await assert.rejects(upsertCvTemplateHandler(actorRequest('principal_a', {
+    schoolId: SCHOOL_A, name: 'תוכן לא בטוח', type: 'content', scope: 'school', isDefault: false,
+    content: { summaryTemplate: 'צרו קשר 050-1234567', educationText: '', experienceText: '', suggestedSkills: [] },
+  })), error => error.code === 'permission-denied');
+  const template = await upsertCvTemplateHandler(actorRequest('principal_a', {
+    schoolId: SCHOOL_A, name: 'תוכן מוסדי', type: 'content', scope: 'school', isDefault: true,
+    content: { summaryTemplate: '{{student.fullName}} לומד/ת ב-{{school.name}}', educationText: 'לימודים מקצועיים', experienceText: '', suggestedSkills: ['עבודה בצוות'] },
+  }));
+  for (const [studentId, fullName] of [['student_a', 'תלמיד א'], ['student_b', 'תלמיד ב']]) {
+    await adminDb.doc(`students_${SCHOOL_A}/${studentId}`).set({ schoolId: SCHOOL_A, classId: 'class_a', className: 'כיתה א', fullName, phone: '', email: '' });
+    await adminDb.doc(`personal_files_${SCHOOL_A}/${studentId}`).set({ schoolId: SCHOOL_A, studentId, status: 'active' });
+  }
+  const input = { schoolId: SCHOOL_A, classId: 'class_a', academicYearId: 'year_2026_2027', studentIds: ['student_a', 'student_b'] };
+  const preview = await previewBulkCvDraftsHandler(actorRequest('principal_a', input));
+  assert.equal(preview.students.length, 2);
+  assert.equal(preview.students[0].missingPhone, true);
+  const createInput = { ...input, templateId: template.templateId, titlePrefix: 'קורות חיים', requestId: 'request_001' };
+  const first = await bulkCreateCvDraftsHandler(actorRequest('principal_a', createInput));
+  assert.deepEqual(first, { createdCount: 2, existingCount: 0 });
+  const second = await bulkCreateCvDraftsHandler(actorRequest('principal_a', createInput));
+  assert.deepEqual(second, { createdCount: 0, existingCount: 2 });
+  const draftA = await adminDb.doc(`personal_files_${SCHOOL_A}/student_a/cvDocuments/student_a_request_001`).get();
+  const draftB = await adminDb.doc(`personal_files_${SCHOOL_A}/student_b/cvDocuments/student_b_request_001`).get();
+  assert.equal(draftA.exists && draftB.exists, true);
+  assert.notEqual(draftA.data().studentId, draftB.data().studentId);
+  assert.equal(draftA.data().snapshot.skills[0].level, 'הצעה לאימות');
 });

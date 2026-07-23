@@ -33,6 +33,8 @@ jobs:
       - run: npm --prefix functions ci
       - run: npm run lint
       - run: npm --prefix functions run lint
+      - run: npm --prefix functions test
+      - run: npm run test:pdf
       - run: npm run test:emulator
 
       - name: Build

@@ -13,12 +13,14 @@
     "test": "npm run test:emulator",
     "test:security": "node --test --test-concurrency=1 tests/security/*.test.js",
     "test:emulator": "node scripts/run-security-emulators.mjs",
+    "test:pdf": "node --test tests/pdf/*.test.js",
     "check": "npm run lint && npm run build",
     "preview": "vite preview"
   },
   "dependencies": {
     "dompurify": "^3.4.12",
     "firebase": "^12.10.0",
+    "jspdf": "^4.2.1",
     "lucide-react": "^0.577.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

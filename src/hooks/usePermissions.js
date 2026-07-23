@@ -3,8 +3,10 @@ import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
 import { getDoc, getDocs, query, where } from 'firebase/firestore';
 import { schoolCollection, schoolDoc } from '../services/firestore/paths';
+import { ALL_PERMISSION_KEYS } from '../../functions/src/permissionCatalog.js';
 
 export const VIEWER_DEFAULTS = {
+  ...Object.fromEntries(ALL_PERMISSION_KEYS.map(key => [key, false])),
   calendar_view: true,
   calendar_edit: false,
   categories_view: true,
@@ -57,6 +59,7 @@ export function usePermissions() {
   const { userData, selectedSchool, isGlobalAdmin, isPrincipal } = useAuth();
   const [permissions, setPermissions] = useState(VIEWER_DEFAULTS);
   const [schoolWidePermissions, setSchoolWidePermissions] = useState({});
+  const [permissionScopes, setPermissionScopes] = useState({});
   const [loading, setLoading] = useState(true);
 
   const schoolId = selectedSchool || userData?.schoolId;
@@ -66,6 +69,7 @@ export function usePermissions() {
     if (!userData) {
       setPermissions(VIEWER_DEFAULTS);
       setSchoolWidePermissions({});
+      setPermissionScopes({});
       setLoading(false);
       return;
     }
@@ -73,6 +77,9 @@ export function usePermissions() {
     if (hasFullAccess) {
       setPermissions(FULL_PERMISSIONS);
       setSchoolWidePermissions(FULL_PERMISSIONS);
+      setPermissionScopes(Object.fromEntries(Object.keys(FULL_PERMISSIONS).map(key => [
+        key, { type: 'school', classIds: [] },
+      ])));
       setLoading(false);
       return;
     }
@@ -80,19 +87,33 @@ export function usePermissions() {
     async function resolve() {
       let base = { ...VIEWER_DEFAULTS };
       const explicit = {};
+      const scopes = {};
 
       // Merge all custom roles (OR logic — any role that grants a permission enables it)
-      const roleIds = userData.customRoleIds || [];
+      const roleIds = userData.customRoleAssignments?.[schoolId] || userData.customRoleIds || [];
       if (roleIds.length > 0 && schoolId) {
         for (const roleId of roleIds) {
           try {
             const roleDoc = await getDoc(schoolDoc(db, schoolId, 'roles', roleId));
             if (roleDoc.exists()) {
-              const rp = roleDoc.data().permissions || {};
+              const role = roleDoc.data();
+              if (role.status === 'archived') continue;
+              const rp = role.permissions || {};
+              const roleScope = role.accessScope?.type === 'classes'
+                ? { type: 'classes', classIds: role.accessScope.classIds || [] }
+                : { type: 'school', classIds: [] };
               for (const [key, val] of Object.entries(rp)) {
                 if (val === true) {
                   base[key] = true;
-                  explicit[key] = true;
+                  if (roleScope.type === 'school') {
+                    explicit[key] = true;
+                    scopes[key] = roleScope;
+                  } else if (scopes[key]?.type !== 'school') {
+                    scopes[key] = {
+                      type: 'classes',
+                      classIds: [...new Set([...(scopes[key]?.classIds || []), ...roleScope.classIds])],
+                    };
+                  }
                 }
               }
             }
@@ -106,6 +127,8 @@ export function usePermissions() {
         if (val !== undefined) {
           base[key] = val;
           explicit[key] = val;
+          if (val === true) scopes[key] = { type: 'school', classIds: [] };
+          else delete scopes[key];
         }
       }
 
@@ -137,11 +160,12 @@ export function usePermissions() {
 
       setPermissions(base);
       setSchoolWidePermissions(explicit);
+      setPermissionScopes(scopes);
       setLoading(false);
     }
 
     resolve();
   }, [hasFullAccess, schoolId, userData]);
 
-  return { permissions, schoolWidePermissions, loading };
+  return { permissions, schoolWidePermissions, permissionScopes, loading };
 }

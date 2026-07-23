@@ -19,7 +19,7 @@ import {
   where,
   writeBatch,
 } from 'firebase/firestore';
-import { getBytes, ref, uploadBytes } from 'firebase/storage';
+import { deleteObject, getBytes, ref, uploadBytes } from 'firebase/storage';
 
 const PROJECT_ID = 'demo-zoko-security';
 const SCHOOL_A = 'school_a';
@@ -88,6 +88,49 @@ function studentRecord({ classId = 'class_a', schoolId = SCHOOL_A, name = 'Stude
     endDate: '',
     createdBy: 'principal_a',
     updatedBy: 'principal_a',
+    createdAt: 'created',
+    updatedAt: 'created',
+  };
+}
+
+function academicYearRecord({
+  schoolId = SCHOOL_A,
+  label = 'תשפ״ז',
+  startYear = 2026,
+  endYear = 2027,
+  actor = 'principal_a',
+} = {}) {
+  return {
+    schoolId, label, startYear, endYear, status: 'active',
+    createdBy: actor, updatedBy: actor, createdAt: 'created', updatedAt: 'created',
+  };
+}
+
+function enrollmentRecord({
+  studentId = 'student_a',
+  schoolId = SCHOOL_A,
+  academicYearId = 'year_2026_2027',
+  classId = 'class_a',
+  status = 'active',
+  actor = 'principal_a',
+} = {}) {
+  return {
+    studentId,
+    schoolId,
+    academicYearId,
+    academicYearLabel: academicYearId === 'year_2025_2026' ? 'תשפ״ו' : 'תשפ״ז',
+    classId,
+    className: classId === 'class_b' ? 'Class B' : 'Class A',
+    grade: 'י׳',
+    majorIds: [],
+    studyProgramIds: [],
+    enrollmentStatus: status,
+    startDate: '2026-09-01',
+    endDate: '',
+    exitReason: '',
+    displayName: 'Student A',
+    createdBy: actor,
+    updatedBy: actor,
     createdAt: 'created',
     updatedAt: 'created',
   };
@@ -510,6 +553,282 @@ test('legacy class and student collections retain class-scoped access', async ()
   await assertFails(getDoc(doc(context('teacher_b').firestore(), `students_${SCHOOL_A}/student_a`)));
 });
 
+test('academic-year managers may configure only their school while ordinary viewers stay read-only', async () => {
+  await seedFirestore({
+    'users/year_manager': user({
+      schoolId: SCHOOL_A,
+      permissions: { 'academicYears.manage': true },
+    }),
+    'users/viewer_a': user({ schoolId: SCHOOL_A }),
+    'users/viewer_b': user({ schoolId: SCHOOL_B }),
+  });
+  const managerDb = context('year_manager').firestore();
+  const yearPath = `academic_years_${SCHOOL_A}/year_2026_2027`;
+  await assertSucceeds(setDoc(doc(managerDb, yearPath), academicYearRecord({ actor: 'year_manager' })));
+  await assertSucceeds(setDoc(doc(managerDb, `settings_${SCHOOL_A}/academic_years`), {
+    schoolId: SCHOOL_A,
+    activeAcademicYearId: 'year_2026_2027',
+    createdBy: 'year_manager',
+    updatedBy: 'year_manager',
+    createdAt: 'created',
+    updatedAt: 'created',
+  }));
+  await assertSucceeds(getDoc(doc(context('viewer_a').firestore(), yearPath)));
+  await assertFails(updateDoc(doc(context('viewer_a').firestore(), yearPath), {
+    label: 'שינוי אסור', updatedBy: 'viewer_a', updatedAt: 'later',
+  }));
+  await assertFails(getDoc(doc(context('viewer_b').firestore(), yearPath)));
+  await assertFails(setDoc(doc(managerDb, `academic_years_${SCHOOL_B}/year_2027_2028`), {
+    ...academicYearRecord({ schoolId: SCHOOL_B, actor: 'year_manager', startYear: 2027, endYear: 2028 }),
+  }));
+});
+
+test('student creation writes one deterministic annual enrollment and preserves tenant ownership', async () => {
+  await seedFirestore({
+    'users/teacher_a': user({ schoolId: SCHOOL_A }),
+    [`classes_${SCHOOL_A}/class_a`]: {
+      ...classRecord({ teacherId: 'teacher_a' }), academicYearId: 'year_2026_2027',
+    },
+    [`academic_years_${SCHOOL_A}/year_2026_2027`]: academicYearRecord(),
+  });
+  const db = context('teacher_a').firestore();
+  const batch = writeBatch(db);
+  batch.set(doc(db, `students_${SCHOOL_A}/student_a`), {
+    ...studentRecord(),
+    currentEnrollmentId: 'student_a__year_2026_2027',
+    createdBy: 'teacher_a', updatedBy: 'teacher_a',
+  });
+  batch.set(doc(db, `students_${SCHOOL_A}/student_a/history/created`), {
+    type: 'student_created', schoolId: SCHOOL_A, studentId: 'student_a',
+    nextClassId: 'class_a', effectiveDate: '2026-09-01',
+    createdBy: 'teacher_a', createdAt: 'created',
+  });
+  batch.set(doc(db, `student_enrollments_${SCHOOL_A}/student_a__year_2026_2027`), {
+    ...enrollmentRecord({ actor: 'teacher_a' }),
+  });
+  batch.set(doc(db, `personal_files_${SCHOOL_A}/student_a`), {
+    schoolId: SCHOOL_A, studentId: 'student_a', status: 'active',
+    createdBy: 'teacher_a', updatedBy: 'teacher_a', createdAt: 'created', updatedAt: 'created',
+  });
+  await assertSucceeds(batch.commit());
+  await assertSucceeds(getDoc(doc(db, `student_enrollments_${SCHOOL_A}/student_a__year_2026_2027`)));
+  await assertFails(getDoc(doc(db, `personal_files_${SCHOOL_A}/student_a`)));
+  await assertFails(setDoc(doc(db, `student_enrollments_${SCHOOL_A}/forged_id`), {
+    ...enrollmentRecord({ actor: 'teacher_a' }),
+  }));
+  await assertFails(setDoc(doc(db, `student_enrollments_${SCHOOL_B}/student_a__year_2026_2027`), {
+    ...enrollmentRecord({ schoolId: SCHOOL_B, actor: 'teacher_a' }),
+  }));
+});
+
+test('promotion completes the prior enrollment and creates a new one without deleting history', async () => {
+  await seedFirestore({
+    'users/promoter_a': user({
+      schoolId: SCHOOL_A,
+      permissions: { 'students.promote': true },
+    }),
+    [`classes_${SCHOOL_A}/class_a`]: {
+      ...classRecord(), academicYear: '2025-2026', academicYearId: 'year_2025_2026',
+    },
+    [`classes_${SCHOOL_A}/class_b`]: {
+      ...classRecord({ name: 'Class B' }), academicYearId: 'year_2026_2027',
+    },
+    [`students_${SCHOOL_A}/student_a`]: {
+      ...studentRecord(), academicYear: '2025-2026',
+      currentEnrollmentId: 'student_a__year_2025_2026',
+    },
+    [`student_enrollments_${SCHOOL_A}/student_a__year_2025_2026`]: enrollmentRecord({
+      academicYearId: 'year_2025_2026', actor: 'principal_a',
+    }),
+  });
+  const db = context('promoter_a').firestore();
+  const batch = writeBatch(db);
+  batch.update(doc(db, `student_enrollments_${SCHOOL_A}/student_a__year_2025_2026`), {
+    enrollmentStatus: 'completed', endDate: '2026-08-31',
+    updatedBy: 'promoter_a', updatedAt: 'later',
+  });
+  batch.set(doc(db, `student_enrollments_${SCHOOL_A}/student_a__year_2026_2027`), {
+    ...enrollmentRecord({ classId: 'class_b', actor: 'promoter_a' }),
+  });
+  batch.update(doc(db, `students_${SCHOOL_A}/student_a`), {
+    classId: 'class_b', className: 'Class B', gradeLevel: 'י׳', academicYear: 'תשפ״ז',
+    currentEnrollmentId: 'student_a__year_2026_2027', status: 'active',
+    joinedAt: '2026-09-01', endDate: '', updatedBy: 'promoter_a', updatedAt: 'later',
+  });
+  batch.set(doc(db, `students_${SCHOOL_A}/student_a/history/promoted`), {
+    type: 'student_promoted', schoolId: SCHOOL_A, studentId: 'student_a',
+    previousClassId: 'class_a', previousAcademicYearId: 'year_2025_2026',
+    nextClassId: 'class_b', nextAcademicYearId: 'year_2026_2027',
+    effectiveDate: '2026-09-01', createdBy: 'promoter_a', createdAt: 'created',
+  });
+  await assertSucceeds(batch.commit());
+  const prior = await getDoc(doc(db, `student_enrollments_${SCHOOL_A}/student_a__year_2025_2026`));
+  const next = await getDoc(doc(db, `student_enrollments_${SCHOOL_A}/student_a__year_2026_2027`));
+  assert.equal(prior.data().enrollmentStatus, 'completed');
+  assert.equal(next.data().enrollmentStatus, 'active');
+  await assertSucceeds(getDoc(doc(db, `students_${SCHOOL_A}/student_a/history/promoted`)));
+});
+
+test('graduation, withdrawal and restore require the matching lifecycle permission', async () => {
+  await seedFirestore({
+    'users/graduator_a': user({ schoolId: SCHOOL_A, permissions: { 'students.markGraduate': true } }),
+    'users/viewer_a': user({ schoolId: SCHOOL_A, permissions: { students_view: true } }),
+    [`classes_${SCHOOL_A}/class_a`]: { ...classRecord(), academicYearId: 'year_2026_2027' },
+    [`students_${SCHOOL_A}/student_a`]: {
+      ...studentRecord(), currentEnrollmentId: 'student_a__year_2026_2027',
+    },
+    [`student_enrollments_${SCHOOL_A}/student_a__year_2026_2027`]: enrollmentRecord(),
+  });
+  const graduationDb = context('graduator_a').firestore();
+  const batch = writeBatch(graduationDb);
+  batch.update(doc(graduationDb, `student_enrollments_${SCHOOL_A}/student_a__year_2026_2027`), {
+    enrollmentStatus: 'graduated', endDate: '2027-06-30', graduationYear: '2027',
+    updatedBy: 'graduator_a', updatedAt: 'later',
+  });
+  batch.update(doc(graduationDb, `students_${SCHOOL_A}/student_a`), {
+    status: 'graduated', endDate: '2027-06-30', updatedBy: 'graduator_a', updatedAt: 'later',
+  });
+  batch.set(doc(graduationDb, `students_${SCHOOL_A}/student_a/history/graduated`), {
+    type: 'student_graduated', schoolId: SCHOOL_A, studentId: 'student_a',
+    academicYearId: 'year_2026_2027', classId: 'class_a', effectiveDate: '2027-06-30',
+    graduationYear: '2027', createdBy: 'graduator_a', createdAt: 'created',
+  });
+  await assertSucceeds(batch.commit());
+  const viewerDb = context('viewer_a').firestore();
+  await assertFails(updateDoc(doc(viewerDb, `student_enrollments_${SCHOOL_A}/student_a__year_2026_2027`), {
+    enrollmentStatus: 'active', endDate: '', updatedBy: 'viewer_a', updatedAt: 'later-again',
+  }));
+});
+
+test('materialized custom-role permissions remain school and class scoped', async () => {
+  await seedFirestore({
+    'users/scoped_a': user({
+      schoolId: SCHOOL_A,
+      permissions: {},
+      role: 'viewer',
+    }),
+    [`classes_${SCHOOL_A}/class_a`]: classRecord(),
+    [`classes_${SCHOOL_A}/class_b`]: classRecord({ name: 'Class B' }),
+    [`students_${SCHOOL_A}/student_a`]: studentRecord(),
+    [`students_${SCHOOL_A}/student_b`]: studentRecord({ classId: 'class_b', name: 'Student B' }),
+  });
+  await environment.withSecurityRulesDisabled(async disabled => {
+    await updateDoc(doc(disabled.firestore(), 'users/scoped_a'), {
+      customRoleIds: ['scoped_role'],
+      rolePermissionsBySchool: { [SCHOOL_A]: {} },
+      classRolePermissionsBySchool: {
+        [SCHOOL_A]: { 'students.view': ['class_a'], 'students.update': ['class_a'] },
+      },
+    });
+  });
+  const db = context('scoped_a').firestore();
+  await assertSucceeds(getDoc(doc(db, `classes_${SCHOOL_A}/class_a`)));
+  await assertSucceeds(getDoc(doc(db, `students_${SCHOOL_A}/student_a`)));
+  await assertFails(getDoc(doc(db, `students_${SCHOOL_A}/student_b`)));
+  await assertSucceeds(updateDoc(doc(db, `students_${SCHOOL_A}/student_a`), {
+    fullName: 'Scoped update', updatedBy: 'scoped_a', updatedAt: 'later',
+  }));
+  await assertFails(updateDoc(doc(db, `students_${SCHOOL_A}/student_b`), {
+    fullName: 'Forbidden update', updatedBy: 'scoped_a', updatedAt: 'later',
+  }));
+  await assertFails(updateDoc(doc(db, 'users/scoped_a'), {
+    rolePermissionsBySchool: { [SCHOOL_A]: { 'students.view': true } },
+  }));
+});
+
+test('explicitly false permissions never grant student or class access', async () => {
+  await seedFirestore({
+    'users/false_permissions_a': user({
+      schoolId: SCHOOL_A,
+      permissions: {
+        students_view: false,
+        classes_view: false,
+        attendance_view: false,
+      },
+    }),
+    [`classes_${SCHOOL_A}/class_a`]: classRecord(),
+    [`students_${SCHOOL_A}/student_a`]: studentRecord(),
+  });
+  const db = context('false_permissions_a').firestore();
+  await assertFails(getDoc(doc(db, `classes_${SCHOOL_A}/class_a`)));
+  await assertFails(getDoc(doc(db, `students_${SCHOOL_A}/student_a`)));
+});
+
+test('personal files require explicit access and remain server-managed', async () => {
+  await seedFirestore({
+    'users/file_viewer_a': user({ schoolId: SCHOOL_A, permissions: { 'personalFile.view': true } }),
+    'users/student_viewer_a': user({ schoolId: SCHOOL_A, permissions: { students_view: true } }),
+    [`students_${SCHOOL_A}/student_a`]: studentRecord(),
+    [`personal_files_${SCHOOL_A}/student_a`]: {
+      schoolId: SCHOOL_A, studentId: 'student_a', status: 'active',
+      createdBy: 'principal_a', updatedBy: 'principal_a', createdAt: 'created', updatedAt: 'created',
+    },
+    [`personal_files_${SCHOOL_A}/student_a/credentials/credential_a`]: {
+      schoolId: SCHOOL_A, studentId: 'student_a', title: 'Safety', status: 'verified',
+      createdBy: 'principal_a', updatedBy: 'principal_a', createdAt: 'created', updatedAt: 'created',
+    },
+  });
+  const authorized = context('file_viewer_a').firestore();
+  const unauthorized = context('student_viewer_a').firestore();
+  await assertSucceeds(getDoc(doc(authorized, `personal_files_${SCHOOL_A}/student_a`)));
+  await assertSucceeds(getDoc(doc(authorized, `personal_files_${SCHOOL_A}/student_a/credentials/credential_a`)));
+  await assertFails(getDoc(doc(unauthorized, `personal_files_${SCHOOL_A}/student_a`)));
+  await assertFails(getDoc(doc(unauthorized, `personal_files_${SCHOOL_A}/student_a/credentials/credential_a`)));
+  await assertFails(setDoc(doc(authorized, `personal_files_${SCHOOL_A}/student_a/credentials/client_write`), {
+    schoolId: SCHOOL_A, studentId: 'student_a', title: 'Forged', status: 'verified',
+    verifiedBy: 'file_viewer_a',
+  }));
+});
+
+test('CV documents and immutable versions require explicit CV access', async () => {
+  await seedFirestore({
+    'users/cv_viewer_a': user({ schoolId: SCHOOL_A, permissions: { 'cv.view': true } }),
+    'users/student_viewer_a': user({ schoolId: SCHOOL_A, permissions: { students_view: true } }),
+    'users/cv_viewer_b': user({ schoolId: SCHOOL_B, permissions: { 'cv.view': true } }),
+    [`students_${SCHOOL_A}/student_a`]: studentRecord(),
+    [`personal_files_${SCHOOL_A}/student_a/cvDocuments/cv_a`]: {
+      schoolId: SCHOOL_A, studentId: 'student_a', title: 'CV A', status: 'final', snapshot: {},
+    },
+    [`personal_files_${SCHOOL_A}/student_a/cvDocuments/cv_a/versions/v001`]: {
+      schoolId: SCHOOL_A, studentId: 'student_a', documentId: 'cv_a', status: 'final', versionNumber: 1, snapshot: {},
+    },
+  });
+  const authorized = context('cv_viewer_a').firestore();
+  await assertSucceeds(getDoc(doc(authorized, `personal_files_${SCHOOL_A}/student_a/cvDocuments/cv_a`)));
+  await assertSucceeds(getDoc(doc(authorized, `personal_files_${SCHOOL_A}/student_a/cvDocuments/cv_a/versions/v001`)));
+  await assertFails(getDoc(doc(context('student_viewer_a').firestore(), `personal_files_${SCHOOL_A}/student_a/cvDocuments/cv_a`)));
+  await assertFails(getDoc(doc(context('cv_viewer_b').firestore(), `personal_files_${SCHOOL_A}/student_a/cvDocuments/cv_a`)));
+  await assertFails(updateDoc(doc(authorized, `personal_files_${SCHOOL_A}/student_a/cvDocuments/cv_a`), { title: 'Client change' }));
+});
+
+test('school CV templates stay in their school and personal templates stay with their creator', async () => {
+  await seedFirestore({
+    'users/template_a': user({ schoolId: SCHOOL_A, permissions: { 'cvTemplates.view': true } }),
+    'users/template_peer_a': user({ schoolId: SCHOOL_A, permissions: { 'cvTemplates.view': true } }),
+    'users/template_b': user({ schoolId: SCHOOL_B, permissions: { 'cvTemplates.view': true } }),
+    [`cv_templates_${SCHOOL_A}/school_template`]: { schoolId: SCHOOL_A, type: 'design', scope: 'school', status: 'active', createdBy: 'template_a', name: 'School' },
+    [`cv_templates_${SCHOOL_A}/personal_template`]: { schoolId: SCHOOL_A, type: 'content', scope: 'personal', status: 'active', createdBy: 'template_a', name: 'Personal' },
+  });
+  const owner = context('template_a').firestore();
+  await assertSucceeds(getDoc(doc(owner, `cv_templates_${SCHOOL_A}/school_template`)));
+  await assertSucceeds(getDoc(doc(owner, `cv_templates_${SCHOOL_A}/personal_template`)));
+  await assertFails(getDoc(doc(context('template_peer_a').firestore(), `cv_templates_${SCHOOL_A}/personal_template`)));
+  await assertFails(getDoc(doc(context('template_b').firestore(), `cv_templates_${SCHOOL_A}/school_template`)));
+  await assertFails(setDoc(doc(owner, `cv_templates_${SCHOOL_A}/client_template`), { schoolId: SCHOOL_A, scope: 'school', status: 'active' }));
+});
+
+test('custom roles are server-managed and cannot be changed directly by a principal', async () => {
+  await seedFirestore({
+    'users/principal_a': user({ schoolId: SCHOOL_A, role: 'principal' }),
+  });
+  const db = context('principal_a').firestore();
+  await assertFails(setDoc(doc(db, `roles_${SCHOOL_A}/client_role`), {
+    schoolId: SCHOOL_A,
+    name: 'Client role',
+    permissions: { 'students.view': true },
+  }));
+});
+
 test('principal creates and initializes a structured legacy attendance sheet without allowing hard deletion', async () => {
   await seedFirestore({
     'users/principal_a': user({ schoolId: SCHOOL_A, role: 'principal' }),
@@ -723,4 +1042,47 @@ test('storage files are isolated by school and validate type', async () => {
     { contentType: 'text/html' },
   ));
   assert.ok(true);
+});
+
+test('personal-file attachments require scoped upload and view permissions', async () => {
+  await seedFirestore({
+    'users/file_manager_a': user({
+      schoolId: SCHOOL_A,
+      permissions: { 'personalFile.view': true, 'personalFile.upload': true },
+    }),
+    'users/student_viewer_a': user({ schoolId: SCHOOL_A, permissions: { students_view: true } }),
+    'users/file_viewer_b': user({ schoolId: SCHOOL_B, permissions: { 'personalFile.view': true } }),
+    [`students_${SCHOOL_A}/student_a`]: studentRecord(),
+  });
+  const managerStorage = context('file_manager_a').storage();
+  const sameSchoolUnauthorized = context('student_viewer_a').storage();
+  const otherSchool = context('file_viewer_b').storage();
+  const path = `schools/${SCHOOL_A}/students/student_a/personal-file/credentials/file_a/document.pdf`;
+  await assertSucceeds(uploadBytes(
+    ref(managerStorage, path),
+    new Uint8Array([37, 80, 68, 70]),
+    { contentType: 'application/pdf' },
+  ));
+  await assertSucceeds(getBytes(ref(managerStorage, path)));
+  await assertFails(getBytes(ref(sameSchoolUnauthorized, path)));
+  await assertFails(getBytes(ref(otherSchool, path)));
+  await assertFails(deleteObject(ref(managerStorage, path)));
+});
+
+test('CV PDFs are private, immutable and require export permission to upload', async () => {
+  await seedFirestore({
+    'users/cv_exporter_a': user({ schoolId: SCHOOL_A, permissions: { 'cv.view': true, 'cv.exportPdf': true } }),
+    'users/cv_viewer_a': user({ schoolId: SCHOOL_A, permissions: { 'cv.view': true } }),
+    'users/cv_viewer_b': user({ schoolId: SCHOOL_B, permissions: { 'cv.view': true, 'cv.exportPdf': true } }),
+    [`students_${SCHOOL_A}/student_a`]: studentRecord(),
+  });
+  const exporter = context('cv_exporter_a').storage();
+  const viewer = context('cv_viewer_a').storage();
+  const otherSchool = context('cv_viewer_b').storage();
+  const path = `schools/${SCHOOL_A}/students/student_a/cv/cv_a/v001/export_a/cv_student.pdf`;
+  await assertSucceeds(uploadBytes(ref(exporter, path), new Uint8Array([37, 80, 68, 70]), { contentType: 'application/pdf' }));
+  await assertSucceeds(getBytes(ref(viewer, path)));
+  await assertFails(getBytes(ref(otherSchool, path)));
+  await assertFails(uploadBytes(ref(viewer, `schools/${SCHOOL_A}/students/student_a/cv/cv_a/v001/export_b/cv.pdf`), new Uint8Array([37, 80, 68, 70]), { contentType: 'application/pdf' }));
+  await assertFails(deleteObject(ref(exporter, path)));
 });
