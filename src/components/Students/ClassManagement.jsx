@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Archive,
   CalendarDays,
@@ -76,6 +77,7 @@ export default function ClassManagement({
   permissions,
   onOpenStudents,
 }) {
+  const navigate = useNavigate();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyClass);
@@ -89,6 +91,7 @@ export default function ClassManagement({
   const canUpdate = permissions.classes_update;
   const canArchive = permissions.classes_archive;
   const canAssignTeacher = permissions.classes_assign_teacher;
+  const canCreateAttendance = permissions.attendance_create;
 
   const studentCounts = useMemo(() => {
     const counts = new Map();
@@ -195,7 +198,14 @@ export default function ClassManagement({
             )}
             <div className="class-card-actions">
               <button className="btn btn-secondary btn-sm" onClick={() => onOpenStudents(item)}><Users size={14} /> תלמידי הכיתה</button>
-              <button className="btn btn-secondary btn-sm" disabled title="יהיה זמין בשלב 2"><FileSpreadsheet size={14} /> גיליונות נוכחות</button>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => navigate(`/files?createAttendance=${encodeURIComponent(item.id)}`)}
+                disabled={item.status === CLASS_STATUS.ARCHIVED || (!canCreateAttendance && item.teacherId !== actor.uid)}
+                title={item.status === CLASS_STATUS.ARCHIVED ? 'לא ניתן ליצור גיליון לכיתה בארכיון' : 'יצירת גיליון נוכחות לכיתה'}
+              >
+                <FileSpreadsheet size={14} /> גיליון נוכחות
+              </button>
               {canUpdate && <button className="icon-btn" onClick={() => openEdit(item)} aria-label={`עריכת ${item.name}`}><Edit3 size={15} /></button>}
               {canArchive && (
                 <button className="icon-btn" onClick={() => toggleArchived(item)} aria-label={item.status === CLASS_STATUS.ARCHIVED ? `שחזור ${item.name}` : `ארכוב ${item.name}`}>

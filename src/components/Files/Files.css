@@ -598,6 +598,10 @@
   color: #f59e0b;
 }
 
+.file-icon--attendance {
+  color: #0f766e;
+}
+
 .file-icon {
   color: #2563eb;
   flex-shrink: 0;

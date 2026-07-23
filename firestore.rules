@@ -95,6 +95,9 @@ service cloud.firestore {
         || studentPermission('students_archive')
         || studentPermission('students_transfer_class')
         || studentPermission('students_manage_programs')
+        || studentPermission('attendance_view')
+        || studentPermission('attendance_edit')
+        || studentPermission('attendance_create')
       );
     }
 
@@ -136,6 +139,11 @@ service cloud.firestore {
         || studentPermission('students_archive')
         || studentPermission('students_transfer_class')
         || studentPermission('students_manage_programs')
+        || studentPermission('attendance_view')
+        || studentPermission('attendance_edit')
+        || studentPermission('attendance_create')
+        || studentPermission('attendance_manage_legend')
+        || studentPermission('attendance_manage_dates')
         || ('createdBy' in data && data.createdBy is string && data.createdBy == request.auth.uid)
         || classAssignedToCurrentUser(data)
       );
@@ -156,6 +164,21 @@ service cloud.firestore {
 
     function classExists(schoolId, classId) {
       return nestedClassExists(schoolId, classId) || legacyClassExists(schoolId, classId);
+    }
+
+    function studentBelongsToClass(schoolId, studentId, classId) {
+      let legacyStudents = 'students_' + schoolId;
+      return studentId is string
+        && classId is string
+        && (
+          (
+            exists(/databases/$(database)/documents/schools/$(schoolId)/students/$(studentId))
+            && get(/databases/$(database)/documents/schools/$(schoolId)/students/$(studentId)).data.classId == classId
+          ) || (
+            exists(/databases/$(database)/documents/$(legacyStudents)/$(studentId))
+            && get(/databases/$(database)/documents/$(legacyStudents)/$(studentId)).data.classId == classId
+          )
+        );
     }
 
     function assignedToClass(schoolId, classId) {
@@ -219,6 +242,9 @@ service cloud.firestore {
         || studentPermission('students_archive')
         || studentPermission('students_transfer_class')
         || studentPermission('students_manage_programs')
+        || studentPermission('attendance_view')
+        || studentPermission('attendance_edit')
+        || studentPermission('attendance_create')
         || (
           'classId' in data
           && data.classId is string
@@ -226,6 +252,125 @@ service cloud.firestore {
         )
         || assignedThroughLegacyClassName(schoolId, data)
       );
+    }
+
+    function isAttendanceFile(data) {
+      return data.fileType is string && data.fileType == 'attendance';
+    }
+
+    function canViewAttendance(schoolId, data) {
+      return hasStudentDataAccess(schoolId)
+        && isAttendanceFile(data)
+        && data.schoolId == schoolId
+        && data.classId is string
+        && classExists(schoolId, data.classId)
+        && (
+          (request.auth.token.keys().hasAny(['global_admin']) && request.auth.token.global_admin == true)
+          || currentUser().role == 'principal'
+          || studentPermission('attendance_view')
+          || studentPermission('attendance_edit')
+          || studentPermission('attendance_create')
+          || studentPermission('attendance_manage_legend')
+          || studentPermission('attendance_manage_dates')
+          || assignedToClass(schoolId, data.classId)
+        );
+    }
+
+    function canCreateAttendance(schoolId, data) {
+      return hasStudentDataAccess(schoolId)
+        && data.classId is string
+        && classExists(schoolId, data.classId)
+        && (
+          currentUser().role == 'principal'
+          || studentPermission('attendance_create')
+          || teachesClass(schoolId, data.classId)
+        );
+    }
+
+    function canEditAttendance(schoolId, data) {
+      return canViewAttendance(schoolId, data) && (
+        currentUser().role == 'principal'
+        || studentPermission('attendance_edit')
+        || teachesClass(schoolId, data.classId)
+      );
+    }
+
+    function canInitializeAttendance(schoolId, data) {
+      return isAttendanceFile(data)
+        && data.schoolId == schoolId
+        && data.setupStatus == 'creating'
+        && data.createdBy == request.auth.uid
+        && canCreateAttendance(schoolId, data);
+    }
+
+    function canManageAttendanceLegend(schoolId, data) {
+      return canViewAttendance(schoolId, data) && (
+        currentUser().role == 'principal'
+        || studentPermission('attendance_manage_legend')
+      );
+    }
+
+    function validAttendanceFileCreate(schoolId, data) {
+      return data.keys().hasAll([
+          'name', 'fileType', 'folderId', 'schoolId', 'classId', 'className',
+          'dateRange', 'timezone', 'status', 'setupStatus', 'createdBy', 'updatedBy'
+        ])
+        && data.name is string
+        && data.name.size() > 0
+        && data.name.size() <= 140
+        && data.folderId is string
+        && data.schoolId == schoolId
+        && data.status == 'active'
+        && data.setupStatus == 'creating'
+        && data.createdBy == request.auth.uid
+        && data.updatedBy == request.auth.uid
+        && canCreateAttendance(schoolId, data);
+    }
+
+    function safeAttendanceFileUpdate(schoolId) {
+      return (
+          (
+            canInitializeAttendance(schoolId, resource.data)
+            && request.resource.data.setupStatus in ['ready', 'error']
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'setupStatus', 'studentCount', 'scheduledDayCount', 'updatedBy', 'updatedAt'
+            ])
+          )
+          || canEditAttendance(schoolId, resource.data)
+        )
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.classId == resource.data.classId
+        && request.resource.data.fileType == resource.data.fileType
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name', 'description', 'folderId', 'setupStatus', 'status', 'studentCount',
+          'scheduledDayCount', 'updatedBy', 'updatedAt', 'pinnedBy'
+        ])
+        && (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pinnedBy'])
+          || request.resource.data.updatedBy == request.auth.uid
+        );
+    }
+
+    function validAttendanceChildBase(schoolId, fileId, data) {
+      return data.schoolId == schoolId && data.fileId == fileId;
+    }
+
+    function validAttendanceRecordWrite(schoolId, fileId, fileData, data) {
+      return canEditAttendance(schoolId, fileData)
+        && validAttendanceChildBase(schoolId, fileId, data)
+        && data.classId == fileData.classId
+        && data.studentId is string
+        && data.dateKey is string
+        && data.primaryStatusId is string
+        && data.actionIds is list
+        && data.note is string
+        && data.note.size() <= 2000
+        && data.updatedBy == request.auth.uid;
+    }
+
+    function nestedAttendanceFileData(schoolId, fileId) {
+      return get(/databases/$(database)/documents/schools/$(schoolId)/files/$(fileId)).data;
     }
 
     function canCreateStudent(schoolId, data) {
@@ -708,8 +853,107 @@ service cloud.firestore {
 
       match /files/{fileId} {
         allow read: if canViewSchoolResource(schoolId);
-        allow create, update: if hasPermission(schoolId, 'files_upload');
-        allow delete: if hasPermission(schoolId, 'files_delete');
+        allow create: if (
+            isAttendanceFile(request.resource.data)
+            && validAttendanceFileCreate(schoolId, request.resource.data)
+          ) || (
+            !isAttendanceFile(request.resource.data)
+            && hasPermission(schoolId, 'files_upload')
+          );
+        allow update: if (
+            isAttendanceFile(resource.data)
+            && safeAttendanceFileUpdate(schoolId)
+          ) || (
+            !isAttendanceFile(resource.data)
+            && hasPermission(schoolId, 'files_upload')
+          );
+        allow delete: if !isAttendanceFile(resource.data)
+          && hasPermission(schoolId, 'files_delete');
+
+        match /attendanceLegend/{itemId} {
+          allow read: if canViewAttendance(schoolId, nestedAttendanceFileData(schoolId, fileId));
+          allow create: if (
+              canManageAttendanceLegend(schoolId, nestedAttendanceFileData(schoolId, fileId))
+              || canInitializeAttendance(schoolId, nestedAttendanceFileData(schoolId, fileId))
+            )
+            && validAttendanceChildBase(schoolId, fileId, request.resource.data)
+            && request.resource.data.createdBy == request.auth.uid;
+          allow update: if canManageAttendanceLegend(schoolId, nestedAttendanceFileData(schoolId, fileId))
+            && validAttendanceChildBase(schoolId, fileId, request.resource.data)
+            && request.resource.data.schoolId == resource.data.schoolId
+            && request.resource.data.fileId == resource.data.fileId
+            && request.resource.data.updatedBy == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'label', 'shortCode', 'color', 'type', 'attendanceEffect', 'order',
+              'active', 'updatedBy', 'updatedAt'
+            ]);
+          allow delete: if false;
+        }
+
+        match /attendanceMembers/{memberId} {
+          allow read: if canViewAttendance(schoolId, nestedAttendanceFileData(schoolId, fileId));
+          allow create: if (
+              canEditAttendance(schoolId, nestedAttendanceFileData(schoolId, fileId))
+              || canInitializeAttendance(schoolId, nestedAttendanceFileData(schoolId, fileId))
+            )
+            && validAttendanceChildBase(schoolId, fileId, request.resource.data)
+            && request.resource.data.classId == nestedAttendanceFileData(schoolId, fileId).classId
+            && request.resource.data.studentId == memberId
+            && studentBelongsToClass(schoolId, memberId, request.resource.data.classId)
+            && request.resource.data.createdBy == request.auth.uid;
+          allow update, delete: if false;
+        }
+
+        match /attendanceDays/{dayId} {
+          allow read: if canViewAttendance(schoolId, nestedAttendanceFileData(schoolId, fileId));
+          allow create: if (
+              canEditAttendance(schoolId, nestedAttendanceFileData(schoolId, fileId))
+              || canInitializeAttendance(schoolId, nestedAttendanceFileData(schoolId, fileId))
+            )
+            && validAttendanceChildBase(schoolId, fileId, request.resource.data)
+            && request.resource.data.createdBy == request.auth.uid;
+          allow update: if canViewAttendance(schoolId, nestedAttendanceFileData(schoolId, fileId))
+            && (
+              currentUser().role == 'principal'
+              || studentPermission('attendance_manage_dates')
+              || studentPermission('attendance_block_days')
+            )
+            && validAttendanceChildBase(schoolId, fileId, request.resource.data)
+            && request.resource.data.updatedBy == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'blocked', 'blockedReason', 'updatedBy', 'updatedAt'
+            ]);
+          allow delete: if false;
+        }
+
+        match /attendanceRecords/{recordId} {
+          allow read: if canViewAttendance(schoolId, nestedAttendanceFileData(schoolId, fileId));
+          allow create: if validAttendanceRecordWrite(
+              schoolId, fileId, nestedAttendanceFileData(schoolId, fileId), request.resource.data
+            )
+            && recordId == request.resource.data.studentId + '__' + request.resource.data.dateKey
+            && exists(/databases/$(database)/documents/schools/$(schoolId)/files/$(fileId)/attendanceMembers/$(request.resource.data.studentId))
+            && exists(/databases/$(database)/documents/schools/$(schoolId)/files/$(fileId)/attendanceDays/$(request.resource.data.dateKey));
+          allow update: if validAttendanceRecordWrite(
+              schoolId, fileId, nestedAttendanceFileData(schoolId, fileId), request.resource.data
+            )
+            && request.resource.data.schoolId == resource.data.schoolId
+            && request.resource.data.fileId == resource.data.fileId
+            && request.resource.data.classId == resource.data.classId
+            && request.resource.data.studentId == resource.data.studentId
+            && request.resource.data.dateKey == resource.data.dateKey
+            && recordId == request.resource.data.studentId + '__' + request.resource.data.dateKey;
+          allow delete: if false;
+        }
+
+        match /attendanceHistory/{historyId} {
+          allow read: if canViewAttendance(schoolId, nestedAttendanceFileData(schoolId, fileId));
+          allow create: if canEditAttendance(schoolId, nestedAttendanceFileData(schoolId, fileId))
+            && validAttendanceChildBase(schoolId, fileId, request.resource.data)
+            && request.resource.data.classId == nestedAttendanceFileData(schoolId, fileId).classId
+            && request.resource.data.createdBy == request.auth.uid;
+          allow update, delete: if false;
+        }
       }
 
       match /folders/{folderId} {
@@ -877,8 +1121,54 @@ service cloud.firestore {
 
     function legacyWriteAllowed(collectionName, data) {
       return legacyReadAllowed(collectionName, data)
+        && !isAttendanceFile(data)
         && !collectionName.matches('^(roles|settings)_.*$')
         && (isGlobalAdmin() || currentUser().role in ['principal', 'editor']);
+    }
+
+    function legacyAttendanceFileData(collectionName, fileId) {
+      return get(/databases/$(database)/documents/$(collectionName)/$(fileId)).data;
+    }
+
+    function legacyAttendanceFileMatches(collectionName, fileData) {
+      return collectionName.matches('^files_[A-Za-z0-9_-]+$')
+        && fileData.schoolId is string
+        && collectionName == 'files_' + fileData.schoolId
+        && isAttendanceFile(fileData);
+    }
+
+    function legacyAttendanceCreateAllowed(collectionName, data) {
+      return legacyAttendanceFileMatches(collectionName, data)
+        && validAttendanceFileCreate(data.schoolId, data);
+    }
+
+    function legacyAttendanceUpdateAllowed(collectionName) {
+      return legacyAttendanceFileMatches(collectionName, resource.data)
+        && safeAttendanceFileUpdate(resource.data.schoolId);
+    }
+
+    function legacyAttendanceCanView(collectionName, fileId) {
+      let fileData = legacyAttendanceFileData(collectionName, fileId);
+      return legacyAttendanceFileMatches(collectionName, fileData)
+        && canViewAttendance(fileData.schoolId, fileData);
+    }
+
+    function legacyAttendanceCanEdit(collectionName, fileId) {
+      let fileData = legacyAttendanceFileData(collectionName, fileId);
+      return legacyAttendanceFileMatches(collectionName, fileData)
+        && canEditAttendance(fileData.schoolId, fileData);
+    }
+
+    function legacyAttendanceCanInitialize(collectionName, fileId) {
+      let fileData = legacyAttendanceFileData(collectionName, fileId);
+      return legacyAttendanceFileMatches(collectionName, fileData)
+        && canInitializeAttendance(fileData.schoolId, fileData);
+    }
+
+    function legacyAttendanceCanManageLegend(collectionName, fileId) {
+      let fileData = legacyAttendanceFileData(collectionName, fileId);
+      return legacyAttendanceFileMatches(collectionName, fileData)
+        && canManageAttendanceLegend(fileData.schoolId, fileData);
     }
 
     function legacyCanEditTasks(collectionName, data) {
@@ -1007,7 +1297,8 @@ service cloud.firestore {
         ) || (
           !legacyCollection.matches('^tasks_[A-Za-z0-9_-]+$')
           && (
-            legacyWriteAllowed(legacyCollection, request.resource.data)
+            legacyAttendanceCreateAllowed(legacyCollection, request.resource.data)
+            || legacyWriteAllowed(legacyCollection, request.resource.data)
             || legacySensitiveWriteAllowed(legacyCollection, request.resource.data)
             || legacyStudentCreateAllowed(legacyCollection, request.resource.data)
             || legacyClassCreateAllowed(legacyCollection, request.resource.data)
@@ -1019,7 +1310,8 @@ service cloud.firestore {
         ) || (
           !legacyCollection.matches('^tasks_[A-Za-z0-9_-]+$')
           && (
-            legacyWriteAllowed(legacyCollection, resource.data)
+            legacyAttendanceUpdateAllowed(legacyCollection)
+            || legacyWriteAllowed(legacyCollection, resource.data)
             || legacySensitiveWriteAllowed(legacyCollection, resource.data)
             || legacyStudentUpdateAllowed(legacyCollection)
             || legacyClassUpdateAllowed(legacyCollection)
@@ -1071,6 +1363,117 @@ service cloud.firestore {
             || studentPermission('classes_assign_teacher')
           )
         );
+      allow update, delete: if false;
+    }
+
+    match /{legacyCollection}/{fileId}/attendanceLegend/{itemId} {
+      allow read: if legacyAttendanceCanView(legacyCollection, fileId);
+      allow create: if (
+          legacyAttendanceCanManageLegend(legacyCollection, fileId)
+          || legacyAttendanceCanInitialize(legacyCollection, fileId)
+        )
+        && validAttendanceChildBase(
+          legacyAttendanceFileData(legacyCollection, fileId).schoolId,
+          fileId,
+          request.resource.data
+        )
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update: if legacyAttendanceCanManageLegend(legacyCollection, fileId)
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.fileId == resource.data.fileId
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'label', 'shortCode', 'color', 'type', 'attendanceEffect', 'order',
+          'active', 'updatedBy', 'updatedAt'
+        ]);
+      allow delete: if false;
+    }
+
+    match /{legacyCollection}/{fileId}/attendanceMembers/{memberId} {
+      allow read: if legacyAttendanceCanView(legacyCollection, fileId);
+      allow create: if (
+          legacyAttendanceCanEdit(legacyCollection, fileId)
+          || legacyAttendanceCanInitialize(legacyCollection, fileId)
+        )
+        && validAttendanceChildBase(
+          legacyAttendanceFileData(legacyCollection, fileId).schoolId,
+          fileId,
+          request.resource.data
+        )
+        && request.resource.data.classId == legacyAttendanceFileData(legacyCollection, fileId).classId
+        && request.resource.data.studentId == memberId
+        && studentBelongsToClass(
+          legacyAttendanceFileData(legacyCollection, fileId).schoolId,
+          memberId,
+          request.resource.data.classId
+        )
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /{legacyCollection}/{fileId}/attendanceDays/{dayId} {
+      allow read: if legacyAttendanceCanView(legacyCollection, fileId);
+      allow create: if (
+          legacyAttendanceCanEdit(legacyCollection, fileId)
+          || legacyAttendanceCanInitialize(legacyCollection, fileId)
+        )
+        && validAttendanceChildBase(
+          legacyAttendanceFileData(legacyCollection, fileId).schoolId,
+          fileId,
+          request.resource.data
+        )
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update: if legacyAttendanceCanView(legacyCollection, fileId)
+        && (
+          currentUser().role == 'principal'
+          || studentPermission('attendance_manage_dates')
+          || studentPermission('attendance_block_days')
+        )
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.fileId == resource.data.fileId
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'blocked', 'blockedReason', 'updatedBy', 'updatedAt'
+        ]);
+      allow delete: if false;
+    }
+
+    match /{legacyCollection}/{fileId}/attendanceRecords/{recordId} {
+      allow read: if legacyAttendanceCanView(legacyCollection, fileId);
+      allow create: if validAttendanceRecordWrite(
+          legacyAttendanceFileData(legacyCollection, fileId).schoolId,
+          fileId,
+          legacyAttendanceFileData(legacyCollection, fileId),
+          request.resource.data
+        )
+        && recordId == request.resource.data.studentId + '__' + request.resource.data.dateKey
+        && exists(/databases/$(database)/documents/$(legacyCollection)/$(fileId)/attendanceMembers/$(request.resource.data.studentId))
+        && exists(/databases/$(database)/documents/$(legacyCollection)/$(fileId)/attendanceDays/$(request.resource.data.dateKey));
+      allow update: if validAttendanceRecordWrite(
+          legacyAttendanceFileData(legacyCollection, fileId).schoolId,
+          fileId,
+          legacyAttendanceFileData(legacyCollection, fileId),
+          request.resource.data
+        )
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.fileId == resource.data.fileId
+        && request.resource.data.classId == resource.data.classId
+        && request.resource.data.studentId == resource.data.studentId
+        && request.resource.data.dateKey == resource.data.dateKey
+        && recordId == request.resource.data.studentId + '__' + request.resource.data.dateKey;
+      allow delete: if false;
+    }
+
+    match /{legacyCollection}/{fileId}/attendanceHistory/{historyId} {
+      allow read: if legacyAttendanceCanView(legacyCollection, fileId);
+      allow create: if legacyAttendanceCanEdit(legacyCollection, fileId)
+        && validAttendanceChildBase(
+          legacyAttendanceFileData(legacyCollection, fileId).schoolId,
+          fileId,
+          request.resource.data
+        )
+        && request.resource.data.classId == legacyAttendanceFileData(legacyCollection, fileId).classId
+        && request.resource.data.createdBy == request.auth.uid;
       allow update, delete: if false;
     }
 

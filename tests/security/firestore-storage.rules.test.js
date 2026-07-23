@@ -93,6 +93,52 @@ function studentRecord({ classId = 'class_a', schoolId = SCHOOL_A, name = 'Stude
   };
 }
 
+function attendanceFile({
+  schoolId = SCHOOL_A,
+  classId = 'class_a',
+  createdBy = 'principal_a',
+  setupStatus = 'ready',
+} = {}) {
+  return {
+    name: 'Attendance A',
+    fileType: 'attendance',
+    type: 'application/x-attendance-sheet',
+    folderId: 'folder_a',
+    schoolId,
+    classId,
+    className: classId === 'class_b' ? 'Class B' : 'Class A',
+    dateRange: { start: '2026-09-01', end: '2026-09-30' },
+    timezone: 'Asia/Jerusalem',
+    status: 'active',
+    setupStatus,
+    createdBy,
+    updatedBy: createdBy,
+    createdAt: 'created',
+    updatedAt: 'created',
+  };
+}
+
+function attendanceRecord({
+  schoolId = SCHOOL_A,
+  fileId = 'attendance_a',
+  classId = 'class_a',
+  studentId = 'student_a',
+  updatedBy = 'principal_a',
+} = {}) {
+  return {
+    schoolId,
+    fileId,
+    classId,
+    studentId,
+    dateKey: '2026-09-01',
+    primaryStatusId: 'present',
+    actionIds: [],
+    note: '',
+    updatedBy,
+    updatedAt: 'updated',
+  };
+}
+
 before(async () => {
   const [firestoreRules, storageRules] = await Promise.all([
     readFile(new URL('../../firestore.rules', import.meta.url), 'utf8'),
@@ -462,6 +508,139 @@ test('legacy class and student collections retain class-scoped access', async ()
   });
   await assertSucceeds(getDoc(doc(context('teacher_a').firestore(), `students_${SCHOOL_A}/student_a`)));
   await assertFails(getDoc(doc(context('teacher_b').firestore(), `students_${SCHOOL_A}/student_a`)));
+});
+
+test('principal creates and initializes a structured legacy attendance sheet without allowing hard deletion', async () => {
+  await seedFirestore({
+    'users/principal_a': user({ schoolId: SCHOOL_A, role: 'principal' }),
+    [`classes_${SCHOOL_A}/class_a`]: classRecord(),
+    [`students_${SCHOOL_A}/student_a`]: studentRecord(),
+  });
+  const db = context('principal_a').firestore();
+  const fileRef = doc(db, `files_${SCHOOL_A}/attendance_a`);
+  await assertSucceeds(setDoc(fileRef, attendanceFile({ setupStatus: 'creating' })));
+
+  const setup = writeBatch(db);
+  setup.set(doc(db, `files_${SCHOOL_A}/attendance_a/attendanceLegend/present`), {
+    schoolId: SCHOOL_A, fileId: 'attendance_a', label: 'נוכח', shortCode: 'נ',
+    color: '#16a34a', type: 'status', attendanceEffect: 'present', active: true,
+    createdBy: 'principal_a', createdAt: 'created', updatedAt: 'created',
+  });
+  setup.set(doc(db, `files_${SCHOOL_A}/attendance_a/attendanceMembers/student_a`), {
+    schoolId: SCHOOL_A, fileId: 'attendance_a', classId: 'class_a',
+    studentId: 'student_a', displayName: 'Student A', included: true, order: 0,
+    createdBy: 'principal_a', createdAt: 'created',
+  });
+  setup.set(doc(db, `files_${SCHOOL_A}/attendance_a/attendanceDays/2026-09-01`), {
+    schoolId: SCHOOL_A, fileId: 'attendance_a', dateKey: '2026-09-01', blocked: false,
+    createdBy: 'principal_a', createdAt: 'created', updatedAt: 'created',
+  });
+  await assertSucceeds(setup.commit());
+  await assertSucceeds(updateDoc(fileRef, {
+    setupStatus: 'ready', updatedBy: 'principal_a', updatedAt: 'ready',
+  }));
+
+  const attendanceWrite = writeBatch(db);
+  attendanceWrite.set(
+    doc(db, `files_${SCHOOL_A}/attendance_a/attendanceRecords/student_a__2026-09-01`),
+    attendanceRecord(),
+  );
+  attendanceWrite.set(doc(db, `files_${SCHOOL_A}/attendance_a/attendanceHistory/history_a`), {
+    schoolId: SCHOOL_A, fileId: 'attendance_a', classId: 'class_a',
+    recordId: 'student_a__2026-09-01', studentId: 'student_a', dateKey: '2026-09-01',
+    type: 'cell_created', createdBy: 'principal_a', createdAt: 'created',
+  });
+  await assertSucceeds(attendanceWrite.commit());
+  await assertFails(deleteDoc(fileRef));
+});
+
+test('homeroom teacher creates and edits attendance only for the assigned class', async () => {
+  await seedFirestore({
+    'users/teacher_a': user({ schoolId: SCHOOL_A }),
+    [`classes_${SCHOOL_A}/class_a`]: classRecord({ teacherId: 'teacher_a' }),
+    [`classes_${SCHOOL_A}/class_b`]: classRecord({ teacherId: 'teacher_b', name: 'Class B' }),
+    [`files_${SCHOOL_A}/attendance_a`]: attendanceFile({ createdBy: 'teacher_a' }),
+    [`files_${SCHOOL_A}/attendance_b`]: attendanceFile({ classId: 'class_b', createdBy: 'teacher_b' }),
+    [`files_${SCHOOL_A}/attendance_a/attendanceMembers/student_a`]: { studentId: 'student_a' },
+    [`files_${SCHOOL_A}/attendance_a/attendanceDays/2026-09-01`]: { dateKey: '2026-09-01' },
+    [`files_${SCHOOL_A}/attendance_b/attendanceMembers/student_b`]: { studentId: 'student_b' },
+    [`files_${SCHOOL_A}/attendance_b/attendanceDays/2026-09-01`]: { dateKey: '2026-09-01' },
+  });
+  const db = context('teacher_a').firestore();
+  await assertSucceeds(setDoc(
+    doc(db, `files_${SCHOOL_A}/teacher_created`),
+    attendanceFile({ createdBy: 'teacher_a', setupStatus: 'creating' }),
+  ));
+  await assertSucceeds(setDoc(
+    doc(db, `files_${SCHOOL_A}/attendance_a/attendanceRecords/student_a__2026-09-01`),
+    attendanceRecord({ updatedBy: 'teacher_a' }),
+  ));
+  await assertFails(setDoc(
+    doc(db, `files_${SCHOOL_A}/attendance_b/attendanceRecords/student_b__2026-09-01`),
+    attendanceRecord({ fileId: 'attendance_b', classId: 'class_b', studentId: 'student_b', updatedBy: 'teacher_a' }),
+  ));
+});
+
+test('attendance create permission initializes a sheet but does not grant record editing', async () => {
+  await seedFirestore({
+    'users/creator_a': user({ schoolId: SCHOOL_A, permissions: { attendance_create: true } }),
+    [`classes_${SCHOOL_A}/class_a`]: classRecord(),
+  });
+  const db = context('creator_a').firestore();
+  const fileRef = doc(db, `files_${SCHOOL_A}/attendance_created`);
+  await assertSucceeds(setDoc(
+    fileRef,
+    attendanceFile({ createdBy: 'creator_a', setupStatus: 'creating' }),
+  ));
+  await assertSucceeds(setDoc(doc(db, `files_${SCHOOL_A}/attendance_created/attendanceDays/2026-09-01`), {
+    schoolId: SCHOOL_A, fileId: 'attendance_created', dateKey: '2026-09-01', blocked: false,
+    createdBy: 'creator_a', createdAt: 'created', updatedAt: 'created',
+  }));
+  await assertSucceeds(updateDoc(fileRef, {
+    setupStatus: 'ready', updatedBy: 'creator_a', updatedAt: 'ready',
+  }));
+  await assertFails(setDoc(
+    doc(db, `files_${SCHOOL_A}/attendance_created/attendanceRecords/student_a__2026-09-01`),
+    attendanceRecord({ fileId: 'attendance_created', updatedBy: 'creator_a' }),
+  ));
+});
+
+test('attendance viewers are read-only and attendance records remain isolated by school', async () => {
+  await seedFirestore({
+    'users/viewer_a': user({ schoolId: SCHOOL_A, permissions: { attendance_view: true } }),
+    'users/member_a': user({ schoolId: SCHOOL_A }),
+    'users/member_b': user({ schoolId: SCHOOL_B, permissions: { attendance_view: true } }),
+    [`classes_${SCHOOL_A}/class_a`]: classRecord(),
+    [`files_${SCHOOL_A}/attendance_a`]: attendanceFile(),
+    [`files_${SCHOOL_A}/attendance_a/attendanceRecords/student_a__2026-09-01`]: attendanceRecord(),
+  });
+  const recordPath = `files_${SCHOOL_A}/attendance_a/attendanceRecords/student_a__2026-09-01`;
+  const viewerDb = context('viewer_a').firestore();
+  await assertSucceeds(getDoc(doc(viewerDb, recordPath)));
+  await assertFails(updateDoc(doc(viewerDb, recordPath), {
+    note: 'forged', updatedBy: 'viewer_a', updatedAt: 'later',
+  }));
+  await assertFails(getDoc(doc(context('member_a').firestore(), recordPath)));
+  await assertFails(getDoc(doc(context('member_b').firestore(), recordPath)));
+});
+
+test('nested attendance rules reject tenant and actor spoofing', async () => {
+  await seedFirestore({
+    'users/editor_a': user({ schoolId: SCHOOL_A, permissions: { attendance_edit: true } }),
+    [`schools/${SCHOOL_A}/classes/class_a`]: classRecord(),
+    [`schools/${SCHOOL_A}/files/attendance_a`]: attendanceFile(),
+    [`schools/${SCHOOL_A}/files/attendance_a/attendanceMembers/student_a`]: { studentId: 'student_a' },
+    [`schools/${SCHOOL_A}/files/attendance_a/attendanceDays/2026-09-01`]: { dateKey: '2026-09-01' },
+  });
+  const db = context('editor_a').firestore();
+  const recordRef = doc(db, `schools/${SCHOOL_A}/files/attendance_a/attendanceRecords/student_a__2026-09-01`);
+  await assertSucceeds(setDoc(recordRef, attendanceRecord({ updatedBy: 'editor_a' })));
+  await assertFails(updateDoc(recordRef, {
+    schoolId: SCHOOL_B, updatedBy: 'editor_a', updatedAt: 'later',
+  }));
+  await assertFails(updateDoc(recordRef, {
+    updatedBy: 'principal_a', updatedAt: 'later',
+  }));
 });
 
 test('only conversation participants read messages', async () => {

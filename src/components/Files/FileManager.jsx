@@ -24,6 +24,10 @@ import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage
 import Header from '../Layout/Header';
 import SpreadsheetEditor from './SpreadsheetEditor';
 import DocumentEditor from './DocumentEditor';
+import AttendanceSheetEditor from './AttendanceSheetEditor';
+import AttendanceSheetWizard from './AttendanceSheetWizard';
+import { subscribeClasses } from '../../services/firestore/classStudentRepository';
+import { archiveAttendanceSheet } from '../../services/firestore/attendanceRepository';
 import {
   FolderPlus,
   Upload,
@@ -51,6 +55,8 @@ import {
   Copy,
   History,
   Clock,
+  ClipboardCheck,
+  Archive,
   Printer,
   FileDown
 } from 'lucide-react';
@@ -91,6 +97,10 @@ export default function FileManager() {
   const [showHistory, setShowHistory] = useState(false);
   const [historyEntries, setHistoryEntries] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [attendanceClasses, setAttendanceClasses] = useState([]);
+  const [showAttendanceWizard, setShowAttendanceWizard] = useState(false);
+  const [attendanceInitialClassId, setAttendanceInitialClassId] = useState('');
+  const [attendanceMessage, setAttendanceMessage] = useState('');
   const autoSaveTimerRef = useRef(null);
   const lastSavedContentRef = useRef(null);
   const fileEditNotifSentRef = useRef(null); // track which file we already notified about
@@ -98,6 +108,26 @@ export default function FileManager() {
   const schoolId = selectedSchool || userData?.schoolId;
   const canManage = isPrincipal() || isGlobalAdmin();
   const canUploadFiles = permissions.files_upload;
+  const attendanceSchoolWide = canManage
+    || permissions.attendance_create
+    || permissions.attendance_view
+    || permissions.attendance_edit
+    || permissions.attendance_manage_legend
+    || permissions.attendance_manage_dates
+    || permissions.attendance_block_days;
+  const canCreateAttendance = attendanceSchoolWide
+    || attendanceClasses.some(item => item.teacherId === uid);
+
+  const attendanceClassForFile = useCallback((file) => (
+    attendanceClasses.find(item => item.id === file.classId)
+  ), [attendanceClasses]);
+
+  const userCanOpenAttendance = useCallback((file) => (
+    file.fileType !== 'attendance'
+    || canManage
+    || attendanceSchoolWide
+    || Boolean(attendanceClassForFile(file))
+  ), [attendanceClassForFile, attendanceSchoolWide, canManage]);
 
   const userCanAccessFolder = useCallback((folder) => {
     if (canManage) return true;
@@ -180,12 +210,24 @@ export default function FileManager() {
     return unsub;
   }, [schoolId]);
 
+  useEffect(() => {
+    if (!schoolId || !uid) return undefined;
+    return subscribeClasses({
+      db,
+      schoolId,
+      uid,
+      canViewAll: attendanceSchoolWide,
+      onData: items => setAttendanceClasses(items.filter(item => item.status !== 'archived')),
+      onError: () => setAttendanceClasses([]),
+    });
+  }, [attendanceSchoolWide, schoolId, uid]);
+
   // Open file from URL param (e.g. /files?openFile=abc123)
   useEffect(() => {
     const openFileId = searchParams.get('openFile');
     if (openFileId && files.length > 0 && !editingFile) {
       const file = files.find(f => f.id === openFileId);
-      if (file && (file.fileType === 'spreadsheet' || file.fileType === 'document')) {
+      if (file && ['spreadsheet', 'document', 'attendance'].includes(file.fileType) && userCanOpenAttendance(file)) {
         setEditingFile(file);
         if (file.folderId) {
           setSelectedFolder(file.folderId);
@@ -195,7 +237,23 @@ export default function FileManager() {
       // Clear the param so it doesn't re-trigger
       setSearchParams({}, { replace: true });
     }
-  }, [searchParams, files, editingFile, setSearchParams]);
+  }, [searchParams, files, editingFile, setSearchParams, userCanOpenAttendance]);
+
+  useEffect(() => {
+    const requestedClassId = searchParams.get('createAttendance');
+    if (!requestedClassId || !canCreateAttendance) return;
+    setAttendanceInitialClassId(requestedClassId);
+    setShowAttendanceWizard(true);
+    setSearchParams({}, { replace: true });
+  }, [canCreateAttendance, searchParams, setSearchParams]);
+
+  function openAttendanceWizard(folderId = selectedFolder, classId = '') {
+    setCreateInFolder(folderId || null);
+    setAttendanceInitialClassId(classId);
+    setShowCreateMenu(false);
+    setViewerContextMenu(null);
+    setShowAttendanceWizard(true);
+  }
 
   async function createFolder(e) {
     e.preventDefault();
@@ -378,10 +436,14 @@ export default function FileManager() {
 
   async function deleteFolder(folderId) {
     if (!canUploadFiles) return;
-    if (!confirm('האם למחוק תיקייה זו וכל תוכנה?')) return;
     const filesSnap = await getDocs(
       query(collection(db, `files_${schoolId}`), where('folderId', '==', folderId))
     );
+    if (filesSnap.docs.some(fileDoc => fileDoc.data().fileType === 'attendance')) {
+      alert('לא ניתן למחוק תיקייה שמכילה גיליונות נוכחות. יש להעביר או לארכב אותם תחילה כדי לשמור על היסטוריית הנוכחות.');
+      return;
+    }
+    if (!confirm('האם למחוק תיקייה זו וכל תוכנה?')) return;
     for (const fileDoc of filesSnap.docs) {
       const fileData = fileDoc.data();
       if (fileData.storagePath) {
@@ -394,6 +456,18 @@ export default function FileManager() {
   }
 
   async function deleteFile(fileItem) {
+    if (fileItem.fileType === 'attendance') {
+      if (!canManage && !permissions.attendance_edit) return;
+      if (!confirm('האם להעביר את גיליון הנוכחות לארכיון? הנתונים והיסטוריית השינויים יישמרו.')) return;
+      await archiveAttendanceSheet({
+        db,
+        schoolId,
+        fileId: fileItem.id,
+        actor: { uid },
+      });
+      if (editingFile?.id === fileItem.id) setEditingFile(null);
+      return;
+    }
     if (!canUploadFiles) return;
     if (!confirm('האם למחוק קובץ זה?')) return;
     if (fileItem.storagePath) {
@@ -475,7 +549,11 @@ export default function FileManager() {
   }
 
   function openFile(file) {
-    if (file.fileType === 'spreadsheet' || file.fileType === 'document') {
+    if (['spreadsheet', 'document', 'attendance'].includes(file.fileType)) {
+      if (!userCanOpenAttendance(file)) {
+        alert('אין הרשאה לצפות בגיליון הנוכחות הזה.');
+        return;
+      }
       // Flush pending autosave for current file before switching
       if (editingFile && editingFile.id !== file.id && autoSaveTimerRef.current) {
         clearTimeout(autoSaveTimerRef.current);
@@ -485,6 +563,7 @@ export default function FileManager() {
         }
       }
       setEditingFile(file);
+      if (file.fileType === 'attendance') setShowHistory(false);
       lastSavedContentRef.current = file.content;
       fileEditNotifSentRef.current = null;
       // Reload history if panel is open
@@ -537,6 +616,7 @@ export default function FileManager() {
   function getFileIcon(file, size = 15) {
     if (file.fileType === 'spreadsheet') return <Table2 size={size} className="file-icon file-icon--sheet" />;
     if (file.fileType === 'document') return <FileEdit size={size} className="file-icon file-icon--doc" />;
+    if (file.fileType === 'attendance') return <ClipboardCheck size={size} className="file-icon file-icon--attendance" />;
     return <FileText size={size} className="file-icon" />;
   }
 
@@ -652,7 +732,7 @@ export default function FileManager() {
       parts.push(`עודכן: ${d.toLocaleDateString('he-IL')} ${d.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}`);
     }
     if (f.lastModifiedBy) parts.push(`עודכן ע"י: ${f.lastModifiedBy}`);
-    if (f.fileType) parts.push(`סוג: ${f.fileType === 'spreadsheet' ? 'גיליון' : f.fileType === 'document' ? 'מסמך' : 'קובץ'}`);
+    if (f.fileType) parts.push(`סוג: ${f.fileType === 'spreadsheet' ? 'גיליון' : f.fileType === 'document' ? 'מסמך' : f.fileType === 'attendance' ? 'גיליון נוכחות' : 'קובץ'}`);
     if (f.size) parts.push(`גודל: ${formatSize(f.size)}`);
     alert(parts.join('\n'));
   }
@@ -674,6 +754,8 @@ export default function FileManager() {
   function getFilesForFolder(folderId) {
     return files
       .filter(f => f.folderId === folderId)
+      .filter(f => f.status !== 'archived')
+      .filter(userCanOpenAttendance)
       .filter(f => !fileSearch.trim() || f.name.toLowerCase().includes(fileSearch.toLowerCase()))
       .sort((a, b) => {
         const aPin = a.pinnedBy?.includes(uid) ? 0 : 1;
@@ -684,6 +766,8 @@ export default function FileManager() {
 
   // Get pinned files across all folders
   const pinnedFiles = files.filter(f => f.pinnedBy?.includes(uid))
+    .filter(f => f.status !== 'archived')
+    .filter(userCanOpenAttendance)
     .filter(f => !fileSearch.trim() || f.name.toLowerCase().includes(fileSearch.toLowerCase()));
 
   function renderFolderTree(folderList) {
@@ -789,6 +873,11 @@ export default function FileManager() {
   return (
     <div className="page">
       <Header title="קבצים ותיקיות" onPermissions={() => setShowPermissionsPanel(true)} />
+      {attendanceMessage && (
+        <div className="attendance-feedback attendance-feedback--success" role="status">
+          {attendanceMessage}
+        </div>
+      )}
       {showPermissionsPanel && <PagePermissionsPanel feature="files" onClose={() => setShowPermissionsPanel(false)} />}
       <div className="page-content">
         <div className={`files-layout ${fullscreen ? 'files-layout--fullscreen' : ''}`}>
@@ -806,6 +895,11 @@ export default function FileManager() {
                       <FileEdit size={15} />
                     </button>
                   </>
+                )}
+                {selectedFolder && canCreateAttendance && (
+                  <button className="icon-btn" onClick={() => openAttendanceWizard(selectedFolder)} title="גיליון נוכחות חדש">
+                    <ClipboardCheck size={15} />
+                  </button>
                 )}
                 {canManage && (
                   <button className="icon-btn" onClick={() => setShowNewFolder(true)} title="תיקייה חדשה">
@@ -913,11 +1007,15 @@ export default function FileManager() {
                     סגור
                   </button>
                   <span className="file-editor-name">
-                    {editingFile.fileType === 'spreadsheet' ? <Table2 size={16} /> : <FileEdit size={16} />}
+                    {editingFile.fileType === 'spreadsheet'
+                      ? <Table2 size={16} />
+                      : editingFile.fileType === 'attendance'
+                        ? <ClipboardCheck size={16} />
+                        : <FileEdit size={16} />}
                     {editingFile.name}
                   </span>
                   <div className="file-editor-actions">
-                    {editingFile.fileType !== 'spreadsheet' && (
+                    {!['spreadsheet', 'attendance'].includes(editingFile.fileType) && (
                       <button
                         className="icon-btn"
                         onClick={() => setFullscreen(!fullscreen)}
@@ -926,7 +1024,7 @@ export default function FileManager() {
                         {fullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
                       </button>
                     )}
-                    {!!canUploadFiles && (
+                    {!!canUploadFiles && editingFile.fileType !== 'attendance' && (
                       <>
                         <span className="autosave-status">
                           <span className={`autosave-dot-inline ${fileSaving ? 'autosave-dot-inline--saving' : ''}`} />
@@ -942,26 +1040,40 @@ export default function FileManager() {
                         </button>
                       </>
                     )}
-                    {!canUploadFiles && <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>צפייה בלבד</span>}
-                    <button
-                      className="icon-btn"
-                      onClick={() => exportFile(editingFile)}
-                      title={editingFile.fileType === 'document' ? 'הדפסה / ייצוא PDF' : 'ייצוא CSV'}
-                    >
-                      {editingFile.fileType === 'document' ? <Printer size={15} /> : <FileDown size={15} />}
-                    </button>
-                    <button
-                      className={`icon-btn ${showHistory ? 'icon-btn--active' : ''}`}
-                      onClick={toggleHistory}
-                      title="היסטוריית עריכה"
-                    >
-                      <History size={15} />
-                    </button>
+                    {!canUploadFiles && editingFile.fileType !== 'attendance' && <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>צפייה בלבד</span>}
+                    {editingFile.fileType !== 'attendance' && (
+                      <>
+                        <button
+                          className="icon-btn"
+                          onClick={() => exportFile(editingFile)}
+                          title={editingFile.fileType === 'document' ? 'הדפסה / ייצוא PDF' : 'ייצוא CSV'}
+                        >
+                          {editingFile.fileType === 'document' ? <Printer size={15} /> : <FileDown size={15} />}
+                        </button>
+                        <button
+                          className={`icon-btn ${showHistory ? 'icon-btn--active' : ''}`}
+                          onClick={toggleHistory}
+                          title="היסטוריית עריכה"
+                        >
+                          <History size={15} />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
                 <div className="file-editor-body-wrap">
                 <div className="file-editor-body">
-                  {editingFile.fileType === 'spreadsheet' ? (
+                  {editingFile.fileType === 'attendance' ? (
+                    <AttendanceSheetEditor
+                      key={editingFile.id}
+                      file={editingFile}
+                      schoolId={schoolId}
+                      actor={{ uid, fullName: userData?.fullName || '' }}
+                      permissions={permissions}
+                      canManage={canManage}
+                      classItem={attendanceClassForFile(editingFile)}
+                    />
+                  ) : editingFile.fileType === 'spreadsheet' ? (
                     <SpreadsheetEditor
                       key={editingFile.id}
                       data={typeof editingFile.content === 'string' ? JSON.parse(editingFile.content) : editingFile.content}
@@ -987,7 +1099,7 @@ export default function FileManager() {
                   )}
                 </div>
                 {/* Edit History Panel */}
-                {showHistory && (
+                {showHistory && editingFile.fileType !== 'attendance' && (
                   <div className="file-history-panel">
                     <div className="file-history-header">
                       <History size={14} />
@@ -1045,7 +1157,7 @@ export default function FileManager() {
                     <h3>{folders.find(f => f.id === selectedFolder)?.name || 'תיקייה'}</h3>
                   </div>
                   <div className="viewer-header-actions">
-                    {userCanCreateFiles() && (
+                    {(userCanCreateFiles() || canCreateAttendance) && (
                       <div className="create-file-wrap">
                         <button
                           className="btn btn-primary btn-sm"
@@ -1056,14 +1168,24 @@ export default function FileManager() {
                         </button>
                         {showCreateMenu && (
                           <div className="create-file-menu">
-                            <button onClick={() => { setNewFileType('spreadsheet'); setShowCreateMenu(false); }}>
-                              <Table2 size={16} />
-                              גיליון אלקטרוני
-                            </button>
-                            <button onClick={() => { setNewFileType('document'); setShowCreateMenu(false); }}>
-                              <FileEdit size={16} />
-                              מסמך טקסט
-                            </button>
+                            {userCanCreateFiles() && (
+                              <>
+                                <button onClick={() => { setNewFileType('spreadsheet'); setShowCreateMenu(false); }}>
+                                  <Table2 size={16} />
+                                  גיליון אלקטרוני
+                                </button>
+                                <button onClick={() => { setNewFileType('document'); setShowCreateMenu(false); }}>
+                                  <FileEdit size={16} />
+                                  מסמך טקסט
+                                </button>
+                              </>
+                            )}
+                            {canCreateAttendance && (
+                              <button onClick={() => openAttendanceWizard(selectedFolder)}>
+                                <ClipboardCheck size={16} />
+                                גיליון נוכחות
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>
@@ -1107,7 +1229,7 @@ export default function FileManager() {
                         <div className="file-card-info">
                           <div className="file-card-name">{f.name}</div>
                           <div className="file-card-meta">
-                            {f.fileType === 'spreadsheet' ? 'גיליון' : f.fileType === 'document' ? 'מסמך' : formatSize(f.size)}
+                            {f.fileType === 'spreadsheet' ? 'גיליון' : f.fileType === 'document' ? 'מסמך' : f.fileType === 'attendance' ? 'גיליון נוכחות' : formatSize(f.size)}
                             {' · '}{f.uploadedBy}
                           </div>
                         </div>
@@ -1124,9 +1246,9 @@ export default function FileManager() {
                               <Download size={13} />
                             </a>
                           )}
-                          {canManage && (
-                            <button className="icon-btn icon-btn--danger" onClick={() => deleteFile(f)} title="מחיקה">
-                              <Trash2 size={13} />
+                          {(canManage || (f.fileType === 'attendance' && permissions.attendance_edit)) && (
+                            <button className="icon-btn icon-btn--danger" onClick={() => deleteFile(f)} title={f.fileType === 'attendance' ? 'העברה לארכיון' : 'מחיקה'}>
+                              {f.fileType === 'attendance' ? <Archive size={13} /> : <Trash2 size={13} />}
                             </button>
                           )}
                         </div>
@@ -1137,7 +1259,7 @@ export default function FileManager() {
                     <div className="empty-state">
                       <FileText size={32} className="empty-icon" />
                       <p>אין קבצים בתיקייה זו</p>
-                      {userCanCreateFiles() && <p className="empty-hint">לחצו "קובץ חדש" ליצירת גיליון או מסמך</p>}
+                      {(userCanCreateFiles() || canCreateAttendance) && <p className="empty-hint">לחצו "קובץ חדש" ליצירת מסמך, גיליון או גיליון נוכחות</p>}
                     </div>
                   )}
                 </div>
@@ -1207,14 +1329,14 @@ export default function FileManager() {
             </button>
           )}
           <div className="context-menu-divider" />
-          {canManage && (
+          {(canManage || (contextMenu.type === 'file' && contextMenu.item.fileType === 'attendance' && permissions.attendance_edit)) && (
             <button className="context-menu-item context-menu-item--danger" onClick={() => {
               if (contextMenu.type === 'folder') deleteFolder(contextMenu.item.id);
               else deleteFile(contextMenu.item);
               setContextMenu(null);
             }}>
-              <Trash2 size={14} />
-              מחיקה
+              {contextMenu.type === 'file' && contextMenu.item.fileType === 'attendance' ? <Archive size={14} /> : <Trash2 size={14} />}
+              {contextMenu.type === 'file' && contextMenu.item.fileType === 'attendance' ? 'העברה לארכיון' : 'מחיקה'}
             </button>
           )}
         </div>
@@ -1227,24 +1349,34 @@ export default function FileManager() {
           style={{ top: viewerContextMenu.position.y, left: viewerContextMenu.position.x }}
           onClick={e => e.stopPropagation()}
         >
-          {userCanCreateFiles() && (
+          {(userCanCreateFiles() || canCreateAttendance) && (
             <>
-              <button className="context-menu-item" onClick={() => {
-                setNewFileType('spreadsheet');
-                setCreateInFolder(selectedFolder);
-                setViewerContextMenu(null);
-              }}>
-                <Table2 size={14} />
-                גיליון חדש
-              </button>
-              <button className="context-menu-item" onClick={() => {
-                setNewFileType('document');
-                setCreateInFolder(selectedFolder);
-                setViewerContextMenu(null);
-              }}>
-                <FileEdit size={14} />
-                מסמך חדש
-              </button>
+              {userCanCreateFiles() && (
+                <>
+                  <button className="context-menu-item" onClick={() => {
+                    setNewFileType('spreadsheet');
+                    setCreateInFolder(selectedFolder);
+                    setViewerContextMenu(null);
+                  }}>
+                    <Table2 size={14} />
+                    גיליון חדש
+                  </button>
+                  <button className="context-menu-item" onClick={() => {
+                    setNewFileType('document');
+                    setCreateInFolder(selectedFolder);
+                    setViewerContextMenu(null);
+                  }}>
+                    <FileEdit size={14} />
+                    מסמך חדש
+                  </button>
+                </>
+              )}
+              {canCreateAttendance && (
+                <button className="context-menu-item" onClick={() => openAttendanceWizard(selectedFolder)}>
+                  <ClipboardCheck size={14} />
+                  גיליון נוכחות חדש
+                </button>
+              )}
               <div className="context-menu-divider" />
             </>
           )}
@@ -1280,6 +1412,31 @@ export default function FileManager() {
             </>
           )}
         </div>
+      )}
+
+      {showAttendanceWizard && (
+        <AttendanceSheetWizard
+          schoolId={schoolId}
+          actor={{ uid, fullName: userData?.fullName || '' }}
+          folders={folders}
+          initialFolderId={createInFolder || selectedFolder || ''}
+          initialClassId={attendanceInitialClassId}
+          canViewAllClasses={attendanceSchoolWide}
+          onClose={() => {
+            setShowAttendanceWizard(false);
+            setAttendanceInitialClassId('');
+          }}
+          onCreated={created => {
+            setShowAttendanceWizard(false);
+            setAttendanceInitialClassId('');
+            setAttendanceMessage(`${created.length} גיליונות נוכחות נוצרו בהצלחה.`);
+            window.setTimeout(() => setAttendanceMessage(''), 3500);
+            if (created[0]) {
+              setSelectedFolder(created[0].folderId);
+              setEditingFile(created[0]);
+            }
+          }}
+        />
       )}
 
       {/* Permissions Menu */}
