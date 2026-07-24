@@ -52,6 +52,12 @@ export const upsertCvTemplate = callable('upsertCvTemplate');
 export const cvTemplateAction = callable('cvTemplateAction');
 export const previewBulkCvDrafts = callable('previewBulkCvDrafts');
 export const bulkCreateCvDrafts = callable('bulkCreateCvDrafts');
+export const bulkImportStudents = callable('bulkImportStudents');
+export const upsertResourceAcl = callable('upsertResourceAcl');
+export const removeResourceAcl = callable('removeResourceAcl');
+export const setPermissionDelegation = callable('setPermissionDelegation');
+export const startPermissionPreview = callable('startPermissionPreview');
+export const evaluatePreviewAccess = callable('evaluatePreviewAccess');
 
 export function callableReason(error) {
   return error?.details?.reason || error?.customData?.details?.reason || String(error?.code || '').replace(/^functions\//, '') || 'internal-error';

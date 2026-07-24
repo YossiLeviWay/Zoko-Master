@@ -6,6 +6,7 @@ import {
   Eye,
   Filter,
   FileStack,
+  FileSpreadsheet,
   GraduationCap,
   LayoutGrid,
   Plus,
@@ -47,6 +48,7 @@ import ClassManagement from './ClassManagement';
 import AcademicYearToolbar from './AcademicYearToolbar';
 import StudentLifecycleDialog from './StudentLifecycleDialog';
 import CvBulkDialog from './CvBulkDialog';
+import BulkStudentImportWizard from './BulkStudentImportWizard';
 import SegmentedControl from '../Common/SegmentedControl';
 import { academicYearDisplay } from '../../utils/academicYears';
 import '../Gantt/Gantt.css';
@@ -128,6 +130,7 @@ export default function Students() {
   const [transferForm, setTransferForm] = useState({ classId: '', effectiveDate: localDateKey(), reason: '' });
   const [lifecycle, setLifecycle] = useState(null);
   const [showCvBulk, setShowCvBulk] = useState(false);
+  const [showBulkImport, setShowBulkImport] = useState(false);
   const [selectedStudentIds, setSelectedStudentIds] = useState([]);
   const [search, setSearch] = useState('');
   const [filterClass, setFilterClass] = useState('');
@@ -275,6 +278,7 @@ export default function Students() {
     );
   };
   const canCreateAnyStudent = isAdmin || permissionApplies(['students_create', 'students.create']) || managedClassIds.size > 0;
+  const canBulkImport = isAdmin || permissionApplies(['students.bulkImport']);
   const canManagePrograms = isAdmin || permissionApplies(['students_manage_programs', 'students.managePrograms']);
   const canTransfer = isAdmin || permissionApplies(['students_transfer_class', 'students.transferClass']);
   const canPromote = isAdmin || permissions['students.promote'] || permissions['classes.promote'];
@@ -442,6 +446,7 @@ export default function Students() {
                   ]}
                 />
                 {activeTab === 'active' && canCreateAnyStudent && <button className="btn btn-primary" onClick={() => openAdd()}><Plus size={16} /> תלמיד חדש</button>}
+                {activeTab === 'active' && canBulkImport && <button className="btn btn-secondary" onClick={() => setShowBulkImport(true)}><FileSpreadsheet size={16} /> הוספה מאסיבית</button>}
                 {canManagePrograms && <button className="btn btn-secondary" onClick={() => setShowTrackManager(true)}><Settings size={16} /> ניהול מגמות</button>}
                 {activeTab === 'active' && canBulkCv && <button className="btn btn-secondary" onClick={() => setShowCvBulk(true)}><FileStack size={16} /> קורות חיים לכיתה</button>}
               </div>
@@ -468,6 +473,7 @@ export default function Students() {
       {lifecycle && <StudentLifecycleDialog mode={lifecycle.mode} schoolId={schoolId} actor={actor} students={lifecycle.students} enrollments={effectiveEnrollments} classes={classes} years={years} selectedYear={selectedYear} onClose={() => setLifecycle(null)} onComplete={count => { setLifecycle(null); setSelectedStudentIds([]); showSuccess(`הפעולה הושלמה עבור ${count} תלמידים.`); }} />}
       {showTrackManager && <TrackManager schoolId={schoolId} onClose={() => setShowTrackManager(false)} />}
       {showCvBulk && <CvBulkDialog schoolId={schoolId} actorUid={actor.uid} students={yearStudents} classes={activeClasses} academicYearId={selectedYearId} templateAccess={isAdmin || permissions['cvTemplates.view']} onClose={() => setShowCvBulk(false)} onComplete={(created, existing) => { setShowCvBulk(false); showSuccess(`נוצרו ${created} טיוטות${existing ? `; ${existing} כבר היו קיימות בבקשה זו` : ''}.`); }} />}
+      {showBulkImport && <BulkStudentImportWizard schoolId={schoolId} classes={activeClasses} academicYear={selectedYear} onClose={() => setShowBulkImport(false)} onComplete={response => showSuccess(`הייבוא הסתיים: ${response.totals.created} נוצרו, ${response.totals.updated} עודכנו.`)} />}
       {profileStudent && <StudentProfile student={profileStudent} tracks={tracks} schoolId={schoolId} actor={actor} classItem={classById.get(profileStudent.classId)} canEdit={hasStudentPermission('students_update', profileStudent) || hasStudentPermission('students_edit', profileStudent)} canAddNotes={isAdmin || permissionApplies(['students.addNotes', 'students_add_notes'], profileStudent.classId)} canViewNotes={isAdmin || canViewAllStudents || permissionApplies(['students.viewSensitiveNotes', 'students_view_notes', 'students.view'], profileStudent.classId)} canViewGrades={gradeAccessFor(profileStudent).view} canEditGrades={gradeAccessFor(profileStudent).edit} canManageGradebooks={gradeAccessFor(profileStudent).manage} personalFileAccess={personalFileAccessFor(profileStudent)} cvAccess={cvAccessFor(profileStudent)} onClose={() => setProfileStudent(null)} onEdit={() => { setProfileStudent(null); openEdit(profileStudent); }} />}
     </div>
   );

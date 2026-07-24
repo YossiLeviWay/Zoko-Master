@@ -61,6 +61,33 @@
   margin-top: 0.5rem;
 }
 
+/* Bulk student import */
+.bulk-import-modal { max-width: 1080px; }
+.bulk-import-progress { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 12px 24px; border-bottom: 1px solid var(--border-color, #e2e8f0); }
+.bulk-import-progress span { padding: 8px; border-radius: 8px; color: #94a3b8; text-align: center; background: #f8fafc; font-size: 12px; }
+.bulk-import-progress span.active { color: #1d4ed8; background: #eff6ff; font-weight: 700; }
+.bulk-import-step { padding: 20px 24px; max-height: 70vh; overflow: auto; }
+.bulk-source-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 18px; }
+.bulk-source-options button { min-height: 82px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid #dbe4f0; border-radius: 12px; background: #fff; color: #475569; cursor: pointer; }
+.bulk-source-options button:hover, .bulk-source-options button:focus-visible, .bulk-source-options button.active { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; outline: none; }
+.bulk-manual-table, .bulk-preview-table { overflow: auto; border: 1px solid #e2e8f0; border-radius: 10px; margin: 12px 0; }
+.bulk-manual-table table, .bulk-preview-table table { width: 100%; border-collapse: collapse; min-width: 760px; }
+.bulk-manual-table th, .bulk-manual-table td, .bulk-preview-table th, .bulk-preview-table td { padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: right; }
+.bulk-manual-table input, .bulk-manual-table select { width: 100%; min-width: 120px; }
+.bulk-preview-table tr.invalid { background: #fff1f2; color: #be123c; }
+.bulk-upload-zone { width: 100%; min-height: 160px; border: 2px dashed #93c5fd; border-radius: 14px; background: #eff6ff; color: #1d4ed8; display: flex; align-items: center; justify-content: center; gap: 12px; cursor: pointer; }
+.bulk-upload-zone:hover, .bulk-upload-zone:focus-visible { background: #dbeafe; outline: 2px solid #2563eb; outline-offset: 2px; }
+.bulk-mapping-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.bulk-validation-summary { display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 10px; margin-bottom: 16px; }
+.bulk-validation-summary.valid { color: #166534; background: #f0fdf4; }
+.bulk-validation-summary.has-errors { color: #9f1239; background: #fff1f2; }
+.bulk-result { text-align: center; display: grid; justify-items: center; gap: 16px; }
+.bulk-result > svg { color: #16a34a; }
+.bulk-result-grid { display: grid; grid-template-columns: repeat(4, minmax(100px, 1fr)); gap: 12px; width: 100%; }
+.bulk-result-grid span { border: 1px solid #dbe4f0; border-radius: 10px; padding: 14px; display: grid; gap: 4px; }
+.bulk-result-grid strong { color: #1d4ed8; font-size: 22px; }
+@media (max-width: 700px) { .bulk-source-options, .bulk-result-grid { grid-template-columns: 1fr; } .bulk-import-progress { grid-template-columns: repeat(2, 1fr); } }
+
 /* ===== Program Badges ===== */
 .student-program-badge {
   display: inline-block;

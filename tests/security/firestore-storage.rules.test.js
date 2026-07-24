@@ -478,6 +478,36 @@ test('school A user cannot read school B student data', async () => {
   await assertFails(getDoc(doc(db, `schools/${SCHOOL_B}/students/student_1`)));
 });
 
+test('student identity is readable only with the sensitive-fields capability and is server-managed', async () => {
+  await seedFirestore({
+    'users/viewer_a': user({ schoolId: SCHOOL_A, permissions: { students_view: true } }),
+    'users/sensitive_a': user({
+      schoolId: SCHOOL_A,
+      permissions: { students_view: true, 'students.viewSensitiveFields': true },
+    }),
+    'users/sensitive_b': user({
+      schoolId: SCHOOL_B,
+      permissions: { students_view: true, 'students.viewSensitiveFields': true },
+    }),
+    [`schools/${SCHOOL_A}/students/student_a`]: studentRecord(),
+    [`schools/${SCHOOL_A}/students/student_a/sensitive/identity`]: {
+      schoolId: SCHOOL_A,
+      studentId: 'student_a',
+      idNumber: 'protected-value',
+      normalizedIdNumber: 'PROTECTEDVALUE',
+      createdBy: 'server',
+      updatedBy: 'server',
+    },
+  });
+  const identityPath = `schools/${SCHOOL_A}/students/student_a/sensitive/identity`;
+  await assertFails(getDoc(doc(context('viewer_a').firestore(), identityPath)));
+  await assertSucceeds(getDoc(doc(context('sensitive_a').firestore(), identityPath)));
+  await assertFails(getDoc(doc(context('sensitive_b').firestore(), identityPath)));
+  await assertFails(updateDoc(doc(context('sensitive_a').firestore(), identityPath), {
+    idNumber: 'client-change',
+  }));
+});
+
 test('global admin needs the dedicated claim to read student data', async () => {
   await seedFirestore({
     'users/global_admin': user({ schoolId: SCHOOL_A, role: 'global_admin' }),
@@ -1218,6 +1248,56 @@ test('audit logs are immutable to clients', async () => {
   await assertFails(setDoc(doc(db, 'auditLogs/log_2'), { schoolId: SCHOOL_A }));
 });
 
+test('resource ACL inherits folder grants, applies explicit deny and stays server-managed', async () => {
+  const level = (overrides = {}) => ({
+    allowedUsers: [], allowedTeams: [], allowedRoles: [], allowedClasses: [],
+    deniedUsers: [], deniedTeams: [], deniedRoles: [], deniedClasses: [],
+    ...overrides,
+  });
+  await seedFirestore({
+    'users/allowed_a': user({ schoolId: SCHOOL_A, teamIds: ['team_a'] }),
+    'users/denied_a': user({ schoolId: SCHOOL_A, teamIds: ['team_a'] }),
+    [`schools/${SCHOOL_A}/folders/folder_acl`]: { schoolId: SCHOOL_A, name: 'Shared', visibility: 'all' },
+    [`schools/${SCHOOL_A}/files/file_acl`]: { schoolId: SCHOOL_A, name: 'Child', fileType: 'document', folderId: 'folder_acl' },
+    [`schools/${SCHOOL_A}/resourceAclPolicies/folder_folder_acl`]: {
+      schoolId: SCHOOL_A, resourceType: 'folder', resourceId: 'folder_acl', configured: true,
+      view: level({ allowedTeams: ['team_a'], deniedUsers: ['denied_a'] }),
+      comment: level(), edit: level(), manage: level(),
+    },
+  });
+  await assertSucceeds(getDoc(doc(context('allowed_a').firestore(), `schools/${SCHOOL_A}/files/file_acl`)));
+  await assertFails(getDoc(doc(context('denied_a').firestore(), `schools/${SCHOOL_A}/files/file_acl`)));
+  await assertFails(setDoc(doc(context('allowed_a').firestore(), `schools/${SCHOOL_A}/resourceAcls/client_acl`), {
+    schoolId: SCHOOL_A, resourceType: 'file', resourceId: 'file_acl', principalType: 'user', principalId: 'allowed_a',
+  }));
+});
+
+test('resource ACL role identifiers never leak across a multi-school membership', async () => {
+  const level = (overrides = {}) => ({
+    allowedUsers: [], allowedTeams: [], allowedRoles: [], allowedClasses: [],
+    deniedUsers: [], deniedTeams: [], deniedRoles: [], deniedClasses: [], ...overrides,
+  });
+  await seedFirestore({
+    'users/multi_school_user': {
+      ...user({ schoolId: SCHOOL_A }),
+      schoolIds: [SCHOOL_A, SCHOOL_B],
+      customRoleIds: ['same_role_id'],
+      customRoleAssignments: { [SCHOOL_A]: ['same_role_id'] },
+    },
+    [`schools/${SCHOOL_B}/tasks/task_acl_collision`]: {
+      schoolId: SCHOOL_B, title: 'Private B task', scope: 'team', assigneeType: 'team', assigneeTeamId: 'other_team',
+    },
+    [`schools/${SCHOOL_B}/resourceAclPolicies/task_task_acl_collision`]: {
+      schoolId: SCHOOL_B, resourceType: 'task', resourceId: 'task_acl_collision', configured: true,
+      view: level({ allowedRoles: ['same_role_id'] }), comment: level(), edit: level(), manage: level(),
+    },
+  });
+  await assertFails(getDoc(doc(
+    context('multi_school_user').firestore(),
+    `schools/${SCHOOL_B}/tasks/task_acl_collision`,
+  )));
+});
+
 test('storage files are isolated by school and validate type', async () => {
   await seedFirestore({
     'users/uploader_a': user({ schoolId: SCHOOL_A, permissions: { files_upload: true } }),
@@ -1238,6 +1318,53 @@ test('storage files are isolated by school and validate type', async () => {
     { contentType: 'text/html' },
   ));
   assert.ok(true);
+});
+
+test('storage file access follows the same resource ACL and explicit deny', async () => {
+  const level = (overrides = {}) => ({
+    allowedUsers: [], allowedTeams: [], allowedRoles: [], allowedClasses: [],
+    deniedUsers: [], deniedTeams: [], deniedRoles: [], deniedClasses: [], ...overrides,
+  });
+  await seedFirestore({
+    'users/principal_a': user({ schoolId: SCHOOL_A, role: 'principal' }),
+    'users/storage_allowed': user({ schoolId: SCHOOL_A, teamIds: ['team_a'] }),
+    'users/storage_denied': user({ schoolId: SCHOOL_A, teamIds: ['team_a'] }),
+    [`schools/${SCHOOL_A}/files/file_acl_storage`]: { schoolId: SCHOOL_A, folderId: '', name: 'ACL PDF' },
+    [`schools/${SCHOOL_A}/resourceAclPolicies/file_file_acl_storage`]: {
+      schoolId: SCHOOL_A, resourceType: 'file', resourceId: 'file_acl_storage', configured: true,
+      view: level({ allowedTeams: ['team_a'], deniedUsers: ['storage_denied'] }),
+      comment: level(), edit: level({ allowedUsers: ['principal_a'] }), manage: level({ allowedUsers: ['principal_a'] }),
+    },
+  });
+  const path = `schools/${SCHOOL_A}/files/file_acl_storage/document.pdf`;
+  await assertSucceeds(uploadBytes(ref(context('principal_a').storage(), path), new Uint8Array([37, 80, 68, 70]), { contentType: 'application/pdf' }));
+  await assertSucceeds(getBytes(ref(context('storage_allowed').storage(), path)));
+  await assertFails(getBytes(ref(context('storage_denied').storage(), path)));
+});
+
+test('storage ACL role identifiers are scoped to the selected school', async () => {
+  const level = (overrides = {}) => ({
+    allowedUsers: [], allowedTeams: [], allowedRoles: [], allowedClasses: [],
+    deniedUsers: [], deniedTeams: [], deniedRoles: [], deniedClasses: [], ...overrides,
+  });
+  await seedFirestore({
+    'users/principal_b': user({ schoolId: SCHOOL_B, role: 'principal' }),
+    'users/multi_school_user': {
+      ...user({ schoolId: SCHOOL_A }),
+      schoolIds: [SCHOOL_A, SCHOOL_B],
+      customRoleIds: ['same_role_id'],
+      customRoleAssignments: { [SCHOOL_A]: ['same_role_id'] },
+    },
+    [`schools/${SCHOOL_B}/files/file_acl_collision`]: { schoolId: SCHOOL_B, folderId: '', name: 'Private B file' },
+    [`schools/${SCHOOL_B}/resourceAclPolicies/file_file_acl_collision`]: {
+      schoolId: SCHOOL_B, resourceType: 'file', resourceId: 'file_acl_collision', configured: true,
+      view: level({ allowedRoles: ['same_role_id'] }), comment: level(),
+      edit: level({ allowedUsers: ['principal_b'] }), manage: level({ allowedUsers: ['principal_b'] }),
+    },
+  });
+  const path = `schools/${SCHOOL_B}/files/file_acl_collision/document.pdf`;
+  await assertSucceeds(uploadBytes(ref(context('principal_b').storage(), path), new Uint8Array([37, 80, 68, 70]), { contentType: 'application/pdf' }));
+  await assertFails(getBytes(ref(context('multi_school_user').storage(), path)));
 });
 
 test('personal-file attachments require scoped upload and view permissions', async () => {

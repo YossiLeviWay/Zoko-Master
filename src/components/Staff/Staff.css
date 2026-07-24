@@ -688,6 +688,14 @@
   font-style: italic;
 }
 
+.permission-preview-modal { max-width: 900px; }
+.permission-preview-banner { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 10px; padding: 12px 16px; color: #1e3a8a; background: #dbeafe; border-bottom: 1px solid #93c5fd; }
+.permission-preview-banner span { color: #475569; font-size: 12px; }
+.permission-preview-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; max-height: 360px; overflow: auto; }
+.permission-preview-list > div { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; padding: 10px; border: 1px solid #dbe4f0; border-radius: 9px; background: #f8fafc; direction: ltr; text-align: left; }
+.permission-preview-list small { grid-column: 1 / -1; color: #64748b; }
+@media (max-width: 700px) { .permission-preview-banner { grid-template-columns: auto 1fr; } .permission-preview-banner .btn { grid-column: 1 / -1; } }
+
 .staff-profile-activity {
   font-size: 0.82rem;
   color: #334155;
@@ -1058,6 +1066,23 @@
 .roles-manager-modal { max-width: 860px; max-height: 90vh; overflow: hidden; }
 .roles-manager-body { padding: 1rem 1.25rem; max-height: calc(90vh - 70px); overflow-y: auto; }
 .roles-manager-list { display: grid; gap: 0.7rem; margin-top: 0.85rem; }
+.roles-manager-tabs { display: flex; gap: 0.35rem; overflow-x: auto; margin-bottom: 0.9rem; padding-bottom: 0.35rem; }
+.roles-manager-tabs button { flex: 0 0 auto; padding: 0.45rem 0.7rem; border: 1px solid #dbe4f0; border-radius: 8px; color: #64748b; background: #fff; font: inherit; font-size: 0.72rem; cursor: pointer; }
+.roles-manager-tabs button:hover, .roles-manager-tabs button:focus-visible, .roles-manager-tabs button.active { color: #1d4ed8; border-color: #93c5fd; background: #eff6ff; outline: none; }
+.roles-manager-panel { min-height: 360px; }
+.permission-catalog-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 0.7rem; }
+.permission-catalog-grid article { padding: 0.7rem; border: 1px solid #e2e8f0; border-radius: 10px; background: #f8fafc; }
+.permission-catalog-grid h4 { margin: 0 0 0.5rem; }
+.permission-catalog-grid article > div { display: grid; gap: 0.15rem; padding: 0.35rem 0; border-bottom: 1px solid #e2e8f0; }
+.permission-catalog-grid code { color: #1d4ed8; direction: ltr; text-align: left; font-size: 0.68rem; }
+.permission-catalog-grid span { color: #64748b; font-size: 0.72rem; }
+.role-assignment-overview { display: grid; gap: 0.5rem; }
+.role-assignment-overview article { display: flex; align-items: center; justify-content: space-between; gap: 0.7rem; padding: 0.65rem; border: 1px solid #e2e8f0; border-radius: 9px; }
+.role-assignment-overview article div { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.role-assignment-overview article span { padding: 0.18rem 0.45rem; border-radius: 99px; color: #5b21b6; background: #ede9fe; font-size: 0.68rem; }
+.roles-info-state { display: grid; justify-items: center; gap: 0.6rem; padding: 3rem 1rem; color: #64748b; text-align: center; }
+.roles-info-state h4, .roles-info-state p { margin: 0; }
+.roles-info-state p { max-width: 580px; line-height: 1.7; }
 .role-manager-card { position: relative; padding: 0.85rem; border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; }
 .role-manager-heading { display: flex; align-items: flex-start; gap: 0.55rem; }
 .role-manager-heading > div { flex: 1; }

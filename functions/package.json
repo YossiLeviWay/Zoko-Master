@@ -14,7 +14,8 @@
     "backfill:student-enrollments": "node scripts/backfill-student-enrollments.js",
     "backfill:personal-files": "node scripts/backfill-personal-files.js",
     "bootstrap:platform-admin": "node scripts/bootstrap-platform-admin.js",
-    "backfill:school-directory": "node scripts/backfill-school-public-directory.js"
+    "backfill:school-directory": "node scripts/backfill-school-public-directory.js",
+    "migrate:legacy-roles": "node scripts/migrate-legacy-staff-roles.js"
   },
   "dependencies": {
     "firebase-admin": "^13.4.0",

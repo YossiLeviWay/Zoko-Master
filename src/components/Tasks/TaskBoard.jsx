@@ -19,6 +19,7 @@ import {
   Plus,
   RotateCcw,
   Search,
+  Shield,
   Trash2,
   User,
   Users,
@@ -52,6 +53,7 @@ import {
 import Header from '../Layout/Header';
 import SegmentedControl from '../Common/SegmentedControl';
 import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
+import PermissionsMenu from '../Shared/PermissionsMenu';
 import DocumentEditor from '../Files/DocumentEditor';
 import SpreadsheetEditor from '../Files/SpreadsheetEditor';
 import ChatPanel from './ChatPanel';
@@ -162,6 +164,7 @@ export default function TaskBoard() {
   const canAssignMandatory = permissions['tasks.assignMandatory']
     || ['principal', 'institution_manager', 'global_admin', 'platform_admin'].includes(userData?.role);
   const canManageAssignments = permissions['tasks.manageAssignments'] || canAssignMandatory;
+  const canManageTaskPermissions = permissions['tasks.managePermissions'] || canAssignMandatory;
 
   const [personalTasks, setPersonalTasks] = useState([]);
   const [organizationTasks, setOrganizationTasks] = useState([]);
@@ -187,6 +190,7 @@ export default function TaskBoard() {
   const [chatTask, setChatTask] = useState(null);
   const [previewFile, setPreviewFile] = useState(null);
   const [showPermissionsPanel, setShowPermissionsPanel] = useState(false);
+  const [permissionTask, setPermissionTask] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
@@ -773,6 +777,7 @@ export default function TaskBoard() {
           {task._source === 'personal' && <button className="icon-btn" onClick={() => { setCollaborationTask(task); setCollaborationRecipients([]); setCollaborationMessage(''); }} aria-label={`הזמנת שותפים אל ${task.title}`} title="הזמנת שותפים"><User size={15} /></button>}
           {task._source === 'personal' && canAssignTasks && <button className="icon-btn" onClick={() => { setConversionTask(task); setConversion({ scope: TASK_SCOPES.ASSIGNED, assigneeId: '', teamId: '' }); }} aria-label={`הפיכת ${task.title} למשימה ארגונית`} title="הפוך למשימה ארגונית"><Users size={15} /></button>}
           {task.attachedFileId && <button className="icon-btn" onClick={() => setPreviewFile(task)} aria-label={`פתיחת הקובץ של ${task.title}`} title="קובץ מצורף"><Paperclip size={15} /></button>}
+          {task._source === 'organization' && canManageTaskPermissions && <button className="icon-btn" onClick={event => setPermissionTask({ task, position: { x: Math.max(16, event.clientX - 360), y: Math.max(16, Math.min(window.innerHeight - 540, event.clientY + 8)) } })} aria-label={`ניהול הרשאות של ${task.title}`} title="הרשאות נקודתיות"><Shield size={15} /></button>}
           {canDeleteTask(task) && <button className="icon-btn icon-btn--danger" onClick={() => removeTask(task)} aria-label={`מחיקת ${task.title}`} title="מחיקה"><Trash2 size={15} /></button>}
         </div>
       </article>
@@ -909,6 +914,15 @@ export default function TaskBoard() {
       )}
 
       {chatTask && <ChatPanel task={chatTask} schoolId={schoolId} currentUser={userData} onClose={() => setChatTask(null)} />}
+
+      {permissionTask && <PermissionsMenu
+        resourceType="task"
+        resourceId={permissionTask.task.id}
+        resourceName={permissionTask.task.title}
+        schoolId={schoolId}
+        position={permissionTask.position}
+        onClose={() => setPermissionTask(null)}
+      />}
 
       {previewFile?.attachedFileId && (() => {
         const file = allFiles.find(item => item.id === previewFile.attachedFileId);

@@ -10,6 +10,8 @@ const permissions = z.object(permissionsShape).strict();
 const accessScope = z.discriminatedUnion('type', [
   z.object({ type: z.literal('school'), classIds: z.array(id).max(100).default([]) }).strict(),
   z.object({ type: z.literal('classes'), classIds: z.array(id).min(1).max(100) }).strict(),
+  z.object({ type: z.literal('self'), values: z.array(id).max(1).optional().default([]) }).strict(),
+  z.object({ type: z.enum(['grades', 'tracks', 'teams', 'resources']), values: z.array(id).min(1).max(100) }).strict(),
 ]);
 
 export const createStaffSchema = z.object({
@@ -152,6 +154,11 @@ const roleDetails = {
   delegatedPermissionKeys: z.array(z.enum(PERMISSION_KEYS)).max(PERMISSION_KEYS.length)
     .transform(values => [...new Set(values)]).optional().default([]),
   accessScope: accessScope.optional().default({ type: 'school', classIds: [] }),
+  icon: z.string().trim().max(40).optional().default('shield'),
+  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional().default('#2563eb'),
+  delegable: z.boolean().optional().default(true),
+  assignableBy: z.array(id).max(100).optional().default([]),
+  defaultForInvites: z.boolean().optional().default(false),
 };
 
 export const createCustomRoleSchema = z.object(roleDetails).strict();
@@ -168,6 +175,80 @@ export const assignCustomRoleSchema = z.object({
   userId: id,
   action: z.enum(['assign', 'remove']),
   confirmSensitiveChange: z.literal(true),
+}).strict();
+
+export const resourceAclSchema = z.object({
+  schoolId: id,
+  aclId: id.optional(),
+  resourceType: z.enum(['file', 'folder', 'task', 'team', 'student']),
+  resourceId: id,
+  principalType: z.enum(['user', 'team', 'role', 'class']),
+  principalId: id,
+  accessLevel: z.enum(['view', 'comment', 'edit', 'manage']).optional().default('view'),
+  explicitDeny: z.boolean().optional().default(false),
+  inherit: z.boolean().optional().default(true),
+  expiresAt: z.string().datetime().nullable().optional().default(null),
+}).strict();
+
+export const removeResourceAclSchema = z.object({ schoolId: id, aclId: id }).strict();
+
+export const permissionDelegationSchema = z.object({
+  schoolId: id,
+  delegationId: id.optional(),
+  delegateUserId: id,
+  assignableRoleIds: z.array(id).min(1).max(100),
+  maximumPermissions: z.array(z.enum(PERMISSION_KEYS)).max(PERMISSION_KEYS.length),
+  expiresAt: z.string().datetime().nullable().optional().default(null),
+  active: z.boolean().optional().default(true),
+}).strict();
+
+export const permissionPreviewSchema = z.object({
+  schoolId: id,
+  targetUserId: id,
+}).strict();
+
+export const previewAccessSchema = z.object({
+  schoolId: id,
+  sessionId: id,
+  capability: z.enum(PERMISSION_KEYS),
+  resourceType: z.enum(['file', 'folder', 'task', 'team', 'student']).optional(),
+  resourceId: id.optional(),
+  accessLevel: z.enum(['view', 'comment', 'edit', 'manage']).optional().default('view'),
+  resource: z.object({
+    classId: id.optional(), gradeId: id.optional(), trackId: id.optional(), teamId: id.optional(),
+    ownerId: id.optional(), userId: id.optional(), resourceId: id.optional(),
+    parentIds: z.array(id).max(10).optional().default([]),
+  }).strict().optional().default({ parentIds: [] }),
+}).strict().refine(value => Boolean(value.resourceType) === Boolean(value.resourceId), {
+  message: 'resourceType and resourceId must be supplied together',
+});
+
+const importStudent = z.object({
+  rowId: id,
+  firstName: z.string().trim().min(1).max(80),
+  lastName: z.string().trim().min(1).max(80),
+  idNumber: z.string().trim().min(1).max(32),
+  classId: id,
+  academicYearId: id,
+  academicYear: z.string().trim().min(1).max(30),
+  status: z.enum(['active', 'inactive', 'graduated', 'withdrawn', 'dropout']).default('active'),
+  gradeLevel: z.string().trim().max(30).optional().default(''),
+  trackIds: z.array(id).max(20).optional().default([]),
+  programTypes: z.array(z.string().trim().min(1).max(80)).max(20).optional().default([]),
+  birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).or(z.literal('')).optional().default(''),
+  phone: z.string().trim().max(32).optional().default(''),
+  email: z.string().trim().toLowerCase().email().max(254).or(z.literal('')).optional().default(''),
+  contactName: z.string().trim().max(120).optional().default(''),
+  contactPhone: z.string().trim().max(32).optional().default(''),
+  initialNote: z.string().trim().max(1000).optional().default(''),
+  teacherId: id.optional(),
+  joinedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).or(z.literal('')).optional().default(''),
+  duplicateAction: z.enum(['skip', 'update', 'review']).optional().default('review'),
+}).strict();
+
+export const bulkStudentImportSchema = z.object({
+  requestId: id,
+  students: z.array(importStudent).min(1).max(200),
 }).strict();
 
 const optionalText = max => z.string().trim().max(max).optional().default('');

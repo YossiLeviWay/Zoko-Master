@@ -13,6 +13,7 @@ import { requireActor, requireTargetInSchool, assertReferencesBelongToSchool } f
 import { writeAuditLog } from '../services/audit.js';
 import { permissionDenied, toPublicError } from '../services/errors.js';
 import { enforceRateLimit } from '../services/rateLimit.js';
+import { adminDb } from '../services/firebaseAdmin.js';
 import {
   assertRoleCanBeGranted,
   buildMaterializedRoleGrants,
@@ -21,6 +22,7 @@ import {
   refreshRoleHolders,
   requireRoleAction,
   resolveActorRoleAuthority,
+  canGrantRole,
 } from '../services/roleAuthorization.js';
 
 async function runSafely(operation, request) {
@@ -42,6 +44,15 @@ function roleFields(input, actorUid) {
     permissions,
     delegatedPermissionKeys,
     accessScope: input.accessScope || { type: 'school', classIds: [] },
+    scopes: input.accessScope || { type: 'school', classIds: [] },
+    icon: input.icon || 'shield',
+    color: input.color || '#2563eb',
+    delegable: input.delegable === true,
+    assignableBy: input.assignableBy || [],
+    defaultForInvites: input.defaultForInvites === true,
+    protected: false,
+    legacy: false,
+    version: 1,
     updatedBy: actorUid,
     updatedAt: FieldValue.serverTimestamp(),
   };
@@ -62,12 +73,16 @@ export async function createCustomRoleHandler(request) {
   await validateClassScope(input);
   await enforceRateLimit({ uid: actor.uid, action: 'roles.create', limit: 20 });
   const ref = customRoleCollection(input.schoolId).doc();
-  await ref.create({
+  const fields = {
     ...roleFields(input, actor.uid),
     status: 'active',
     createdBy: actor.uid,
     createdAt: FieldValue.serverTimestamp(),
-  });
+  };
+  const batch = adminDb.batch();
+  batch.create(ref, fields);
+  batch.create(adminDb.doc(`schools/${input.schoolId}/roleDefinitions/${ref.id}`), fields);
+  await batch.commit();
   await writeAuditLog({ actorUid: actor.uid, action: 'role.create', schoolId: input.schoolId, metadata: { roleId: ref.id } });
   return { roleId: ref.id };
 }
@@ -81,7 +96,11 @@ export async function updateCustomRoleHandler(request) {
   await validateClassScope(input);
   const role = await getRole(input.roleId, input.schoolId);
   await enforceRateLimit({ uid: actor.uid, action: 'roles.update', limit: 30 });
-  await role.ref.update(roleFields(input, actor.uid));
+  const fields = roleFields(input, actor.uid);
+  const batch = adminDb.batch();
+  batch.set(customRoleCollection(input.schoolId).doc(role.id), fields, { merge: true });
+  batch.set(adminDb.doc(`schools/${input.schoolId}/roleDefinitions/${role.id}`), fields, { merge: true });
+  await batch.commit();
   const affectedUserCount = await refreshRoleHolders(role.id, input.schoolId);
   await writeAuditLog({ actorUid: actor.uid, action: 'role.update', schoolId: input.schoolId, metadata: { roleId: role.id, affectedUserCount } });
   return { ok: true };
@@ -94,7 +113,12 @@ export async function archiveCustomRoleHandler(request) {
   requireRoleAction(authority, 'roles.archive');
   const role = await getRole(input.roleId, input.schoolId);
   await enforceRateLimit({ uid: actor.uid, action: 'roles.archive', limit: 15 });
-  await role.ref.update({ status: 'archived', updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp() });
+  if (role.data.protected === true) throw permissionDenied();
+  const archived = { status: 'archived', active: false, updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp() };
+  const batch = adminDb.batch();
+  batch.set(customRoleCollection(input.schoolId).doc(role.id), archived, { merge: true });
+  batch.set(adminDb.doc(`schools/${input.schoolId}/roleDefinitions/${role.id}`), archived, { merge: true });
+  await batch.commit();
   const affectedUserCount = await refreshRoleHolders(role.id, input.schoolId);
   await writeAuditLog({ actorUid: actor.uid, action: 'role.archive', schoolId: input.schoolId, metadata: { roleId: role.id, affectedUserCount } });
   return { ok: true };
@@ -116,10 +140,14 @@ export async function cloneCustomRoleHandler(request) {
   assertRoleCanBeGranted(authority, cloneInput);
   await validateClassScope(cloneInput);
   const ref = customRoleCollection(input.schoolId).doc();
-  await ref.create({
+  const fields = {
     ...roleFields(cloneInput, actor.uid),
     status: 'active', createdBy: actor.uid, createdAt: FieldValue.serverTimestamp(),
-  });
+  };
+  const batch = adminDb.batch();
+  batch.create(ref, fields);
+  batch.create(adminDb.doc(`schools/${input.schoolId}/roleDefinitions/${ref.id}`), fields);
+  await batch.commit();
   await writeAuditLog({ actorUid: actor.uid, action: 'role.clone', schoolId: input.schoolId, metadata: { roleId: ref.id, sourceRoleId: source.id } });
   return { roleId: ref.id };
 }
@@ -131,8 +159,10 @@ export async function assignCustomRoleHandler(request) {
   requireRoleAction(authority, 'roles.assign');
   const role = await getRole(input.roleId, input.schoolId);
   if (role.data.status === 'archived') throw permissionDenied();
-  assertRoleCanBeGranted(authority, role.data);
   const target = await requireTargetInSchool(actor, input.userId, input.schoolId);
+  if (!canGrantRole({ authority, actor, target, role: { id: role.id, ...role.data, schoolId: input.schoolId } })) {
+    throw permissionDenied();
+  }
   await enforceRateLimit({ uid: actor.uid, action: 'roles.assign', limit: 30 });
   const assignments = target.data.customRoleAssignments || {};
   const currentIds = Array.isArray(assignments[input.schoolId])
@@ -146,7 +176,8 @@ export async function assignCustomRoleHandler(request) {
   const allRoleIds = [...new Set(Object.values(nextAssignments).flatMap(value => (
     Array.isArray(value) ? value : []
   )))];
-  await target.ref.update({
+  const batch = adminDb.batch();
+  batch.update(target.ref, {
     customRoleIds: allRoleIds,
     customRoleAssignments: nextAssignments,
     rolePermissionsBySchool: {
@@ -159,6 +190,18 @@ export async function assignCustomRoleHandler(request) {
     },
     updatedAt: FieldValue.serverTimestamp(),
   });
+  const assignmentRef = adminDb.doc(`schools/${input.schoolId}/roleAssignments/${input.userId}_${input.roleId}`);
+  batch.set(assignmentRef, {
+    userId: input.userId,
+    roleId: input.roleId,
+    schoolId: input.schoolId,
+    scopeOverrides: {},
+    assignedBy: actor.uid,
+    assignedAt: FieldValue.serverTimestamp(),
+    active: input.action === 'assign',
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
+  await batch.commit();
   await writeAuditLog({
     actorUid: actor.uid,
     action: input.action === 'assign' ? 'role.assign' : 'role.remove',

@@ -24,6 +24,7 @@ import {
   manageStaffInvitation,
   reviewJoinRequest,
   setUserRole,
+  startPermissionPreview,
   updateStaffUser,
 } from '../../services/adminUserService';
 import Header from '../Layout/Header';
@@ -290,6 +291,8 @@ export default function StaffManagement() {
   const [permissionsForm, setPermissionsForm] = useState({});
   const [expandedGroups, setExpandedGroups] = useState({});
   const [showRolesManager, setShowRolesManager] = useState(false);
+  const [permissionPreview, setPermissionPreview] = useState(null);
+  const [previewLoadingId, setPreviewLoadingId] = useState('');
   const [customRoles, setCustomRoles] = useState([]);
   const [teams, setTeams] = useState([]);
   const [staffSection, setStaffSection] = useState('staff');
@@ -798,6 +801,16 @@ export default function StaffManagement() {
     navigate(`/messages?userId=${user.id}`);
   }
 
+  async function openPermissionPreview(user) {
+    setPreviewLoadingId(user.id);
+    try {
+      const preview = await startPermissionPreview({ schoolId, targetUserId: user.id });
+      setPermissionPreview(preview);
+    } catch {
+      window.alert('לא ניתן לפתוח תצוגה מקדימה. הפעולה מותרת רק למנהל מוסד או לבעל הרשאת תצוגה מתאימה.');
+    } finally { setPreviewLoadingId(''); }
+  }
+
   async function handleAttachToTask(user) {
     closeContextMenu();
     setTaskAttachUser(user);
@@ -1124,6 +1137,7 @@ export default function StaffManagement() {
                   <p className="staff-card-email">{user.email}</p>
                   {canEditUser(user) && (
                     <div className="staff-card-actions">
+                      <button className="icon-btn" disabled={previewLoadingId === user.id} onClick={() => openPermissionPreview(user)} title="תצוגה כמשתמש" aria-label={`תצוגה כמשתמש ${user.fullName}`}><Eye size={14} /></button>
                       <button className="icon-btn" onClick={() => openPermissions(user)} title="הרשאות מפורטות">
                         <Shield size={14} />
                       </button>
@@ -1187,6 +1201,7 @@ export default function StaffManagement() {
                           <div className="td-actions">
                             {canEditUser(user) ? (
                               <>
+                                <button className="icon-btn" disabled={previewLoadingId === user.id} title="תצוגה כמשתמש" aria-label={`תצוגה כמשתמש ${user.fullName}`} onClick={() => openPermissionPreview(user)}><Eye size={15} /></button>
                                 <button className="icon-btn" title="הרשאות מפורטות" onClick={() => openPermissions(user)}>
                                   <Shield size={15} />
                                 </button>
@@ -1924,6 +1939,7 @@ export default function StaffManagement() {
             onClose={() => { setShowRolesManager(false); loadCustomRoles(); }}
           />
         )}
+        {permissionPreview && <div className="modal-overlay" onClick={() => setPermissionPreview(null)}><div className="modal-content modal-content--wide permission-preview-modal" role="dialog" aria-modal="true" aria-label="תצוגה מקדימה כמשתמש" onClick={event => event.stopPropagation()}><div className="permission-preview-banner"><Eye size={18} /><strong>מצב תצוגה מקדימה: כך {permissionPreview.target.fullName || 'המשתמש'} רואה את המערכת</strong><span>קריאה בלבד · אין שינוי בזהות ההתחברות</span><button className="btn btn-secondary btn-sm" onClick={() => setPermissionPreview(null)}>יציאה מתצוגה מקדימה</button></div><div className="modal-form"><section><h4>תפקידים פעילים</h4><div className="staff-profile-tags">{permissionPreview.roles.map(role => <span key={role.id} className="staff-profile-tag staff-profile-tag--role">{role.name || role.id} · {role.scope?.type === 'classes' ? `${role.scope.classIds?.length || role.scope.values?.length || 0} כיתות` : 'כל המוסד'}</span>)}{permissionPreview.roles.length === 0 && <span className="form-hint">אין תפקידים מותאמים.</span>}</div></section><section><h4>פירוט גישה אפקטיבית</h4><div className="permission-preview-list">{permissionPreview.capabilities.map((grant, index) => <div key={`${grant.capability}_${index}`}><strong>{grant.capability}</strong><span>{grant.scope?.type || 'school'}</span><small>{grant.source}</small></div>)}</div></section><div className="students-feedback students-feedback--warning">במצב זה לא מוצגים כפתורי שמירה, מחיקה, הודעה, העלאה או יצירה. session השרת יפוג אוטומטית ב־{new Date(permissionPreview.expiresAt).toLocaleTimeString('he-IL')}.</div></div></div></div>}
       </div>
     </div>
   );

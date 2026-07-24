@@ -86,8 +86,7 @@ export function AuthProvider({ children }) {
       const memberships = new Set(normalized.schoolIds || []);
       if (normalized.schoolId) memberships.add(normalized.schoolId);
       if (!schoolId || (!isPlatformAdminClaim && !isLegacyGlobalAdmin && !memberships.has(schoolId))) {
-        const error = new Error('SCHOOL_MEMBERSHIP_REQUIRED');
-        error.code = 'school-membership-required';
+        const error = Object.assign(new Error('SCHOOL_MEMBERSHIP_REQUIRED'), { code: 'school-membership-required' });
         throw error;
       }
       await validateActiveSchool({ schoolId });

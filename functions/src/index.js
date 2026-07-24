@@ -44,3 +44,11 @@ export {
   previewBulkCvDrafts,
   bulkCreateCvDrafts,
 } from './callables/cvTemplates.js';
+export { bulkImportStudents } from './callables/studentImports.js';
+export {
+  upsertResourceAcl,
+  removeResourceAcl,
+  setPermissionDelegation,
+  startPermissionPreview,
+  evaluatePreviewAccess,
+} from './callables/permissions.js';

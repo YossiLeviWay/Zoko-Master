@@ -33,6 +33,12 @@ import {
   previewBulkCvDraftsHandler,
   upsertCvTemplateHandler,
 } from '../../functions/src/callables/cvTemplates.js';
+import { bulkImportStudentsHandler } from '../../functions/src/callables/studentImports.js';
+import {
+  evaluatePreviewAccessHandler,
+  startPermissionPreviewHandler,
+  upsertResourceAclHandler,
+} from '../../functions/src/callables/permissions.js';
 import { adminAuth, adminDb, Timestamp } from '../../functions/src/services/firebaseAdmin.js';
 import { acceptInvitationToken } from '../../functions/src/services/invitations.js';
 
@@ -537,4 +543,129 @@ test('school CV templates reject personal literals and bulk generation creates s
   assert.equal(draftA.exists && draftB.exists, true);
   assert.notEqual(draftA.data().studentId, draftB.data().studentId);
   assert.equal(draftA.data().snapshot.skills[0].level, 'הצעה לאימות');
+});
+
+test('bulk student import requires capability and is idempotent by requestId', async () => {
+  await seedUser('principal_a', SCHOOL_A, 'principal', { activeSchoolId: SCHOOL_A });
+  await seedUser('viewer_a', SCHOOL_A, 'viewer', { activeSchoolId: SCHOOL_A });
+  await adminDb.doc(`schools/${SCHOOL_A}/classes/class_a`).set({ schoolId: SCHOOL_A, name: 'כיתה א', gradeLevel: 'י' });
+  await adminDb.doc(`schools/${SCHOOL_A}/academic_years/year_a`).set({ schoolId: SCHOOL_A, label: 'תשפ״ז' });
+  const data = {
+    requestId: 'import_request_001',
+    students: [{
+      rowId: 'row_1', firstName: 'ישראל', lastName: 'ישראלי', idNumber: 'A-10001',
+      classId: 'class_a', academicYearId: 'year_a', academicYear: 'תשפ״ז', status: 'active',
+    }],
+  };
+  await assert.rejects(bulkImportStudentsHandler(actorRequest('viewer_a', data)), error => error.code === 'permission-denied');
+  const first = await bulkImportStudentsHandler(actorRequest('principal_a', data));
+  assert.equal(first.totals.created, 1);
+  assert.equal(first.errors.length, 0);
+  const second = await bulkImportStudentsHandler(actorRequest('principal_a', data));
+  assert.equal(second.idempotentReplay, true);
+  const students = await adminDb.collection(`schools/${SCHOOL_A}/students`).get();
+  assert.equal(students.size, 1);
+  const importedStudent = students.docs[0];
+  assert.equal(Object.hasOwn(importedStudent.data(), 'idNumber'), false);
+  assert.equal(Object.hasOwn(importedStudent.data(), 'normalizedIdNumber'), false);
+  const protectedIdentity = await adminDb.doc(
+    `schools/${SCHOOL_A}/students/${importedStudent.id}/sensitive/identity`,
+  ).get();
+  assert.equal(protectedIdentity.exists, true);
+  assert.equal(protectedIdentity.data().normalizedIdNumber, 'A10001');
+  const audit = await adminDb.collection('auditLogs').where('action', '==', 'students.bulkImport').get();
+  assert.equal(audit.size, 1);
+  assert.equal(JSON.stringify(audit.docs[0].data()).includes('A-10001'), false);
+});
+
+test('bulk import detects duplicate identifiers without returning the identifier', async () => {
+  await seedUser('principal_a', SCHOOL_A, 'principal', { activeSchoolId: SCHOOL_A });
+  await adminDb.doc(`schools/${SCHOOL_A}/classes/class_a`).set({ schoolId: SCHOOL_A, name: 'כיתה א' });
+  await adminDb.doc(`schools/${SCHOOL_A}/academic_years/year_a`).set({ schoolId: SCHOOL_A, label: 'תשפ״ז' });
+  const result = await bulkImportStudentsHandler(actorRequest('principal_a', {
+    requestId: 'import_request_002',
+    students: [1, 2].map(index => ({
+      rowId: `row_${index}`, firstName: 'שם', lastName: `${index}`, idNumber: 'same-001',
+      classId: 'class_a', academicYearId: 'year_a', academicYear: 'תשפ״ז', status: 'active',
+    })),
+  }));
+  assert.equal(result.totals.created, 1);
+  assert.equal(result.totals.failed, 1);
+  assert.deepEqual(result.errors, [{ rowId: 'row_2', reason: 'duplicate-in-request' }]);
+  assert.equal(JSON.stringify(result).includes('same-001'), false);
+});
+
+test('resource ACL is server-managed, audited and materializes explicit deny', async () => {
+  await seedUser('principal_a', SCHOOL_A, 'principal');
+  await seedUser('teacher_a', SCHOOL_A);
+  await adminAuth.createUser({ uid: 'teacher_a', email: 'teacher-acl@example.test' });
+  createdAuthUsers.add('teacher_a');
+  await adminDb.doc(`schools/${SCHOOL_A}/folders/folder_a`).set({ schoolId: SCHOOL_A, name: 'חסוי' });
+  const result = await upsertResourceAclHandler(actorRequest('principal_a', {
+    schoolId: SCHOOL_A, resourceType: 'folder', resourceId: 'folder_a', principalType: 'user',
+    principalId: 'teacher_a', accessLevel: 'view', explicitDeny: true, inherit: true, expiresAt: null,
+  }));
+  assert.ok(result.aclId);
+  const policy = await adminDb.doc(`schools/${SCHOOL_A}/resourceAclPolicies/folder_folder_a`).get();
+  assert.deepEqual(policy.data().view.deniedUsers, ['teacher_a']);
+  const audit = await adminDb.collection('auditLogs').where('action', '==', 'resourceAcl.deny').get();
+  assert.equal(audit.size, 1);
+});
+
+test('task ACL management requires the task-specific capability', async () => {
+  await seedUser('task_manager', SCHOOL_A, 'viewer', {
+    permissions: { 'tasks.managePermissions': true },
+  });
+  await seedUser('teacher_a', SCHOOL_A);
+  await adminAuth.createUser({ uid: 'teacher_a', email: 'teacher-task-acl@example.test' });
+  createdAuthUsers.add('teacher_a');
+  await adminDb.doc(`schools/${SCHOOL_A}/tasks/task_a`).set({
+    schoolId: SCHOOL_A,
+    title: 'Task A',
+  });
+  await adminDb.doc(`schools/${SCHOOL_A}/files/file_a`).set({
+    schoolId: SCHOOL_A,
+    name: 'File A',
+  });
+  const taskAcl = await upsertResourceAclHandler(actorRequest('task_manager', {
+    schoolId: SCHOOL_A,
+    resourceType: 'task',
+    resourceId: 'task_a',
+    principalType: 'user',
+    principalId: 'teacher_a',
+    accessLevel: 'edit',
+    explicitDeny: false,
+    inherit: false,
+    expiresAt: null,
+  }));
+  assert.ok(taskAcl.aclId);
+  await assert.rejects(upsertResourceAclHandler(actorRequest('task_manager', {
+    schoolId: SCHOOL_A,
+    resourceType: 'file',
+    resourceId: 'file_a',
+    principalType: 'user',
+    principalId: 'teacher_a',
+    accessLevel: 'view',
+    explicitDeny: false,
+    inherit: true,
+    expiresAt: null,
+  })), error => error.code === 'permission-denied');
+});
+
+test('permission preview is short-lived, read-only and computed for the target', async () => {
+  await seedUser('principal_a', SCHOOL_A, 'principal');
+  await seedUser('teacher_a', SCHOOL_A, 'viewer', { permissions: { 'students.view': true } });
+  await adminAuth.createUser({ uid: 'teacher_a', email: 'teacher-preview@example.test' });
+  createdAuthUsers.add('teacher_a');
+  const preview = await startPermissionPreviewHandler(actorRequest('principal_a', {
+    schoolId: SCHOOL_A, targetUserId: 'teacher_a',
+  }));
+  assert.equal(preview.readOnly, true);
+  assert.equal(preview.capabilities.some(item => item.capability === 'students.view'), true);
+  const decision = await evaluatePreviewAccessHandler(actorRequest('principal_a', {
+    schoolId: SCHOOL_A, sessionId: preview.sessionId, capability: 'students.view', accessLevel: 'view', resource: {},
+  }));
+  assert.equal(decision.allowed, true);
+  const session = await adminDb.doc(`schools/${SCHOOL_A}/permissionPreviewSessions/${preview.sessionId}`).get();
+  assert.equal(session.data().readOnly, true);
 });

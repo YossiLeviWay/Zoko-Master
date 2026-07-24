@@ -50,6 +50,8 @@ service cloud.firestore {
       return isSchoolMember(schoolId) && (
         currentUser().role in ['principal', 'institution_manager']
         || (
+          'rolesBySchool' in currentUser()
+          &&
           currentUser().rolesBySchool is map
           && schoolId in currentUser().rolesBySchool
           && currentUser().rolesBySchool[schoolId] in ['principal', 'institution_manager']
@@ -79,6 +81,59 @@ service cloud.firestore {
           && permission in currentUser().permissions
           && currentUser().permissions[permission] == true
         );
+    }
+
+    function resourceAclPolicy(schoolId, resourceType, resourceId) {
+      return get(/databases/$(database)/documents/schools/$(schoolId)/resourceAclPolicies/$(resourceType + '_' + resourceId)).data;
+    }
+
+    function hasResourceAclPolicy(schoolId, resourceType, resourceId) {
+      return exists(/databases/$(database)/documents/schools/$(schoolId)/resourceAclPolicies/$(resourceType + '_' + resourceId))
+        && resourceAclPolicy(schoolId, resourceType, resourceId).configured == true;
+    }
+
+    function legacyIdsAllowedForSchool(schoolId) {
+      return currentUser().schoolId == schoolId
+        && currentUser().get('schoolIds', []).size() <= 1;
+    }
+
+    function currentUserRoleIds(schoolId) {
+      let legacyIds = legacyIdsAllowedForSchool(schoolId) ? currentUser().get('customRoleIds', []) : [];
+      return currentUser().get('customRoleAssignments', {}).get(schoolId, legacyIds);
+    }
+
+    function aclPrincipalMatches(schoolId, levelData, prefix) {
+      let legacyTeams = legacyIdsAllowedForSchool(schoolId) ? currentUser().get('teamIds', []) : [];
+      let legacyClasses = legacyIdsAllowedForSchool(schoolId) ? currentUser().get('classIds', []) : [];
+      let teamIds = currentUser().get('teamIdsBySchool', {}).get(schoolId, legacyTeams);
+      let classIds = currentUser().get('classIdsBySchool', {}).get(schoolId, legacyClasses);
+      return request.auth.uid in levelData[prefix + 'Users']
+        || levelData[prefix + 'Teams'].hasAny(teamIds)
+        || levelData[prefix + 'Roles'].hasAny(currentUserRoleIds(schoolId))
+        || levelData[prefix + 'Classes'].hasAny(classIds);
+    }
+
+    function directResourceAclAllows(schoolId, resourceType, resourceId, accessLevel) {
+      let levelData = resourceAclPolicy(schoolId, resourceType, resourceId)[accessLevel];
+      return isSchoolPrincipal(schoolId)
+        || (!aclPrincipalMatches(schoolId, levelData, 'denied') && aclPrincipalMatches(schoolId, levelData, 'allowed'));
+    }
+
+    function resourceAclAllows(schoolId, resourceType, resourceId, accessLevel, parentId) {
+      return isSchoolPrincipal(schoolId) || (
+        hasResourceAclPolicy(schoolId, resourceType, resourceId)
+          ? directResourceAclAllows(schoolId, resourceType, resourceId, accessLevel)
+          : (
+            parentId is string
+            && hasResourceAclPolicy(schoolId, 'folder', parentId)
+            && directResourceAclAllows(schoolId, 'folder', parentId, accessLevel)
+          )
+      );
+    }
+
+    function resourceAclConfigured(schoolId, resourceType, resourceId, parentId) {
+      return hasResourceAclPolicy(schoolId, resourceType, resourceId)
+        || (parentId is string && hasResourceAclPolicy(schoolId, 'folder', parentId));
     }
 
     function hasStudentDataAccess(schoolId) {
@@ -1479,6 +1534,13 @@ service cloud.firestore {
         || classRolePermission(schoolId, 'students.addNotes', studentData.classId);
     }
 
+    function canViewStudentSensitiveFields(schoolId, studentData) {
+      return isSchoolPrincipal(schoolId)
+        || studentPermission('students.viewSensitiveFields')
+        || rolePermission(schoolId, 'students.viewSensitiveFields')
+        || classRolePermission(schoolId, 'students.viewSensitiveFields', studentData.classId);
+    }
+
     match /users/{userId} {
       allow read: if signedIn() && (
         request.auth.uid == userId
@@ -1531,17 +1593,23 @@ service cloud.firestore {
       }
 
       match /tasks/{taskId} {
-        allow read: if taskVisibleToCurrentUser(schoolId, resource.data);
+        allow read: if resourceAclConfigured(schoolId, 'task', taskId, '')
+          ? resourceAclAllows(schoolId, 'task', taskId, 'view', '')
+          : taskVisibleToCurrentUser(schoolId, resource.data);
         allow create: if validOrganizationTaskCreate(schoolId, request.resource.data);
-        allow update: if safeOrganizationTaskUpdate(schoolId);
-        allow delete: if isOrganizationTask(resource.data)
-          && hasPermission(schoolId, 'tasks_edit')
-          && (
-            !('mandatory' in resource.data)
-            || resource.data.mandatory == false
-            || resource.data.createdBy == request.auth.uid
-            || hasPermission(schoolId, 'tasks.manageAssignments')
-          );
+        allow update: if resourceAclConfigured(schoolId, 'task', taskId, '')
+          ? resourceAclAllows(schoolId, 'task', taskId, 'edit', '')
+          : safeOrganizationTaskUpdate(schoolId);
+        allow delete: if resourceAclConfigured(schoolId, 'task', taskId, '')
+          ? resourceAclAllows(schoolId, 'task', taskId, 'manage', '')
+          : isOrganizationTask(resource.data)
+            && hasPermission(schoolId, 'tasks_edit')
+            && (
+              !('mandatory' in resource.data)
+              || resource.data.mandatory == false
+              || resource.data.createdBy == request.auth.uid
+              || hasPermission(schoolId, 'tasks.manageAssignments')
+            );
 
         match /participants/{userId} {
           allow read: if taskVisibleToCurrentUser(
@@ -1660,6 +1728,19 @@ service cloud.firestore {
             && request.resource.data.visibility in ['class_staff', 'school_admin'];
           allow update, delete: if false;
         }
+
+        match /sensitive/{sensitiveId} {
+          allow read: if sensitiveId == 'identity'
+            && canViewStudent(
+              schoolId,
+              get(/databases/$(database)/documents/schools/$(schoolId)/students/$(studentId)).data
+            )
+            && canViewStudentSensitiveFields(
+              schoolId,
+              get(/databases/$(database)/documents/schools/$(schoolId)/students/$(studentId)).data
+            );
+          allow create, update, delete: if false;
+        }
       }
 
       match /personalFiles/{studentId} {
@@ -1728,7 +1809,14 @@ service cloud.firestore {
       }
 
       match /files/{fileId} {
-        allow read: if canViewSpecialFile(schoolId, resource.data);
+        allow read: if isSchoolMember(schoolId) && (
+          hasResourceAclPolicy(schoolId, 'file', fileId)
+            ? directResourceAclAllows(schoolId, 'file', fileId, 'view')
+            : resource.data.get('folderId', '') is string
+                && hasResourceAclPolicy(schoolId, 'folder', resource.data.get('folderId', ''))
+              ? directResourceAclAllows(schoolId, 'folder', resource.data.get('folderId', ''), 'view')
+              : canViewSpecialFile(schoolId, resource.data)
+        );
         allow create: if (
             isAttendanceFile(request.resource.data)
             && validAttendanceFileCreate(schoolId, request.resource.data)
@@ -1738,7 +1826,7 @@ service cloud.firestore {
           ) || (
             !isAttendanceFile(request.resource.data)
             && !isGradebookFile(request.resource.data)
-            && hasPermission(schoolId, 'files_upload')
+            && (hasPermission(schoolId, 'files_upload') || hasPermission(schoolId, 'files.create'))
           );
         allow update: if (
             isAttendanceFile(resource.data)
@@ -1749,11 +1837,15 @@ service cloud.firestore {
           ) || (
             !isAttendanceFile(resource.data)
             && !isGradebookFile(resource.data)
-            && hasPermission(schoolId, 'files_upload')
+            && (
+              hasPermission(schoolId, 'files_upload')
+              || hasPermission(schoolId, 'files.edit')
+              || resourceAclAllows(schoolId, 'file', fileId, 'edit', resource.data.get('folderId', ''))
+            )
           );
         allow delete: if !isAttendanceFile(resource.data)
           && !isGradebookFile(resource.data)
-          && hasPermission(schoolId, 'files_delete');
+          && (hasPermission(schoolId, 'files_delete') || hasPermission(schoolId, 'files.delete'));
 
         match /attendanceLegend/{itemId} {
           allow read: if canViewAttendance(schoolId, nestedAttendanceFileData(schoolId, fileId));
@@ -1844,7 +1936,11 @@ service cloud.firestore {
       }
 
       match /folders/{folderId} {
-        allow read: if canViewClassFolder(schoolId, resource.data);
+        allow read: if isSchoolMember(schoolId) && (
+          hasResourceAclPolicy(schoolId, 'folder', folderId)
+            ? directResourceAclAllows(schoolId, 'folder', folderId, 'view')
+            : canViewClassFolder(schoolId, resource.data)
+        );
         allow create: if validClassFolderCreate(schoolId, request.resource.data)
           || (
             request.resource.data.visibility != 'class_restricted'
@@ -1896,7 +1992,51 @@ service cloud.firestore {
       match /roles/{roleId} {
         allow read: if canManageSchoolUsers(schoolId)
           || rolePermission(schoolId, 'roles.view')
-          || (currentUser().customRoleIds is list && roleId in currentUser().customRoleIds);
+          || roleId in currentUserRoleIds(schoolId);
+        allow create, update, delete: if false;
+      }
+
+      match /roleDefinitions/{roleId} {
+        allow read: if canManageSchoolUsers(schoolId)
+          || rolePermission(schoolId, 'roles.view')
+          || roleId in currentUserRoleIds(schoolId);
+        allow create, update, delete: if false;
+      }
+
+      match /roleAssignments/{assignmentId} {
+        allow read: if canManageSchoolUsers(schoolId) || resource.data.userId == request.auth.uid;
+        allow create, update, delete: if false;
+      }
+
+      match /permissionDelegations/{delegationId} {
+        allow read: if canManageSchoolUsers(schoolId) || resource.data.delegateUserId == request.auth.uid;
+        allow create, update, delete: if false;
+      }
+
+      match /resourceAcls/{aclId} {
+        allow read: if canManageSchoolUsers(schoolId)
+          || hasPermission(schoolId, 'files.managePermissions')
+          || hasPermission(schoolId, 'tasks.managePermissions')
+          || (resource.data.principalType == 'user' && resource.data.principalId == request.auth.uid);
+        allow create, update, delete: if false;
+      }
+
+      match /resourceAclPolicies/{policyId} {
+        allow read, create, update, delete: if false;
+      }
+
+      match /studentImportJobs/{jobId} {
+        allow read: if canManageSchoolUsers(schoolId) || resource.data.createdBy == request.auth.uid;
+        allow create, update, delete: if false;
+      }
+
+      match /permissionPreviewSessions/{sessionId} {
+        allow read: if resource.data.actorUid == request.auth.uid;
+        allow create, update, delete: if false;
+      }
+
+      match /auditLogs/{auditId} {
+        allow read: if canManageSchoolUsers(schoolId) || hasPermission(schoolId, 'institution.audit.view');
         allow create, update, delete: if false;
       }
 
@@ -2255,7 +2395,7 @@ service cloud.firestore {
         && (
           canManageSchoolUsers(schoolId)
           || rolePermission(schoolId, 'roles.view')
-          || (currentUser().customRoleIds is list && roleId in currentUser().customRoleIds)
+          || roleId in currentUserRoleIds(schoolId)
         );
     }
 
