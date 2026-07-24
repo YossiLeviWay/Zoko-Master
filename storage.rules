@@ -45,6 +45,92 @@ service firebase.storage {
         );
     }
 
+    function rolePermission(schoolId, permission) {
+      return 'rolePermissionsBySchool' in currentUser()
+        && currentUser().rolePermissionsBySchool is map
+        && schoolId in currentUser().rolePermissionsBySchool
+        && currentUser().rolePermissionsBySchool[schoolId] is map
+        && permission in currentUser().rolePermissionsBySchool[schoolId]
+        && currentUser().rolePermissionsBySchool[schoolId][permission] == true;
+    }
+
+    function classRolePermission(schoolId, permission, classId) {
+      return classId is string
+        && 'classRolePermissionsBySchool' in currentUser()
+        && currentUser().classRolePermissionsBySchool is map
+        && schoolId in currentUser().classRolePermissionsBySchool
+        && currentUser().classRolePermissionsBySchool[schoolId] is map
+        && permission in currentUser().classRolePermissionsBySchool[schoolId]
+        && currentUser().classRolePermissionsBySchool[schoolId][permission] is list
+        && classId in currentUser().classRolePermissionsBySchool[schoolId][permission];
+    }
+
+    function personalFileStudent(schoolId, studentId) {
+      let studentsCollection = 'students_' + schoolId;
+      return firestore.get(
+        /databases/(default)/documents/$(studentsCollection)/$(studentId)
+      ).data;
+    }
+
+    function directPermission(permission) {
+      return currentUser().permissions is map
+        && permission in currentUser().permissions
+        && currentUser().permissions[permission] == true;
+    }
+
+    function canViewPersonalFile(schoolId, studentId) {
+      let student = personalFileStudent(schoolId, studentId);
+      return isSchoolMember(schoolId) && (
+        isGlobalAdmin()
+        || currentUser().role == 'principal'
+        || directPermission('personalFile.view')
+        || directPermission('personalFile.manage')
+        || rolePermission(schoolId, 'personalFile.view')
+        || rolePermission(schoolId, 'personalFile.manage')
+        || classRolePermission(schoolId, 'personalFile.view', student.classId)
+        || classRolePermission(schoolId, 'personalFile.manage', student.classId)
+      );
+    }
+
+    function canUploadPersonalFile(schoolId, studentId) {
+      let student = personalFileStudent(schoolId, studentId);
+      return canViewPersonalFile(schoolId, studentId) && (
+        isGlobalAdmin()
+        || currentUser().role == 'principal'
+        || directPermission('personalFile.upload')
+        || rolePermission(schoolId, 'personalFile.upload')
+        || classRolePermission(schoolId, 'personalFile.upload', student.classId)
+      );
+    }
+
+    function canViewCv(schoolId, studentId) {
+      let student = personalFileStudent(schoolId, studentId);
+      return isSchoolMember(schoolId) && (
+        isGlobalAdmin()
+        || currentUser().role == 'principal'
+        || directPermission('cv.view')
+        || directPermission('cv.create')
+        || directPermission('cv.edit')
+        || rolePermission(schoolId, 'cv.view')
+        || rolePermission(schoolId, 'cv.create')
+        || rolePermission(schoolId, 'cv.edit')
+        || classRolePermission(schoolId, 'cv.view', student.classId)
+        || classRolePermission(schoolId, 'cv.create', student.classId)
+        || classRolePermission(schoolId, 'cv.edit', student.classId)
+      );
+    }
+
+    function canExportCv(schoolId, studentId) {
+      let student = personalFileStudent(schoolId, studentId);
+      return canViewCv(schoolId, studentId) && (
+        isGlobalAdmin()
+        || currentUser().role == 'principal'
+        || directPermission('cv.exportPdf')
+        || rolePermission(schoolId, 'cv.exportPdf')
+        || classRolePermission(schoolId, 'cv.exportPdf', student.classId)
+      );
+    }
+
     function safeGeneralUpload(filename) {
       return request.resource != null
         && request.resource.size < 25 * 1024 * 1024
@@ -84,6 +170,26 @@ service firebase.storage {
         && safeImageUpload(filename, 10 * 1024 * 1024);
       allow update: if false;
       allow delete: if isConversationParticipant(conversationId);
+    }
+
+    match /schools/{schoolId}/students/{studentId}/personal-file/{kind}/{fileId}/{filename} {
+      allow read: if canViewPersonalFile(schoolId, studentId);
+      allow create: if kind in [
+          'documents', 'credentials', 'experiences', 'skills', 'recommendations'
+        ]
+        && canUploadPersonalFile(schoolId, studentId)
+        && safeGeneralUpload(filename);
+      allow update, delete: if false;
+    }
+
+    match /schools/{schoolId}/students/{studentId}/cv/{documentId}/{versionId}/{exportId}/{filename} {
+      allow read: if canViewCv(schoolId, studentId);
+      allow create: if canExportCv(schoolId, studentId)
+        && request.resource != null
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType == 'application/pdf'
+        && filename.matches('(?i).+\\.pdf$');
+      allow update, delete: if false;
     }
 
     match /users/{userId}/avatars/{filename} {

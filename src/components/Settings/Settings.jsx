@@ -3,13 +3,19 @@ import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../firebase';
 import { doc, updateDoc } from 'firebase/firestore';
 import Header from '../Layout/Header';
-import { Save, User, Check } from 'lucide-react';
+import { Save, User, Check, Shield, LayoutTemplate } from 'lucide-react';
 import { AVATAR_OPTIONS, AVATAR_ICON_PATHS } from '../../data/avatars';
+import { usePermissions } from '../../hooks/usePermissions';
+import RolesManager from '../Staff/RolesManager';
+import CvTemplateManager from './CvTemplateManager';
 import '../Gantt/Gantt.css';
 import './Settings.css';
 
 export default function Settings() {
-  const { userData, currentUser, fetchUserData } = useAuth();
+  const { userData, currentUser, fetchUserData, selectedSchool, isPrincipal, isGlobalAdmin } = useAuth();
+  const { permissions } = usePermissions();
+  const [showRoles, setShowRoles] = useState(false);
+  const [showCvTemplates, setShowCvTemplates] = useState(false);
   const [form, setForm] = useState({
     fullName: userData?.fullName || '',
     phone: userData?.phone || '',
@@ -44,6 +50,16 @@ export default function Settings() {
   }
 
   const currentAvatarOption = AVATAR_OPTIONS.find(a => a.id === selectedAvatar);
+  const schoolId = selectedSchool || userData?.schoolId;
+  const canViewRoles = isPrincipal() || isGlobalAdmin() || permissions['roles.view'];
+  const fullAccess = isPrincipal() || isGlobalAdmin();
+  const cvTemplateAccess = {
+    view: fullAccess || permissions['cvTemplates.view'],
+    create: fullAccess || permissions['cvTemplates.create'],
+    update: fullAccess || permissions['cvTemplates.update'],
+    archive: fullAccess || permissions['cvTemplates.archive'],
+    manageSchool: fullAccess || permissions['cvTemplates.manageSchoolTemplates'],
+  };
 
   return (
     <div className="page">
@@ -171,8 +187,21 @@ export default function Settings() {
               }</span>
             </div>
           </div>
+
+          {canViewRoles && schoolId && <div className="settings-card">
+            <h3 className="settings-card-title">תפקידים והרשאות</h3>
+            <p className="settings-help">יצירת תפקידים מותאמים, היקף לפי מוסד או כיתות והאצלה מבוקרת ללא הסלמת הרשאות.</p>
+            <button className="btn btn-secondary" onClick={() => setShowRoles(true)}><Shield size={16} /> פתיחת ניהול תפקידים</button>
+          </div>}
+          {cvTemplateAccess.view && schoolId && <div className="settings-card">
+            <h3 className="settings-card-title">תבניות קורות חיים</h3>
+            <p className="settings-help">ניהול נפרד של עיצוב ותוכן, עם שדות דינמיים והגנת פרטיות לתבניות מוסדיות.</p>
+            <button className="btn btn-secondary" onClick={() => setShowCvTemplates(true)}><LayoutTemplate size={16} /> פתיחת ניהול תבניות</button>
+          </div>}
         </div>
       </div>
+      {showRoles && <RolesManager schoolId={schoolId} onClose={() => setShowRoles(false)} />}
+      {showCvTemplates && <CvTemplateManager schoolId={schoolId} actorUid={currentUser.uid} access={cvTemplateAccess} onClose={() => setShowCvTemplates(false)} />}
     </div>
   );
 }

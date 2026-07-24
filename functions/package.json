@@ -10,7 +10,9 @@
     "lint": "eslint .",
     "test": "node --test",
     "serve": "firebase emulators:start --only functions",
-    "security:remove-password-fields": "node scripts/remove-password-fields.js"
+    "security:remove-password-fields": "node scripts/remove-password-fields.js",
+    "backfill:student-enrollments": "node scripts/backfill-student-enrollments.js",
+    "backfill:personal-files": "node scripts/backfill-personal-files.js"
   },
   "dependencies": {
     "firebase-admin": "^13.4.0",

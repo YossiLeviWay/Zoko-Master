@@ -12,3 +12,31 @@ export {
 export { updateTeamMembership } from './callables/teams.js';
 export { createNotifications } from './callables/notifications.js';
 export { createSchool, updateSchool, deleteSchool } from './callables/schools.js';
+export {
+  createCustomRole,
+  updateCustomRole,
+  archiveCustomRole,
+  cloneCustomRole,
+  assignCustomRole,
+} from './callables/roles.js';
+export {
+  upsertPersonalFileItem,
+  archivePersonalFileItem,
+  recordPersonalFileAccess,
+  upsertSkillCatalogItem,
+} from './callables/personalFiles.js';
+export {
+  createCvDocument,
+  saveCvDraft,
+  duplicateCvDocument,
+  finalizeCvDocument,
+  archiveCvDocument,
+  registerCvPdf,
+  recordCvAccess,
+} from './callables/cvDocuments.js';
+export {
+  upsertCvTemplate,
+  cvTemplateAction,
+  previewBulkCvDrafts,
+  bulkCreateCvDrafts,
+} from './callables/cvTemplates.js';

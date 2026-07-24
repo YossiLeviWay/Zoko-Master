@@ -3,7 +3,7 @@ name: Security CI
 on:
   pull_request:
   push:
-    branches: [security-hardening]
+    branches: [development, security-hardening]
 
 permissions:
   contents: read
@@ -32,6 +32,8 @@ jobs:
       - run: npm --prefix functions ci
       - run: npm run lint
       - run: npm --prefix functions run lint
+      - run: npm --prefix functions test
+      - run: npm run test:pdf
       - name: Build client with isolated demo configuration
         run: npm run build
         env:

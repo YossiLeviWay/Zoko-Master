@@ -4,7 +4,10 @@ import {
   createStaffSchema,
   deleteSchoolSchema,
   notificationSchema,
+  createCustomRoleSchema,
   setRoleSchema,
+  upsertPersonalFileItemSchema,
+  createCvDocumentSchema,
 } from '../src/validation/schemas.js';
 
 test('regular staff creation cannot request global_admin', () => {
@@ -49,4 +52,52 @@ test('notifications are bounded and links are local routes', () => {
     link: '/notifications',
   });
   assert.deepEqual(parsed.userIds, ['user_a']);
+});
+
+test('custom role validation rejects unknown permissions and empty class scope', () => {
+  assert.throws(() => createCustomRoleSchema.parse({
+    schoolId: 'school_a',
+    name: 'Unsafe role',
+    permissions: { 'unknown.permission': true },
+    accessScope: { type: 'school', classIds: [] },
+  }));
+  assert.throws(() => createCustomRoleSchema.parse({
+    schoolId: 'school_a',
+    name: 'Empty scope',
+    permissions: { 'students.view': true },
+    accessScope: { type: 'classes', classIds: [] },
+  }));
+});
+
+test('personal-file payload rejects spoofed ownership and unsafe attachment sizes', () => {
+  assert.throws(() => upsertPersonalFileItemSchema.parse({
+    schoolId: 'school_a', studentId: 'student_a', kind: 'credentials',
+    payload: { title: 'Credential', schoolId: 'school_b' },
+  }));
+  assert.throws(() => upsertPersonalFileItemSchema.parse({
+    schoolId: 'school_a', studentId: 'student_a', kind: 'documents',
+    payload: {
+      title: 'Oversized',
+      attachments: [{
+        storagePath: 'schools/school_a/students/student_a/personal-file/documents/file/a.pdf',
+        originalName: 'a.pdf', contentType: 'application/pdf', size: 30 * 1024 * 1024,
+      }],
+    },
+  }));
+});
+
+test('CV snapshot validation is strict and keeps tenant ownership outside the snapshot', () => {
+  const snapshot = {
+    personal: { fullName: 'תלמיד א', professionalTitle: '', phone: '', email: '', city: '', birthDate: '', professionalLink: '', photoPath: '' },
+    summary: '', education: [], experiences: [], practicalExperience: [], projects: [], skills: [], credentials: [], recommendations: [], languages: [],
+    sectionOrder: ['summary', 'experiences'], hiddenSections: [],
+    design: { templateId: 'classic_professional', templateName: 'קלאסי מקצועי', accentColor: '#607D8B', showPhoto: false, sidebarSections: ['skills'] },
+  };
+  assert.equal(createCvDocumentSchema.parse({
+    schoolId: 'school_a', studentId: 'student_a', title: 'קורות חיים', snapshot,
+  }).snapshot.personal.fullName, 'תלמיד א');
+  assert.throws(() => createCvDocumentSchema.parse({
+    schoolId: 'school_a', studentId: 'student_a', title: 'קורות חיים',
+    snapshot: { ...snapshot, schoolId: 'school_b' },
+  }));
 });

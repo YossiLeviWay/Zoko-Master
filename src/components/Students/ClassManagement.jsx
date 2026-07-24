@@ -38,11 +38,13 @@ function defaultAcademicYear() {
   return `${start}-${start + 1}`;
 }
 
-function emptyClass() {
+function emptyClass(academicYear) {
   return {
     name: '',
     gradeLevel: 'י׳',
-    academicYear: defaultAcademicYear(),
+    academicYear: academicYear ? `${academicYear.startYear}-${academicYear.endYear}` : defaultAcademicYear(),
+    academicYearLabel: academicYear?.label || '',
+    academicYearId: academicYear?.id || '',
     teacherId: '',
     staffIds: [],
     trackIds: [],
@@ -75,12 +77,13 @@ export default function ClassManagement({
   staff,
   tracks,
   permissions,
+  academicYear,
   onOpenStudents,
 }) {
   const navigate = useNavigate();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState(emptyClass);
+  const [form, setForm] = useState(() => emptyClass(academicYear));
   const [search, setSearch] = useState('');
   const [showArchived, setShowArchived] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -111,7 +114,7 @@ export default function ClassManagement({
 
   function openCreate() {
     setEditing(null);
-    setForm(emptyClass());
+    setForm(emptyClass(academicYear));
     setError('');
     setShowForm(true);
   }
@@ -229,7 +232,7 @@ export default function ClassManagement({
               <div className="student-form-grid">
                 <div className="form-group"><label>שם הכיתה *</label><input value={form.name} onChange={event => setForm(previous => ({ ...previous, name: event.target.value }))} required maxLength={80} /></div>
                 <div className="form-group"><label>שכבה</label><select value={form.gradeLevel} onChange={event => setForm(previous => ({ ...previous, gradeLevel: event.target.value }))}>{GRADES.map(grade => <option key={grade}>{grade}</option>)}</select></div>
-                <div className="form-group"><label>שנת לימודים *</label><input value={form.academicYear} onChange={event => setForm(previous => ({ ...previous, academicYear: event.target.value }))} placeholder="2026-2027" required maxLength={20} /></div>
+                <div className="form-group"><label>שנת לימודים</label><input value={`${academicYear?.label || form.academicYear} · ${academicYear?.startYear || ''}-${academicYear?.endYear || ''}`} readOnly /><span className="form-hint">הכיתה תישמר תחת השנה שנבחרה בראש הדף.</span></div>
                 <div className="form-group"><label>מחנך</label><select value={form.teacherId} onChange={event => setForm(previous => ({ ...previous, teacherId: event.target.value }))} disabled={!canAssignTeacher}><option value="">ללא מחנך</option>{staff.map(user => <option key={user.id} value={user.id}>{user.fullName}</option>)}</select></div>
               </div>
 

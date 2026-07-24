@@ -2,6 +2,7 @@ import {
   collection,
   doc,
   getDocs,
+  documentId,
   onSnapshot,
   query,
   runTransaction,
@@ -10,12 +11,16 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { schoolCollection, schoolDoc } from './paths';
+import { academicYearIdFromLegacy } from './academicYearRepository';
+import { enrollmentFields, studentEnrollmentId } from './studentLifecycleRepository';
 
 export const CLASS_STATUS = Object.freeze({ ACTIVE: 'active', ARCHIVED: 'archived' });
 export const STUDENT_STATUS = Object.freeze({
   ACTIVE: 'active',
   TRANSFERRED: 'transferred',
   GRADUATED: 'graduated',
+  WITHDRAWN: 'withdrawn',
+  DROPOUT: 'dropout',
   ARCHIVED: 'archived',
 });
 
@@ -45,14 +50,19 @@ function subscribeQueries(queries, onData, onError) {
   return () => unsubscribers.forEach(unsubscribe => unsubscribe());
 }
 
-export function subscribeClasses({ db, schoolId, uid, canViewAll, onData, onError }) {
+export function subscribeClasses({ db, schoolId, uid, canViewAll, explicitClassIds = [], onData, onError }) {
   const ref = schoolCollection(db, schoolId, 'classes');
+  const classIdQueries = [];
+  for (let index = 0; index < explicitClassIds.length; index += 30) {
+    classIdQueries.push(query(ref, where(documentId(), 'in', explicitClassIds.slice(index, index + 30))));
+  }
   const sources = canViewAll
     ? [ref]
     : [
         query(ref, where('teacherId', '==', uid)),
         query(ref, where('staffIds', 'array-contains', uid)),
         query(ref, where('createdBy', '==', uid)),
+        ...classIdQueries,
       ];
   return subscribeQueries(sources, onData, onError);
 }
@@ -99,6 +109,7 @@ function classFields(input) {
     normalizedName: normalizeName(input.name),
     gradeLevel: input.gradeLevel || '',
     academicYear: input.academicYear.trim(),
+    academicYearId: input.academicYearId || academicYearIdFromLegacy(input.academicYear),
     teacherId: input.teacherId || '',
     staffIds: unique(input.staffIds),
     trackIds: unique(input.trackIds),
@@ -206,12 +217,21 @@ function studentFields(input, classItem) {
 }
 
 export async function createStudent({ db, schoolId, actor, input, classItem }) {
+  if (!actor?.uid || !classItem?.id) throw new Error('INVALID_STUDENT');
   const studentRef = doc(schoolCollection(db, schoolId, 'students'));
   const historyRef = doc(collection(studentRef, 'history'));
+  const yearId = classItem?.academicYearId || academicYearIdFromLegacy(classItem?.academicYear);
+  if (!yearId) throw new Error('AMBIGUOUS_ACADEMIC_YEAR');
+  const enrollmentRef = schoolDoc(
+    db, schoolId, 'studentEnrollments', studentEnrollmentId(studentRef.id, yearId),
+  );
+  const personalFileRef = schoolDoc(db, schoolId, 'personalFiles', studentRef.id);
+  const studentData = studentFields(input, classItem);
   const batch = writeBatch(db);
   batch.set(studentRef, {
-    ...studentFields(input, classItem),
+    ...studentData,
     schoolId,
+    currentEnrollmentId: enrollmentRef.id,
     requirementStatus: {},
     createdBy: actor.uid,
     updatedBy: actor.uid,
@@ -226,6 +246,30 @@ export async function createStudent({ db, schoolId, actor, input, classItem }) {
     effectiveDate: input.joinedAt || '',
     createdBy: actor.uid,
     createdAt: serverTimestamp(),
+  });
+  batch.set(enrollmentRef, {
+    ...enrollmentFields({
+      student: { id: studentRef.id, schoolId, ...studentData },
+      classItem,
+      academicYear: {
+        id: yearId,
+        label: classItem?.academicYear || '',
+      },
+      startDate: input.joinedAt || '',
+    }),
+    createdBy: actor.uid,
+    updatedBy: actor.uid,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  batch.set(personalFileRef, {
+    studentId: studentRef.id,
+    schoolId,
+    status: 'active',
+    createdBy: actor.uid,
+    updatedBy: actor.uid,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
   });
   await batch.commit();
   return studentRef.id;

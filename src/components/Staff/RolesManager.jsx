@@ -1,325 +1,236 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import { Archive, ChevronDown, ChevronUp, Copy, Edit3, Plus, Save, Shield, UserPlus, X } from 'lucide-react';
+import { PERMISSION_GROUPS } from '../../../functions/src/permissionCatalog.js';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePermissions } from '../../hooks/usePermissions';
 import { db } from '../../firebase';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
-import { X, Plus, Save, Trash2, Edit3, Shield, ChevronDown, ChevronUp } from 'lucide-react';
+import { schoolCollection } from '../../services/firestore/paths';
+import {
+  archiveCustomRole,
+  assignCustomRole,
+  cloneCustomRole,
+  createCustomRole,
+  updateCustomRole,
+} from '../../services/adminUserService';
 
-const DEFAULT_ROLE_PERMISSIONS = {
-  calendar_view: false,
-  calendar_edit: false,
-  categories_view: false,
-  categories_edit: false,
-  staff_view: false,
-  staff_edit: false,
-  tasks_view: false,
-  tasks_edit: false,
-  tasks_assign: false,
-  teams_view: false,
-  teams_edit: false,
-  classes_view: false,
-  classes_create: false,
-  classes_update: false,
-  classes_archive: false,
-  classes_assign_teacher: false,
-  students_view: false,
-  students_edit: false,
-  students_create: false,
-  students_update: false,
-  students_archive: false,
-  students_transfer_class: false,
-  students_manage_programs: false,
-  students_add_notes: false,
-  students_view_notes: false,
-  attendance_create: false,
-  attendance_view: false,
-  attendance_edit: false,
-  attendance_manage_legend: false,
-  attendance_manage_dates: false,
-  attendance_block_days: false,
-  files_view: false,
-  files_upload: false,
-  files_delete: false,
-  messages_send: false,
-  messages_delete: false,
-  holidays_view: false,
-  holidays_edit: false,
-  data_mapping_view: false,
-  data_mapping_edit: false,
-  schools_manage: false,
-  settings_edit: false,
-};
+const EMPTY_FORM = Object.freeze({
+  name: '',
+  description: '',
+  permissions: {},
+  delegatedPermissionKeys: [],
+  accessScope: { type: 'school', classIds: [] },
+});
 
-const PERMISSION_GROUPS = [
-  { label: 'דשבורד', permissions: [] },
-  { label: 'לוח שנה', permissions: [
-    { key: 'calendar_view', label: 'צפייה בלוח שנה' },
-    { key: 'calendar_edit', label: 'עריכת אירועים' },
-  ]},
-  { label: 'קטגוריות', permissions: [
-    { key: 'categories_view', label: 'צפייה בקטגוריות' },
-    { key: 'categories_edit', label: 'עריכת קטגוריות' },
-  ]},
-  { label: 'סגל וקהילה', permissions: [
-    { key: 'staff_view', label: 'צפייה בסגל' },
-    { key: 'staff_edit', label: 'עריכת סגל והרשאות' },
-  ]},
-  { label: 'משימות', permissions: [
-    { key: 'tasks_view', label: 'צפייה במשימות' },
-    { key: 'tasks_edit', label: 'יצירה ועריכת משימות' },
-    { key: 'tasks_assign', label: 'הקצאת משימות לאחרים' },
-  ]},
-  { label: 'צוותים', permissions: [
-    { key: 'teams_view', label: 'צפייה בצוותים' },
-    { key: 'teams_edit', label: 'ניהול צוותים' },
-  ]},
-  { label: 'כיתות ותלמידים', permissions: [
-    { key: 'classes_view', label: 'צפייה בכל הכיתות במוסד' },
-    { key: 'classes_create', label: 'יצירת כיתות' },
-    { key: 'classes_update', label: 'עריכת כיתות' },
-    { key: 'classes_archive', label: 'ארכוב ושחזור כיתות' },
-    { key: 'classes_assign_teacher', label: 'שיוך והחלפת מחנך' },
-    { key: 'students_view', label: 'צפייה בכל התלמידים במוסד' },
-    { key: 'students_create', label: 'הוספת תלמידים' },
-    { key: 'students_update', label: 'עריכת תלמידים' },
-    { key: 'students_archive', label: 'ארכוב ושחזור תלמידים' },
-    { key: 'students_transfer_class', label: 'העברת תלמיד בין כיתות' },
-    { key: 'students_manage_programs', label: 'ניהול מגמות ותוכניות לימוד' },
-    { key: 'students_add_notes', label: 'הוספת הערות תלמיד' },
-    { key: 'students_view_notes', label: 'צפייה בהערות תלמיד' },
-  ]},
-  { label: 'נוכחות', permissions: [
-    { key: 'attendance_create', label: 'יצירת גיליונות נוכחות' },
-    { key: 'attendance_view', label: 'צפייה בנוכחות' },
-    { key: 'attendance_edit', label: 'עריכת נוכחות' },
-    { key: 'attendance_manage_legend', label: 'ניהול מקראה' },
-    { key: 'attendance_manage_dates', label: 'ניהול תאריכים' },
-    { key: 'attendance_block_days', label: 'חסימת ימי לימוד' },
-  ]},
-  { label: 'קבצים', permissions: [
-    { key: 'files_view', label: 'צפייה בקבצים' },
-    { key: 'files_upload', label: 'העלאת קבצים' },
-    { key: 'files_delete', label: 'מחיקת קבצים' },
-  ]},
-  { label: 'הודעות', permissions: [
-    { key: 'messages_send', label: 'שליחת הודעות' },
-    { key: 'messages_delete', label: 'מחיקת הודעות' },
-  ]},
-  { label: 'חגים וחופשות', permissions: [
-    { key: 'holidays_view', label: 'צפייה בחגים' },
-    { key: 'holidays_edit', label: 'עריכת חגים' },
-  ]},
-  { label: 'מיפוי נתונים', permissions: [
-    { key: 'data_mapping_view', label: 'צפייה במיפוי' },
-    { key: 'data_mapping_edit', label: 'עריכת מיפוי נתונים' },
-  ]},
-];
+const ROLE_PRESETS = Object.freeze([
+  { name: 'רכז פדגוגי', keys: ['academicYears.view', 'classes.view', 'classes.update', 'students.view', 'students.update', 'students.promote'] },
+  { name: 'מחנך', keys: ['classes.view', 'students.view', 'students.update', 'students.addNotes', 'personalFile.view', 'cv.view'] },
+  { name: 'רכז תעסוקה', keys: ['students.view', 'personalFile.view', 'personalFile.manage', 'cv.view', 'cv.create', 'cv.edit', 'cv.manageExperience', 'cv.manageRecommendations'] },
+  { name: 'רכז מגמה', keys: ['classes.view', 'students.view', 'students.managePrograms', 'personalFile.view', 'cv.manageSkills'] },
+  { name: 'צופה', keys: ['academicYears.view', 'classes.view', 'students.view', 'personalFile.view', 'cv.view'] },
+]);
+
+function roleForm(role = EMPTY_FORM) {
+  return {
+    name: role.name || '',
+    description: role.description || '',
+    permissions: { ...(role.permissions || {}) },
+    delegatedPermissionKeys: [...(role.delegatedPermissionKeys || [])],
+    accessScope: role.accessScope?.type === 'classes'
+      ? { type: 'classes', classIds: [...(role.accessScope.classIds || [])] }
+      : { type: 'school', classIds: [] },
+  };
+}
 
 export default function RolesManager({ schoolId, onClose }) {
   const { isGlobalAdmin, isPrincipal } = useAuth();
+  const { permissions } = usePermissions();
+  const isAdmin = isGlobalAdmin() || isPrincipal();
   const [roles, setRoles] = useState([]);
+  const [classes, setClasses] = useState([]);
+  const [staff, setStaff] = useState([]);
   const [editingRole, setEditingRole] = useState(null);
-  const [editForm, setEditForm] = useState({ name: '', description: '', permissions: { ...DEFAULT_ROLE_PERMISSIONS } });
+  const [editForm, setEditForm] = useState(roleForm());
   const [expandedGroups, setExpandedGroups] = useState({});
   const [showForm, setShowForm] = useState(false);
+  const [selectedAssignees, setSelectedAssignees] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
 
-  const canManage = isGlobalAdmin() || isPrincipal();
+  const canView = isAdmin || permissions['roles.view'];
+  const canCreate = isAdmin || permissions['roles.create'];
+  const canUpdate = isAdmin || permissions['roles.update'];
+  const canArchive = isAdmin || permissions['roles.archive'];
+  const canAssign = isAdmin || permissions['roles.assign'];
 
-  const loadRoles = useCallback(async () => {
+  const loadData = useCallback(async () => {
+    if (!schoolId || !canView) return;
     try {
-      const snap = await getDocs(collection(db, `roles_${schoolId}`));
-      setRoles(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    } catch (err) {
-      console.error('Error loading roles:');
+      const [roleSnapshot, classSnapshot, staffByPrimary, staffByMembership] = await Promise.all([
+        getDocs(schoolCollection(db, schoolId, 'roles')),
+        getDocs(schoolCollection(db, schoolId, 'classes')),
+        getDocs(query(collection(db, 'users'), where('schoolId', '==', schoolId))),
+        getDocs(query(collection(db, 'users'), where('schoolIds', 'array-contains', schoolId))),
+      ]);
+      setRoles(roleSnapshot.docs.map(item => ({ id: item.id, ...item.data() })));
+      setClasses(classSnapshot.docs.map(item => ({ id: item.id, ...item.data() })));
+      const users = new Map();
+      [...staffByPrimary.docs, ...staffByMembership.docs].forEach(item => users.set(item.id, { id: item.id, ...item.data() }));
+      setStaff([...users.values()].filter(user => user.accountStatus !== 'disabled'));
+    } catch {
+      setError('לא ניתן לטעון את התפקידים והמשתמשים.');
     }
-  }, [schoolId]);
+  }, [canView, schoolId]);
 
-  useEffect(() => {
-    loadRoles();
-  }, [loadRoles]);
+  useEffect(() => { loadData(); }, [loadData]);
 
-  async function saveRole() {
-    if (!editForm.name.trim()) return;
-    try {
-      if (editingRole) {
-        await updateDoc(doc(db, `roles_${schoolId}`, editingRole.id), {
-          name: editForm.name.trim(),
-          description: editForm.description.trim(),
-          permissions: editForm.permissions,
-          updatedAt: new Date().toISOString(),
-        });
-      } else {
-        await addDoc(collection(db, `roles_${schoolId}`), {
-          name: editForm.name.trim(),
-          description: editForm.description.trim(),
-          permissions: editForm.permissions,
-          createdAt: new Date().toISOString(),
-        });
-      }
-      setEditingRole(null);
-      setShowForm(false);
-      setEditForm({ name: '', description: '', permissions: { ...DEFAULT_ROLE_PERMISSIONS } });
-      loadRoles();
-    } catch (err) {
-      console.error('Error saving role:');
-    }
-  }
+  const holdersByRole = useMemo(() => {
+    const result = new Map();
+    roles.forEach(role => result.set(role.id, staff.filter(user => (
+      user.customRoleAssignments?.[schoolId]?.includes(role.id)
+      || user.customRoleIds?.includes(role.id)
+    ))));
+    return result;
+  }, [roles, schoolId, staff]);
 
-  async function deleteRole(roleId) {
-    if (!confirm('האם למחוק תפקיד זה?')) return;
-    try {
-      await deleteDoc(doc(db, `roles_${schoolId}`, roleId));
-      loadRoles();
-    } catch (err) {
-      console.error('Error deleting role:');
-    }
-  }
-
-  function openEdit(role) {
+  function openForm(role = null) {
     setEditingRole(role);
-    setEditForm({
-      name: role.name,
-      description: role.description || '',
-      permissions: { ...DEFAULT_ROLE_PERMISSIONS, ...role.permissions },
-    });
+    setEditForm(roleForm(role || EMPTY_FORM));
+    setExpandedGroups(Object.fromEntries(PERMISSION_GROUPS.map(group => [group.id, true])));
+    setError('');
     setShowForm(true);
-    const expanded = {};
-    PERMISSION_GROUPS.forEach(g => { expanded[g.label] = true; });
-    setExpandedGroups(expanded);
   }
 
-  function openNew() {
-    setEditingRole(null);
-    setEditForm({ name: '', description: '', permissions: { ...DEFAULT_ROLE_PERMISSIONS } });
-    setShowForm(true);
-    const expanded = {};
-    PERMISSION_GROUPS.forEach(g => { expanded[g.label] = true; });
-    setExpandedGroups(expanded);
-  }
-
-  function togglePerm(key) {
-    setEditForm(prev => ({
-      ...prev,
-      permissions: { ...prev.permissions, [key]: !prev.permissions[key] }
+  function applyPreset(preset) {
+    setEditForm(previous => ({
+      ...previous,
+      name: preset.name,
+      permissions: Object.fromEntries(preset.keys.map(key => [key, true])),
+      delegatedPermissionKeys: [],
     }));
   }
 
-  if (!canManage) return null;
+  function togglePermission(key) {
+    setEditForm(previous => {
+      const enabled = !previous.permissions[key];
+      return {
+        ...previous,
+        permissions: { ...previous.permissions, [key]: enabled },
+        delegatedPermissionKeys: enabled
+          ? previous.delegatedPermissionKeys
+          : previous.delegatedPermissionKeys.filter(item => item !== key),
+      };
+    });
+  }
+
+  function toggleDelegable(key) {
+    setEditForm(previous => ({
+      ...previous,
+      delegatedPermissionKeys: previous.delegatedPermissionKeys.includes(key)
+        ? previous.delegatedPermissionKeys.filter(item => item !== key)
+        : [...previous.delegatedPermissionKeys, key],
+    }));
+  }
+
+  function toggleScopeClass(classId) {
+    setEditForm(previous => ({
+      ...previous,
+      accessScope: {
+        type: 'classes',
+        classIds: previous.accessScope.classIds.includes(classId)
+          ? previous.accessScope.classIds.filter(item => item !== classId)
+          : [...previous.accessScope.classIds, classId],
+      },
+    }));
+  }
+
+  async function saveRole() {
+    if (!editForm.name.trim()) return setError('יש להזין שם לתפקיד.');
+    if (editForm.accessScope.type === 'classes' && editForm.accessScope.classIds.length === 0) {
+      return setError('בתפקיד מוגבל יש לבחור לפחות כיתה אחת.');
+    }
+    setSaving(true); setError('');
+    try {
+      const payload = { schoolId, ...editForm, name: editForm.name.trim(), description: editForm.description.trim() };
+      if (editingRole) await updateCustomRole({ ...payload, roleId: editingRole.id });
+      else await createCustomRole(payload);
+      setMessage(editingRole ? 'התפקיד עודכן וההרשאות חושבו מחדש.' : 'התפקיד נוצר בהצלחה.');
+      setShowForm(false); setEditingRole(null); await loadData();
+    } catch {
+      setError('הפעולה נדחתה. ניתן להעניק רק הרשאות שבבעלותך ושמותר לך להאציל.');
+    } finally { setSaving(false); }
+  }
+
+  async function archiveRole(role) {
+    if (!window.confirm(`להעביר את התפקיד "${role.name}" לארכיון? ההרשאות יוסרו מכל המחזיקים.`)) return;
+    setSaving(true); setError('');
+    try {
+      await archiveCustomRole({ schoolId, roleId: role.id });
+      setMessage('התפקיד הועבר לארכיון וההרשאות חושבו מחדש.');
+      await loadData();
+    } catch { setError('לא ניתן לארכב את התפקיד.'); }
+    finally { setSaving(false); }
+  }
+
+  async function cloneRole(role) {
+    const name = window.prompt('שם התפקיד המועתק:', `${role.name} — עותק`)?.trim();
+    if (!name) return;
+    setSaving(true); setError('');
+    try {
+      await cloneCustomRole({ schoolId, roleId: role.id, name });
+      setMessage('נוצר עותק עצמאי של התפקיד.'); await loadData();
+    } catch { setError('לא ניתן להעתיק את התפקיד.'); }
+    finally { setSaving(false); }
+  }
+
+  async function changeAssignment(role, action) {
+    const userId = selectedAssignees[role.id];
+    if (!userId) return;
+    if (!window.confirm(action === 'assign' ? 'לאשר הענקת תפקיד והרשאות למשתמש?' : 'לאשר הסרת התפקיד מהמשתמש?')) return;
+    setSaving(true); setError('');
+    try {
+      await assignCustomRole({ schoolId, roleId: role.id, userId, action, confirmSensitiveChange: true });
+      setMessage(action === 'assign' ? 'התפקיד שויך ונרשם ביומן הפעילות.' : 'התפקיד הוסר ונרשם ביומן הפעילות.');
+      await loadData();
+    } catch { setError('השיוך נדחה: אין הרשאה, המשתמש אינו במוסד, או שקיימת סכנת הסלמת הרשאות.'); }
+    finally { setSaving(false); }
+  }
+
+  if (!canView) return null;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: 700, maxHeight: '85vh', overflow: 'auto' }}>
-        <div className="modal-header">
-          <h3>ניהול תפקידים</h3>
-          <button className="modal-close" onClick={onClose}><X size={18} /></button>
-        </div>
-
-        {!showForm ? (
-          <div style={{ padding: '1rem 1.5rem' }}>
-            <button className="btn btn-primary" onClick={openNew} style={{ marginBottom: '1rem' }}>
-              <Plus size={16} />
-              תפקיד חדש
-            </button>
-
-            {roles.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>
-                <Shield size={36} style={{ opacity: 0.3 }} />
-                <p>לא הוגדרו תפקידים מותאמים. צור תפקיד חדש כדי להתחיל.</p>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                {roles.map(role => {
-                  const permCount = Object.values(role.permissions || {}).filter(Boolean).length;
-                  return (
-                    <div key={role.id} style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                      padding: '0.75rem 1rem', border: '1px solid #e2e8f0', borderRadius: 8, background: '#fafafa'
-                    }}>
-                      <div>
-                        <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{role.name}</div>
-                        {role.description && <div style={{ fontSize: '0.78rem', color: '#64748b' }}>{role.description}</div>}
-                        <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '0.2rem' }}>
-                          {permCount} הרשאות פעילות
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', gap: '0.3rem' }}>
-                        <button className="icon-btn" onClick={() => openEdit(role)} title="עריכה">
-                          <Edit3 size={15} />
-                        </button>
-                        <button className="icon-btn icon-btn--danger" onClick={() => deleteRole(role.id)} title="מחיקה">
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        ) : (
-          <div style={{ padding: '1rem 1.5rem' }}>
-            <div className="add-staff-form">
-              <div className="form-group">
-                <label>שם התפקיד</label>
-                <input
-                  value={editForm.name}
-                  onChange={e => setEditForm(prev => ({ ...prev, name: e.target.value }))}
-                  placeholder="לדוגמה: רכז חברתי"
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label>תיאור</label>
-                <input
-                  value={editForm.description}
-                  onChange={e => setEditForm(prev => ({ ...prev, description: e.target.value }))}
-                  placeholder="תיאור קצר של התפקיד"
-                />
-              </div>
-
-              <div style={{ marginTop: '0.5rem' }}>
-                <label style={{ fontWeight: 600, fontSize: '0.88rem', marginBottom: '0.5rem', display: 'block' }}>הרשאות</label>
-                <div className="permissions-list">
-                  {PERMISSION_GROUPS.filter(g => g.permissions.length > 0).map(group => (
-                    <div key={group.label} className="permissions-group">
-                      <button
-                        className="permissions-group-header"
-                        onClick={() => setExpandedGroups(prev => ({ ...prev, [group.label]: !prev[group.label] }))}
-                      >
-                        <span className="permissions-group-title">{group.label}</span>
-                        <span className="permissions-group-summary">
-                          {group.permissions.filter(p => editForm.permissions[p.key]).length}/{group.permissions.length}
-                        </span>
-                        {expandedGroups[group.label] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                      </button>
-                      {expandedGroups[group.label] && (
-                        <div className="permissions-group-items">
-                          {group.permissions.map(perm => (
-                            <label key={perm.key} className="permissions-item">
-                              <input
-                                type="checkbox"
-                                checked={!!editForm.permissions[perm.key]}
-                                onChange={() => togglePerm(perm.key)}
-                              />
-                              <span>{perm.label}</span>
-                            </label>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="modal-actions" style={{ marginTop: '1rem' }}>
-                <button className="btn btn-primary" onClick={saveRole}>
-                  <Save size={15} />
-                  {editingRole ? 'עדכון' : 'יצירה'}
-                </button>
-                <button className="btn btn-secondary" onClick={() => { setShowForm(false); setEditingRole(null); }}>ביטול</button>
-              </div>
+      <div className="modal-content roles-manager-modal" role="dialog" aria-modal="true" aria-label="תפקידים והרשאות" onClick={event => event.stopPropagation()}>
+        <div className="modal-header"><h3>תפקידים והרשאות</h3><button className="modal-close" onClick={onClose} aria-label="סגירה"><X size={18} /></button></div>
+        <div className="roles-manager-body">
+          {error && <div className="staff-form-error" role="alert">{error}</div>}
+          {message && <div className="students-feedback students-feedback--success" role="status">{message}</div>}
+          {!showForm ? <>
+            {canCreate && <button className="btn btn-primary" onClick={() => openForm()}><Plus size={16} /> תפקיד חדש</button>}
+            <div className="roles-manager-list">
+              {roles.filter(role => role.status !== 'archived').map(role => {
+                const holders = holdersByRole.get(role.id) || [];
+                const selectedUser = staff.find(user => user.id === selectedAssignees[role.id]);
+                const selectedHasRole = selectedUser && holders.some(holder => holder.id === selectedUser.id);
+                return <article key={role.id} className="role-manager-card">
+                  <div className="role-manager-heading"><Shield size={18} /><div><strong>{role.name}</strong><p>{role.description || 'ללא תיאור'}</p></div><span>{Object.values(role.permissions || {}).filter(Boolean).length} הרשאות</span></div>
+                  <div className="role-manager-meta"><span>{role.accessScope?.type === 'classes' ? `${role.accessScope.classIds?.length || 0} כיתות` : 'כל המוסד'}</span><span>{holders.length} מחזיקים</span><span>{role.delegatedPermissionKeys?.length || 0} ניתנות להאצלה</span></div>
+                  {holders.length > 0 && <p className="role-holder-names">{holders.map(holder => holder.fullName || holder.email).join(', ')}</p>}
+                  {canAssign && <div className="role-assignment"><select value={selectedAssignees[role.id] || ''} onChange={event => setSelectedAssignees(previous => ({ ...previous, [role.id]: event.target.value }))}><option value="">בחירת איש צוות</option>{staff.filter(user => user.role !== 'global_admin').map(user => <option key={user.id} value={user.id}>{user.fullName || user.email}</option>)}</select><button className="btn btn-secondary btn-sm" disabled={!selectedUser || saving} onClick={() => changeAssignment(role, selectedHasRole ? 'remove' : 'assign')}><UserPlus size={14} /> {selectedHasRole ? 'הסרת תפקיד' : 'שיוך תפקיד'}</button></div>}
+                  <div className="role-manager-actions">{canUpdate && <button className="icon-btn" onClick={() => openForm(role)} aria-label={`עריכת ${role.name}`}><Edit3 size={15} /></button>}{canUpdate && <button className="icon-btn" onClick={() => cloneRole(role)} aria-label={`העתקת ${role.name}`}><Copy size={15} /></button>}{canArchive && <button className="icon-btn icon-btn--danger" onClick={() => archiveRole(role)} aria-label={`ארכוב ${role.name}`}><Archive size={15} /></button>}</div>
+                </article>;
+              })}
+              {roles.filter(role => role.status !== 'archived').length === 0 && <div className="empty-state"><Shield size={36} /><p>עדיין לא נוצרו תפקידים מותאמים.</p></div>}
             </div>
-          </div>
-        )}
+          </> : <div className="role-form">
+            {!editingRole && <div className="role-presets"><span>התחלה מתפקיד מוצע:</span>{ROLE_PRESETS.map(preset => <button key={preset.name} className="btn btn-secondary btn-sm" onClick={() => applyPreset(preset)}>{preset.name}</button>)}</div>}
+            <div className="student-form-grid"><label className="form-group">שם התפקיד<input value={editForm.name} onChange={event => setEditForm(previous => ({ ...previous, name: event.target.value }))} maxLength={120} /></label><label className="form-group">תיאור<input value={editForm.description} onChange={event => setEditForm(previous => ({ ...previous, description: event.target.value }))} maxLength={500} /></label></div>
+            <fieldset className="students-choice-group"><legend>היקף ההרשאה</legend><div className="students-check-row"><label><input type="radio" checked={editForm.accessScope.type === 'school'} onChange={() => setEditForm(previous => ({ ...previous, accessScope: { type: 'school', classIds: [] } }))} /> כל המוסד</label><label><input type="radio" checked={editForm.accessScope.type === 'classes'} onChange={() => setEditForm(previous => ({ ...previous, accessScope: { type: 'classes', classIds: [] } }))} /> כיתות מסוימות</label></div>{editForm.accessScope.type === 'classes' && <div className="students-check-grid">{classes.map(item => <label key={item.id}><input type="checkbox" checked={editForm.accessScope.classIds.includes(item.id)} onChange={() => toggleScopeClass(item.id)} /> {item.name}</label>)}</div>}</fieldset>
+            <div className="permissions-list">{PERMISSION_GROUPS.map(group => <section key={group.id} className="permissions-group"><button className="permissions-group-header" onClick={() => setExpandedGroups(previous => ({ ...previous, [group.id]: !previous[group.id] }))}><span className="permissions-group-title">{group.label}</span><span className="permissions-group-summary">{group.permissions.filter(([key]) => editForm.permissions[key]).length}/{group.permissions.length}</span>{expandedGroups[group.id] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button>{expandedGroups[group.id] && <div className="permissions-group-items">{group.permissions.map(([key, label]) => <div key={key} className="permission-delegation-row"><label className="permissions-item"><input type="checkbox" checked={Boolean(editForm.permissions[key])} onChange={() => togglePermission(key)} /><span>{label}</span></label><label className="permission-delegable"><input type="checkbox" disabled={!editForm.permissions[key]} checked={editForm.delegatedPermissionKeys.includes(key)} onChange={() => toggleDelegable(key)} /> ניתן להאצלה</label></div>)}</div>}</section>)}</div>
+            <div className="modal-actions"><button className="btn btn-primary" disabled={saving} onClick={saveRole}><Save size={15} /> {editingRole ? 'שמירת שינויים' : 'יצירת תפקיד'}</button><button className="btn btn-secondary" onClick={() => setShowForm(false)}>ביטול</button></div>
+          </div>}
+        </div>
       </div>
     </div>
   );

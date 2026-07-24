@@ -1,3 +1,5 @@
+import { ALL_PERMISSION_KEYS } from './permissionCatalog.js';
+
 export const REGION = 'europe-west1';
 
 export const CALLABLE_OPTIONS = {
@@ -15,48 +17,4 @@ export const SYSTEM_ROLES = Object.freeze({
   GLOBAL_ADMIN: 'global_admin',
 });
 
-export const PERMISSION_KEYS = Object.freeze([
-  'calendar_view',
-  'calendar_edit',
-  'categories_view',
-  'categories_edit',
-  'staff_view',
-  'staff_edit',
-  'staff_delete',
-  'tasks_view',
-  'tasks_edit',
-  'tasks_assign',
-  'teams_view',
-  'teams_edit',
-  'files_view',
-  'files_upload',
-  'files_delete',
-  'messages_send',
-  'messages_delete',
-  'holidays_view',
-  'holidays_edit',
-  'data_mapping_view',
-  'data_mapping_edit',
-  'classes_view',
-  'classes_create',
-  'classes_update',
-  'classes_archive',
-  'classes_assign_teacher',
-  'students_view',
-  'students_edit',
-  'students_create',
-  'students_update',
-  'students_archive',
-  'students_transfer_class',
-  'students_manage_programs',
-  'students_add_notes',
-  'students_view_notes',
-  'attendance_create',
-  'attendance_view',
-  'attendance_edit',
-  'attendance_manage_legend',
-  'attendance_manage_dates',
-  'attendance_block_days',
-  'schools_manage',
-  'settings_edit',
-]);
+export const PERMISSION_KEYS = ALL_PERMISSION_KEYS;

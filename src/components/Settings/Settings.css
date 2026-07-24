@@ -227,3 +227,25 @@
   font-size: 0.82rem;
   color: #1e293b;
 }
+
+.cv-template-manager { max-width: 880px; max-height: 90vh; overflow: hidden; }
+.cv-template-manager .modal-form { max-height: calc(90vh - 84px); overflow-y: auto; }
+.cv-template-toolbar { display: flex; justify-content: flex-end; margin-bottom: 0.7rem; }
+.cv-template-list { display: grid; gap: 0.55rem; }
+.cv-template-card { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 10px; }
+.cv-template-card > div { display: flex; align-items: center; gap: 0.45rem; }
+.cv-template-card > div:first-child { flex-wrap: wrap; }
+.cv-template-card strong { color: #1e293b; font-size: 0.84rem; }
+.cv-template-card span, .cv-template-card small { color: #64748b; font-size: 0.7rem; }
+.cv-template-form { display: grid; gap: 0.8rem; }
+.cv-template-form > label { display: grid; gap: 0.3rem; color: #475569; font-size: 0.76rem; }
+.cv-template-form textarea { width: 100%; box-sizing: border-box; resize: vertical; }
+.cv-template-design { display: grid; gap: 0.65rem; }
+.cv-template-design fieldset { display: flex; flex-wrap: wrap; gap: 0.55rem; padding: 0.65rem; border: 1px solid #e2e8f0; border-radius: 9px; }
+.cv-placeholder-list { display: flex; align-items: center; flex-wrap: wrap; gap: 0.35rem; padding: 0.6rem; border-radius: 9px; background: #f1f5f9; }
+.cv-placeholder-list strong { width: 100%; color: #334155; font-size: 0.73rem; }
+.cv-placeholder-list button { padding: 0.2rem 0.4rem; border: 1px solid #cbd5e1; border-radius: 5px; color: #475569; background: #fff; font: inherit; font-size: 0.65rem; direction: ltr; cursor: pointer; }
+
+@media (max-width: 600px) {
+  .cv-template-card { align-items: stretch; flex-direction: column; }
+}

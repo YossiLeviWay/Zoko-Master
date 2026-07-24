@@ -85,19 +85,74 @@ service cloud.firestore {
         && currentUser().permissions[permission] == true;
     }
 
-    function canViewAllStudents(schoolId) {
-      return hasStudentDataAccess(schoolId) && (
-        (request.auth.token.keys().hasAny(['global_admin']) && request.auth.token.global_admin == true)
-        || currentUser().role == 'principal'
-        || studentPermission('students_view')
+    function hasSchoolWideStudentReadPermission() {
+      return studentPermission('students_view')
         || studentPermission('students_edit')
         || studentPermission('students_update')
         || studentPermission('students_archive')
         || studentPermission('students_transfer_class')
         || studentPermission('students_manage_programs')
+        || studentPermission('students.promote')
+        || studentPermission('classes.promote')
+        || studentPermission('students.markGraduate')
+        || studentPermission('students.markWithdrawn')
+        || studentPermission('students.markDropout')
+        || studentPermission('students.restore')
         || studentPermission('attendance_view')
         || studentPermission('attendance_edit')
-        || studentPermission('attendance_create')
+        || studentPermission('attendance_create');
+    }
+
+    function hasSchoolWideClassReadPermission() {
+      return hasSchoolWideStudentReadPermission()
+        || studentPermission('classes_view')
+        || studentPermission('classes_create')
+        || studentPermission('classes_update')
+        || studentPermission('classes_archive')
+        || studentPermission('classes_assign_teacher')
+        || studentPermission('students_create')
+        || studentPermission('attendance_manage_legend')
+        || studentPermission('attendance_manage_dates');
+    }
+
+    function rolePermission(schoolId, permission) {
+      return 'rolePermissionsBySchool' in currentUser()
+        && currentUser().rolePermissionsBySchool is map
+        && schoolId in currentUser().rolePermissionsBySchool
+        && currentUser().rolePermissionsBySchool[schoolId] is map
+        && permission in currentUser().rolePermissionsBySchool[schoolId]
+        && currentUser().rolePermissionsBySchool[schoolId][permission] == true;
+    }
+
+    function classRolePermission(schoolId, permission, classId) {
+      return classId is string
+        && 'classRolePermissionsBySchool' in currentUser()
+        && currentUser().classRolePermissionsBySchool is map
+        && schoolId in currentUser().classRolePermissionsBySchool
+        && currentUser().classRolePermissionsBySchool[schoolId] is map
+        && permission in currentUser().classRolePermissionsBySchool[schoolId]
+        && currentUser().classRolePermissionsBySchool[schoolId][permission] is list
+        && classId in currentUser().classRolePermissionsBySchool[schoolId][permission];
+    }
+
+    function hasAnyRolePermission(schoolId, permissions) {
+      return 'rolePermissionsBySchool' in currentUser()
+        && currentUser().rolePermissionsBySchool is map
+        && schoolId in currentUser().rolePermissionsBySchool
+        && currentUser().rolePermissionsBySchool[schoolId] is map
+        && currentUser().rolePermissionsBySchool[schoolId].keys().hasAny(permissions);
+    }
+
+    function canViewAllStudents(schoolId) {
+      return hasStudentDataAccess(schoolId) && (
+        (request.auth.token.keys().hasAny(['global_admin']) && request.auth.token.global_admin == true)
+        || currentUser().role == 'principal'
+        || hasSchoolWideStudentReadPermission()
+        || hasAnyRolePermission(schoolId, [
+          'students.view', 'students.update', 'students.archive', 'students.transferClass',
+          'students.promote', 'classes.promote', 'students.markGraduate',
+          'students.markWithdrawn', 'students.markDropout', 'students.restore'
+        ])
       );
     }
 
@@ -105,7 +160,9 @@ service cloud.firestore {
       return hasStudentDataAccess(schoolId) && (
         currentUser().role == 'principal'
         || studentPermission('students_manage_programs')
+        || studentPermission('students.managePrograms')
         || studentPermission('students_edit')
+        || rolePermission(schoolId, 'students.managePrograms')
       );
     }
 
@@ -125,27 +182,16 @@ service cloud.firestore {
 
     function canViewClass(schoolId, data) {
       return hasStudentDataAccess(schoolId) && (
-        (request.auth.token.keys().hasAny(['global_admin']) && request.auth.token.global_admin == true)
+        classAssignedToCurrentUser(data)
+        || (request.auth.token.keys().hasAny(['global_admin']) && request.auth.token.global_admin == true)
         || currentUser().role == 'principal'
-        || studentPermission('students_view')
-        || studentPermission('students_edit')
-        || studentPermission('classes_view')
-        || studentPermission('classes_create')
-        || studentPermission('classes_update')
-        || studentPermission('classes_archive')
-        || studentPermission('classes_assign_teacher')
-        || studentPermission('students_create')
-        || studentPermission('students_update')
-        || studentPermission('students_archive')
-        || studentPermission('students_transfer_class')
-        || studentPermission('students_manage_programs')
-        || studentPermission('attendance_view')
-        || studentPermission('attendance_edit')
-        || studentPermission('attendance_create')
-        || studentPermission('attendance_manage_legend')
-        || studentPermission('attendance_manage_dates')
+        || hasSchoolWideClassReadPermission()
+        || hasAnyRolePermission(schoolId, [
+          'classes.view', 'classes.create', 'classes.update', 'classes.archive',
+          'classes.assignTeacher', 'classes.promote', 'students.view',
+          'students.create', 'students.update', 'students.transferClass'
+        ])
         || ('createdBy' in data && data.createdBy is string && data.createdBy == request.auth.uid)
-        || classAssignedToCurrentUser(data)
       );
     }
 
@@ -234,23 +280,114 @@ service cloud.firestore {
 
     function canViewStudent(schoolId, data) {
       return hasStudentDataAccess(schoolId) && (
-        (request.auth.token.keys().hasAny(['global_admin']) && request.auth.token.global_admin == true)
-        || currentUser().role == 'principal'
-        || studentPermission('students_view')
-        || studentPermission('students_edit')
-        || studentPermission('students_update')
-        || studentPermission('students_archive')
-        || studentPermission('students_transfer_class')
-        || studentPermission('students_manage_programs')
-        || studentPermission('attendance_view')
-        || studentPermission('attendance_edit')
-        || studentPermission('attendance_create')
+        (
+          'classId' in data
+          && classRolePermission(schoolId, 'students.view', data.classId)
+        )
         || (
           'classId' in data
           && data.classId is string
           && assignedToClass(schoolId, data.classId)
         )
+        || (request.auth.token.keys().hasAny(['global_admin']) && request.auth.token.global_admin == true)
+        || currentUser().role == 'principal'
+        || hasSchoolWideStudentReadPermission()
+        || hasAnyRolePermission(schoolId, [
+          'students.view', 'students.update', 'students.archive', 'students.transferClass',
+          'students.promote', 'students.markGraduate', 'students.markWithdrawn',
+          'students.markDropout', 'students.restore'
+        ])
         || assignedThroughLegacyClassName(schoolId, data)
+      );
+    }
+
+    function personalFileStudentData(schoolId, studentId) {
+      let legacyStudents = 'students_' + schoolId;
+      return exists(/databases/$(database)/documents/$(legacyStudents)/$(studentId))
+        ? get(/databases/$(database)/documents/$(legacyStudents)/$(studentId)).data
+        : get(/databases/$(database)/documents/schools/$(schoolId)/students/$(studentId)).data;
+    }
+
+    function canViewPersonalFile(schoolId, studentId) {
+      let studentData = personalFileStudentData(schoolId, studentId);
+      return hasStudentDataAccess(schoolId) && (
+        currentUser().role == 'principal'
+        || studentPermission('personalFile.view')
+        || studentPermission('personalFile.manage')
+        || rolePermission(schoolId, 'personalFile.view')
+        || rolePermission(schoolId, 'personalFile.manage')
+        || (
+          studentData.classId is string
+          && (
+            classRolePermission(schoolId, 'personalFile.view', studentData.classId)
+            || classRolePermission(schoolId, 'personalFile.manage', studentData.classId)
+          )
+        )
+      );
+    }
+
+    function canViewCv(schoolId, studentId) {
+      let studentData = personalFileStudentData(schoolId, studentId);
+      return hasStudentDataAccess(schoolId) && (
+        currentUser().role == 'principal'
+        || studentPermission('cv.view')
+        || studentPermission('cv.create')
+        || studentPermission('cv.edit')
+        || rolePermission(schoolId, 'cv.view')
+        || rolePermission(schoolId, 'cv.create')
+        || rolePermission(schoolId, 'cv.edit')
+        || (
+          studentData.classId is string
+          && (
+            classRolePermission(schoolId, 'cv.view', studentData.classId)
+            || classRolePermission(schoolId, 'cv.create', studentData.classId)
+            || classRolePermission(schoolId, 'cv.edit', studentData.classId)
+          )
+        )
+      );
+    }
+
+    function canViewCvTemplates(schoolId) {
+      return hasStudentDataAccess(schoolId) && (
+        currentUser().role == 'principal'
+        || studentPermission('cvTemplates.view')
+        || studentPermission('cvTemplates.create')
+        || studentPermission('cvTemplates.update')
+        || rolePermission(schoolId, 'cvTemplates.view')
+        || rolePermission(schoolId, 'cvTemplates.create')
+        || rolePermission(schoolId, 'cvTemplates.update')
+      );
+    }
+
+    function canReadCvTemplate(schoolId, data) {
+      return data.schoolId == schoolId
+        && data.status == 'active'
+        && canViewCvTemplates(schoolId)
+        && (data.scope == 'school' || data.createdBy == request.auth.uid);
+    }
+
+    function validPersonalFileCreate(collectionName, studentId, data) {
+      let studentsCollection = 'students_' + data.schoolId;
+      return data.schoolId is string
+        && collectionName == 'personal_files_' + data.schoolId
+        && data.studentId == studentId
+        && data.status == 'active'
+        && data.createdBy == request.auth.uid
+        && data.updatedBy == request.auth.uid
+        && existsAfter(/databases/$(database)/documents/$(studentsCollection)/$(studentId))
+        && getAfter(/databases/$(database)/documents/$(studentsCollection)/$(studentId)).data.schoolId == data.schoolId
+        && getAfter(/databases/$(database)/documents/$(studentsCollection)/$(studentId)).data.createdBy == request.auth.uid;
+    }
+
+    function canViewSkillCatalog(schoolId) {
+      return hasStudentDataAccess(schoolId) && (
+        currentUser().role == 'principal'
+        || studentPermission('personalFile.view')
+        || studentPermission('personalFile.manage')
+        || studentPermission('cv.manageSkills')
+        || rolePermission(schoolId, 'personalFile.view')
+        || rolePermission(schoolId, 'personalFile.manage')
+        || rolePermission(schoolId, 'cv.manageSkills')
       );
     }
 
@@ -378,24 +515,290 @@ service cloud.firestore {
         && data.classId is string
         && classExists(schoolId, data.classId)
         && (
-          currentUser().role == 'principal'
+          teachesClass(schoolId, data.classId)
+          || currentUser().role == 'principal'
           || studentPermission('students_create')
           || studentPermission('students_edit')
-          || teachesClass(schoolId, data.classId)
+          || rolePermission(schoolId, 'students.create')
+          || classRolePermission(schoolId, 'students.create', data.classId)
         );
     }
 
     function canUpdateStudentBase(schoolId, data) {
       return hasStudentDataAccess(schoolId) && (
-        currentUser().role == 'principal'
-        || studentPermission('students_update')
-        || studentPermission('students_edit')
-        || (
+        (
           'classId' in data
           && data.classId is string
-          && teachesClass(schoolId, data.classId)
+          && (
+            teachesClass(schoolId, data.classId)
+            || classRolePermission(schoolId, 'students.update', data.classId)
+            || classRolePermission(schoolId, 'students.create', data.classId)
+          )
         )
+        || currentUser().role == 'principal'
+        || studentPermission('students_update')
+        || studentPermission('students_edit')
+        || rolePermission(schoolId, 'students.update')
       );
+    }
+
+    function canManageAcademicYears(schoolId) {
+      return hasStudentDataAccess(schoolId) && (
+        currentUser().role == 'principal'
+        || studentPermission('academicYears.manage')
+        || rolePermission(schoolId, 'academicYears.manage')
+      );
+    }
+
+    function canPromoteStudents(schoolId) {
+      return hasStudentDataAccess(schoolId) && (
+        currentUser().role == 'principal'
+        || studentPermission('students.promote')
+        || studentPermission('classes.promote')
+        || rolePermission(schoolId, 'students.promote')
+        || rolePermission(schoolId, 'classes.promote')
+      );
+    }
+
+    function canSetEnrollmentStatus(schoolId, status) {
+      return hasStudentDataAccess(schoolId) && (
+        currentUser().role == 'principal'
+        || (status == 'graduated' && studentPermission('students.markGraduate'))
+        || (status == 'withdrawn' && studentPermission('students.markWithdrawn'))
+        || (status == 'dropout' && studentPermission('students.markDropout'))
+        || (status == 'transferred' && studentPermission('students.markWithdrawn'))
+        || (status == 'active' && studentPermission('students.restore'))
+        || (status == 'graduated' && rolePermission(schoolId, 'students.markGraduate'))
+        || (status == 'withdrawn' && rolePermission(schoolId, 'students.markWithdrawn'))
+        || (status == 'dropout' && rolePermission(schoolId, 'students.markDropout'))
+        || (status == 'transferred' && rolePermission(schoolId, 'students.markWithdrawn'))
+        || (status == 'active' && rolePermission(schoolId, 'students.restore'))
+        || (status == 'completed' && canPromoteStudents(schoolId))
+      );
+    }
+
+    function canViewEnrollment(schoolId, data) {
+      return data.schoolId == schoolId
+        && data.classId is string
+        && (
+          canViewAllStudents(schoolId)
+          || assignedToClass(schoolId, data.classId)
+        );
+    }
+
+    function validAcademicYearCreate(schoolId, data) {
+      return canManageAcademicYears(schoolId)
+        && data.keys().hasAll([
+          'schoolId', 'label', 'startYear', 'endYear', 'status',
+          'createdBy', 'updatedBy', 'createdAt', 'updatedAt'
+        ])
+        && data.schoolId == schoolId
+        && data.label is string
+        && data.label.size() > 0
+        && data.label.size() <= 30
+        && data.startYear is int
+        && data.endYear == data.startYear + 1
+        && data.startYear >= 2025
+        && data.startYear <= 2200
+        && data.status in ['active', 'closed', 'archived']
+        && data.createdBy == request.auth.uid
+        && data.updatedBy == request.auth.uid;
+    }
+
+    function safeAcademicYearUpdate(schoolId) {
+      return canManageAcademicYears(schoolId)
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.startYear == resource.data.startYear
+        && request.resource.data.endYear == resource.data.endYear
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.label is string
+        && request.resource.data.label.size() > 0
+        && request.resource.data.label.size() <= 30
+        && request.resource.data.status in ['active', 'closed', 'archived']
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'label', 'status', 'updatedBy', 'updatedAt'
+        ]);
+    }
+
+    function validAcademicYearSettings(schoolId, data) {
+      return canManageAcademicYears(schoolId)
+        && data.schoolId == schoolId
+        && data.activeAcademicYearId is string
+        && data.activeAcademicYearId.size() > 0
+        && data.updatedBy == request.auth.uid
+        && !data.keys().hasAny(['role', 'permissions', 'schoolIds']);
+    }
+
+    function validEnrollmentBase(schoolId, data) {
+      return hasStudentDataAccess(schoolId)
+        && data.keys().hasAll([
+          'studentId', 'schoolId', 'academicYearId', 'classId', 'enrollmentStatus',
+          'createdBy', 'updatedBy', 'createdAt', 'updatedAt'
+        ])
+        && data.schoolId == schoolId
+        && data.studentId is string
+        && data.studentId.size() > 0
+        && data.academicYearId is string
+        && data.academicYearId.size() > 0
+        && data.classId is string
+        && classExists(schoolId, data.classId)
+        && data.enrollmentStatus in [
+          'active', 'completed', 'graduated', 'withdrawn', 'dropout', 'transferred'
+        ];
+    }
+
+    function validEnrollmentCreate(schoolId, enrollmentId, data) {
+      return validEnrollmentBase(schoolId, data)
+        && enrollmentId == data.studentId + '__' + data.academicYearId
+        && data.createdBy == request.auth.uid
+        && data.updatedBy == request.auth.uid
+        && (
+          (
+            data.enrollmentStatus == 'active'
+            && (
+              canPromoteStudents(schoolId)
+              || canCreateStudent(schoolId, data)
+              || studentPermission('students.restore')
+              || rolePermission(schoolId, 'students.restore')
+              || classRolePermission(schoolId, 'students.create', data.classId)
+            )
+          )
+          || canSetEnrollmentStatus(schoolId, data.enrollmentStatus)
+        );
+    }
+
+    // Promotion touches four documents atomically. Keep the exact-permission path
+    // compact enough for the Rules runtime's per-request expression budget.
+    function directPromotionPermission(schoolId) {
+      return hasStudentDataAccess(schoolId)
+        && studentPermission('students.promote');
+    }
+
+    function validDirectPromotionEnrollmentCreate(schoolId, enrollmentId, data) {
+      return directPromotionPermission(schoolId)
+        && data.schoolId == schoolId
+        && data.studentId is string
+        && data.academicYearId is string
+        && data.classId is string
+        && data.enrollmentStatus == 'active'
+        && enrollmentId == data.studentId + '__' + data.academicYearId
+        && data.createdBy == request.auth.uid
+        && data.updatedBy == request.auth.uid
+        && classExists(schoolId, data.classId);
+    }
+
+    function validDirectTeacherStudentCreate(schoolId, data) {
+      return hasStudentDataAccess(schoolId)
+        && data.schoolId == schoolId
+        && data.classId is string
+        && teachesClass(schoolId, data.classId)
+        && data.fullName is string
+        && data.fullName.size() > 0
+        && data.status == 'active'
+        && data.createdBy == request.auth.uid
+        && data.updatedBy == request.auth.uid;
+    }
+
+    function validDirectTeacherEnrollmentCreate(schoolId, enrollmentId, data) {
+      return hasStudentDataAccess(schoolId)
+        && data.schoolId == schoolId
+        && data.studentId is string
+        && data.academicYearId is string
+        && data.classId is string
+        && teachesClass(schoolId, data.classId)
+        && data.enrollmentStatus == 'active'
+        && enrollmentId == data.studentId + '__' + data.academicYearId
+        && data.createdBy == request.auth.uid
+        && data.updatedBy == request.auth.uid;
+    }
+
+    function directLifecyclePermission(schoolId, status) {
+      return hasStudentDataAccess(schoolId) && (
+        (status == 'graduated' && studentPermission('students.markGraduate'))
+        || (status == 'withdrawn' && studentPermission('students.markWithdrawn'))
+        || (status == 'transferred' && studentPermission('students.markWithdrawn'))
+        || (status == 'dropout' && studentPermission('students.markDropout'))
+        || (status == 'active' && studentPermission('students.restore'))
+      );
+    }
+
+    function safeDirectLifecycleEnrollmentUpdate(schoolId, enrollmentId) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return directLifecyclePermission(schoolId, request.resource.data.enrollmentStatus)
+        && resource.data.schoolId == schoolId
+        && enrollmentId == resource.data.studentId + '__' + resource.data.academicYearId
+        && request.resource.data.studentId == resource.data.studentId
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.academicYearId == resource.data.academicYearId
+        && request.resource.data.classId == resource.data.classId
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedBy == request.auth.uid
+        && changed.hasOnly([
+          'enrollmentStatus', 'endDate', 'exitReason', 'exitNote',
+          'graduationYear', 'updatedBy', 'updatedAt'
+        ]);
+    }
+
+    function safeDirectPromotionEnrollmentUpdate(schoolId, enrollmentId) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return directPromotionPermission(schoolId)
+        && resource.data.schoolId == schoolId
+        && enrollmentId == resource.data.studentId + '__' + resource.data.academicYearId
+        && request.resource.data.studentId == resource.data.studentId
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.academicYearId == resource.data.academicYearId
+        && request.resource.data.classId == resource.data.classId
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.enrollmentStatus == 'completed'
+        && request.resource.data.updatedBy == request.auth.uid
+        && changed.hasOnly(['enrollmentStatus', 'endDate', 'updatedBy', 'updatedAt']);
+    }
+
+    function safeEnrollmentUpdate(schoolId, enrollmentId) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return validEnrollmentBase(schoolId, request.resource.data)
+        && enrollmentId == resource.data.studentId + '__' + resource.data.academicYearId
+        && request.resource.data.studentId == resource.data.studentId
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.academicYearId == resource.data.academicYearId
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedBy == request.auth.uid
+        && changed.hasOnly([
+          'classId', 'className', 'grade', 'majorIds', 'studyProgramIds',
+          'enrollmentStatus', 'startDate', 'endDate', 'exitReason', 'exitNote',
+          'graduationYear', 'displayName', 'updatedBy', 'updatedAt'
+        ])
+        && (
+          (
+            changed.hasAny(['classId', 'className', 'grade'])
+            && (
+              currentUser().role == 'principal'
+              || studentPermission('students.transferClass')
+              || studentPermission('students_transfer_class')
+              || rolePermission(schoolId, 'students.transferClass')
+              || classRolePermission(schoolId, 'students.transferClass', resource.data.classId)
+            )
+          )
+          || (
+            changed.hasAny(['enrollmentStatus', 'endDate', 'exitReason', 'exitNote', 'graduationYear'])
+            && (
+              (
+                request.resource.data.enrollmentStatus == 'completed'
+                && canPromoteStudents(schoolId)
+              )
+              || canSetEnrollmentStatus(schoolId, request.resource.data.enrollmentStatus)
+            )
+          )
+          || (
+            !changed.hasAny(['classId', 'className', 'grade', 'enrollmentStatus', 'endDate', 'exitReason', 'exitNote', 'graduationYear'])
+            && canUpdateStudentBase(schoolId, resource.data)
+          )
+        );
     }
 
     function hasNoPasswordFields(data) {
@@ -591,7 +994,12 @@ service cloud.firestore {
 
     function validClassCreate(schoolId, data) {
       return hasStudentDataAccess(schoolId)
-        && (currentUser().role == 'principal' || studentPermission('classes_create'))
+        && (
+          currentUser().role == 'principal'
+          || studentPermission('classes_create')
+          || studentPermission('classes.create')
+          || rolePermission(schoolId, 'classes.create')
+        )
         && data.keys().hasAll([
           'name', 'normalizedName', 'academicYear', 'schoolId', 'teacherId',
           'staffIds', 'status', 'createdBy', 'updatedBy'
@@ -603,45 +1011,53 @@ service cloud.firestore {
         && data.name.size() > 0
         && data.academicYear is string
         && data.academicYear.size() > 0
+        && (!('academicYearId' in data) || data.academicYearId is string)
         && data.status in ['active', 'archived']
         && (
           data.teacherId == ''
           || currentUser().role == 'principal'
           || studentPermission('classes_assign_teacher')
+          || studentPermission('classes.assignTeacher')
         )
         && (
           data.status == 'active'
           || currentUser().role == 'principal'
           || studentPermission('classes_archive')
+          || studentPermission('classes.archive')
         );
     }
 
-    function safeClassUpdate(schoolId) {
+    function safeClassUpdate(schoolId, classId) {
       let changed = request.resource.data.diff(resource.data).affectedKeys();
       return hasStudentDataAccess(schoolId)
         && request.resource.data.schoolId == resource.data.schoolId
         && request.resource.data.createdBy == resource.data.createdBy
         && request.resource.data.createdAt == resource.data.createdAt
+        && (!('academicYearId' in resource.data) || request.resource.data.academicYearId == resource.data.academicYearId)
         && request.resource.data.updatedBy == request.auth.uid
         && (
           currentUser().role == 'principal'
+          || rolePermission(schoolId, 'classes.update')
+          || classRolePermission(schoolId, 'classes.update', classId)
           || (
-            studentPermission('classes_update')
+            (studentPermission('classes_update') || studentPermission('classes.update'))
             && (
               !changed.hasAny(['teacherId'])
               || studentPermission('classes_assign_teacher')
+              || studentPermission('classes.assignTeacher')
             )
             && (
               !changed.hasAny(['status'])
               || studentPermission('classes_archive')
+              || studentPermission('classes.archive')
             )
           )
           || (
-            studentPermission('classes_assign_teacher')
+            (studentPermission('classes_assign_teacher') || studentPermission('classes.assignTeacher'))
             && changed.hasOnly(['teacherId', 'updatedBy', 'updatedAt'])
           )
           || (
-            studentPermission('classes_archive')
+            (studentPermission('classes_archive') || studentPermission('classes.archive'))
             && changed.hasOnly(['status', 'updatedBy', 'updatedAt'])
           )
         );
@@ -657,7 +1073,7 @@ service cloud.firestore {
         && data.updatedBy == request.auth.uid
         && data.fullName is string
         && data.fullName.size() > 0
-        && data.status in ['active', 'transferred', 'graduated', 'archived']
+        && data.status in ['active', 'transferred', 'graduated', 'withdrawn', 'dropout', 'archived']
         && (
           data.status == 'active'
           || currentUser().role == 'principal'
@@ -683,20 +1099,30 @@ service cloud.firestore {
         && request.resource.data.updatedBy == request.auth.uid
         && request.resource.data.fullName is string
         && request.resource.data.fullName.size() > 0
-        && request.resource.data.status in ['active', 'transferred', 'graduated', 'archived']
+        && request.resource.data.status in ['active', 'transferred', 'graduated', 'withdrawn', 'dropout', 'archived']
         && (
           changed.hasAny(['classId', 'className', 'gradeLevel', 'academicYear', 'joinedAt'])
           ? (
-              (currentUser().role == 'principal' || studentPermission('students_transfer_class'))
+              (
+                canPromoteStudents(schoolId)
+                || currentUser().role == 'principal'
+                || studentPermission('students_transfer_class')
+                || studentPermission('students.transferClass')
+              )
               && changed.hasOnly([
                 'classId', 'className', 'gradeLevel', 'academicYear', 'joinedAt',
-                'status', 'endDate', 'updatedBy', 'updatedAt'
+                'currentEnrollmentId', 'status', 'endDate', 'updatedBy', 'updatedAt'
               ])
               && classExists(schoolId, request.resource.data.classId)
             )
           : changed.hasAny(['status', 'endDate'])
           ? (
-              (currentUser().role == 'principal' || studentPermission('students_archive'))
+              (
+                currentUser().role == 'principal'
+                || studentPermission('students_archive')
+                || studentPermission('students.archive')
+                || canSetEnrollmentStatus(schoolId, request.resource.data.status)
+              )
               && changed.hasOnly(['status', 'endDate', 'updatedBy', 'updatedAt'])
             )
           : changed.hasAny(['trackId', 'trackIds', 'programType', 'programTypes'])
@@ -713,30 +1139,138 @@ service cloud.firestore {
         );
     }
 
+    function safeDirectPromotionStudentUpdate(schoolId) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return directPromotionPermission(schoolId)
+        && resource.data.schoolId == schoolId
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.status == 'active'
+        && request.resource.data.classId is string
+        && classExists(schoolId, request.resource.data.classId)
+        && changed.hasOnly([
+          'classId', 'className', 'gradeLevel', 'academicYear', 'joinedAt',
+          'currentEnrollmentId', 'status', 'endDate', 'updatedBy', 'updatedAt'
+        ]);
+    }
+
+    function safeDirectLifecycleStudentUpdate(schoolId) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return directLifecyclePermission(schoolId, request.resource.data.status)
+        && resource.data.schoolId == schoolId
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.classId == resource.data.classId
+        && request.resource.data.updatedBy == request.auth.uid
+        && changed.hasOnly(['status', 'endDate', 'updatedBy', 'updatedAt']);
+    }
+
+    function safeDirectScopedRoleStudentUpdate(schoolId) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return hasStudentDataAccess(schoolId)
+        && resource.data.schoolId == schoolId
+        && resource.data.classId is string
+        && classRolePermission(schoolId, 'students.update', resource.data.classId)
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.classId == resource.data.classId
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.status == resource.data.status
+        && request.resource.data.updatedBy == request.auth.uid
+        && changed.hasOnly([
+          'firstName', 'lastName', 'fullName', 'idNumber', 'phone', 'parentPhone',
+          'additionalSubjects', 'updatedBy', 'updatedAt'
+        ]);
+    }
+
     function validStudentHistoryCreate(schoolId, studentId, studentData, data) {
       return hasStudentDataAccess(schoolId)
         && data.schoolId == schoolId
         && data.studentId == studentId
         && data.createdBy == request.auth.uid
         && (
-          currentUser().role == 'principal'
+          canPromoteStudents(schoolId)
+          || currentUser().role == 'principal'
+          || canUpdateStudentBase(schoolId, studentData)
           || studentPermission('students_create')
           || studentPermission('students_update')
           || studentPermission('students_transfer_class')
           || studentPermission('students_archive')
           || studentPermission('students_edit')
-          || canUpdateStudentBase(schoolId, studentData)
+          || studentPermission('students.promote')
+          || studentPermission('classes.promote')
+          || studentPermission('students.markGraduate')
+          || studentPermission('students.markWithdrawn')
+          || studentPermission('students.markDropout')
+          || studentPermission('students.restore')
+        );
+    }
+
+    function validDirectPromotionHistoryCreate(schoolId, studentId, data) {
+      return directPromotionPermission(schoolId)
+        && data.schoolId == schoolId
+        && data.studentId == studentId
+        && data.type == 'student_promoted'
+        && data.previousClassId is string
+        && data.previousAcademicYearId is string
+        && data.nextClassId is string
+        && data.nextAcademicYearId is string
+        && data.effectiveDate is string
+        && data.createdBy == request.auth.uid;
+    }
+
+    function validDirectTeacherHistoryCreate(schoolId, studentId, data) {
+      return hasStudentDataAccess(schoolId)
+        && data.schoolId == schoolId
+        && data.studentId == studentId
+        && data.type == 'student_created'
+        && data.nextClassId is string
+        && teachesClass(schoolId, data.nextClassId)
+        && data.effectiveDate is string
+        && data.createdBy == request.auth.uid;
+    }
+
+    function validDirectLifecycleHistoryCreate(schoolId, studentId, data) {
+      return data.schoolId == schoolId
+        && data.studentId == studentId
+        && data.effectiveDate is string
+        && data.createdBy == request.auth.uid
+        && (
+          (data.type == 'student_graduated' && directLifecyclePermission(schoolId, 'graduated'))
+          || (data.type == 'student_withdrawn' && directLifecyclePermission(schoolId, 'withdrawn'))
+          || (data.type == 'student_transferred_out' && directLifecyclePermission(schoolId, 'transferred'))
+          || (data.type == 'student_dropout' && directLifecyclePermission(schoolId, 'dropout'))
+          || (data.type == 'student_restored' && directLifecyclePermission(schoolId, 'active'))
         );
     }
 
     function canReadStudentNote(schoolId, studentData, noteData) {
-      return canViewStudent(schoolId, studentData) && (
-        currentUser().role == 'principal'
-        || (
-          noteData.visibility != 'school_admin'
-          && studentPermission('students_view_notes')
+      return canViewStudent(schoolId, studentData)
+        && (
+          currentUser().role == 'principal'
+          || studentPermission('students_view_notes')
+          || studentPermission('students.viewSensitiveNotes')
+          || rolePermission(schoolId, 'students.viewSensitiveNotes')
+          || classRolePermission(schoolId, 'students.viewSensitiveNotes', studentData.classId)
         )
-      );
+        && (
+          noteData.visibility != 'school_admin'
+          || currentUser().role == 'principal'
+          || studentPermission('students.viewSensitiveNotes')
+          || rolePermission(schoolId, 'students.viewSensitiveNotes')
+          || classRolePermission(schoolId, 'students.viewSensitiveNotes', studentData.classId)
+        );
+    }
+
+    function canAddStudentNote(schoolId, studentData) {
+      return currentUser().role == 'principal'
+        || studentPermission('students_add_notes')
+        || studentPermission('students.addNotes')
+        || rolePermission(schoolId, 'students.addNotes')
+        || classRolePermission(schoolId, 'students.addNotes', studentData.classId);
     }
 
     match /users/{userId} {
@@ -785,10 +1319,30 @@ service cloud.firestore {
         }
       }
 
+      match /academicYears/{academicYearId} {
+        allow read: if hasStudentDataAccess(schoolId) && isSchoolMember(schoolId);
+        allow create: if validAcademicYearCreate(schoolId, request.resource.data);
+        allow update: if safeAcademicYearUpdate(schoolId);
+        allow delete: if false;
+      }
+
+      match /studentEnrollments/{enrollmentId} {
+        allow read: if canViewEnrollment(schoolId, resource.data);
+        allow create: if validEnrollmentCreate(
+          schoolId,
+          enrollmentId,
+          request.resource.data
+        );
+        allow update: if safeEnrollmentUpdate(schoolId, enrollmentId);
+        allow delete: if false;
+      }
+
       match /classes/{classId} {
-        allow read: if canViewClass(schoolId, resource.data);
+        allow read: if classRolePermission(schoolId, 'classes.view', classId)
+          || classRolePermission(schoolId, 'students.view', classId)
+          || canViewClass(schoolId, resource.data);
         allow create: if validClassCreate(schoolId, request.resource.data);
-        allow update: if safeClassUpdate(schoolId);
+        allow update: if safeClassUpdate(schoolId, classId);
         allow delete: if false;
 
         match /history/{historyId} {
@@ -840,7 +1394,10 @@ service cloud.firestore {
               schoolId,
               get(/databases/$(database)/documents/schools/$(schoolId)/students/$(studentId)).data
             )
-            && (currentUser().role == 'principal' || studentPermission('students_add_notes'))
+            && canAddStudentNote(
+              schoolId,
+              get(/databases/$(database)/documents/schools/$(schoolId)/students/$(studentId)).data
+            )
             && request.resource.data.schoolId == schoolId
             && request.resource.data.studentId == studentId
             && request.resource.data.createdBy == request.auth.uid
@@ -849,6 +1406,50 @@ service cloud.firestore {
             && request.resource.data.visibility in ['class_staff', 'school_admin'];
           allow update, delete: if false;
         }
+      }
+
+      match /personalFiles/{studentId} {
+        allow read: if canViewPersonalFile(schoolId, studentId);
+        allow create: if request.resource.data.schoolId == schoolId
+          && request.resource.data.studentId == studentId
+          && request.resource.data.status == 'active'
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.updatedBy == request.auth.uid
+          && existsAfter(/databases/$(database)/documents/schools/$(schoolId)/students/$(studentId))
+          && getAfter(/databases/$(database)/documents/schools/$(schoolId)/students/$(studentId)).data.createdBy == request.auth.uid;
+        allow update, delete: if false;
+
+        match /{kind}/{itemId} {
+          allow read: if kind in [
+            'documents', 'credentials', 'experiences', 'skills', 'recommendations'
+          ] && canViewPersonalFile(schoolId, studentId);
+          allow create, update, delete: if false;
+        }
+
+        match /cvDocuments/{documentId} {
+          allow read: if canViewCv(schoolId, studentId);
+          allow create, update, delete: if false;
+
+          match /versions/{versionId} {
+            allow read: if canViewCv(schoolId, studentId);
+            allow create, update, delete: if false;
+
+            match /exports/{exportId} {
+              allow read: if canViewCv(schoolId, studentId);
+              allow create, update, delete: if false;
+            }
+          }
+        }
+      }
+
+      match /skillCatalog/{skillId} {
+        allow read: if canViewSkillCatalog(schoolId);
+        allow create, update, delete: if false;
+      }
+
+      match /cvTemplates/{templateId} {
+        allow read: if canReadCvTemplate(schoolId, resource.data);
+        allow create, update, delete: if false;
       }
 
       match /files/{fileId} {
@@ -990,8 +1591,10 @@ service cloud.firestore {
       }
 
       match /roles/{roleId} {
-        allow read: if canViewSchoolResource(schoolId);
-        allow create, update, delete: if canManageSchoolUsers(schoolId);
+        allow read: if canManageSchoolUsers(schoolId)
+          || rolePermission(schoolId, 'roles.view')
+          || (currentUser().customRoleIds is list && roleId in currentUser().customRoleIds);
+        allow create, update, delete: if false;
       }
 
       match /tracks/{trackId} {
@@ -1001,7 +1604,19 @@ service cloud.firestore {
 
       match /settings/{settingId} {
         allow read: if canViewSchoolResource(schoolId);
-        allow create, update: if canManageSchoolUsers(schoolId);
+        allow create: if (
+            settingId == 'academic_years'
+            && validAcademicYearSettings(schoolId, request.resource.data)
+          ) || canManageSchoolUsers(schoolId);
+        allow update: if (
+            settingId == 'academic_years'
+            && validAcademicYearSettings(schoolId, request.resource.data)
+            && request.resource.data.createdBy == resource.data.createdBy
+            && request.resource.data.createdAt == resource.data.createdAt
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'activeAcademicYearId', 'updatedBy', 'updatedAt'
+            ])
+          ) || canManageSchoolUsers(schoolId);
         allow delete: if false;
       }
 
@@ -1259,8 +1874,12 @@ service cloud.firestore {
     }
 
     function legacyStudentUpdateAllowed(collectionName) {
+      let schoolId = legacySchoolId(resource.data);
       return legacyDocumentSchoolAccess(collectionName, 'students_', resource.data)
-        && safeStudentUpdate(legacySchoolId(resource.data));
+        && (
+          safeDirectPromotionStudentUpdate(schoolId)
+          || safeStudentUpdate(schoolId)
+        );
     }
 
     function legacyClassReadAllowed(collectionName, data) {
@@ -1274,59 +1893,321 @@ service cloud.firestore {
         && validClassCreate(data.schoolId, data);
     }
 
-    function legacyClassUpdateAllowed(collectionName) {
+    function legacyClassUpdateAllowed(collectionName, classId) {
       return legacyDocumentSchoolAccess(collectionName, 'classes_', resource.data)
-        && safeClassUpdate(legacySchoolId(resource.data));
+        && safeClassUpdate(legacySchoolId(resource.data), classId);
+    }
+
+    function legacyAcademicYearReadAllowed(collectionName, data) {
+      return legacyDocumentSchoolAccess(collectionName, 'academic_years_', data)
+        && data.schoolId is string
+        && hasStudentDataAccess(data.schoolId);
+    }
+
+    function legacyAcademicYearCreateAllowed(collectionName, data) {
+      return legacyDocumentSchoolAccess(collectionName, 'academic_years_', data)
+        && data.schoolId is string
+        && validAcademicYearCreate(data.schoolId, data);
+    }
+
+    function legacyAcademicYearUpdateAllowed(collectionName) {
+      return legacyDocumentSchoolAccess(collectionName, 'academic_years_', resource.data)
+        && safeAcademicYearUpdate(resource.data.schoolId);
+    }
+
+    function legacyEnrollmentReadAllowed(collectionName, data) {
+      return legacyDocumentSchoolAccess(collectionName, 'student_enrollments_', data)
+        && data.schoolId is string
+        && canViewEnrollment(data.schoolId, data);
+    }
+
+    function legacyEnrollmentCreateAllowed(collectionName, enrollmentId, data) {
+      return data.schoolId is string
+        && collectionName == 'student_enrollments_' + data.schoolId
+        && (
+          validDirectPromotionEnrollmentCreate(data.schoolId, enrollmentId, data)
+          || validEnrollmentCreate(data.schoolId, enrollmentId, data)
+        );
+    }
+
+    function legacyEnrollmentUpdateAllowed(collectionName, enrollmentId) {
+      return resource.data.schoolId is string
+        && collectionName == 'student_enrollments_' + resource.data.schoolId
+        && (
+          safeDirectPromotionEnrollmentUpdate(resource.data.schoolId, enrollmentId)
+          || safeEnrollmentUpdate(resource.data.schoolId, enrollmentId)
+        );
+    }
+
+    function legacyAcademicYearSettingsWriteAllowed(collectionName, settingId, data) {
+      return settingId == 'academic_years'
+        && legacyDocumentSchoolAccess(collectionName, 'settings_', data)
+        && data.schoolId is string
+        && validAcademicYearSettings(data.schoolId, data);
+    }
+
+    function legacyRoleReadAllowed(collectionName, roleId, data) {
+      let schoolId = legacySchoolId(data);
+      return legacyDocumentSchoolAccess(collectionName, 'roles_', data)
+        && (
+          canManageSchoolUsers(schoolId)
+          || rolePermission(schoolId, 'roles.view')
+          || (currentUser().customRoleIds is list && roleId in currentUser().customRoleIds)
+        );
+    }
+
+    function legacyTopLevelReadAllowed(collectionName, documentId, data) {
+      return (
+          collectionName.matches('^tasks_[A-Za-z0-9_-]+$')
+          && legacyTaskReadAllowed(collectionName, data)
+        ) || (
+          collectionName.matches('^academic_years_[A-Za-z0-9_-]+$')
+          && legacyAcademicYearReadAllowed(collectionName, data)
+        ) || (
+          collectionName.matches('^student_enrollments_[A-Za-z0-9_-]+$')
+          && legacyEnrollmentReadAllowed(collectionName, data)
+        ) || (
+          collectionName.matches('^students_[A-Za-z0-9_-]+$')
+          && legacyStudentReadAllowed(collectionName, data)
+        ) || (
+          collectionName.matches('^classes_[A-Za-z0-9_-]+$')
+          && (
+          classRolePermission(legacySchoolId(data), 'classes.view', documentId)
+          || classRolePermission(legacySchoolId(data), 'students.view', documentId)
+          || legacyClassReadAllowed(collectionName, data)
+          )
+        ) || (
+          collectionName.matches('^roles_[A-Za-z0-9_-]+$')
+          && legacyRoleReadAllowed(collectionName, documentId, data)
+        ) || (
+          !collectionName.matches('^(tasks|academic_years|student_enrollments|students|classes|roles|personal_files|skill_catalog)_[A-Za-z0-9_-]+$')
+          && legacyReadAllowed(collectionName, data)
+        );
+    }
+
+    function legacyTopLevelCreateAllowed(collectionName, documentId, data) {
+      return (
+          collectionName.matches('^tasks_[A-Za-z0-9_-]+$')
+          && legacyTaskCreateAllowed(collectionName, data)
+        ) || (
+          collectionName.matches('^academic_years_[A-Za-z0-9_-]+$')
+          && legacyAcademicYearCreateAllowed(collectionName, data)
+        ) || (
+          collectionName.matches('^student_enrollments_[A-Za-z0-9_-]+$')
+          && legacyEnrollmentCreateAllowed(collectionName, documentId, data)
+        ) || (
+          collectionName.matches('^students_[A-Za-z0-9_-]+$')
+          && legacyStudentCreateAllowed(collectionName, data)
+        ) || (
+          collectionName.matches('^classes_[A-Za-z0-9_-]+$')
+          && legacyClassCreateAllowed(collectionName, data)
+        ) || (
+          collectionName.matches('^files_[A-Za-z0-9_-]+$')
+          && isAttendanceFile(data)
+          && legacyAttendanceCreateAllowed(collectionName, data)
+        ) || (
+          collectionName.matches('^settings_[A-Za-z0-9_-]+$')
+          && documentId == 'academic_years'
+          && (
+          legacyAcademicYearSettingsWriteAllowed(collectionName, documentId, data)
+          || legacySensitiveWriteAllowed(collectionName, data)
+          )
+        ) || (
+          collectionName.matches('^settings_[A-Za-z0-9_-]+$')
+          && documentId != 'academic_years'
+          && legacySensitiveWriteAllowed(collectionName, data)
+        ) || (
+          !collectionName.matches('^(tasks|academic_years|student_enrollments|students|classes|roles|settings|personal_files|skill_catalog)_[A-Za-z0-9_-]+$')
+          && !(collectionName.matches('^files_[A-Za-z0-9_-]+$') && isAttendanceFile(data))
+          && legacyWriteAllowed(collectionName, data)
+        );
+    }
+
+    function legacyTopLevelUpdateAllowed(collectionName, documentId) {
+      return (
+          collectionName.matches('^tasks_[A-Za-z0-9_-]+$')
+          && legacyTaskUpdateAllowed(collectionName)
+        ) || (
+          collectionName.matches('^academic_years_[A-Za-z0-9_-]+$')
+          && legacyAcademicYearUpdateAllowed(collectionName)
+        ) || (
+          collectionName.matches('^student_enrollments_[A-Za-z0-9_-]+$')
+          && legacyEnrollmentUpdateAllowed(collectionName, documentId)
+        ) || (
+          collectionName.matches('^students_[A-Za-z0-9_-]+$')
+          && legacyStudentUpdateAllowed(collectionName)
+        ) || (
+          collectionName.matches('^classes_[A-Za-z0-9_-]+$')
+          && legacyClassUpdateAllowed(collectionName, documentId)
+        ) || (
+          collectionName.matches('^files_[A-Za-z0-9_-]+$')
+          && isAttendanceFile(resource.data)
+          && legacyAttendanceUpdateAllowed(collectionName)
+        ) || (
+          collectionName.matches('^settings_[A-Za-z0-9_-]+$')
+          && documentId == 'academic_years'
+          && (
+          (
+            legacyAcademicYearSettingsWriteAllowed(
+              collectionName,
+              documentId,
+              request.resource.data
+            )
+            && request.resource.data.createdBy == resource.data.createdBy
+            && request.resource.data.createdAt == resource.data.createdAt
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'activeAcademicYearId', 'updatedBy', 'updatedAt'
+            ])
+          )
+          || legacySensitiveWriteAllowed(collectionName, resource.data)
+          )
+        ) || (
+          collectionName.matches('^settings_[A-Za-z0-9_-]+$')
+          && documentId != 'academic_years'
+          && legacySensitiveWriteAllowed(collectionName, resource.data)
+        ) || (
+          !collectionName.matches('^(tasks|academic_years|student_enrollments|students|classes|roles|settings|personal_files|skill_catalog)_[A-Za-z0-9_-]+$')
+          && !(collectionName.matches('^files_[A-Za-z0-9_-]+$') && isAttendanceFile(resource.data))
+          && legacyWriteAllowed(collectionName, resource.data)
+        );
+    }
+
+    function legacyTopLevelDeleteAllowed(collectionName, data) {
+      return (
+          collectionName.matches('^tasks_[A-Za-z0-9_-]+$')
+          && legacyTaskDeleteAllowed(collectionName, data)
+        ) || (
+          collectionName.matches('^settings_[A-Za-z0-9_-]+$')
+          && legacySensitiveWriteAllowed(collectionName, data)
+        ) || (
+          !collectionName.matches('^(tasks|academic_years|student_enrollments|roles|settings|personal_files|skill_catalog)_[A-Za-z0-9_-]+$')
+          && legacyWriteAllowed(collectionName, data)
+        );
     }
 
     match /{legacyCollection}/{documentId} {
       allow read: if (
-          legacyCollection.matches('^tasks_[A-Za-z0-9_-]+$')
-          && legacyTaskReadAllowed(legacyCollection, resource.data)
+          legacyCollection.matches('^personal_files_[A-Za-z0-9_-]+$')
+          && resource.data.schoolId is string
+          && legacyCollection == 'personal_files_' + resource.data.schoolId
+          && resource.data.studentId == documentId
+          && canViewPersonalFile(resource.data.schoolId, documentId)
         ) || (
-          !legacyCollection.matches('^tasks_[A-Za-z0-9_-]+$')
-          && (
-            legacyReadAllowed(legacyCollection, resource.data)
-            || legacyStudentReadAllowed(legacyCollection, resource.data)
-            || legacyClassReadAllowed(legacyCollection, resource.data)
-          )
-        );
+          legacyCollection.matches('^skill_catalog_[A-Za-z0-9_-]+$')
+          && resource.data.schoolId is string
+          && legacyCollection == 'skill_catalog_' + resource.data.schoolId
+          && canViewSkillCatalog(resource.data.schoolId)
+        ) || legacyTopLevelReadAllowed(legacyCollection, documentId, resource.data);
       allow create: if (
-          legacyCollection.matches('^tasks_[A-Za-z0-9_-]+$')
-          && legacyTaskCreateAllowed(legacyCollection, request.resource.data)
-        ) || (
-          !legacyCollection.matches('^tasks_[A-Za-z0-9_-]+$')
-          && (
-            legacyAttendanceCreateAllowed(legacyCollection, request.resource.data)
-            || legacyWriteAllowed(legacyCollection, request.resource.data)
-            || legacySensitiveWriteAllowed(legacyCollection, request.resource.data)
-            || legacyStudentCreateAllowed(legacyCollection, request.resource.data)
-            || legacyClassCreateAllowed(legacyCollection, request.resource.data)
+          legacyCollection.matches('^personal_files_[A-Za-z0-9_-]+$')
+          && validPersonalFileCreate(
+            legacyCollection,
+            documentId,
+            request.resource.data
           )
+        ) || (
+          legacyCollection.matches('^student_enrollments_[A-Za-z0-9_-]+$')
+          && request.resource.data.schoolId is string
+          && legacyCollection == 'student_enrollments_' + request.resource.data.schoolId
+          && validDirectPromotionEnrollmentCreate(
+            request.resource.data.schoolId,
+            documentId,
+            request.resource.data
+          )
+        ) || (
+          legacyCollection.matches('^student_enrollments_[A-Za-z0-9_-]+$')
+          && request.resource.data.schoolId is string
+          && legacyCollection == 'student_enrollments_' + request.resource.data.schoolId
+          && validDirectTeacherEnrollmentCreate(
+            request.resource.data.schoolId,
+            documentId,
+            request.resource.data
+          )
+        ) || (
+          legacyCollection.matches('^students_[A-Za-z0-9_-]+$')
+          && request.resource.data.schoolId is string
+          && legacyCollection == 'students_' + request.resource.data.schoolId
+          && validDirectTeacherStudentCreate(
+            request.resource.data.schoolId,
+            request.resource.data
+          )
+        ) || legacyTopLevelCreateAllowed(
+          legacyCollection,
+          documentId,
+          request.resource.data
         );
       allow update: if (
-          legacyCollection.matches('^tasks_[A-Za-z0-9_-]+$')
-          && legacyTaskUpdateAllowed(legacyCollection)
+          legacyCollection.matches('^student_enrollments_[A-Za-z0-9_-]+$')
+          && resource.data.schoolId is string
+          && legacyCollection == 'student_enrollments_' + resource.data.schoolId
+          && safeDirectPromotionEnrollmentUpdate(resource.data.schoolId, documentId)
         ) || (
-          !legacyCollection.matches('^tasks_[A-Za-z0-9_-]+$')
-          && (
-            legacyAttendanceUpdateAllowed(legacyCollection)
-            || legacyWriteAllowed(legacyCollection, resource.data)
-            || legacySensitiveWriteAllowed(legacyCollection, resource.data)
-            || legacyStudentUpdateAllowed(legacyCollection)
-            || legacyClassUpdateAllowed(legacyCollection)
-          )
-        );
-      allow delete: if (
-          legacyCollection.matches('^tasks_[A-Za-z0-9_-]+$')
-          && legacyTaskDeleteAllowed(legacyCollection, resource.data)
+          legacyCollection.matches('^student_enrollments_[A-Za-z0-9_-]+$')
+          && resource.data.schoolId is string
+          && legacyCollection == 'student_enrollments_' + resource.data.schoolId
+          && safeDirectLifecycleEnrollmentUpdate(resource.data.schoolId, documentId)
         ) || (
-          !legacyCollection.matches('^tasks_[A-Za-z0-9_-]+$')
-          && (
-            legacyWriteAllowed(legacyCollection, resource.data)
-            || legacySensitiveWriteAllowed(legacyCollection, resource.data)
-          )
-        );
+          legacyCollection.matches('^students_[A-Za-z0-9_-]+$')
+          && resource.data.schoolId is string
+          && legacyCollection == 'students_' + resource.data.schoolId
+          && safeDirectPromotionStudentUpdate(resource.data.schoolId)
+        ) || (
+          legacyCollection.matches('^students_[A-Za-z0-9_-]+$')
+          && resource.data.schoolId is string
+          && legacyCollection == 'students_' + resource.data.schoolId
+          && safeDirectLifecycleStudentUpdate(resource.data.schoolId)
+        ) || (
+          legacyCollection.matches('^students_[A-Za-z0-9_-]+$')
+          && resource.data.schoolId is string
+          && legacyCollection == 'students_' + resource.data.schoolId
+          && safeDirectScopedRoleStudentUpdate(resource.data.schoolId)
+        ) || legacyTopLevelUpdateAllowed(legacyCollection, documentId);
+      allow delete: if legacyTopLevelDeleteAllowed(legacyCollection, resource.data);
+    }
+
+    match /{legacyCollection}/{studentId}/{kind}/{itemId} {
+      allow read: if legacyCollection.matches('^personal_files_[A-Za-z0-9_-]+$')
+        && kind in ['documents', 'credentials', 'experiences', 'skills', 'recommendations']
+        && resource.data.schoolId is string
+        && legacyCollection == 'personal_files_' + resource.data.schoolId
+        && resource.data.studentId == studentId
+        && canViewPersonalFile(resource.data.schoolId, studentId);
+      allow create, update, delete: if false;
+    }
+
+    match /{legacyCollection}/{studentId}/cvDocuments/{documentId} {
+      allow read: if legacyCollection.matches('^personal_files_[A-Za-z0-9_-]+$')
+        && resource.data.schoolId is string
+        && legacyCollection == 'personal_files_' + resource.data.schoolId
+        && resource.data.studentId == studentId
+        && canViewCv(resource.data.schoolId, studentId);
+      allow create, update, delete: if false;
+
+      match /versions/{versionId} {
+        allow read: if legacyCollection.matches('^personal_files_[A-Za-z0-9_-]+$')
+          && resource.data.schoolId is string
+          && legacyCollection == 'personal_files_' + resource.data.schoolId
+          && resource.data.studentId == studentId
+          && canViewCv(resource.data.schoolId, studentId);
+        allow create, update, delete: if false;
+
+        match /exports/{exportId} {
+          allow read: if legacyCollection.matches('^personal_files_[A-Za-z0-9_-]+$')
+            && resource.data.schoolId is string
+            && legacyCollection == 'personal_files_' + resource.data.schoolId
+            && resource.data.studentId == studentId
+            && canViewCv(resource.data.schoolId, studentId);
+          allow create, update, delete: if false;
+        }
+      }
+    }
+
+    match /{templateCollection}/{templateId} {
+      allow read: if templateCollection.matches('^cv_templates_[A-Za-z0-9_-]+$')
+        && resource.data.schoolId is string
+        && templateCollection == 'cv_templates_' + resource.data.schoolId
+        && canReadCvTemplate(resource.data.schoolId, resource.data);
+      allow create, update, delete: if false;
     }
 
     match /{legacyCollection}/{entityId}/history/{historyId} {
@@ -1345,11 +2226,28 @@ service cloud.firestore {
         );
       allow create: if (
           legacyCollection.matches('^students_[A-Za-z0-9_-]+$')
-          && validStudentHistoryCreate(
-            request.resource.data.schoolId,
-            entityId,
-            getAfter(/databases/$(database)/documents/$(legacyCollection)/$(entityId)).data,
-            request.resource.data
+          && (
+            validDirectPromotionHistoryCreate(
+              request.resource.data.schoolId,
+              entityId,
+              request.resource.data
+            )
+            || validDirectTeacherHistoryCreate(
+              request.resource.data.schoolId,
+              entityId,
+              request.resource.data
+            )
+            || validDirectLifecycleHistoryCreate(
+              request.resource.data.schoolId,
+              entityId,
+              request.resource.data
+            )
+            || validStudentHistoryCreate(
+              request.resource.data.schoolId,
+              entityId,
+              getAfter(/databases/$(database)/documents/$(legacyCollection)/$(entityId)).data,
+              request.resource.data
+            )
           )
         ) || (
           legacyCollection.matches('^classes_[A-Za-z0-9_-]+$')
@@ -1495,8 +2393,10 @@ service cloud.firestore {
           get(/databases/$(database)/documents/$(legacyCollection)/$(studentId)).data
         )
         && (
-          currentUser().role == 'principal'
-          || studentPermission('students_add_notes')
+          canAddStudentNote(
+            request.resource.data.schoolId,
+            get(/databases/$(database)/documents/$(legacyCollection)/$(studentId)).data
+          )
         );
       allow update, delete: if false;
     }
