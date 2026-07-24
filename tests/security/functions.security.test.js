@@ -60,12 +60,7 @@ async function seedUser(uid, schoolId, role = 'viewer', extra = {}) {
 
 beforeEach(async () => {
   const collections = await adminDb.listCollections();
-  await Promise.all(collections.map(async collectionRef => {
-    const snapshot = await collectionRef.get();
-    const batch = adminDb.batch();
-    snapshot.docs.forEach(document => batch.delete(document.ref));
-    if (!snapshot.empty) await batch.commit();
-  }));
+  await Promise.all(collections.map(collectionRef => adminDb.recursiveDelete(collectionRef)));
 });
 
 afterEach(async () => {

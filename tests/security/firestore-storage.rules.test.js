@@ -1104,6 +1104,41 @@ test('attendance viewers are read-only and attendance records remain isolated by
   await assertFails(getDoc(doc(context('member_b').firestore(), recordPath)));
 });
 
+test('attendance legend managers permanently delete items while viewers cannot', async () => {
+  const legendItem = {
+    schoolId: SCHOOL_A,
+    label: 'מעקב',
+    shortCode: 'מ',
+    color: '#8b5cf6',
+    type: 'action',
+    attendanceEffect: 'neutral',
+    active: true,
+    createdBy: 'principal_a',
+    createdAt: 'created',
+    updatedAt: 'created',
+  };
+  await seedFirestore({
+    'users/legend_manager_a': user({ schoolId: SCHOOL_A, permissions: { attendance_manage_legend: true } }),
+    'users/legend_viewer_a': user({ schoolId: SCHOOL_A, permissions: { attendance_view: true } }),
+    [`schools/${SCHOOL_A}/classes/class_a`]: classRecord(),
+    [`schools/${SCHOOL_A}/files/attendance_nested`]: attendanceFile(),
+    [`schools/${SCHOOL_A}/files/attendance_nested/attendanceLegend/tracking`]: { ...legendItem, fileId: 'attendance_nested' },
+    [`files_${SCHOOL_A}/attendance_legacy`]: attendanceFile(),
+    [`files_${SCHOOL_A}/attendance_legacy/attendanceLegend/tracking`]: { ...legendItem, fileId: 'attendance_legacy' },
+  });
+  const viewerDb = context('legend_viewer_a').firestore();
+  const managerDb = context('legend_manager_a').firestore();
+  const nestedPath = `schools/${SCHOOL_A}/files/attendance_nested/attendanceLegend/tracking`;
+  const legacyPath = `files_${SCHOOL_A}/attendance_legacy/attendanceLegend/tracking`;
+
+  await assertFails(deleteDoc(doc(viewerDb, nestedPath)));
+  await assertFails(deleteDoc(doc(viewerDb, legacyPath)));
+  await assertSucceeds(deleteDoc(doc(managerDb, nestedPath)));
+  await assertSucceeds(deleteDoc(doc(managerDb, legacyPath)));
+  assert.equal((await getDoc(doc(managerDb, nestedPath))).exists(), false);
+  assert.equal((await getDoc(doc(managerDb, legacyPath))).exists(), false);
+});
+
 test('nested attendance rules reject tenant and actor spoofing', async () => {
   await seedFirestore({
     'users/editor_a': user({ schoolId: SCHOOL_A, permissions: { attendance_edit: true } }),
@@ -1240,10 +1275,11 @@ test('CV PDFs are private, immutable and require export permission to upload', a
   const exporter = context('cv_exporter_a').storage();
   const viewer = context('cv_viewer_a').storage();
   const otherSchool = context('cv_viewer_b').storage();
-  const path = `schools/${SCHOOL_A}/students/student_a/cv/cv_a/v001/export_a/cv_student.pdf`;
+  const runId = `${process.pid}_${Date.now()}`;
+  const path = `schools/${SCHOOL_A}/students/student_a/cv/cv_a/v001/export_${runId}/cv_student.pdf`;
   await assertSucceeds(uploadBytes(ref(exporter, path), new Uint8Array([37, 80, 68, 70]), { contentType: 'application/pdf' }));
   await assertSucceeds(getBytes(ref(viewer, path)));
   await assertFails(getBytes(ref(otherSchool, path)));
-  await assertFails(uploadBytes(ref(viewer, `schools/${SCHOOL_A}/students/student_a/cv/cv_a/v001/export_b/cv.pdf`), new Uint8Array([37, 80, 68, 70]), { contentType: 'application/pdf' }));
+  await assertFails(uploadBytes(ref(viewer, `schools/${SCHOOL_A}/students/student_a/cv/cv_a/v001/denied_${runId}/cv.pdf`), new Uint8Array([37, 80, 68, 70]), { contentType: 'application/pdf' }));
   await assertFails(deleteObject(ref(exporter, path)));
 });

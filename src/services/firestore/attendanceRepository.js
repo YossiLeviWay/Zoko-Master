@@ -1,4 +1,5 @@
 import {
+  deleteDoc,
   doc,
   getDoc,
   onSnapshot,
@@ -296,12 +297,8 @@ export async function addAttendanceLegendItem({ db, schoolId, file, actor, input
   return itemRef.id;
 }
 
-export async function setAttendanceLegendItemActive({ db, schoolId, fileId, itemId, actor, active, mode = DATA_MODE }) {
-  await updateDoc(doc(childCollection(db, schoolId, fileId, 'attendanceLegend', mode), itemId), {
-    active,
-    updatedBy: actor.uid,
-    updatedAt: serverTimestamp(),
-  });
+export async function deleteAttendanceLegendItem({ db, schoolId, fileId, itemId, mode = DATA_MODE }) {
+  await deleteDoc(doc(childCollection(db, schoolId, fileId, 'attendanceLegend', mode), itemId));
 }
 
 export async function archiveAttendanceSheet({ db, schoolId, fileId, actor, mode = DATA_MODE }) {

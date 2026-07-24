@@ -1772,7 +1772,9 @@ service cloud.firestore {
               'label', 'shortCode', 'color', 'type', 'attendanceEffect', 'order',
               'active', 'updatedBy', 'updatedAt'
             ]);
-          allow delete: if false;
+          allow delete: if canManageAttendanceLegend(schoolId, nestedAttendanceFileData(schoolId, fileId))
+            && resource.data.schoolId == schoolId
+            && resource.data.fileId == fileId;
         }
 
         match /attendanceMembers/{memberId} {
@@ -2585,7 +2587,9 @@ service cloud.firestore {
           'label', 'shortCode', 'color', 'type', 'attendanceEffect', 'order',
           'active', 'updatedBy', 'updatedAt'
         ]);
-      allow delete: if false;
+      allow delete: if legacyAttendanceCanManageLegend(legacyCollection, fileId)
+        && resource.data.schoolId == legacyAttendanceFileData(legacyCollection, fileId).schoolId
+        && resource.data.fileId == fileId;
     }
 
     match /{legacyCollection}/{fileId}/attendanceMembers/{memberId} {

@@ -126,7 +126,6 @@
 .attendance-save-state--error { color: #dc2626; }
 
 .attendance-legend-panel { padding: .7rem; border-bottom: 1px solid #e2e8f0; background: #f8fafc; }
-.attendance-legend-list > span.archived { opacity: .45; }
 .attendance-legend-list .icon-btn { width: 20px; height: 20px; }
 .attendance-legend-form { display: grid; grid-template-columns: 1.3fr 70px 45px 1fr 1fr auto; gap: .45rem; margin-top: .65rem; }
 .attendance-legend-form input,
