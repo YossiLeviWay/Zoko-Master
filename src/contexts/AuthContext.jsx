@@ -177,7 +177,7 @@ export function AuthProvider({ children }) {
   }
 
   function isPrincipal() {
-    const schoolId = selectedSchool || userData.schoolId;
+    const schoolId = selectedSchool || userData?.schoolId;
     const schoolRole = userData?.rolesBySchool?.[schoolId] || userData?.role;
     if (!['principal', 'institution_manager'].includes(schoolRole)) return false;
     return Boolean(schoolId && (

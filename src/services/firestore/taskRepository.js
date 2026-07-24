@@ -31,6 +31,10 @@ export function taskDueDate(task) {
 export function normalizeOrganizationTask(item) {
   return {
     ...item,
+    assigneeIds: Array.isArray(item.assigneeIds) ? item.assigneeIds : [],
+    participantIds: Array.isArray(item.participantIds) ? item.participantIds : [],
+    pinnedBy: Array.isArray(item.pinnedBy) ? item.pinnedBy : [],
+    tags: Array.isArray(item.tags) ? item.tags : [],
     scope: item.scope || TASK_SCOPES.TEAM,
     _source: 'organization',
     _key: `organization:${item.id}`,
@@ -40,6 +44,10 @@ export function normalizeOrganizationTask(item) {
 function normalizePersonalTask(item) {
   return {
     ...item,
+    assigneeIds: [],
+    participantIds: Array.isArray(item.participantIds) ? item.participantIds : [],
+    pinnedBy: Array.isArray(item.pinnedBy) ? item.pinnedBy : [],
+    tags: Array.isArray(item.tags) ? item.tags : [],
     scope: TASK_SCOPES.PERSONAL,
     assigneeType: 'personal',
     _source: 'personal',

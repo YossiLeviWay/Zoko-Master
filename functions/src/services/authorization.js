@@ -35,7 +35,7 @@ export function requireSchoolManager(actor, schoolId) {
   throw permissionDenied();
 }
 
-export async function requireTargetInSchool(actor, targetUid, schoolId, { allowSelf = false } = {}) {
+export async function requireTargetInSchool(actor, targetUid, schoolId, { allowSelf = false, requireAuthUser = true } = {}) {
   if (!allowSelf && actor.uid === targetUid) throw permissionDenied();
   const targetRef = adminDb.collection('users').doc(targetUid);
   const targetSnapshot = await targetRef.get();
@@ -44,8 +44,8 @@ export async function requireTargetInSchool(actor, targetUid, schoolId, { allowS
   const targetMemberships = memberships(targetData);
   if (!actor.globalAdmin && !targetMemberships.has(schoolId)) throw permissionDenied();
 
-  const targetAuth = await adminAuth.getUser(targetUid);
-  const targetGlobalAdmin = targetAuth.customClaims?.global_admin === true;
+  const targetAuth = requireAuthUser ? await adminAuth.getUser(targetUid) : null;
+  const targetGlobalAdmin = targetAuth?.customClaims?.global_admin === true;
   if (!actor.globalAdmin && (targetGlobalAdmin || targetData.role === 'principal')) {
     throw permissionDenied();
   }

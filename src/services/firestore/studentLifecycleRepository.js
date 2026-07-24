@@ -18,6 +18,7 @@ export const ENROLLMENT_STATUS = Object.freeze({
   WITHDRAWN: 'withdrawn',
   DROPOUT: 'dropout',
   TRANSFERRED: 'transferred',
+  ARCHIVED: 'archived',
 });
 
 const WRITE_GROUP_SIZE = 100;

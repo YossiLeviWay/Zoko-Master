@@ -203,9 +203,9 @@ export default function TaskBoard() {
   const [mandatoryForm, setMandatoryForm] = useState({ ...emptyForm(TASK_SCOPES.ASSIGNED), recipientIds: [] });
 
   const teamIds = useMemo(() => {
-    const ids = new Set(userData?.teamIds || []);
+    const ids = new Set(Array.isArray(userData?.teamIds) ? userData.teamIds : []);
     teams.forEach(team => {
-      if (team.memberIds?.includes(uid)) ids.add(team.id);
+      if (Array.isArray(team.memberIds) && team.memberIds.includes(uid)) ids.add(team.id);
     });
     return [...ids];
   }, [teams, uid, userData?.teamIds]);
@@ -392,7 +392,7 @@ export default function TaskBoard() {
       if (recipients.length) await createNotifications(recipients, options);
     } else if (input.scope === TASK_SCOPES.TEAM) {
       const team = teams.find(item => item.id === input.teamId);
-      const recipients = (team?.memberIds || []).filter(id => id !== uid);
+      const recipients = (Array.isArray(team?.memberIds) ? team.memberIds : []).filter(id => id !== uid);
       if (recipients.length) await createNotifications(recipients, options);
     }
   }

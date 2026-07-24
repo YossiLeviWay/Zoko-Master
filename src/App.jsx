@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Login from './components/Auth/Login';
 import Register from './components/Auth/Register';
 import AppLayout from './components/Layout/AppLayout';
+import PageErrorBoundary from './components/Common/PageErrorBoundary';
 
 const Dashboard = lazy(() => import('./components/Dashboard/Dashboard'));
 const GanttChart = lazy(() => import('./components/Gantt/GanttChart'));
@@ -83,7 +84,7 @@ export default function App() {
               <Route path="calendar" element={<ApprovedRoute><SchoolRequiredRoute><GanttChart /></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="categories" element={<ApprovedRoute><SchoolRequiredRoute><CategoryManager /></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="staff" element={<ApprovedRoute><SchoolRequiredRoute><StaffManagement /></SchoolRequiredRoute></ApprovedRoute>} />
-              <Route path="tasks" element={<ApprovedRoute><SchoolRequiredRoute><TaskBoard /></SchoolRequiredRoute></ApprovedRoute>} />
+              <Route path="tasks" element={<ApprovedRoute><SchoolRequiredRoute><PageErrorBoundary><TaskBoard /></PageErrorBoundary></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="files" element={<ApprovedRoute><SchoolRequiredRoute><FileManager /></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="teams" element={<ApprovedRoute><SchoolRequiredRoute><Teams /></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="students" element={<ApprovedRoute><SchoolRequiredRoute><Students /></SchoolRequiredRoute></ApprovedRoute>} />

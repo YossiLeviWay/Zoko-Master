@@ -45,6 +45,7 @@ export {
   bulkCreateCvDrafts,
 } from './callables/cvTemplates.js';
 export { bulkImportStudents } from './callables/studentImports.js';
+export { fileTrashAction } from './callables/fileTrash.js';
 export {
   upsertResourceAcl,
   removeResourceAcl,

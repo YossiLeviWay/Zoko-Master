@@ -13,14 +13,13 @@ import {
   getDoc,
   addDoc,
   updateDoc,
-  deleteDoc,
   doc,
   orderBy,
   onSnapshot,
   arrayUnion,
   arrayRemove
 } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import Header from '../Layout/Header';
 import SpreadsheetEditor from './SpreadsheetEditor';
 import DocumentEditor from './DocumentEditor';
@@ -28,7 +27,7 @@ import AttendanceSheetEditor from './AttendanceSheetEditor';
 import AttendanceSheetWizard from './AttendanceSheetWizard';
 import GradeMappingEditor from './GradeMappingEditor';
 import { subscribeClasses } from '../../services/firestore/classStudentRepository';
-import { archiveAttendanceSheet } from '../../services/firestore/attendanceRepository';
+import { fileTrashAction } from '../../services/adminUserService';
 import {
   FolderPlus,
   Upload,
@@ -57,9 +56,9 @@ import {
   History,
   Clock,
   ClipboardCheck,
-  Archive,
   Printer,
-  FileDown
+  FileDown,
+  RotateCcw,
 } from 'lucide-react';
 import { createNotifications } from '../../utils/notifications';
 import '../Gantt/Gantt.css';
@@ -104,6 +103,8 @@ export default function FileManager() {
   const [showAttendanceWizard, setShowAttendanceWizard] = useState(false);
   const [attendanceInitialClassId, setAttendanceInitialClassId] = useState('');
   const [attendanceMessage, setAttendanceMessage] = useState('');
+  const [showTrash, setShowTrash] = useState(false);
+  const [trashBusyId, setTrashBusyId] = useState('');
   const autoSaveTimerRef = useRef(null);
   const lastSavedContentRef = useRef(null);
   const fileEditNotifSentRef = useRef(null); // track which file we already notified about
@@ -174,9 +175,13 @@ export default function FileManager() {
     return false;
   }, [accessibleClassIds, canManage, folderPerms, userData]);
 
-  const folders = useMemo(() => [...legacyFolders, ...nestedFolders]
+  const accessibleFolders = useMemo(() => [...legacyFolders, ...nestedFolders]
     .filter(userCanAccessFolder), [legacyFolders, nestedFolders, userCanAccessFolder]);
-  const files = useMemo(() => [...legacyFiles, ...nestedFiles].filter(userCanOpenFile), [legacyFiles, nestedFiles, userCanOpenFile]);
+  const accessibleFiles = useMemo(() => [...legacyFiles, ...nestedFiles].filter(userCanOpenFile), [legacyFiles, nestedFiles, userCanOpenFile]);
+  const folders = useMemo(() => accessibleFolders.filter(item => !item.trashedAt), [accessibleFolders]);
+  const files = useMemo(() => accessibleFiles.filter(item => !item.trashedAt), [accessibleFiles]);
+  const trashedFolders = useMemo(() => accessibleFolders.filter(item => item.trashedAt), [accessibleFolders]);
+  const trashedFiles = useMemo(() => accessibleFiles.filter(item => item.trashedAt), [accessibleFiles]);
 
   function userCanCreateFiles() {
     if (!canUploadFiles) return false;
@@ -516,49 +521,48 @@ export default function FileManager() {
     }
   }, [editingFile]);
 
-  async function deleteFolder(folderId) {
-    if (!canUploadFiles) return;
-    const filesSnap = await getDocs(
-      query(collection(db, `files_${schoolId}`), where('folderId', '==', folderId))
-    );
-    if (filesSnap.docs.some(fileDoc => fileDoc.data().fileType === 'attendance')) {
-      alert('לא ניתן למחוק תיקייה שמכילה גיליונות נוכחות. יש להעביר או לארכב אותם תחילה כדי לשמור על היסטוריית הנוכחות.');
-      return;
-    }
-    if (!confirm('האם למחוק תיקייה זו וכל תוכנה?')) return;
-    for (const fileDoc of filesSnap.docs) {
-      const fileData = fileDoc.data();
-      if (fileData.storagePath) {
-        try { await deleteObject(ref(storage, fileData.storagePath)); } catch {}
-      }
-      await deleteDoc(doc(db, `files_${schoolId}`, fileDoc.id));
-    }
-    await deleteDoc(doc(db, `folders_${schoolId}`, folderId));
-    if (selectedFolder === folderId) setSelectedFolder(null);
+  async function deleteFolder(folder) {
+    if (!canManage && !permissions.files_delete && !permissions['files.delete']) return;
+    if (!confirm(`להעביר את התיקייה "${folder.name}" ואת תוכנה לסל המחזור?`)) return;
+    setTrashBusyId(`folder_${folder.id}`);
+    try {
+      await fileTrashAction({ schoolId, resourceType: 'folder', resourceId: folder.id, action: 'trash' });
+      if (selectedFolder === folder.id) setSelectedFolder(null);
+      setAttendanceMessage('התיקייה הועברה לסל המחזור.');
+    } catch { alert('לא ניתן להעביר את התיקייה לסל המחזור.'); }
+    finally { setTrashBusyId(''); }
   }
 
   async function deleteFile(fileItem) {
-    if (fileItem.fileType === 'gradebook') return;
-    if (fileItem.fileType === 'attendance') {
-      if (!canManage && !permissions.attendance_edit) return;
-      if (!confirm('האם להעביר את גיליון הנוכחות לארכיון? הנתונים והיסטוריית השינויים יישמרו.')) return;
-      await archiveAttendanceSheet({
-        db,
-        schoolId,
-        fileId: fileItem.id,
-        actor: { uid },
-        mode: fileItem._dataMode || 'nested',
-      });
+    if (!canManage && !permissions.files_delete && !permissions['files.delete']) return;
+    if (!confirm(`להעביר את "${fileItem.name}" לסל המחזור?`)) return;
+    setTrashBusyId(`file_${fileItem.id}`);
+    try {
+      await fileTrashAction({ schoolId, resourceType: 'file', resourceId: fileItem.id, action: 'trash' });
       if (editingFile?.id === fileItem.id) setEditingFile(null);
-      return;
-    }
-    if (!canUploadFiles) return;
-    if (!confirm('האם למחוק קובץ זה?')) return;
-    if (fileItem.storagePath) {
-      try { await deleteObject(ref(storage, fileItem.storagePath)); } catch {}
-    }
-    await deleteDoc(doc(db, `files_${schoolId}`, fileItem.id));
-    if (editingFile?.id === fileItem.id) setEditingFile(null);
+      setAttendanceMessage('הקובץ הועבר לסל המחזור.');
+    } catch { alert('לא ניתן להעביר את הקובץ לסל המחזור.'); }
+    finally { setTrashBusyId(''); }
+  }
+
+  async function restoreTrashItem(resourceType, item) {
+    setTrashBusyId(`${resourceType}_${item.id}`);
+    try {
+      await fileTrashAction({ schoolId, resourceType, resourceId: item.id, action: 'restore' });
+      setAttendanceMessage(`${resourceType === 'folder' ? 'התיקייה' : 'הקובץ'} שוחזרו בהצלחה.`);
+    } catch { alert('לא ניתן לשחזר את הפריט.'); }
+    finally { setTrashBusyId(''); }
+  }
+
+  async function permanentlyDeleteTrashItem(resourceType, item) {
+    if (!confirm(`מחיקה זו סופית ותסיר את "${item.name}" לחלוטין ממסד הנתונים. האם להמשיך?`)) return;
+    if (!confirm('אישור אחרון: לא ניתן יהיה לשחזר את הפריט לאחר המחיקה.')) return;
+    setTrashBusyId(`${resourceType}_${item.id}`);
+    try {
+      await fileTrashAction({ schoolId, resourceType, resourceId: item.id, action: 'purge', confirmPermanent: true });
+      setAttendanceMessage('הפריט נמחק לצמיתות.');
+    } catch { alert('לא ניתן למחוק את הפריט לצמיתות.'); }
+    finally { setTrashBusyId(''); }
   }
 
   async function duplicateFile(fileItem) {
@@ -894,8 +898,9 @@ export default function FileManager() {
               {canManage && (
                 <button
                   className="tree-delete-btn"
-                  onClick={() => deleteFolder(folder.id)}
-                  title="מחיקת תיקייה"
+                  onClick={() => deleteFolder(folder)}
+                  disabled={trashBusyId === `folder_${folder.id}`}
+                  title="העברה לסל המחזור"
                 >
                   <Trash2 size={11} />
                 </button>
@@ -938,8 +943,8 @@ export default function FileManager() {
                           <Download size={10} />
                         </a>
                       )}
-                      {canManage && f.fileType !== 'gradebook' && (
-                        <button className="tree-delete-btn" onClick={() => deleteFile(f)} title="מחיקה">
+                      {canManage && (
+                        <button className="tree-delete-btn" onClick={() => deleteFile(f)} disabled={trashBusyId === `file_${f.id}`} title="העברה לסל המחזור">
                           <Trash2 size={10} />
                         </button>
                       )}
@@ -973,6 +978,7 @@ export default function FileManager() {
             <div className="tree-panel-header">
               <h3>תיקיות וקבצים</h3>
               <div className="tree-panel-actions">
+                {canManage && <button className="icon-btn" onClick={() => setShowTrash(true)} title="סל המחזור" aria-label="פתיחת סל המחזור"><Trash2 size={15} /></button>}
                 {selectedFolder && userCanCreateFiles() && (
                   <>
                     <button className="icon-btn" onClick={() => { setNewFileType('spreadsheet'); setCreateInFolder(selectedFolder); }} title="גיליון חדש">
@@ -1346,9 +1352,9 @@ export default function FileManager() {
                               <Download size={13} />
                             </a>
                           )}
-                          {f.fileType !== 'gradebook' && (canManage || (f.fileType === 'attendance' && permissions.attendance_edit)) && (
-                            <button className="icon-btn icon-btn--danger" onClick={() => deleteFile(f)} title={f.fileType === 'attendance' ? 'העברה לארכיון' : 'מחיקה'}>
-                              {f.fileType === 'attendance' ? <Archive size={13} /> : <Trash2 size={13} />}
+                          {(canManage || permissions.files_delete || permissions['files.delete']) && (
+                            <button className="icon-btn icon-btn--danger" onClick={() => deleteFile(f)} title="העברה לסל המחזור">
+                              <Trash2 size={13} />
                             </button>
                           )}
                         </div>
@@ -1373,6 +1379,8 @@ export default function FileManager() {
           </div>
         </div>
       </div>
+
+      {showTrash && <div className="modal-overlay" onClick={() => setShowTrash(false)}><div className="modal-content modal-content--wide recycle-bin-modal" role="dialog" aria-modal="true" aria-label="סל המחזור" onClick={event => event.stopPropagation()}><div className="modal-header"><div><h3>סל המחזור</h3><p>ניתן לשחזר פריטים, או למחוק אותם לצמיתות לאחר אישור נוסף.</p></div><button className="modal-close" onClick={() => setShowTrash(false)} aria-label="סגירה"><X size={18} /></button></div><div className="recycle-bin-list">{trashedFolders.map(item => <article key={`folder_${item.id}`}><Folder size={20} /><div><strong>{item.name}</strong><span>תיקייה</span></div><button className="btn btn-secondary btn-sm" disabled={trashBusyId === `folder_${item.id}`} onClick={() => restoreTrashItem('folder', item)}><RotateCcw size={13} /> שחזור</button><button className="btn btn-danger btn-sm" disabled={trashBusyId === `folder_${item.id}`} onClick={() => permanentlyDeleteTrashItem('folder', item)}><Trash2 size={13} /> מחיקה סופית</button></article>)}{trashedFiles.filter(item => !item.trashedWithFolderId).map(item => <article key={`file_${item.id}`}>{getFileIcon(item, 20)}<div><strong>{item.name}</strong><span>קובץ</span></div><button className="btn btn-secondary btn-sm" disabled={trashBusyId === `file_${item.id}`} onClick={() => restoreTrashItem('file', item)}><RotateCcw size={13} /> שחזור</button><button className="btn btn-danger btn-sm" disabled={trashBusyId === `file_${item.id}`} onClick={() => permanentlyDeleteTrashItem('file', item)}><Trash2 size={13} /> מחיקה סופית</button></article>)}{trashedFolders.length === 0 && trashedFiles.length === 0 && <div className="empty-state"><Trash2 size={32} /><p>סל המחזור ריק</p></div>}</div></div></div>}
 
       {/* Context Menu (right-click on files/folders) */}
       {contextMenu && (
@@ -1431,14 +1439,14 @@ export default function FileManager() {
             </button>
           )}
           <div className="context-menu-divider" />
-          {contextMenu.item.fileType !== 'gradebook' && !contextMenu.item.specialFolder && (canManage || (contextMenu.type === 'file' && contextMenu.item.fileType === 'attendance' && permissions.attendance_edit)) && (
+          {(canManage || permissions.files_delete || permissions['files.delete']) && (
             <button className="context-menu-item context-menu-item--danger" onClick={() => {
-              if (contextMenu.type === 'folder') deleteFolder(contextMenu.item.id);
+              if (contextMenu.type === 'folder') deleteFolder(contextMenu.item);
               else deleteFile(contextMenu.item);
               setContextMenu(null);
             }}>
-              {contextMenu.type === 'file' && contextMenu.item.fileType === 'attendance' ? <Archive size={14} /> : <Trash2 size={14} />}
-              {contextMenu.type === 'file' && contextMenu.item.fileType === 'attendance' ? 'העברה לארכיון' : 'מחיקה'}
+              <Trash2 size={14} />
+              העברה לסל המחזור
             </button>
           )}
         </div>
@@ -1505,7 +1513,7 @@ export default function FileManager() {
             <>
               <div className="context-menu-divider" />
               <button className="context-menu-item context-menu-item--danger" onClick={() => {
-                deleteFolder(selectedFolder);
+                deleteFolder(folders.find(item => item.id === selectedFolder));
                 setViewerContextMenu(null);
               }}>
                 <Trash2 size={14} />

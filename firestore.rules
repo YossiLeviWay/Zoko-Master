@@ -812,11 +812,13 @@ service cloud.firestore {
         || (status == 'dropout' && studentPermission('students.markDropout'))
         || (status == 'transferred' && studentPermission('students.markWithdrawn'))
         || (status == 'active' && studentPermission('students.restore'))
+        || (status == 'archived' && (studentPermission('students.archive') || studentPermission('students_archive')))
         || (status == 'graduated' && rolePermission(schoolId, 'students.markGraduate'))
         || (status == 'withdrawn' && rolePermission(schoolId, 'students.markWithdrawn'))
         || (status == 'dropout' && rolePermission(schoolId, 'students.markDropout'))
         || (status == 'transferred' && rolePermission(schoolId, 'students.markWithdrawn'))
         || (status == 'active' && rolePermission(schoolId, 'students.restore'))
+        || (status == 'archived' && rolePermission(schoolId, 'students.archive'))
         || (status == 'completed' && canPromoteStudents(schoolId))
       );
     }
@@ -900,7 +902,7 @@ service cloud.firestore {
         && data.classId is string
         && classExists(schoolId, data.classId)
         && data.enrollmentStatus in [
-          'active', 'completed', 'graduated', 'withdrawn', 'dropout', 'transferred'
+          'active', 'completed', 'graduated', 'withdrawn', 'dropout', 'transferred', 'archived'
         ];
     }
 
@@ -976,6 +978,7 @@ service cloud.firestore {
         || (status == 'transferred' && studentPermission('students.markWithdrawn'))
         || (status == 'dropout' && studentPermission('students.markDropout'))
         || (status == 'active' && studentPermission('students.restore'))
+        || (status == 'archived' && (studentPermission('students.archive') || studentPermission('students_archive')))
       );
     }
 
@@ -1976,7 +1979,8 @@ service cloud.firestore {
 
       match /events/{eventId} {
         allow read: if canViewSchoolResource(schoolId);
-        allow create, update, delete: if hasPermission(schoolId, 'calendar_edit');
+        allow create, update, delete: if hasPermission(schoolId, 'calendar_edit')
+          || rolePermission(schoolId, 'calendar.edit');
       }
 
       match /holidays/{holidayId} {

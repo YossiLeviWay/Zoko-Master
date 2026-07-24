@@ -196,7 +196,13 @@ export async function startPermissionPreviewHandler(request) {
   const actor = await requireActor(request);
   const input = permissionPreviewSchema.parse(request.data);
   await requireCapability(actor, input.schoolId, 'institution.permissionPreview');
-  const target = await requireTargetInSchool(actor, input.targetUserId, input.schoolId, { allowSelf: false });
+  // Permission preview never impersonates the target or mutates Firebase Auth.
+  // Legacy staff records may therefore be previewed even before their Auth user
+  // has been provisioned.
+  const target = await requireTargetInSchool(actor, input.targetUserId, input.schoolId, {
+    allowSelf: false,
+    requireAuthUser: false,
+  });
   await enforceRateLimit({ uid: actor.uid, action: 'permissionPreview.start', limit: 20 });
   const context = await buildPermissionContext({ userId: input.targetUserId, schoolId: input.schoolId });
   const expiresAt = Timestamp.fromMillis(Date.now() + (15 * 60 * 1000));

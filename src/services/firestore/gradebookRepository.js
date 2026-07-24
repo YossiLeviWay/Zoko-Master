@@ -99,7 +99,9 @@ export function subscribeGradebookGrades({ db, schoolId, gradebookId, onData, on
 
 export function subscribeClassGradebooks({ db, schoolId, classId, onData, onError }) {
   return onSnapshot(query(collection(db, `schools/${schoolId}/gradebooks`), where('classId', '==', classId)), snapshot => {
-    onData(snapshot.docs.map(item => ({ id: item.id, ...item.data() })).filter(item => item.status !== 'archived'));
+    onData(snapshot.docs.map(item => ({ id: item.id, ...item.data() })).filter(item => (
+      item.status !== 'archived' && !item.trashedAt
+    )));
   }, onError);
 }
 

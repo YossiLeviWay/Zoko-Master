@@ -12,7 +12,7 @@ import {
 import PersonalFileTab from './PersonalFileTab';
 import CvBuilderTab from './CvBuilderTab';
 import GradeMappingEditor from '../Files/GradeMappingEditor';
-import { ensureClassGradebook, subscribeClassGradebooks } from '../../services/firestore/gradebookRepository';
+import { subscribeClassGradebooks } from '../../services/firestore/gradebookRepository';
 
 const PROGRAM_LABELS = {
   full_matriculation: 'בגרות מלאה', tech_matriculation: 'בגרות טכנולוגית',
@@ -50,8 +50,7 @@ function formatTimestamp(value) {
 
 export default function StudentProfile({
   student, tracks, schoolId, actor, canEdit, canAddNotes, canViewNotes,
-  personalFileAccess, cvAccess, classItem, canViewGrades, canEditGrades,
-  canManageGradebooks, onClose, onEdit,
+  personalFileAccess, cvAccess, canViewGrades, onClose, onEdit,
 }) {
   const trackIds = student.trackIds || (student.trackId ? [student.trackId] : []);
   const selectedTracks = tracks.filter(track => trackIds.includes(track.id));
@@ -65,7 +64,6 @@ export default function StudentProfile({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [gradebooks, setGradebooks] = useState([]);
-  const [creatingGradebook, setCreatingGradebook] = useState(false);
 
   useEffect(() => subscribeStudentHistory({ db, schoolId, studentId: student.id, onData: setHistory, onError: () => setHistory([]) }), [schoolId, student.id]);
   useEffect(() => {
@@ -114,19 +112,6 @@ export default function StudentProfile({
     }
   }
 
-  async function createGradebook() {
-    if (!classItem) return;
-    setCreatingGradebook(true);
-    setError('');
-    try {
-      await ensureClassGradebook({ db, schoolId, actor, classItem });
-    } catch {
-      setError('לא ניתן ליצור מיפוי ציונים לכיתה.');
-    } finally {
-      setCreatingGradebook(false);
-    }
-  }
-
   function statusIcon(statusId) {
     const option = STATUS_OPTIONS.find(item => item.id === statusId) || STATUS_OPTIONS[0];
     const Icon = option.icon;
@@ -146,7 +131,7 @@ export default function StudentProfile({
       </>}
       {activeTab === 'study' && <>
         <section className="student-profile-section"><h4 className="student-profile-section-title">התקדמות במסלול הלימודים</h4>{requirements.length === 0 ? <div className="student-empty-state"><BookOpen size={26} /><strong>אין דרישות מסלול מוגדרות</strong><p>המגמות והשנתונים נשמרים ברשומות הלימודים השנתיות.</p></div> : <div className="req-checklist">{requirements.map(requirement => { const state = requirementStatus[requirement.id] || 'pending'; return <button type="button" key={`${requirement.trackName}_${requirement.id}`} className={`req-checklist-item req-status--${state} ${canEdit ? 'req-checklist-item--clickable' : ''}`} onClick={() => toggleRequirement(requirement.id)} disabled={!canEdit}><span>{statusIcon(state)}</span><span className="req-checklist-name">{requirement.name}<small>{requirement.trackName}</small></span><span className="req-status-label">{STATUS_OPTIONS.find(item => item.id === state)?.label}</span></button>; })}</div>}</section>
-        <section className="student-profile-section"><h4 className="student-profile-section-title"><FileBarChart2 size={15} /> ציוני התלמיד</h4>{!canViewGrades ? <div className="student-empty-state"><LockKeyhole size={26} /><strong>הציונים מוגנים</strong><p>אין לך הרשאה לצפות במיפוי הציונים של כיתה זו.</p></div> : gradebooks.length === 0 ? <div className="student-empty-state"><FileBarChart2 size={26} /><strong>טרם נוצר מיפוי ציונים לכיתה</strong>{canManageGradebooks && <button className="btn btn-primary btn-sm" onClick={createGradebook} disabled={creatingGradebook}>{creatingGradebook ? 'יוצר…' : 'יצירת מיפוי ציונים'}</button>}</div> : gradebooks.map(gradebook => <GradeMappingEditor key={gradebook.id} file={{ ...gradebook, gradebookId: gradebook.id }} schoolId={schoolId} actor={actor} canEditScores={canEditGrades} studentOnly={student} />)}</section>
+        <section className="student-profile-section"><h4 className="student-profile-section-title"><FileBarChart2 size={15} /> ציוני התלמיד</h4>{!canViewGrades ? <div className="student-empty-state"><LockKeyhole size={26} /><strong>הציונים מוגנים</strong><p>אין לך הרשאה לצפות במיפוי הציונים של כיתה זו.</p></div> : gradebooks.length === 0 ? <div className="student-empty-state"><FileBarChart2 size={26} /><strong>טרם נוצר מיפוי ציונים לכיתה</strong><p>הציונים יוצגו כאן אוטומטית לאחר יצירת מיפוי ציונים במסך הכיתה.</p></div> : gradebooks.map(gradebook => <GradeMappingEditor key={gradebook.id} file={{ ...gradebook, gradebookId: gradebook.id }} schoolId={schoolId} actor={actor} canEditScores={false} canManageConfig={false} studentOnly={student} />)}</section>
       </>}
       {activeTab === 'personal' && <PersonalFileTab student={student} schoolId={schoolId} access={personalFileAccess} />}
       {activeTab === 'cv' && (cvAccess.view ? <CvBuilderTab student={student} schoolId={schoolId} actorUid={actor.uid} access={cvAccess} /> : <div className="student-empty-state"><LockKeyhole size={30} /><strong>קורות החיים מוגנים</strong><p>אין לך הרשאת צפייה בקורות החיים של תלמיד זה.</p></div>)}

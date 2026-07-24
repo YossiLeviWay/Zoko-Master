@@ -8,7 +8,7 @@ import { updateStaffUser } from '../../services/adminUserService';
 import { Shield, X, Eye, Edit3, ChevronDown, ChevronUp, Users, Check } from 'lucide-react';
 
 const FEATURE_LABELS = {
-  calendar:    { label: 'לוח שנה',       view: 'calendar_view',    edit: 'calendar_edit' },
+  calendar:    { label: 'לוח שנה',       view: 'calendar_view',    edit: 'calendar_edit', viewAlias: 'calendar.view', editAlias: 'calendar.edit' },
   categories:  { label: 'קטגוריות',      view: 'categories_view',  edit: 'categories_edit' },
   staff:       { label: 'סגל וקהילה',    view: 'staff_view',       edit: 'staff_edit' },
   tasks:       { label: 'משימות',         view: 'tasks_view',       edit: 'tasks_edit' },
@@ -71,10 +71,15 @@ export default function PagePermissionsPanel({ feature, onClose }) {
   async function togglePerm(user, permKey, currentVal) {
     setSaving(`${user.id}_${permKey}`);
     try {
-      const nextPermissions = { ...(user.permissions || {}), [permKey]: !currentVal };
+      const aliasKey = permKey === featureMeta.view ? featureMeta.viewAlias : featureMeta.editAlias;
+      const nextPermissions = {
+        ...(user.permissions || {}),
+        [permKey]: !currentVal,
+        ...(aliasKey ? { [aliasKey]: !currentVal } : {}),
+      };
       await updateStaffUser({ userId: user.id, schoolId, permissions: nextPermissions });
       setStaff(prev => prev.map(u => u.id === user.id
-        ? { ...u, permissions: { ...(u.permissions || {}), [permKey]: !currentVal } }
+        ? { ...u, permissions: nextPermissions }
         : u
       ));
       setSaved(`${user.id}_${permKey}`);
@@ -88,7 +93,8 @@ export default function PagePermissionsPanel({ feature, onClose }) {
   function getEffectivePerm(user, permKey) {
     if (!permKey) return true;
     if (user.role === 'principal') return true;
-    const override = user.permissions?.[permKey];
+    const aliasKey = permKey === featureMeta.view ? featureMeta.viewAlias : featureMeta.editAlias;
+    const override = user.permissions?.[aliasKey] ?? user.permissions?.[permKey];
     if (override !== undefined) return override;
     // Student data is sensitive and therefore has no implicit viewer access.
     if (permKey === 'students_view' || permKey === 'classes_view') return false;

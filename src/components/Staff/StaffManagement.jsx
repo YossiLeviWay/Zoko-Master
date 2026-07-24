@@ -26,6 +26,7 @@ import {
   setUserRole,
   startPermissionPreview,
   updateStaffUser,
+  callableReason,
 } from '../../services/adminUserService';
 import Header from '../Layout/Header';
 import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
@@ -806,8 +807,40 @@ export default function StaffManagement() {
     try {
       const preview = await startPermissionPreview({ schoolId, targetUserId: user.id });
       setPermissionPreview(preview);
-    } catch {
-      window.alert('לא ניתן לפתוח תצוגה מקדימה. הפעולה מותרת רק למנהל מוסד או לבעל הרשאת תצוגה מתאימה.');
+    } catch (previewError) {
+      const reason = callableReason(previewError);
+      if (canEdit && ['not-found', 'unavailable', 'internal'].includes(reason)) {
+        const roleIds = user.customRoleAssignments?.[schoolId] || user.customRoleIds || [];
+        const roles = customRoles.filter(role => roleIds.includes(role.id) && role.status !== 'archived');
+        const grants = new Map();
+        roles.forEach(role => Object.entries(role.permissions || {}).forEach(([capability, enabled]) => {
+          if (enabled === true) grants.set(capability, {
+            capability,
+            scope: role.accessScope || { type: 'school', classIds: [] },
+            source: `תפקיד: ${role.name || role.id}`,
+          });
+        }));
+        Object.entries(user.permissions || {}).forEach(([capability, enabled]) => {
+          if (enabled === true) grants.set(capability, {
+            capability,
+            scope: { type: 'school', classIds: [] },
+            source: 'הרשאה ישירה',
+          });
+          if (enabled === false) grants.delete(capability);
+        });
+        setPermissionPreview({
+          target: { userId: user.id, fullName: user.fullName || '' },
+          roles: roles.map(role => ({ id: role.id, name: role.name, scope: role.accessScope || { type: 'school' } })),
+          capabilities: [...grants.values()],
+          readOnly: true,
+          expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+          localFallback: true,
+        });
+      } else {
+        window.alert(reason === 'permission-denied'
+          ? 'אין הרשאה לפתוח תצוגה מקדימה עבור משתמש זה.'
+          : 'שירות התצוגה המקדימה אינו זמין כרגע. נסו לרענן את הדף.');
+      }
     } finally { setPreviewLoadingId(''); }
   }
 
