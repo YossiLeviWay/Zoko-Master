@@ -76,6 +76,73 @@
   text-align: center;
 }
 
+.auth-success {
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  background: #f0fdf4;
+  color: #15803d;
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.auth-step {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0.85rem;
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+}
+
+.auth-step legend {
+  padding: 0 0.4rem;
+  color: #1e40af;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.auth-step legend span {
+  display: inline-grid;
+  width: 1.4rem;
+  height: 1.4rem;
+  margin-inline-end: 0.3rem;
+  place-items: center;
+  border-radius: 50%;
+  background: #2563eb;
+  color: #fff;
+}
+
+.auth-school-search {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #64748b;
+}
+
+.auth-school-search input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+}
+
+.auth-explanation {
+  margin: 0;
+  padding: 0.7rem;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #1e40af;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
 .auth-form {
   display: flex;
   flex-direction: column;
@@ -96,7 +163,8 @@
 }
 
 .form-group input,
-.form-group select {
+.form-group select,
+.form-group textarea {
   padding: 0.7rem 0.85rem;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
@@ -108,12 +176,15 @@
 }
 
 .form-group input:focus,
-.form-group select:focus {
+.form-group select:focus,
+.form-group textarea:focus {
   outline: none;
   border-color: #2563eb;
   background: #fff;
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
 }
+
+.form-group small { color: #64748b; font-size: 0.74rem; }
 
 .form-row {
   display: flex;

@@ -4,7 +4,7 @@ import { PERMISSION_KEYS } from '../config.js';
 const id = z.string().trim().min(1).max(128).regex(/^[A-Za-z0-9_-]+$/);
 const email = z.string().trim().toLowerCase().email().max(254);
 const shortText = z.string().trim().max(120);
-const role = z.enum(['viewer', 'editor', 'principal', 'global_admin']);
+const role = z.enum(['viewer', 'editor', 'principal', 'institution_manager', 'global_admin']);
 const permissionsShape = Object.fromEntries(PERMISSION_KEYS.map(key => [key, z.boolean().optional()]));
 const permissions = z.object(permissionsShape).strict();
 const accessScope = z.discriminatedUnion('type', [
@@ -57,6 +57,85 @@ export const passwordResetSchema = z.object({
   userId: id,
   schoolId: id,
 }).strict();
+
+export const staffInvitationSchema = z.object({
+  schoolId: id,
+  fullName: shortText.min(1),
+  email,
+  role: z.enum(['viewer', 'editor']),
+  customRoleIds: z.array(id).max(50).optional().default([]),
+  teamIds: z.array(id).max(50).optional().default([]),
+  classIds: z.array(id).max(100).optional().default([]),
+  permissions: permissions.optional().default({}),
+  message: z.string().trim().max(1000).optional().default(''),
+  sourceJoinRequestId: id.optional(),
+}).strict();
+
+export const invitationActionSchema = z.object({
+  schoolId: id,
+  invitationId: id,
+  action: z.enum(['resend', 'revoke']),
+}).strict();
+
+export const acceptInvitationSchema = z.object({
+  invitationId: id,
+  token: z.string().min(32).max(256).regex(/^[A-Za-z0-9_-]+$/),
+  password: z.string().min(12).max(128),
+  fullName: shortText.min(1),
+}).strict();
+
+export const joinRequestSchema = z.object({
+  schoolId: id,
+  fullName: shortText.min(1),
+  email,
+  message: z.string().trim().max(1000).optional().default(''),
+}).strict();
+
+export const reviewJoinRequestSchema = z.object({
+  schoolId: id,
+  requestId: id,
+  action: z.enum(['invite', 'reject', 'resolved']),
+  role: z.enum(['viewer', 'editor']).optional(),
+  customRoleIds: z.array(id).max(50).optional().default([]),
+  teamIds: z.array(id).max(50).optional().default([]),
+  classIds: z.array(id).max(100).optional().default([]),
+  permissions: permissions.optional().default({}),
+  rejectionReason: z.string().trim().max(500).optional().default(''),
+}).strict();
+
+export const publicPasswordResetSchema = z.object({
+  schoolId: id,
+  email,
+}).strict();
+
+const taskDetails = {
+  title: z.string().trim().min(1).max(200),
+  description: z.string().trim().max(5000).optional().default(''),
+  dueDate: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal('')]).optional().default(''),
+  priority: z.enum(['low', 'medium', 'high']).optional().default('medium'),
+};
+
+export const taskCollaboratorInvitationSchema = z.object({
+  schoolId: id,
+  personalTaskId: id,
+  recipientIds: z.array(id).min(1).max(20).transform(values => [...new Set(values)]),
+  message: z.string().trim().max(1000).optional().default(''),
+}).strict();
+
+export const taskInvitationResponseSchema = z.object({
+  schoolId: id,
+  invitationId: id,
+  action: z.enum(['accept', 'decline', 'cancel']),
+  response: z.string().trim().max(1000).optional().default(''),
+}).strict();
+
+export const mandatoryTaskSchema = z.object({
+  schoolId: id,
+  recipientIds: z.array(id).min(1).max(50).transform(values => [...new Set(values)]),
+  ...taskDetails,
+}).strict();
+
+export const activeSchoolSchema = z.object({ schoolId: id }).strict();
 
 export const teamMembershipSchema = z.object({
   userId: id,
@@ -329,12 +408,24 @@ export const notificationSchema = z.object({
 
 const schoolDetails = {
   name: z.string().trim().min(1).max(120),
+  code: z.string().trim().min(1).max(40).regex(/^[A-Za-z0-9_-]+$/),
   address: z.string().trim().max(250).optional().default(''),
   phone: z.string().trim().max(32).optional().default(''),
+  institutionalEmail: z.union([email, z.literal('')]).optional().default(''),
+  activeAcademicYearId: id,
+  status: z.enum(['active', 'disabled']).optional().default('active'),
 };
 
-export const createSchoolSchema = z.object(schoolDetails).strict();
+export const createSchoolSchema = z.object({
+  ...schoolDetails,
+  manager: z.object({ fullName: shortText.min(1), email }).strict(),
+}).strict();
 export const updateSchoolSchema = z.object({ schoolId: id, ...schoolDetails }).strict();
+export const assignInstitutionManagerSchema = z.object({
+  schoolId: id,
+  fullName: shortText.min(1),
+  email,
+}).strict();
 export const deleteSchoolSchema = z.object({
   schoolId: id,
   confirmDelete: z.literal(true),

@@ -157,6 +157,35 @@
   background: #dcfce7;
 }
 
+.gantt-academic-year {
+  color: #64748b;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.gantt-cell--selected {
+  box-shadow: inset 0 0 0 2px rgba(37, 99, 235, 0.35);
+}
+
+.gantt-date-header-cell:focus {
+  outline: 3px solid rgba(37, 99, 235, 0.35);
+  outline-offset: -3px;
+}
+
+.gantt-cell--today-pulse {
+  animation: gantt-today-pulse 1.35s ease-out;
+}
+
+@keyframes gantt-today-pulse {
+  0% { box-shadow: inset 0 0 0 2px rgba(37, 99, 235, 0.7), 0 0 0 0 rgba(37, 99, 235, 0.35); }
+  60% { box-shadow: inset 0 0 0 2px rgba(37, 99, 235, 0.5), 0 0 0 10px rgba(37, 99, 235, 0); }
+  100% { box-shadow: inset 0 0 0 2px rgba(37, 99, 235, 0.35), 0 0 0 12px rgba(37, 99, 235, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gantt-cell--today-pulse { animation: none; }
+}
+
 /* Search bar */
 .search-bar {
   display: flex;

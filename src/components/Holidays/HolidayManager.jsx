@@ -7,6 +7,8 @@ import Header from '../Layout/Header';
 import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
 import { usePermissions } from '../../hooks/usePermissions';
 import { Plus, Trash2, Edit3, Save, X, Search, Send, Calendar, Filter, Download, CalendarPlus } from 'lucide-react';
+import { subscribeAcademicYears, subscribeAcademicYearSettings } from '../../services/firestore/academicYearRepository';
+import { academicYearDisplay } from '../../utils/academicYears';
 import './Holidays.css';
 
 const HOLIDAY_TYPES = {
@@ -58,11 +60,21 @@ export default function HolidayManager() {
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [calendarEvents, setCalendarEvents] = useState([]);
   const [syncingType, setSyncingType] = useState(null);
+  const [academicYears, setAcademicYears] = useState([]);
+  const [activeAcademicYearId, setActiveAcademicYearId] = useState('year_2026_2027');
 
   const schoolId = selectedSchool || userData?.schoolId;
   const admin = isGlobalAdmin();
   // Admin edits the selected school's holidays, not global. Global is only for broadcasting.
   const collectionName = schoolId ? `holidays_${schoolId}` : (admin ? 'holidays_global' : null);
+  const activeAcademicYear = academicYears.find(year => year.id === activeAcademicYearId);
+
+  useEffect(() => {
+    if (!schoolId) return;
+    const unsubscribeYears = subscribeAcademicYears({ db, schoolId, onData: setAcademicYears, onError: () => setAcademicYears([]) });
+    const unsubscribeSettings = subscribeAcademicYearSettings({ db, schoolId, onData: settings => setActiveAcademicYearId(settings.activeAcademicYearId), onError: () => undefined });
+    return () => { unsubscribeYears(); unsubscribeSettings(); };
+  }, [schoolId]);
 
   useEffect(() => {
     if (!collectionName) return;
@@ -247,7 +259,7 @@ export default function HolidayManager() {
   }
 
   async function loadDefaultHolidays() {
-    if (!confirm('פעולה זו תטען את כל חגי וחופשות משרד החינוך לשנת הלימודים תשפ"ו. להמשיך?')) return;
+    if (!confirm(`פעולה זו תטען את חגי וחופשות משרד החינוך לשנת הלימודים ${activeAcademicYear ? academicYearDisplay(activeAcademicYear) : 'הפעילה'}. להמשיך?`)) return;
 
     try {
       for (const holiday of ISRAELI_HOLIDAYS) {
@@ -321,6 +333,7 @@ export default function HolidayManager() {
       {showPermissionsPanel && <PagePermissionsPanel feature="holidays" onClose={() => setShowPermissionsPanel(false)} />}
       <div className="page-content">
         <div className="page-toolbar">
+          {activeAcademicYear && <span className="holiday-academic-year" title="שנת הלימודים הפעילה במוסד">{academicYearDisplay(activeAcademicYear)}</span>}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
             {canEdit && (
               <button className="btn btn-primary" onClick={openAdd}>

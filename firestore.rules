@@ -22,20 +22,39 @@ service cloud.firestore {
 
     function isGlobalAdmin() {
       return signedIn()
-        && request.auth.token.keys().hasAny(['global_admin'])
-        && request.auth.token.global_admin == true;
+        && (
+          (request.auth.token.keys().hasAny(['platform_admin']) && request.auth.token.platform_admin == true)
+          || (request.auth.token.keys().hasAny(['global_admin']) && request.auth.token.global_admin == true)
+        );
+    }
+
+    function isPlatformAdmin() {
+      return signedIn()
+        && request.auth.token.keys().hasAny(['platform_admin'])
+        && request.auth.token.platform_admin == true;
     }
 
     function isSchoolMember(schoolId) {
       return activeUser() && (
         isGlobalAdmin()
+        || (
+          exists(/databases/$(database)/documents/schools/$(schoolId)/memberships/$(request.auth.uid))
+          && get(/databases/$(database)/documents/schools/$(schoolId)/memberships/$(request.auth.uid)).data.status == 'active'
+        )
         || (currentUser().schoolId is string && currentUser().schoolId == schoolId)
         || (currentUser().schoolIds is list && schoolId in currentUser().schoolIds)
       );
     }
 
     function isSchoolPrincipal(schoolId) {
-      return isSchoolMember(schoolId) && currentUser().role == 'principal';
+      return isSchoolMember(schoolId) && (
+        currentUser().role in ['principal', 'institution_manager']
+        || (
+          currentUser().rolesBySchool is map
+          && schoolId in currentUser().rolesBySchool
+          && currentUser().rolesBySchool[schoolId] in ['principal', 'institution_manager']
+        )
+      );
     }
 
     function canViewSchoolResource(schoolId) {
@@ -81,8 +100,7 @@ service cloud.firestore {
 
     function studentPermission(permission) {
       return currentUser().permissions is map
-        && permission in currentUser().permissions
-        && currentUser().permissions[permission] == true;
+        && currentUser().permissions.get(permission, false) == true;
     }
 
     function hasSchoolWideStudentReadPermission() {
@@ -100,7 +118,10 @@ service cloud.firestore {
         || studentPermission('students.restore')
         || studentPermission('attendance_view')
         || studentPermission('attendance_edit')
-        || studentPermission('attendance_create');
+        || studentPermission('attendance_create')
+        || studentPermission('grades.view')
+        || studentPermission('grades.edit')
+        || studentPermission('gradebooks.manage');
     }
 
     function hasSchoolWideClassReadPermission() {
@@ -146,19 +167,20 @@ service cloud.firestore {
     function canViewAllStudents(schoolId) {
       return hasStudentDataAccess(schoolId) && (
         (request.auth.token.keys().hasAny(['global_admin']) && request.auth.token.global_admin == true)
-        || currentUser().role == 'principal'
+        || currentUser().role in ['principal', 'institution_manager']
         || hasSchoolWideStudentReadPermission()
         || hasAnyRolePermission(schoolId, [
           'students.view', 'students.update', 'students.archive', 'students.transferClass',
           'students.promote', 'classes.promote', 'students.markGraduate',
-          'students.markWithdrawn', 'students.markDropout', 'students.restore'
+          'students.markWithdrawn', 'students.markDropout', 'students.restore',
+          'grades.view', 'grades.edit', 'gradebooks.manage'
         ])
       );
     }
 
     function canManagePrograms(schoolId) {
       return hasStudentDataAccess(schoolId) && (
-        currentUser().role == 'principal'
+        currentUser().role in ['principal', 'institution_manager']
         || studentPermission('students_manage_programs')
         || studentPermission('students.managePrograms')
         || studentPermission('students_edit')
@@ -184,12 +206,13 @@ service cloud.firestore {
       return hasStudentDataAccess(schoolId) && (
         classAssignedToCurrentUser(data)
         || (request.auth.token.keys().hasAny(['global_admin']) && request.auth.token.global_admin == true)
-        || currentUser().role == 'principal'
+        || currentUser().role in ['principal', 'institution_manager']
         || hasSchoolWideClassReadPermission()
         || hasAnyRolePermission(schoolId, [
           'classes.view', 'classes.create', 'classes.update', 'classes.archive',
           'classes.assignTeacher', 'classes.promote', 'students.view',
-          'students.create', 'students.update', 'students.transferClass'
+          'students.create', 'students.update', 'students.transferClass',
+          'grades.view', 'grades.edit', 'gradebooks.manage'
         ])
         || ('createdBy' in data && data.createdBy is string && data.createdBy == request.auth.uid)
       );
@@ -290,13 +313,23 @@ service cloud.firestore {
           && assignedToClass(schoolId, data.classId)
         )
         || (request.auth.token.keys().hasAny(['global_admin']) && request.auth.token.global_admin == true)
-        || currentUser().role == 'principal'
+        || currentUser().role in ['principal', 'institution_manager']
         || hasSchoolWideStudentReadPermission()
         || hasAnyRolePermission(schoolId, [
           'students.view', 'students.update', 'students.archive', 'students.transferClass',
           'students.promote', 'students.markGraduate', 'students.markWithdrawn',
-          'students.markDropout', 'students.restore'
+          'students.markDropout', 'students.restore', 'grades.view', 'grades.edit',
+          'gradebooks.manage'
         ])
+        || (
+          'classId' in data
+          && data.classId is string
+          && (
+            classRolePermission(schoolId, 'grades.view', data.classId)
+            || classRolePermission(schoolId, 'grades.edit', data.classId)
+            || classRolePermission(schoolId, 'gradebooks.manage', data.classId)
+          )
+        )
         || assignedThroughLegacyClassName(schoolId, data)
       );
     }
@@ -311,7 +344,7 @@ service cloud.firestore {
     function canViewPersonalFile(schoolId, studentId) {
       let studentData = personalFileStudentData(schoolId, studentId);
       return hasStudentDataAccess(schoolId) && (
-        currentUser().role == 'principal'
+        currentUser().role in ['principal', 'institution_manager']
         || studentPermission('personalFile.view')
         || studentPermission('personalFile.manage')
         || rolePermission(schoolId, 'personalFile.view')
@@ -329,7 +362,7 @@ service cloud.firestore {
     function canViewCv(schoolId, studentId) {
       let studentData = personalFileStudentData(schoolId, studentId);
       return hasStudentDataAccess(schoolId) && (
-        currentUser().role == 'principal'
+        currentUser().role in ['principal', 'institution_manager']
         || studentPermission('cv.view')
         || studentPermission('cv.create')
         || studentPermission('cv.edit')
@@ -349,7 +382,7 @@ service cloud.firestore {
 
     function canViewCvTemplates(schoolId) {
       return hasStudentDataAccess(schoolId) && (
-        currentUser().role == 'principal'
+        currentUser().role in ['principal', 'institution_manager']
         || studentPermission('cvTemplates.view')
         || studentPermission('cvTemplates.create')
         || studentPermission('cvTemplates.update')
@@ -381,7 +414,7 @@ service cloud.firestore {
 
     function canViewSkillCatalog(schoolId) {
       return hasStudentDataAccess(schoolId) && (
-        currentUser().role == 'principal'
+        currentUser().role in ['principal', 'institution_manager']
         || studentPermission('personalFile.view')
         || studentPermission('personalFile.manage')
         || studentPermission('cv.manageSkills')
@@ -395,6 +428,162 @@ service cloud.firestore {
       return data.fileType is string && data.fileType == 'attendance';
     }
 
+    function isGradebookFile(data) {
+      return data.fileType is string && data.fileType == 'gradebook';
+    }
+
+    function canViewGrades(schoolId, classId) {
+      return hasStudentDataAccess(schoolId)
+        && classId is string
+        && classExists(schoolId, classId)
+        && (
+          (request.auth.token.keys().hasAny(['global_admin']) && request.auth.token.global_admin == true)
+          || currentUser().role in ['principal', 'institution_manager']
+          || studentPermission('grades.view')
+          || studentPermission('grades.edit')
+          || studentPermission('gradebooks.manage')
+          || rolePermission(schoolId, 'grades.view')
+          || rolePermission(schoolId, 'grades.edit')
+          || rolePermission(schoolId, 'gradebooks.manage')
+          || classRolePermission(schoolId, 'grades.view', classId)
+          || classRolePermission(schoolId, 'grades.edit', classId)
+          || classRolePermission(schoolId, 'gradebooks.manage', classId)
+          || assignedToClass(schoolId, classId)
+        );
+    }
+
+    function canEditGrades(schoolId, classId) {
+      return canViewGrades(schoolId, classId) && (
+        currentUser().role in ['principal', 'institution_manager']
+        || studentPermission('grades.edit')
+        || rolePermission(schoolId, 'grades.edit')
+        || classRolePermission(schoolId, 'grades.edit', classId)
+        || assignedToClass(schoolId, classId)
+      );
+    }
+
+    function canManageGradebook(schoolId, classId) {
+      return canViewGrades(schoolId, classId) && (
+        currentUser().role in ['principal', 'institution_manager']
+        || studentPermission('gradebooks.manage')
+        || rolePermission(schoolId, 'gradebooks.manage')
+        || classRolePermission(schoolId, 'gradebooks.manage', classId)
+        || teachesClass(schoolId, classId)
+      );
+    }
+
+    function validGradebookCreate(schoolId, data) {
+      return data.keys().hasAll([
+          'schoolId', 'classId', 'className', 'status', 'subjects',
+          'createdBy', 'updatedBy', 'createdAt', 'updatedAt'
+        ])
+        && data.schoolId == schoolId
+        && data.classId is string
+        && data.className is string
+        && data.status == 'active'
+        && data.subjects is list
+        && data.createdBy == request.auth.uid
+        && data.updatedBy == request.auth.uid
+        && canManageGradebook(schoolId, data.classId);
+    }
+
+    function safeGradebookUpdate(schoolId) {
+      return canManageGradebook(schoolId, resource.data.classId)
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.classId == resource.data.classId
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.subjects is list
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'className', 'academicYearId', 'academicYearLabel', 'academicYearRange',
+          'status', 'subjects', 'updatedBy', 'updatedAt'
+        ]);
+    }
+
+    function validGradeEntryWrite(schoolId, gradebookId, studentId, data) {
+      let gradebook = get(/databases/$(database)/documents/schools/$(schoolId)/gradebooks/$(gradebookId)).data;
+      return canEditGrades(schoolId, gradebook.classId)
+        && data.schoolId == schoolId
+        && data.gradebookId == gradebookId
+        && data.classId == gradebook.classId
+        && data.studentId == studentId
+        && data.displayName is string
+        && data.scores is map
+        && data.calculated is map
+        && data.updatedBy == request.auth.uid
+        && studentBelongsToClass(schoolId, studentId, gradebook.classId);
+    }
+
+    function canViewSpecialFile(schoolId, data) {
+      return isAttendanceFile(data)
+        ? canViewAttendance(schoolId, data)
+        : isGradebookFile(data)
+          ? canViewGrades(schoolId, data.classId)
+          : canViewSchoolResource(schoolId);
+    }
+
+    function validGradebookFileCreate(schoolId, data) {
+      return data.schoolId == schoolId
+        && data.fileType == 'gradebook'
+        && data.classId is string
+        && data.gradebookId is string
+        && data.folderId is string
+        && data.createdBy == request.auth.uid
+        && data.updatedBy == request.auth.uid
+        && exists(/databases/$(database)/documents/schools/$(schoolId)/gradebooks/$(data.gradebookId))
+        && get(/databases/$(database)/documents/schools/$(schoolId)/gradebooks/$(data.gradebookId)).data.classId == data.classId
+        && canManageGradebook(schoolId, data.classId);
+    }
+
+    function safeGradebookFileUpdate(schoolId) {
+      return canManageGradebook(schoolId, resource.data.classId)
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.classId == resource.data.classId
+        && request.resource.data.gradebookId == resource.data.gradebookId
+        && request.resource.data.fileType == resource.data.fileType
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name', 'className', 'folderId', 'academicYearId', 'academicYear',
+          'academicYearRange', 'status', 'updatedBy', 'updatedAt', 'pinnedBy'
+        ]);
+    }
+
+    function canViewClassFolder(schoolId, data) {
+      return data.visibility == 'class_restricted'
+        ? canViewGrades(schoolId, data.classId)
+          || (
+            hasStudentDataAccess(schoolId)
+            && data.classId is string
+            && (
+              assignedToClass(schoolId, data.classId)
+              || studentPermission('attendance_view')
+              || studentPermission('attendance_create')
+              || studentPermission('attendance_edit')
+              || studentPermission('attendance_manage_legend')
+              || studentPermission('attendance_manage_dates')
+              || studentPermission('attendance_block_days')
+            )
+          )
+        : canViewSchoolResource(schoolId);
+    }
+
+    function validClassFolderCreate(schoolId, data) {
+      return data.schoolId == schoolId
+        && data.visibility == 'class_restricted'
+        && data.classId is string
+        && data.name is string
+        && data.specialFolder == true
+        && data.createdBy == request.auth.uid
+        && data.updatedBy == request.auth.uid
+        && (
+          canManageGradebook(schoolId, data.classId)
+          || canCreateAttendance(schoolId, { fileType: 'attendance', schoolId: schoolId, classId: data.classId })
+        );
+    }
+
     function canViewAttendance(schoolId, data) {
       return hasStudentDataAccess(schoolId)
         && isAttendanceFile(data)
@@ -403,7 +592,7 @@ service cloud.firestore {
         && classExists(schoolId, data.classId)
         && (
           (request.auth.token.keys().hasAny(['global_admin']) && request.auth.token.global_admin == true)
-          || currentUser().role == 'principal'
+          || currentUser().role in ['principal', 'institution_manager']
           || studentPermission('attendance_view')
           || studentPermission('attendance_edit')
           || studentPermission('attendance_create')
@@ -418,7 +607,7 @@ service cloud.firestore {
         && data.classId is string
         && classExists(schoolId, data.classId)
         && (
-          currentUser().role == 'principal'
+          currentUser().role in ['principal', 'institution_manager']
           || studentPermission('attendance_create')
           || teachesClass(schoolId, data.classId)
         );
@@ -426,7 +615,7 @@ service cloud.firestore {
 
     function canEditAttendance(schoolId, data) {
       return canViewAttendance(schoolId, data) && (
-        currentUser().role == 'principal'
+        currentUser().role in ['principal', 'institution_manager']
         || studentPermission('attendance_edit')
         || teachesClass(schoolId, data.classId)
       );
@@ -442,7 +631,7 @@ service cloud.firestore {
 
     function canManageAttendanceLegend(schoolId, data) {
       return canViewAttendance(schoolId, data) && (
-        currentUser().role == 'principal'
+        currentUser().role in ['principal', 'institution_manager']
         || studentPermission('attendance_manage_legend')
       );
     }
@@ -516,7 +705,7 @@ service cloud.firestore {
         && classExists(schoolId, data.classId)
         && (
           teachesClass(schoolId, data.classId)
-          || currentUser().role == 'principal'
+          || currentUser().role in ['principal', 'institution_manager']
           || studentPermission('students_create')
           || studentPermission('students_edit')
           || rolePermission(schoolId, 'students.create')
@@ -535,7 +724,7 @@ service cloud.firestore {
             || classRolePermission(schoolId, 'students.create', data.classId)
           )
         )
-        || currentUser().role == 'principal'
+        || currentUser().role in ['principal', 'institution_manager']
         || studentPermission('students_update')
         || studentPermission('students_edit')
         || rolePermission(schoolId, 'students.update')
@@ -544,7 +733,7 @@ service cloud.firestore {
 
     function canManageAcademicYears(schoolId) {
       return hasStudentDataAccess(schoolId) && (
-        currentUser().role == 'principal'
+        currentUser().role in ['principal', 'institution_manager']
         || studentPermission('academicYears.manage')
         || rolePermission(schoolId, 'academicYears.manage')
       );
@@ -552,7 +741,7 @@ service cloud.firestore {
 
     function canPromoteStudents(schoolId) {
       return hasStudentDataAccess(schoolId) && (
-        currentUser().role == 'principal'
+        currentUser().role in ['principal', 'institution_manager']
         || studentPermission('students.promote')
         || studentPermission('classes.promote')
         || rolePermission(schoolId, 'students.promote')
@@ -562,7 +751,7 @@ service cloud.firestore {
 
     function canSetEnrollmentStatus(schoolId, status) {
       return hasStudentDataAccess(schoolId) && (
-        currentUser().role == 'principal'
+        currentUser().role in ['principal', 'institution_manager']
         || (status == 'graduated' && studentPermission('students.markGraduate'))
         || (status == 'withdrawn' && studentPermission('students.markWithdrawn'))
         || (status == 'dropout' && studentPermission('students.markDropout'))
@@ -581,8 +770,8 @@ service cloud.firestore {
       return data.schoolId == schoolId
         && data.classId is string
         && (
-          canViewAllStudents(schoolId)
-          || assignedToClass(schoolId, data.classId)
+          assignedToClass(schoolId, data.classId)
+          || canViewAllStudents(schoolId)
         );
     }
 
@@ -600,7 +789,18 @@ service cloud.firestore {
         && data.endYear == data.startYear + 1
         && data.startYear >= 2025
         && data.startYear <= 2200
-        && data.status in ['active', 'closed', 'archived']
+        && data.status in ['active', 'future', 'closed', 'archived']
+        && (!('hebrewYearNumber' in data) || (
+          data.hebrewYearNumber is int
+          && data.hebrewYearNumber == data.startYear + 3761
+          && data.hebrewLabel is string
+          && data.hebrewLabel == data.label
+          && data.gregorianStartYear == data.startYear
+          && data.gregorianEndYear == data.endYear
+          && data.startDate is string
+          && data.endDate is string
+          && data.isActive is bool
+        ))
         && data.createdBy == request.auth.uid
         && data.updatedBy == request.auth.uid;
     }
@@ -616,7 +816,7 @@ service cloud.firestore {
         && request.resource.data.label is string
         && request.resource.data.label.size() > 0
         && request.resource.data.label.size() <= 30
-        && request.resource.data.status in ['active', 'closed', 'archived']
+        && request.resource.data.status in ['active', 'future', 'closed', 'archived']
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'label', 'status', 'updatedBy', 'updatedAt'
         ]);
@@ -777,7 +977,7 @@ service cloud.firestore {
           (
             changed.hasAny(['classId', 'className', 'grade'])
             && (
-              currentUser().role == 'principal'
+              currentUser().role in ['principal', 'institution_manager']
               || studentPermission('students.transferClass')
               || studentPermission('students_transfer_class')
               || rolePermission(schoolId, 'students.transferClass')
@@ -889,6 +1089,7 @@ service cloud.firestore {
           isSchoolMember(schoolId)
           && (
             ('createdBy' in data && data.createdBy is string && data.createdBy == request.auth.uid)
+            || (data.participantIds is list && request.auth.uid in data.participantIds)
             || !('assigneeType' in data)
             || data.assigneeType == 'all_school'
             || (data.assigneeIds is list && request.auth.uid in data.assigneeIds)
@@ -919,6 +1120,7 @@ service cloud.firestore {
         && data.createdBy == request.auth.uid
         && data.title is string
         && data.title.size() > 0
+        && (!('mandatory' in data) || data.mandatory == false)
         && (
           (
             data.scope == 'assigned'
@@ -943,11 +1145,15 @@ service cloud.firestore {
           'schoolId', 'createdBy', 'ownerId'
         ]) == false
         && (
-          hasPermission(schoolId, 'tasks_edit')
+          (
+            hasPermission(schoolId, 'tasks_edit')
+            && (!('mandatory' in resource.data) || resource.data.mandatory == false || resource.data.createdBy == request.auth.uid || hasPermission(schoolId, 'tasks.manageAssignments'))
+          )
           || (
-            isAssignedTask(resource.data)
-            && resource.data.assigneeIds is list
-            && request.auth.uid in resource.data.assigneeIds
+            (
+              (isAssignedTask(resource.data) && resource.data.assigneeIds is list && request.auth.uid in resource.data.assigneeIds)
+              || (resource.data.participantIds is list && request.auth.uid in resource.data.participantIds)
+            )
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
               'status', 'completedAt', 'updatedAt'
             ])
@@ -995,7 +1201,7 @@ service cloud.firestore {
     function validClassCreate(schoolId, data) {
       return hasStudentDataAccess(schoolId)
         && (
-          currentUser().role == 'principal'
+          currentUser().role in ['principal', 'institution_manager']
           || studentPermission('classes_create')
           || studentPermission('classes.create')
           || rolePermission(schoolId, 'classes.create')
@@ -1015,13 +1221,13 @@ service cloud.firestore {
         && data.status in ['active', 'archived']
         && (
           data.teacherId == ''
-          || currentUser().role == 'principal'
+          || currentUser().role in ['principal', 'institution_manager']
           || studentPermission('classes_assign_teacher')
           || studentPermission('classes.assignTeacher')
         )
         && (
           data.status == 'active'
-          || currentUser().role == 'principal'
+          || currentUser().role in ['principal', 'institution_manager']
           || studentPermission('classes_archive')
           || studentPermission('classes.archive')
         );
@@ -1036,7 +1242,7 @@ service cloud.firestore {
         && (!('academicYearId' in resource.data) || request.resource.data.academicYearId == resource.data.academicYearId)
         && request.resource.data.updatedBy == request.auth.uid
         && (
-          currentUser().role == 'principal'
+          currentUser().role in ['principal', 'institution_manager']
           || rolePermission(schoolId, 'classes.update')
           || classRolePermission(schoolId, 'classes.update', classId)
           || (
@@ -1076,7 +1282,7 @@ service cloud.firestore {
         && data.status in ['active', 'transferred', 'graduated', 'withdrawn', 'dropout', 'archived']
         && (
           data.status == 'active'
-          || currentUser().role == 'principal'
+          || currentUser().role in ['principal', 'institution_manager']
           || studentPermission('students_archive')
         )
         && (
@@ -1105,7 +1311,7 @@ service cloud.firestore {
           ? (
               (
                 canPromoteStudents(schoolId)
-                || currentUser().role == 'principal'
+                || currentUser().role in ['principal', 'institution_manager']
                 || studentPermission('students_transfer_class')
                 || studentPermission('students.transferClass')
               )
@@ -1118,7 +1324,7 @@ service cloud.firestore {
           : changed.hasAny(['status', 'endDate'])
           ? (
               (
-                currentUser().role == 'principal'
+                currentUser().role in ['principal', 'institution_manager']
                 || studentPermission('students_archive')
                 || studentPermission('students.archive')
                 || canSetEnrollmentStatus(schoolId, request.resource.data.status)
@@ -1193,7 +1399,7 @@ service cloud.firestore {
         && data.createdBy == request.auth.uid
         && (
           canPromoteStudents(schoolId)
-          || currentUser().role == 'principal'
+          || currentUser().role in ['principal', 'institution_manager']
           || canUpdateStudentBase(schoolId, studentData)
           || studentPermission('students_create')
           || studentPermission('students_update')
@@ -1250,7 +1456,7 @@ service cloud.firestore {
     function canReadStudentNote(schoolId, studentData, noteData) {
       return canViewStudent(schoolId, studentData)
         && (
-          currentUser().role == 'principal'
+          currentUser().role in ['principal', 'institution_manager']
           || studentPermission('students_view_notes')
           || studentPermission('students.viewSensitiveNotes')
           || rolePermission(schoolId, 'students.viewSensitiveNotes')
@@ -1258,7 +1464,7 @@ service cloud.firestore {
         )
         && (
           noteData.visibility != 'school_admin'
-          || currentUser().role == 'principal'
+          || currentUser().role in ['principal', 'institution_manager']
           || studentPermission('students.viewSensitiveNotes')
           || rolePermission(schoolId, 'students.viewSensitiveNotes')
           || classRolePermission(schoolId, 'students.viewSensitiveNotes', studentData.classId)
@@ -1266,7 +1472,7 @@ service cloud.firestore {
     }
 
     function canAddStudentNote(schoolId, studentData) {
-      return currentUser().role == 'principal'
+      return currentUser().role in ['principal', 'institution_manager']
         || studentPermission('students_add_notes')
         || studentPermission('students.addNotes')
         || rolePermission(schoolId, 'students.addNotes')
@@ -1293,16 +1499,57 @@ service cloud.firestore {
       }
     }
 
-    match /schools/{schoolId} {
-      allow read: if isSchoolMember(schoolId);
+    match /schoolPublicDirectory/{schoolId} {
+      allow read: if resource.data.status == 'active'
+        && resource.data.keys().hasOnly(['schoolId', 'name', 'code', 'status', 'updatedAt']);
       allow create, update, delete: if false;
+    }
+
+    match /_invitationSecrets/{secretId} {
+      allow read, write: if false;
+    }
+
+    match /schools/{schoolId} {
+      allow read: if isPlatformAdmin() || isSchoolMember(schoolId);
+      allow create, update, delete: if false;
+
+      match /memberships/{userId} {
+        allow read: if request.auth.uid == userId || canManageSchoolUsers(schoolId);
+        allow create, update, delete: if false;
+      }
+
+      match /invitations/{invitationId} {
+        allow read: if canManageSchoolUsers(schoolId) || hasPermission(schoolId, 'staff.invite');
+        allow create, update, delete: if false;
+      }
+
+      match /joinRequests/{requestId} {
+        allow read: if canManageSchoolUsers(schoolId)
+          || hasPermission(schoolId, 'staff.viewJoinRequests')
+          || hasPermission(schoolId, 'staff.reviewJoinRequests');
+        allow create, update, delete: if false;
+      }
 
       match /tasks/{taskId} {
         allow read: if taskVisibleToCurrentUser(schoolId, resource.data);
         allow create: if validOrganizationTaskCreate(schoolId, request.resource.data);
         allow update: if safeOrganizationTaskUpdate(schoolId);
         allow delete: if isOrganizationTask(resource.data)
-          && hasPermission(schoolId, 'tasks_edit');
+          && hasPermission(schoolId, 'tasks_edit')
+          && (
+            !('mandatory' in resource.data)
+            || resource.data.mandatory == false
+            || resource.data.createdBy == request.auth.uid
+            || hasPermission(schoolId, 'tasks.manageAssignments')
+          );
+
+        match /participants/{userId} {
+          allow read: if taskVisibleToCurrentUser(
+            schoolId,
+            get(/databases/$(database)/documents/schools/$(schoolId)/tasks/$(taskId)).data
+          );
+          allow create, update, delete: if false;
+        }
 
         match /chat/{messageId} {
           allow read: if taskVisibleToCurrentUser(
@@ -1317,6 +1564,13 @@ service cloud.firestore {
           allow update: if false;
           allow delete: if request.auth.uid == resource.data.authorId || canManageSchoolUsers(schoolId);
         }
+      }
+
+      match /taskInvitations/{invitationId} {
+        allow read: if signedIn()
+          && isSchoolMember(schoolId)
+          && (resource.data.recipientId == request.auth.uid || resource.data.inviterId == request.auth.uid);
+        allow create, update, delete: if false;
       }
 
       match /academicYears/{academicYearId} {
@@ -1355,7 +1609,7 @@ service cloud.firestore {
             && request.resource.data.createdBy == request.auth.uid
             && hasStudentDataAccess(schoolId)
             && (
-              currentUser().role == 'principal'
+              currentUser().role in ['principal', 'institution_manager']
               || studentPermission('classes_update')
               || studentPermission('classes_archive')
               || studentPermission('classes_assign_teacher')
@@ -1452,23 +1706,53 @@ service cloud.firestore {
         allow create, update, delete: if false;
       }
 
+      match /gradebooks/{gradebookId} {
+        allow read: if canViewGrades(schoolId, resource.data.classId);
+        allow create: if validGradebookCreate(schoolId, request.resource.data);
+        allow update: if safeGradebookUpdate(schoolId);
+        allow delete: if false;
+
+        match /grades/{studentId} {
+          allow read: if canViewGrades(
+            schoolId,
+            get(/databases/$(database)/documents/schools/$(schoolId)/gradebooks/$(gradebookId)).data.classId
+          );
+          allow create: if validGradeEntryWrite(schoolId, gradebookId, studentId, request.resource.data);
+          allow update: if validGradeEntryWrite(schoolId, gradebookId, studentId, request.resource.data)
+            && request.resource.data.schoolId == resource.data.schoolId
+            && request.resource.data.gradebookId == resource.data.gradebookId
+            && request.resource.data.classId == resource.data.classId
+            && request.resource.data.studentId == resource.data.studentId;
+          allow delete: if false;
+        }
+      }
+
       match /files/{fileId} {
-        allow read: if canViewSchoolResource(schoolId);
+        allow read: if canViewSpecialFile(schoolId, resource.data);
         allow create: if (
             isAttendanceFile(request.resource.data)
             && validAttendanceFileCreate(schoolId, request.resource.data)
           ) || (
+            isGradebookFile(request.resource.data)
+            && validGradebookFileCreate(schoolId, request.resource.data)
+          ) || (
             !isAttendanceFile(request.resource.data)
+            && !isGradebookFile(request.resource.data)
             && hasPermission(schoolId, 'files_upload')
           );
         allow update: if (
             isAttendanceFile(resource.data)
             && safeAttendanceFileUpdate(schoolId)
           ) || (
+            isGradebookFile(resource.data)
+            && safeGradebookFileUpdate(schoolId)
+          ) || (
             !isAttendanceFile(resource.data)
+            && !isGradebookFile(resource.data)
             && hasPermission(schoolId, 'files_upload')
           );
         allow delete: if !isAttendanceFile(resource.data)
+          && !isGradebookFile(resource.data)
           && hasPermission(schoolId, 'files_delete');
 
         match /attendanceLegend/{itemId} {
@@ -1515,7 +1799,7 @@ service cloud.firestore {
             && request.resource.data.createdBy == request.auth.uid;
           allow update: if canViewAttendance(schoolId, nestedAttendanceFileData(schoolId, fileId))
             && (
-              currentUser().role == 'principal'
+              currentUser().role in ['principal', 'institution_manager']
               || studentPermission('attendance_manage_dates')
               || studentPermission('attendance_block_days')
             )
@@ -1558,9 +1842,26 @@ service cloud.firestore {
       }
 
       match /folders/{folderId} {
-        allow read: if canViewSchoolResource(schoolId);
-        allow create, update: if hasPermission(schoolId, 'files_upload');
-        allow delete: if hasPermission(schoolId, 'files_delete');
+        allow read: if canViewClassFolder(schoolId, resource.data);
+        allow create: if validClassFolderCreate(schoolId, request.resource.data)
+          || (
+            request.resource.data.visibility != 'class_restricted'
+            && hasPermission(schoolId, 'files_upload')
+          );
+        allow update: if resource.data.visibility == 'class_restricted'
+          ? canViewClassFolder(schoolId, resource.data)
+            && request.resource.data.schoolId == resource.data.schoolId
+            && request.resource.data.classId == resource.data.classId
+            && request.resource.data.visibility == resource.data.visibility
+            && request.resource.data.createdBy == resource.data.createdBy
+            && request.resource.data.createdAt == resource.data.createdAt
+            && request.resource.data.updatedBy == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'name', 'className', 'academicYearId', 'updatedBy', 'updatedAt', 'pinnedBy'
+            ])
+          : hasPermission(schoolId, 'files_upload');
+        allow delete: if resource.data.visibility != 'class_restricted'
+          && hasPermission(schoolId, 'files_delete');
       }
 
       match /fileHistory/{entryId} {
@@ -1790,7 +2091,7 @@ service cloud.firestore {
       return legacyDocumentSchoolAccess(collectionName, 'tasks_', data)
         && (
           isGlobalAdmin()
-          || currentUser().role == 'principal'
+          || currentUser().role in ['principal', 'institution_manager']
           || currentUser().role == 'editor'
           || (
             currentUser().permissions is map
@@ -1859,7 +2160,7 @@ service cloud.firestore {
     function legacySensitiveWriteAllowed(collectionName, data) {
       return legacyReadAllowed(collectionName, data)
         && collectionName.matches('^(roles|settings)_.*$')
-        && (isGlobalAdmin() || currentUser().role == 'principal');
+        && (isGlobalAdmin() || currentUser().role in ['principal', 'institution_manager']);
     }
 
     function legacyStudentReadAllowed(collectionName, data) {
@@ -2255,7 +2556,7 @@ service cloud.firestore {
           && request.resource.data.createdBy == request.auth.uid
           && hasStudentDataAccess(request.resource.data.schoolId)
           && (
-            currentUser().role == 'principal'
+            currentUser().role in ['principal', 'institution_manager']
             || studentPermission('classes_update')
             || studentPermission('classes_archive')
             || studentPermission('classes_assign_teacher')
@@ -2323,7 +2624,7 @@ service cloud.firestore {
         && request.resource.data.createdBy == request.auth.uid;
       allow update: if legacyAttendanceCanView(legacyCollection, fileId)
         && (
-          currentUser().role == 'principal'
+          currentUser().role in ['principal', 'institution_manager']
           || studentPermission('attendance_manage_dates')
           || studentPermission('attendance_block_days')
         )

@@ -182,6 +182,51 @@ function attendanceRecord({
   };
 }
 
+function gradebookRecord({ schoolId = SCHOOL_A, classId = 'class_a', actor = 'principal_a' } = {}) {
+  return {
+    schoolId,
+    classId,
+    className: classId === 'class_b' ? 'Class B' : 'Class A',
+    academicYearId: 'year_2026_2027',
+    academicYearLabel: 'תשפ״ז',
+    academicYearRange: '2026-2027',
+    status: 'active',
+    subjects: [{
+      id: 'math', name: 'מתמטיקה', formula: 'C1*30% + C2*70%',
+      components: [
+        { id: 'project', name: 'פרויקט', weight: 30 },
+        { id: 'exam', name: 'מבחן', weight: 70 },
+      ],
+    }],
+    createdBy: actor,
+    updatedBy: actor,
+    createdAt: 'created',
+    updatedAt: 'created',
+  };
+}
+
+function gradebookFile({ schoolId = SCHOOL_A, classId = 'class_a', actor = 'principal_a' } = {}) {
+  return {
+    name: 'מיפוי ציונים - Class A',
+    fileType: 'gradebook',
+    type: 'application/x-zoko-gradebook',
+    folderId: `class_${classId}`,
+    schoolId,
+    classId,
+    className: classId === 'class_b' ? 'Class B' : 'Class A',
+    gradebookId: `grades_${classId}_year_2026_2027`,
+    academicYearId: 'year_2026_2027',
+    academicYear: 'תשפ״ז',
+    academicYearRange: '2026-2027',
+    status: 'active',
+    createdBy: actor,
+    updatedBy: actor,
+    uploadedBy: 'Principal',
+    createdAt: 'created',
+    updatedAt: 'created',
+  };
+}
+
 before(async () => {
   const [firestoreRules, storageRules] = await Promise.all([
     readFile(new URL('../../firestore.rules', import.meta.url), 'utf8'),
@@ -298,6 +343,52 @@ test('only an authorized same-school user can assign a task to one person', asyn
     doc(context('assigner_a').firestore(), `schools/${SCHOOL_A}/tasks/cross_school`),
     { ...assignedTask, assigneeIds: ['viewer_b'] },
   ));
+});
+
+test('mandatory tasks are server-created and cannot be deleted by recipients', async () => {
+  await seedFirestore({
+    'users/assigner_a': user({ schoolId: SCHOOL_A, permissions: { tasks_edit: true, 'tasks.assignMandatory': true } }),
+    'users/recipient_a': user({ schoolId: SCHOOL_A, permissions: { tasks_edit: true } }),
+    [`schools/${SCHOOL_A}/tasks/mandatory_1`]: {
+      scope: 'assigned', schoolId: SCHOOL_A, createdBy: 'assigner_a', title: 'Required',
+      status: 'todo', assigneeType: 'individual', assigneeIds: ['recipient_a'], mandatory: true,
+      assignedBy: 'assigner_a', assignmentAuthority: 'tasks.assignMandatory',
+    },
+  });
+  const recipientRef = doc(context('recipient_a').firestore(), `schools/${SCHOOL_A}/tasks/mandatory_1`);
+  await assertSucceeds(getDoc(recipientRef));
+  await assertSucceeds(updateDoc(recipientRef, { status: 'done', completedAt: 'server-value', updatedAt: 'server-value' }));
+  await assertFails(deleteDoc(recipientRef));
+  await assertFails(updateDoc(recipientRef, { assignedBy: 'recipient_a' }));
+  await assertFails(setDoc(doc(context('assigner_a').firestore(), `schools/${SCHOOL_A}/tasks/mandatory_client`), {
+    scope: 'assigned', schoolId: SCHOOL_A, createdBy: 'assigner_a', title: 'Spoofed', status: 'todo',
+    assigneeType: 'individual', assigneeIds: ['recipient_a'], mandatory: true,
+  }));
+});
+
+test('task invitations and shared tasks are visible only to their actors', async () => {
+  await seedFirestore({
+    'users/owner_a': user({ schoolId: SCHOOL_A }),
+    'users/recipient_a': user({ schoolId: SCHOOL_A }),
+    'users/other_a': user({ schoolId: SCHOOL_A }),
+    [`schools/${SCHOOL_A}/taskInvitations/invite_1`]: {
+      schoolId: SCHOOL_A, inviterId: 'owner_a', recipientId: 'recipient_a',
+      title: 'Preview', description: 'Limited preview', status: 'pending',
+    },
+    [`schools/${SCHOOL_A}/tasks/shared_1`]: {
+      schoolId: SCHOOL_A, createdBy: 'owner_a', title: 'Shared task', status: 'todo',
+      scope: 'shared', assigneeType: 'participants', participantIds: ['owner_a', 'recipient_a'], mandatory: false,
+    },
+  });
+  const invitationPath = `schools/${SCHOOL_A}/taskInvitations/invite_1`;
+  await assertSucceeds(getDoc(doc(context('owner_a').firestore(), invitationPath)));
+  await assertSucceeds(getDoc(doc(context('recipient_a').firestore(), invitationPath)));
+  await assertFails(getDoc(doc(context('other_a').firestore(), invitationPath)));
+  await assertFails(updateDoc(doc(context('recipient_a').firestore(), invitationPath), { status: 'accepted' }));
+  const sharedPath = `schools/${SCHOOL_A}/tasks/shared_1`;
+  await assertSucceeds(getDoc(doc(context('owner_a').firestore(), sharedPath)));
+  await assertSucceeds(getDoc(doc(context('recipient_a').firestore(), sharedPath)));
+  await assertFails(getDoc(doc(context('other_a').firestore(), sharedPath)));
 });
 
 test('legacy team tasks remain visible to their team and private from other schools', async () => {
@@ -827,6 +918,76 @@ test('custom roles are server-managed and cannot be changed directly by a princi
     name: 'Client role',
     permissions: { 'students.view': true },
   }));
+});
+
+test('gradebooks, grade files and class folders stay limited to authorized class staff', async () => {
+  await seedFirestore({
+    'users/teacher_a': user({ schoolId: SCHOOL_A }),
+    'users/teacher_b': user({ schoolId: SCHOOL_A }),
+    'users/grade_viewer': user({ schoolId: SCHOOL_A, permissions: { 'grades.view': true } }),
+    'users/member_b': user({ schoolId: SCHOOL_B, permissions: { 'grades.edit': true } }),
+    [`schools/${SCHOOL_A}/classes/class_a`]: classRecord({ teacherId: 'teacher_a' }),
+    [`schools/${SCHOOL_A}/classes/class_b`]: classRecord({ teacherId: 'teacher_b', name: 'Class B' }),
+    [`schools/${SCHOOL_A}/students/student_a`]: studentRecord(),
+    [`schools/${SCHOOL_A}/gradebooks/grades_class_a_year_2026_2027`]: gradebookRecord(),
+    [`schools/${SCHOOL_A}/files/gradebook_grades_class_a_year_2026_2027`]: gradebookFile(),
+    [`schools/${SCHOOL_A}/folders/class_class_a`]: {
+      name: 'כיתה Class A', schoolId: SCHOOL_A, classId: 'class_a', className: 'Class A',
+      academicYearId: 'year_2026_2027', visibility: 'class_restricted', specialFolder: true,
+      createdBy: 'principal_a', updatedBy: 'principal_a', createdAt: 'created', updatedAt: 'created',
+    },
+  });
+  const gradebookPath = `schools/${SCHOOL_A}/gradebooks/grades_class_a_year_2026_2027`;
+  const filePath = `schools/${SCHOOL_A}/files/gradebook_grades_class_a_year_2026_2027`;
+  const folderPath = `schools/${SCHOOL_A}/folders/class_class_a`;
+  const teacherDb = context('teacher_a').firestore();
+  await assertSucceeds(getDoc(doc(teacherDb, gradebookPath)));
+  await assertSucceeds(getDoc(doc(teacherDb, filePath)));
+  await assertSucceeds(getDoc(doc(teacherDb, folderPath)));
+  await assertFails(getDoc(doc(context('teacher_b').firestore(), gradebookPath)));
+  await assertFails(getDoc(doc(context('teacher_b').firestore(), filePath)));
+  await assertFails(getDoc(doc(context('teacher_b').firestore(), folderPath)));
+  await assertFails(getDoc(doc(context('member_b').firestore(), gradebookPath)));
+  await assertSucceeds(getDoc(doc(context('grade_viewer').firestore(), gradebookPath)));
+
+  const gradePath = `${gradebookPath}/grades/student_a`;
+  const grade = {
+    schoolId: SCHOOL_A,
+    gradebookId: 'grades_class_a_year_2026_2027',
+    classId: 'class_a', studentId: 'student_a', displayName: 'Student A',
+    scores: { math: { project: '80', exam: '90' } }, calculated: { math: 87 },
+    updatedBy: 'teacher_a', updatedAt: 'updated',
+  };
+  await assertSucceeds(setDoc(doc(teacherDb, gradePath), grade));
+  await assertSucceeds(getDoc(doc(context('grade_viewer').firestore(), gradePath)));
+  await assertFails(updateDoc(doc(context('grade_viewer').firestore(), gradePath), {
+    scores: { math: { project: '100', exam: '100' } }, calculated: { math: 100 },
+    updatedBy: 'grade_viewer', updatedAt: 'forged',
+  }));
+  await assertFails(setDoc(doc(teacherDb, `${gradebookPath}/grades/student_wrong_class`), {
+    ...grade, studentId: 'student_wrong_class', updatedBy: 'teacher_a',
+  }));
+});
+
+test('principal can initialize but clients cannot delete protected class mappings', async () => {
+  await seedFirestore({
+    'users/principal_a': user({ schoolId: SCHOOL_A, role: 'principal' }),
+    [`schools/${SCHOOL_A}/classes/class_a`]: classRecord(),
+  });
+  const db = context('principal_a').firestore();
+  const folderRef = doc(db, `schools/${SCHOOL_A}/folders/class_class_a`);
+  await assertSucceeds(setDoc(folderRef, {
+    name: 'כיתה Class A', schoolId: SCHOOL_A, classId: 'class_a', className: 'Class A',
+    academicYearId: 'year_2026_2027', visibility: 'class_restricted', specialFolder: true,
+    createdBy: 'principal_a', updatedBy: 'principal_a', createdAt: 'created', updatedAt: 'created',
+  }));
+  const gradebookRef = doc(db, `schools/${SCHOOL_A}/gradebooks/grades_class_a_year_2026_2027`);
+  await assertSucceeds(setDoc(gradebookRef, gradebookRecord()));
+  const fileRef = doc(db, `schools/${SCHOOL_A}/files/gradebook_grades_class_a_year_2026_2027`);
+  await assertSucceeds(setDoc(fileRef, gradebookFile()));
+  await assertFails(deleteDoc(gradebookRef));
+  await assertFails(deleteDoc(fileRef));
+  await assertFails(deleteDoc(folderRef));
 });
 
 test('principal creates and initializes a structured legacy attendance sheet without allowing hard deletion', async () => {

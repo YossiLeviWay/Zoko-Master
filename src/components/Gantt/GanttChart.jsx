@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../firebase';
@@ -20,6 +20,8 @@ import YearlyOverview from './YearlyOverview';
 import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
 import { usePermissions } from '../../hooks/usePermissions';
 import { CalendarDays, ChevronDown, Eye, Plus, Search, Settings } from 'lucide-react';
+import { academicYearDisplay, academicYearForDate } from '../../utils/academicYears';
+import { schoolCollection } from '../../services/firestore/paths';
 import './Gantt.css';
 
 const HEBREW_DAYS = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
@@ -86,6 +88,10 @@ export default function GanttChart() {
   const [allHolidays, setAllHolidays] = useState([]);
   const [userTeamIds, setUserTeamIds] = useState([]);
   const [calendarTasks, setCalendarTasks] = useState([]);
+  const [activeAcademicYear, setActiveAcademicYear] = useState(null);
+  const [pendingTodayNavigation, setPendingTodayNavigation] = useState(false);
+  const [todayPulse, setTodayPulse] = useState(false);
+  const todayCellRef = useRef(null);
 
   const schoolId = selectedSchool || userData?.schoolId;
   const { permissions } = usePermissions();
@@ -111,15 +117,60 @@ export default function GanttChart() {
   // Load tasks with due dates for calendar display
   useEffect(() => {
     if (!schoolId) return;
-    const q = query(collection(db, `tasks_${schoolId}`));
-    const unsub = onSnapshot(q, (snap) => {
-      const tasks = snap.docs
-        .map(d => ({ id: d.id, ...d.data() }))
-        .filter(t => t.dueDate && t.status !== 'done' && t.status !== 'completed');
-      setCalendarTasks(tasks);
-    }, () => setCalendarTasks([]));
-    return unsub;
+    const sets = new Map();
+    const emit = () => setCalendarTasks([...sets.values()].flat().filter(task => task.dueDate && task.status !== 'done' && task.status !== 'completed'));
+    const unsubscribers = [collection(db, `tasks_${schoolId}`), schoolCollection(db, schoolId, 'tasks')].map((ref, index) => onSnapshot(ref, snapshot => {
+      sets.set(index, snapshot.docs.map(item => ({ id: item.id, ...item.data() })));
+      emit();
+    }, () => { sets.set(index, []); emit(); }));
+    return () => unsubscribers.forEach(unsubscribe => unsubscribe());
   }, [schoolId]);
+
+  useEffect(() => {
+    if (!schoolId) return;
+    let unsubscribeYear = () => undefined;
+    const unsubscribeSchool = onSnapshot(doc(db, 'schools', schoolId), schoolSnapshot => {
+      const activeId = schoolSnapshot.data()?.activeAcademicYearId;
+      unsubscribeYear();
+      if (!activeId) {
+        setActiveAcademicYear(null);
+        return;
+      }
+      unsubscribeYear = onSnapshot(doc(db, `schools/${schoolId}/academicYears`, activeId), yearSnapshot => {
+        setActiveAcademicYear(yearSnapshot.exists() ? { id: yearSnapshot.id, ...yearSnapshot.data() } : null);
+      }, () => setActiveAcademicYear(null));
+    });
+    return () => { unsubscribeSchool(); unsubscribeYear(); };
+  }, [schoolId]);
+
+  function handleToday() {
+    const today = new Date();
+    if (!visibleDays.includes(today.getDay())) setVisibleDays(previous => [...previous, today.getDay()].sort((a, b) => a - b));
+    setYear(today.getFullYear());
+    setMonth(today.getMonth());
+    setSelectedDate(today);
+    setPendingTodayNavigation(true);
+  }
+
+  useEffect(() => {
+    if (!pendingTodayNavigation) return;
+    const frame = requestAnimationFrame(() => {
+      const cell = todayCellRef.current;
+      if (!cell) return;
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      cell.scrollIntoView({ block: 'center', inline: 'center', behavior: reduceMotion ? 'auto' : 'smooth' });
+      cell.focus({ preventScroll: true });
+      setTodayPulse(true);
+      setPendingTodayNavigation(false);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [month, pendingTodayNavigation, visibleDays, year]);
+
+  useEffect(() => {
+    if (!todayPulse) return;
+    const timeout = window.setTimeout(() => setTodayPulse(false), 1400);
+    return () => window.clearTimeout(timeout);
+  }, [todayPulse]);
 
   // Check if a task is visible to the current user
   function isTaskVisible(task) {
@@ -127,6 +178,7 @@ export default function GanttChart() {
     if (task.assigneeType === 'all_school') return true;
     if (task.assigneeType === 'team') return userTeamIds.includes(task.assigneeTeamId);
     if (task.assigneeType === 'individual') return (task.assigneeIds || []).includes(userData?.uid);
+    if (task.assigneeType === 'participants') return (task.participantIds || []).includes(userData?.uid);
     return true;
   }
 
@@ -413,12 +465,15 @@ export default function GanttChart() {
           </div>
           <button
             className="gantt-today-btn"
-            onClick={() => { setYear(now.getFullYear()); setMonth(now.getMonth()); }}
+            onClick={handleToday}
             title="קפוץ להיום"
           >
             <CalendarDays size={14} />
             היום
           </button>
+          <span className="gantt-academic-year" title={activeAcademicYear ? `שנת הלימודים הפעילה במוסד: ${academicYearDisplay(activeAcademicYear)}` : 'שנת הלימודים לפי החודש המוצג'}>
+            {academicYearDisplay(academicYearForDate(new Date(year, month, 1)))}
+          </span>
         </div>
         <div className="gantt-controls-actions">
           <div className="search-bar" style={{ minWidth: 140 }}>
@@ -520,7 +575,11 @@ export default function GanttChart() {
                     return (
                       <td
                         key={di}
-                        className={`gantt-date-header-cell ${!isCurrentMonth ? 'gantt-cell--dim' : ''} ${isToday ? 'gantt-cell--today' : ''}`}
+                        ref={isToday ? todayCellRef : undefined}
+                        tabIndex={isToday ? -1 : undefined}
+                        aria-current={isToday ? 'date' : undefined}
+                        aria-selected={selectedDate ? dateKey(selectedDate) === dateKey(date) : undefined}
+                        className={`gantt-date-header-cell ${!isCurrentMonth ? 'gantt-cell--dim' : ''} ${isToday ? 'gantt-cell--today' : ''} ${isToday && todayPulse ? 'gantt-cell--today-pulse' : ''} ${selectedDate && dateKey(selectedDate) === dateKey(date) ? 'gantt-cell--selected' : ''}`}
                         style={{ width: `${(visibleColumnWidths[vi] / totalFlex) * 100}%` }}
                       >
                         {(getHolidaysForCell(date)).length > 0 && (

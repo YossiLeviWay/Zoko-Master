@@ -5,21 +5,40 @@ import {
   setDoc,
 } from 'firebase/firestore';
 import { schoolCollection, schoolDoc } from './paths';
+import {
+  academicYearFromHebrewYear,
+  academicYearIdForHebrewYear,
+  CURRENT_HEBREW_ACADEMIC_YEAR,
+  gregorianStartForHebrewYear,
+  hebrewYearLabel,
+} from '../../utils/academicYears';
 
 export const DEFAULT_ACADEMIC_YEARS = Object.freeze([
-  Object.freeze({ id: 'year_2025_2026', label: 'תשפ״ו', startYear: 2025, endYear: 2026, status: 'closed' }),
-  Object.freeze({ id: 'year_2026_2027', label: 'תשפ״ז', startYear: 2026, endYear: 2027, status: 'active' }),
+  Object.freeze(academicYearFromHebrewYear(5786, 'closed')),
+  Object.freeze(academicYearFromHebrewYear(5787, 'active')),
+  Object.freeze(academicYearFromHebrewYear(5788, 'future')),
 ]);
 
-export const INITIAL_ACTIVE_ACADEMIC_YEAR_ID = 'year_2026_2027';
+export const INITIAL_ACTIVE_ACADEMIC_YEAR_ID = academicYearIdForHebrewYear(CURRENT_HEBREW_ACADEMIC_YEAR);
 
 function normalizedYear(year) {
+  const gregorianStartYear = Number(year.gregorianStartYear ?? year.startYear);
+  const gregorianEndYear = Number(year.gregorianEndYear ?? year.endYear ?? gregorianStartYear + 1);
+  const hebrewYearNumber = Number(year.hebrewYearNumber || gregorianStartYear + 3761);
+  const hebrewLabel = String(year.hebrewLabel || year.label || hebrewYearLabel(hebrewYearNumber)).trim();
   return {
     id: year.id,
-    label: String(year.label || `${year.startYear}-${year.endYear}`).trim(),
-    startYear: Number(year.startYear),
-    endYear: Number(year.endYear),
-    status: year.status === 'archived' ? 'archived' : year.status === 'closed' ? 'closed' : 'active',
+    hebrewYearNumber,
+    hebrewLabel,
+    gregorianStartYear,
+    gregorianEndYear,
+    startDate: year.startDate || `${gregorianStartYear}-09-01`,
+    endDate: year.endDate || `${gregorianEndYear}-08-31`,
+    isActive: year.isActive === true || year.status === 'active',
+    label: hebrewLabel,
+    startYear: gregorianStartYear,
+    endYear: gregorianEndYear,
+    status: ['archived', 'closed', 'future'].includes(year.status) ? year.status : 'active',
   };
 }
 
@@ -38,7 +57,7 @@ export function subscribeAcademicYears({ db, schoolId, onData, onError }) {
     snapshot => {
       const merged = new Map(DEFAULT_ACADEMIC_YEARS.map(year => [year.id, year]));
       snapshot.docs.forEach(item => merged.set(item.id, normalizedYear({ id: item.id, ...item.data() })));
-      onData([...merged.values()].sort((a, b) => b.startYear - a.startYear));
+      onData([...merged.values()].map(normalizedYear).sort((a, b) => b.hebrewYearNumber - a.hebrewYearNumber));
     },
     onError,
   );
@@ -83,18 +102,27 @@ export async function ensureInitialAcademicYears({ db, schoolId, actor }) {
 }
 
 export async function createAcademicYear({ db, schoolId, actor, input }) {
-  const startYear = Number(input.startYear);
-  const endYear = Number(input.endYear || startYear + 1);
-  if (!Number.isInteger(startYear) || endYear !== startYear + 1 || startYear < 2025 || startYear > 2200) {
+  const hebrewYearNumber = Number(input.hebrewYearNumber);
+  if (!Number.isInteger(hebrewYearNumber) || hebrewYearNumber < 5786 || hebrewYearNumber > 6000) {
     throw new Error('INVALID_ACADEMIC_YEAR');
   }
-  const id = academicYearId(startYear, endYear);
+  const startYear = gregorianStartForHebrewYear(hebrewYearNumber);
+  const endYear = startYear + 1;
+  const id = academicYearIdForHebrewYear(hebrewYearNumber);
+  const label = hebrewYearLabel(hebrewYearNumber);
   await setDoc(schoolDoc(db, schoolId, 'academicYears', id), {
     schoolId,
-    label: String(input.label || `${startYear}-${endYear}`).trim().slice(0, 30),
+    hebrewYearNumber,
+    hebrewLabel: label,
+    gregorianStartYear: startYear,
+    gregorianEndYear: endYear,
+    startDate: input.startDate || `${startYear}-09-01`,
+    endDate: input.endDate || `${endYear}-08-31`,
+    isActive: false,
+    label,
     startYear,
     endYear,
-    status: 'active',
+    status: 'future',
     createdBy: actor.uid,
     updatedBy: actor.uid,
     createdAt: serverTimestamp(),

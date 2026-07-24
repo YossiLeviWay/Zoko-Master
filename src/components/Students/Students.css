@@ -767,35 +767,7 @@
 }
 
 /* ===== Unified classes and students infrastructure ===== */
-.students-main-tabs {
-  display: inline-flex;
-  gap: 0.35rem;
-  padding: 0.3rem;
-  margin-bottom: 1rem;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  background: #f8fafc;
-}
-
-.students-main-tabs button {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.55rem 1rem;
-  border: 0;
-  border-radius: 9px;
-  background: transparent;
-  color: #64748b;
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.students-main-tabs button.active {
-  background: #fff;
-  color: #2563eb;
-  box-shadow: 0 1px 4px rgb(15 23 42 / 10%);
-}
+.students-main-tabs { margin-bottom: 1rem; }
 
 .students-section-toolbar,
 .students-toolbar-actions,

@@ -94,7 +94,7 @@ export default function Sidebar() {
   const isMobile = useIsMobile();
   const { permissions } = usePermissions();
   const [collapsed, setCollapsed] = useState(isMobile);
-  const { logout, userData, currentUser, selectedSchool, isPending, isPrincipal, isGlobalAdmin } = useAuth();
+  const { logout, userData, currentUser, selectedSchool, isPending, isPrincipal, isGlobalAdmin, isPlatformAdmin } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -202,7 +202,7 @@ export default function Sidebar() {
 
   function canSeeItem(item) {
     if (userIsPending) return item.path === '/';
-    if (item.adminOnly) return userData?.role === 'global_admin';
+    if (item.adminOnly) return isPlatformAdmin();
     if (item.requiresSchool && !schoolId) return false;
     if (item.permission && !permissions[item.permission]) return false;
     return true;

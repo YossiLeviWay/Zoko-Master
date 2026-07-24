@@ -34,9 +34,9 @@ function ProtectedRoute({ children }) {
 }
 
 function AdminRoute({ children }) {
-  const { isGlobalAdmin, loading } = useAuth();
+  const { isPlatformAdmin, loading } = useAuth();
   if (loading) return null;
-  if (!isGlobalAdmin()) return <Navigate to="/" />;
+  if (!isPlatformAdmin()) return <Navigate to="/" />;
   return children;
 }
 function SchoolRequiredRoute({ children }) {

@@ -5,6 +5,7 @@ import {
   setActiveAcademicYear,
 } from '../../services/firestore/academicYearRepository';
 import { db } from '../../firebase';
+import { academicYearDisplay, CURRENT_HEBREW_ACADEMIC_YEAR, hebrewYearLabel } from '../../utils/academicYears';
 
 export default function AcademicYearToolbar({
   schoolId,
@@ -16,7 +17,7 @@ export default function AcademicYearToolbar({
   onSelect,
 }) {
   const [showManage, setShowManage] = useState(false);
-  const [form, setForm] = useState({ label: '', startYear: new Date().getFullYear() + 1 });
+  const [form, setForm] = useState({ hebrewYearNumber: CURRENT_HEBREW_ACADEMIC_YEAR + 1 });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -29,10 +30,10 @@ export default function AcademicYearToolbar({
     try {
       const id = await createAcademicYear({
         db, schoolId, actor,
-        input: { ...form, endYear: Number(form.startYear) + 1 },
+        input: form,
       });
       onSelect(id);
-      setForm(previous => ({ label: '', startYear: Number(previous.startYear) + 1 }));
+      setForm(previous => ({ hebrewYearNumber: Number(previous.hebrewYearNumber) + 1 }));
     } catch {
       setError('לא ניתן להוסיף את שנת הלימודים.');
     } finally {
@@ -60,7 +61,7 @@ export default function AcademicYearToolbar({
           <CalendarRange size={17} />
           <label htmlFor="academic-year-select">שנת לימודים מוצגת</label>
           <select id="academic-year-select" value={selectedYearId} onChange={event => onSelect(event.target.value)}>
-            {years.map(year => <option key={year.id} value={year.id}>{year.label} · {year.startYear}-{year.endYear}{year.id === activeYearId ? ' (פעילה)' : ''}</option>)}
+            {years.map(year => <option key={year.id} value={year.id}>{academicYearDisplay(year)}{year.id === activeYearId ? ' · פעילה' : ''}</option>)}
           </select>
         </div>
         <span className="academic-year-context">כל הפעולות במסך זה יחולו על <strong>{selected?.label || 'השנה שנבחרה'}</strong></span>
@@ -74,12 +75,12 @@ export default function AcademicYearToolbar({
             <div className="academic-year-manager">
               {error && <div className="students-feedback students-feedback--error" role="alert">{error}</div>}
               <div className="academic-year-list">
-                {years.map(year => <article key={year.id}><div><strong>{year.label}</strong><span>{year.startYear}-{year.endYear}</span></div>{year.id === activeYearId ? <span className="academic-year-active"><Check size={13} /> שנה פעילה</span> : <button className="btn btn-secondary btn-sm" disabled={saving} onClick={() => makeActive(year.id)}>הגדרה כפעילה</button>}</article>)}
+                {years.map(year => <article key={year.id}><div><strong>{year.hebrewLabel || year.label}</strong><span>{year.gregorianStartYear || year.startYear}-{year.gregorianEndYear || year.endYear}</span></div>{year.id === activeYearId ? <span className="academic-year-active"><Check size={13} /> שנה פעילה</span> : <button className="btn btn-secondary btn-sm" disabled={saving} onClick={() => makeActive(year.id)}>הגדרה כפעילה</button>}</article>)}
               </div>
               <form className="academic-year-add" onSubmit={addYear}>
                 <h4>הוספת שנה עתידית</h4>
-                <label>כותרת<input value={form.label} onChange={event => setForm(previous => ({ ...previous, label: event.target.value }))} placeholder="לדוגמה: תשפ״ח" required maxLength={30} /></label>
-                <label>שנת התחלה<input type="number" min="2025" max="2200" value={form.startYear} onChange={event => setForm(previous => ({ ...previous, startYear: event.target.value }))} required /></label>
+                <label>שנה עברית<input type="number" min="5786" max="6000" value={form.hebrewYearNumber} onChange={event => setForm({ hebrewYearNumber: event.target.value })} required /></label>
+                <label>תצוגה<input value={`${hebrewYearLabel(form.hebrewYearNumber)} (${Number(form.hebrewYearNumber) - 3761}-${Number(form.hebrewYearNumber) - 3760})`} readOnly /></label>
                 <button className="btn btn-primary" disabled={saving}><Plus size={15} /> הוספת שנה</button>
               </form>
             </div>

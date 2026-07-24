@@ -109,6 +109,8 @@ function classFields(input) {
     normalizedName: normalizeName(input.name),
     gradeLevel: input.gradeLevel || '',
     academicYear: input.academicYear.trim(),
+    academicYearLabel: input.academicYearLabel || input.academicYear.trim(),
+    academicYearRange: input.academicYearRange || '',
     academicYearId: input.academicYearId || academicYearIdFromLegacy(input.academicYear),
     teacherId: input.teacherId || '',
     staffIds: unique(input.staffIds),
@@ -121,7 +123,7 @@ function classFields(input) {
 
 export async function createClass({ db, schoolId, actor, input }) {
   if (!actor?.uid || !input.name?.trim() || !input.academicYear?.trim()) throw new Error('INVALID_CLASS');
-  const classId = await classDocumentId(input.name, input.academicYear);
+  const classId = await classDocumentId(input.name, input.academicYearId || input.academicYear);
   const classRef = schoolDoc(db, schoolId, 'classes', classId);
   await runTransaction(db, async transaction => {
     if ((await transaction.get(classRef)).exists()) throw new Error('CLASS_EXISTS');

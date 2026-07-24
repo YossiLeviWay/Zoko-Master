@@ -81,8 +81,9 @@ export default function Settings() {
                 <h3>{userData?.fullName}</h3>
                 <p>{userData?.email}</p>
                 <span className={`role-badge role-${userData?.role}`}>{
-                  userData?.role === 'global_admin' ? 'מנהל על' :
-                  userData?.role === 'principal' ? 'מנהל מוסד' :
+                  userData?.role === 'platform_admin' ? 'מנהל־על פלטפורמה' :
+                  userData?.role === 'global_admin' ? 'מנהל על (מורשתי)' :
+                  ['principal', 'institution_manager'].includes(userData?.role) ? 'מנהל מוסד' :
                   userData?.role === 'editor' ? 'עורך' : 'צופה'
                 }</span>
               </div>
@@ -181,8 +182,9 @@ export default function Settings() {
             <div className="settings-info-row">
               <span className="settings-label">הרשאה</span>
               <span className="settings-value">{
-                userData?.role === 'global_admin' ? 'מנהל על - גישה לכל המערכת' :
-                userData?.role === 'principal' ? 'מנהל מוסד - שליטה מלאה בבית הספר' :
+                userData?.role === 'platform_admin' ? 'מנהל־על פלטפורמה - ניהול מוסדות' :
+                userData?.role === 'global_admin' ? 'מנהל על מורשתי' :
+                ['principal', 'institution_manager'].includes(userData?.role) ? 'מנהל מוסד - ניהול המוסד המשויך בלבד' :
                 userData?.role === 'editor' ? 'עורך - יכולת עריכה' : 'צופה - צפייה בלבד'
               }</span>
             </div>

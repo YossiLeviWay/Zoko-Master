@@ -1,4 +1,15 @@
 export const PERMISSION_GROUPS = Object.freeze([
+  Object.freeze({ id: 'staff', label: 'אנשי צוות והזמנות', permissions: [
+    ['staff.invite', 'שליחת הזמנות לאנשי צוות'],
+    ['staff.viewJoinRequests', 'צפייה בבקשות הצטרפות'],
+    ['staff.reviewJoinRequests', 'טיפול בבקשות הצטרפות'],
+    ['staff.resetPassword', 'שליחת קישור איפוס סיסמה'],
+  ] }),
+  Object.freeze({ id: 'tasks', label: 'משימות ושיתופים', permissions: [
+    ['tasks.inviteCollaborators', 'הזמנת שותפים למשימה אישית'],
+    ['tasks.assignMandatory', 'הקצאת משימה מחייבת'],
+    ['tasks.manageAssignments', 'ביטול ושינוי הקצאות משימה'],
+  ] }),
   Object.freeze({ id: 'academicYears', label: 'שנות לימודים', permissions: [
     ['academicYears.view', 'צפייה בשנות לימודים'],
     ['academicYears.manage', 'ניהול שנות לימודים'],
@@ -25,6 +36,11 @@ export const PERMISSION_GROUPS = Object.freeze([
     ['students.managePrograms', 'ניהול מגמות ותוכניות לימוד'],
     ['students.addNotes', 'הוספת הערות'],
     ['students.viewSensitiveNotes', 'צפייה בהערות רגישות'],
+  ] }),
+  Object.freeze({ id: 'grades', label: 'ציונים ומיפויים', permissions: [
+    ['grades.view', 'צפייה בציונים'],
+    ['grades.edit', 'עריכת ציוני תלמידים'],
+    ['gradebooks.manage', 'ניהול מקצועות, רכיבים ונוסחאות'],
   ] }),
   Object.freeze({ id: 'personalFile', label: 'תיק אישי', permissions: [
     ['personalFile.view', 'צפייה בתיק אישי'],

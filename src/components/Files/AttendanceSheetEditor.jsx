@@ -50,14 +50,14 @@ export default function AttendanceSheetEditor({ file, schoolId, actor, permissio
   const canManageLegend = canManage || permissions.attendance_manage_legend;
 
   useEffect(() => {
-    const common = { db, schoolId, fileId: file.id, onError: () => setError('לא ניתן לטעון את נתוני הנוכחות.') };
+    const common = { db, schoolId, fileId: file.id, mode: file._dataMode || 'nested', onError: () => setError('לא ניתן לטעון את נתוני הנוכחות.') };
     return [
       subscribeAttendanceLegend({ ...common, onData: setLegend }),
       subscribeAttendanceMembers({ ...common, onData: setMembers }),
       subscribeAttendanceDays({ ...common, onData: setDays }),
       subscribeAttendanceRecords({ ...common, onData: setRecords }),
     ].reduce((cleanup, unsubscribe) => () => { cleanup(); unsubscribe(); }, () => undefined);
-  }, [file.id, schoolId]);
+  }, [file._dataMode, file.id, schoolId]);
 
   useEffect(() => {
     if (!days.length) return;
@@ -142,7 +142,7 @@ export default function AttendanceSheetEditor({ file, schoolId, actor, permissio
   async function toggleLegendActive(item) {
     if (!canManageLegend) return;
     try {
-      await setAttendanceLegendItemActive({ db, schoolId, fileId: file.id, itemId: item.id, actor, active: item.active === false });
+      await setAttendanceLegendItemActive({ db, schoolId, fileId: file.id, itemId: item.id, actor, active: item.active === false, mode: file._dataMode || 'nested' });
     } catch {
       setError('לא ניתן לשנות את פריט המקראה.');
     }
@@ -159,7 +159,7 @@ export default function AttendanceSheetEditor({ file, schoolId, actor, permissio
   return (
     <div className="attendance-editor" dir="rtl">
       <div className="attendance-toolbar">
-        <div><strong>{file.className}</strong><span>{file.academicYear} · {file.dateRange?.start}–{file.dateRange?.end}</span></div>
+        <div><strong>{file.className}</strong><span>{file.academicYear}{file.academicYearRange ? ` (${file.academicYearRange})` : ''} · {file.dateRange?.start}–{file.dateRange?.end}</span></div>
         <div className="attendance-toolbar-actions">
           <label className="attendance-search">חיפוש תלמיד<input value={search} onChange={event => setSearch(event.target.value)} /></label>
           <button className="btn btn-secondary btn-sm" onClick={() => setShowLegend(previous => !previous)}><Settings2 size={14} /> מקראה</button>

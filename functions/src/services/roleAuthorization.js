@@ -20,7 +20,7 @@ export async function getRole(roleId, schoolId) {
 }
 
 export async function resolveActorRoleAuthority(actor, schoolId) {
-  if (actor.globalAdmin || actor.data.role === 'principal') {
+  if (actor.platformAdmin || actor.globalAdmin || ['principal', 'institution_manager'].includes(actor.data.role)) {
     return { unrestricted: true, permissions: new Set(), delegable: new Set(), scopes: new Map() };
   }
   if (!actor.schoolIds.has(schoolId)) throw permissionDenied();

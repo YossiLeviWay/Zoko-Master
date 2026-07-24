@@ -3,7 +3,12 @@ import { ArrowDown, ArrowUp, CalendarDays, Check, ChevronLeft, ChevronRight, Fil
 import { db } from '../../firebase';
 import { subscribeClasses, subscribeStudents } from '../../services/firestore/classStudentRepository';
 import { createAttendanceSheets } from '../../services/firestore/attendanceRepository';
+import {
+  subscribeAcademicYears,
+  subscribeAcademicYearSettings,
+} from '../../services/firestore/academicYearRepository';
 import { buildScheduledDays, DEFAULT_ATTENDANCE_LEGEND } from '../../utils/attendance';
+import { academicYearDisplay } from '../../utils/academicYears';
 import './Attendance.css';
 
 const STEP_LABELS = ['פרטים', 'כיתות', 'תלמידים', 'תאריכים ומקראה'];
@@ -30,13 +35,17 @@ export default function AttendanceSheetWizard({
   const [step, setStep] = useState(0);
   const [details, setDetails] = useState({
     title: 'גיליון נוכחות',
+    academicYearId: '',
     academicYear: '',
+    academicYearRange: '',
     startDate: dates.startDate,
     endDate: dates.endDate,
     folderId: initialFolderId || '',
     description: '',
   });
   const [classes, setClasses] = useState([]);
+  const [academicYears, setAcademicYears] = useState([]);
+  const [activeAcademicYearId, setActiveAcademicYearId] = useState('');
   const [selectedClassIds, setSelectedClassIds] = useState([]);
   const [students, setStudents] = useState([]);
   const [excludedByClass, setExcludedByClass] = useState({});
@@ -46,6 +55,31 @@ export default function AttendanceSheetWizard({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    const unsubscribeYears = subscribeAcademicYears({ db, schoolId, onData: setAcademicYears, onError: () => setError('לא ניתן לטעון שנות לימודים.') });
+    const unsubscribeSettings = subscribeAcademicYearSettings({
+      db,
+      schoolId,
+      onData: settings => setActiveAcademicYearId(settings.activeAcademicYearId),
+      onError: () => setError('לא ניתן לטעון את שנת הלימודים הפעילה.'),
+    });
+    return () => { unsubscribeYears(); unsubscribeSettings(); };
+  }, [schoolId]);
+
+  useEffect(() => {
+    if (!activeAcademicYearId || academicYears.length === 0) return;
+    setDetails(previous => {
+      if (previous.academicYearId) return previous;
+      const year = academicYears.find(item => item.id === activeAcademicYearId);
+      return year ? {
+        ...previous,
+        academicYearId: year.id,
+        academicYear: year.hebrewLabel || year.label,
+        academicYearRange: `${year.gregorianStartYear || year.startYear}-${year.gregorianEndYear || year.endYear}`,
+      } : previous;
+    });
+  }, [academicYears, activeAcademicYearId]);
 
   useEffect(() => subscribeClasses({
     db,
@@ -92,12 +126,14 @@ export default function AttendanceSheetWizard({
     });
   }, [schoolId, selectedClassIds]);
 
-  const selectedClasses = classes.filter(item => selectedClassIds.includes(item.id));
+  const yearClasses = classes.filter(item => !details.academicYearId || item.academicYearId === details.academicYearId);
+  const selectedClasses = yearClasses.filter(item => selectedClassIds.includes(item.id));
   const visibleClasses = classes.filter(item => {
     const needle = search.trim().toLowerCase();
     const matchesSearch = !needle || [item.name, item.gradeLevel, item.academicYear]
       .some(value => String(value || '').toLowerCase().includes(needle));
-    return matchesSearch && (!gradeFilter || item.gradeLevel === gradeFilter);
+    return matchesSearch && (!gradeFilter || item.gradeLevel === gradeFilter)
+      && (!details.academicYearId || item.academicYearId === details.academicYearId);
   });
   const grades = [...new Set(classes.map(item => item.gradeLevel).filter(Boolean))];
 
@@ -208,7 +244,7 @@ export default function AttendanceSheetWizard({
             <div className="attendance-form-grid">
               <label>שם בסיסי לגיליון<input value={details.title} onChange={event => setDetails(previous => ({ ...previous, title: event.target.value }))} maxLength={100} /></label>
               <label>תיקיית יעד<select value={details.folderId} onChange={event => setDetails(previous => ({ ...previous, folderId: event.target.value }))}><option value="">בחירת תיקייה</option>{folders.map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label>
-              <label>שנת לימודים<input value={details.academicYear} onChange={event => setDetails(previous => ({ ...previous, academicYear: event.target.value }))} placeholder="2026-2027" /></label>
+              <label>שנת לימודים<select value={details.academicYearId} onChange={event => { const year = academicYears.find(item => item.id === event.target.value); setSelectedClassIds([]); setDetails(previous => ({ ...previous, academicYearId: year?.id || '', academicYear: year?.hebrewLabel || year?.label || '', academicYearRange: year ? `${year.gregorianStartYear || year.startYear}-${year.gregorianEndYear || year.endYear}` : '' })); }}><option value="">בחירת שנה</option>{academicYears.map(year => <option key={year.id} value={year.id}>{academicYearDisplay(year)}{year.id === activeAcademicYearId ? ' · פעילה' : ''}</option>)}</select></label>
               <label>מתאריך<input type="date" value={details.startDate} onChange={event => setDetails(previous => ({ ...previous, startDate: event.target.value }))} /></label>
               <label>עד תאריך<input type="date" value={details.endDate} onChange={event => setDetails(previous => ({ ...previous, endDate: event.target.value }))} /></label>
               <label className="attendance-form-wide">תיאור<textarea value={details.description} onChange={event => setDetails(previous => ({ ...previous, description: event.target.value }))} maxLength={500} rows={3} /></label>
@@ -218,7 +254,7 @@ export default function AttendanceSheetWizard({
           {step === 1 && (
             <div>
               <div className="attendance-filter-row"><div className="search-bar"><Search size={14} /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="חיפוש כיתה" /></div><select value={gradeFilter} onChange={event => setGradeFilter(event.target.value)}><option value="">כל השכבות</option>{grades.map(grade => <option key={grade}>{grade}</option>)}</select><button className="btn btn-secondary btn-sm" onClick={() => setSelectedClassIds(visibleClasses.map(item => item.id))}>בחירת הכל</button></div>
-              {loading ? <div className="attendance-empty">טוען כיתות…</div> : <div className="attendance-class-picker">{visibleClasses.map(item => <label key={item.id} className={selectedClassIds.includes(item.id) ? 'selected' : ''}><input type="checkbox" checked={selectedClassIds.includes(item.id)} onChange={() => toggleClass(item.id)} /><span><strong>{item.name}</strong><small>{item.gradeLevel || 'ללא שכבה'} · {item.academicYear}</small></span></label>)}</div>}
+              {loading ? <div className="attendance-empty">טוען כיתות…</div> : <div className="attendance-class-picker">{visibleClasses.map(item => <label key={item.id} className={selectedClassIds.includes(item.id) ? 'selected' : ''}><input type="checkbox" checked={selectedClassIds.includes(item.id)} onChange={() => toggleClass(item.id)} /><span><strong>{item.name}</strong><small>{item.gradeLevel || 'ללא שכבה'} · {item.academicYearLabel || item.academicYear}{item.academicYearRange ? ` (${item.academicYearRange})` : ''}</small></span></label>)}</div>}
               <p className="attendance-count"><Users size={14} /> נבחרו {selectedClassIds.length} כיתות — ייווצרו {selectedClassIds.length} גיליונות.</p>
             </div>
           )}

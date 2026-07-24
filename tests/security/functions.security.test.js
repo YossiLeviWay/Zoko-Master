@@ -1,10 +1,17 @@
 import { afterEach, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import {
   approveMembershipHandler,
 } from '../../functions/src/callables/memberships.js';
 import { createNotificationsHandler } from '../../functions/src/callables/notifications.js';
 import { createSchoolHandler, updateSchoolHandler } from '../../functions/src/callables/schools.js';
+import { setActiveSchoolHandler } from '../../functions/src/callables/auth.js';
+import {
+  createMandatoryTaskHandler,
+  inviteTaskCollaboratorsHandler,
+  respondTaskInvitationHandler,
+} from '../../functions/src/callables/tasks.js';
 import { createStaffHandler, setRoleHandler } from '../../functions/src/callables/staff.js';
 import {
   assignCustomRoleHandler,
@@ -26,7 +33,8 @@ import {
   previewBulkCvDraftsHandler,
   upsertCvTemplateHandler,
 } from '../../functions/src/callables/cvTemplates.js';
-import { adminAuth, adminDb } from '../../functions/src/services/firebaseAdmin.js';
+import { adminAuth, adminDb, Timestamp } from '../../functions/src/services/firebaseAdmin.js';
+import { acceptInvitationToken } from '../../functions/src/services/invitations.js';
 
 const SCHOOL_A = 'school_a';
 const SCHOOL_B = 'school_b';
@@ -163,21 +171,127 @@ test('task assign permission may notify only a recipient in the same school', as
 
 test('school administration is server-authorized and audited', async () => {
   await seedUser('principal_a', SCHOOL_A, 'principal');
-  await adminDb.collection('schools').doc(SCHOOL_A).set({ name: 'School A' });
+  await seedUser('platform_admin', SCHOOL_A, 'viewer');
+  await adminDb.collection('schools').doc(SCHOOL_A).set({ name: 'School A', status: 'active' });
   await assert.rejects(createSchoolHandler(actorRequest('principal_a', {
     name: 'Not allowed',
   })), error => error.code === 'permission-denied');
+  const created = await createSchoolHandler(actorRequest('platform_admin', {
+    name: 'New School', code: 'school_new', address: '', phone: '', institutionalEmail: '',
+    activeAcademicYearId: 'year_2026_2027', status: 'active',
+    manager: { fullName: 'New Manager', email: 'new-manager@example.test' },
+  }, { platform_admin: true }));
+  assert.equal(created.schoolId, 'school_new');
   const result = await updateSchoolHandler(actorRequest('principal_a', {
     schoolId: SCHOOL_A,
     name: 'Updated A',
+    code: SCHOOL_A,
     address: '',
     phone: '',
+    institutionalEmail: '',
+    activeAcademicYearId: 'year_2026_2027',
+    status: 'disabled',
   }));
   assert.deepEqual(result, { ok: true });
+  assert.equal((await adminDb.collection('schools').doc(SCHOOL_A).get()).data().status, 'active');
   const audit = await adminDb.collection('auditLogs')
     .where('action', '==', 'school.update')
     .get();
   assert.equal(audit.size, 1);
+});
+
+test('active school selection requires a real active membership', async () => {
+  await seedUser('member_a', SCHOOL_A);
+  await adminDb.collection('schools').doc(SCHOOL_A).set({ name: 'School A', status: 'active' });
+  await adminDb.collection('schools').doc(SCHOOL_B).set({ name: 'School B', status: 'active' });
+  await setActiveSchoolHandler(actorRequest('member_a', { schoolId: SCHOOL_A }));
+  await assert.rejects(
+    setActiveSchoolHandler(actorRequest('member_a', { schoolId: SCHOOL_B })),
+    error => error.code === 'permission-denied',
+  );
+});
+
+test('mandatory tasks require explicit authority and are audited', async () => {
+  await seedUser('viewer_a', SCHOOL_A);
+  await seedUser('assigner_a', SCHOOL_A, 'viewer', { permissions: { 'tasks.assignMandatory': true } });
+  await seedUser('recipient_a', SCHOOL_A);
+  const input = {
+    schoolId: SCHOOL_A, recipientIds: ['recipient_a'], title: 'Required action',
+    description: '', dueDate: '', priority: 'high',
+  };
+  await assert.rejects(
+    createMandatoryTaskHandler(actorRequest('viewer_a', input)),
+    error => error.code === 'permission-denied',
+  );
+  const result = await createMandatoryTaskHandler(actorRequest('assigner_a', input));
+  const task = await adminDb.doc(`schools/${SCHOOL_A}/tasks/${result.taskId}`).get();
+  assert.equal(task.data().mandatory, true);
+  assert.deepEqual(task.data().assigneeIds, ['recipient_a']);
+  const audits = await adminDb.collection('auditLogs').where('action', '==', 'task.mandatory.create').get();
+  assert.equal(audits.size, 1);
+});
+
+test('task invitations can be accepted only by their recipient', async () => {
+  await seedUser('owner_a', SCHOOL_A);
+  await seedUser('recipient_a', SCHOOL_A);
+  await seedUser('other_a', SCHOOL_A);
+  await adminDb.doc('users/owner_a/personalTasks/personal_1').set({
+    schoolId: SCHOOL_A, ownerId: 'owner_a', createdBy: 'owner_a', scope: 'personal',
+    title: 'Private until accepted', description: 'Details', status: 'todo', dueDate: '', priority: 'medium',
+  });
+  await inviteTaskCollaboratorsHandler(actorRequest('owner_a', {
+    schoolId: SCHOOL_A, personalTaskId: 'personal_1', recipientIds: ['recipient_a'], message: '',
+  }));
+  const invitations = await adminDb.collection(`schools/${SCHOOL_A}/taskInvitations`).get();
+  assert.equal(invitations.size, 1);
+  const invitationId = invitations.docs[0].id;
+  await assert.rejects(respondTaskInvitationHandler(actorRequest('other_a', {
+    schoolId: SCHOOL_A, invitationId, action: 'accept', response: '',
+  })), error => error.code === 'permission-denied');
+  await respondTaskInvitationHandler(actorRequest('recipient_a', {
+    schoolId: SCHOOL_A, invitationId, action: 'accept', response: 'Accepted',
+  }));
+  const updated = await invitations.docs[0].ref.get();
+  assert.equal(updated.data().status, 'accepted');
+  assert.ok(updated.data().sharedTaskId);
+});
+
+test('staff invitation tokens expire and cannot be reused', async () => {
+  await adminDb.collection('schools').doc(SCHOOL_A).set({ name: 'School A', status: 'active' });
+  const expiredToken = 'expired_token_value_that_is_long_enough_123456';
+  await adminDb.doc(`schools/${SCHOOL_A}/invitations/expired_invite`).set({
+    schoolId: SCHOOL_A, normalizedEmail: 'expired@example.test', fullName: 'Expired', role: 'viewer',
+    status: 'pending', expiresAt: Timestamp.fromMillis(Date.now() - 1000), inviterId: 'principal_a',
+  });
+  await adminDb.doc('_invitationSecrets/expired_invite').set({
+    schoolId: SCHOOL_A,
+    tokenHash: createHash('sha256').update(expiredToken).digest('hex'),
+    expiresAt: Timestamp.fromMillis(Date.now() - 1000),
+  });
+  await assert.rejects(acceptInvitationToken({
+    invitationId: 'expired_invite', token: expiredToken, password: 'A-secure-pass-123', fullName: 'Expired',
+  }), error => error.details?.reason === 'invitation-expired');
+
+  const validToken = 'valid_token_value_that_is_long_enough_12345678';
+  await adminDb.doc(`schools/${SCHOOL_A}/invitations/valid_invite`).set({
+    schoolId: SCHOOL_A, normalizedEmail: 'accepted@example.test', fullName: 'Accepted', role: 'viewer',
+    status: 'pending', expiresAt: Timestamp.fromMillis(Date.now() + 60_000), inviterId: 'principal_a',
+    customRoleIds: [], teamIds: [], classIds: [], permissions: {},
+  });
+  await adminDb.doc('_invitationSecrets/valid_invite').set({
+    schoolId: SCHOOL_A,
+    tokenHash: createHash('sha256').update(validToken).digest('hex'),
+    expiresAt: Timestamp.fromMillis(Date.now() + 60_000),
+  });
+  const accepted = await acceptInvitationToken({
+    invitationId: 'valid_invite', token: validToken, password: 'A-secure-pass-123', fullName: 'Accepted',
+  });
+  const acceptedAuth = await adminAuth.getUserByEmail('accepted@example.test');
+  createdAuthUsers.add(acceptedAuth.uid);
+  assert.equal(accepted.ok, true);
+  await assert.rejects(acceptInvitationToken({
+    invitationId: 'valid_invite', token: validToken, password: 'A-secure-pass-123', fullName: 'Accepted',
+  }), error => error.details?.reason === 'invitation-invalid');
 });
 
 test('delegated role manager grants only owned and explicitly delegable permissions', async () => {
