@@ -5,6 +5,7 @@ import { getDoc, getDocs, query, where } from 'firebase/firestore';
 import { schoolCollection, schoolDoc } from '../services/firestore/paths';
 import { ALL_PERMISSION_KEYS } from '../../functions/src/permissionCatalog.js';
 
+/** @type {Record<string, boolean>} */
 export const VIEWER_DEFAULTS = {
   ...Object.fromEntries(ALL_PERMISSION_KEYS.map(key => [key, false])),
   calendar_view: true,
@@ -51,6 +52,7 @@ export const VIEWER_DEFAULTS = {
   settings_edit: true,
 };
 
+/** @type {Record<string, boolean>} */
 export const FULL_PERMISSIONS = Object.fromEntries(
   Object.keys(VIEWER_DEFAULTS).map(k => [k, true])
 );
@@ -90,7 +92,10 @@ export function usePermissions() {
       const scopes = {};
 
       // Merge all custom roles (OR logic — any role that grants a permission enables it)
-      const roleIds = userData.customRoleAssignments?.[schoolId] || userData.customRoleIds || [];
+      const memberships = [...new Set([userData.schoolId, ...(userData.schoolIds || [])].filter(Boolean))];
+      const roleIds = userData.customRoleAssignments?.[schoolId]
+        || (memberships.length === 1 ? userData.customRoleIds : [])
+        || [];
       if (roleIds.length > 0 && schoolId) {
         for (const roleId of roleIds) {
           try {

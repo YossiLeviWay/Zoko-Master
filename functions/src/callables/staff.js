@@ -19,9 +19,10 @@ import { writeAuditLog } from '../services/audit.js';
 import { adminAuth, adminDb } from '../services/firebaseAdmin.js';
 import { permissionDenied, toPublicError } from '../services/errors.js';
 import { enforceRateLimit } from '../services/rateLimit.js';
+import { createInvitationRecord } from '../services/invitations.js';
+import { EMAIL_PROVIDER_API_KEY, APP_BASE_URL, sendPasswordResetLinkEmail } from '../services/email.js';
 import {
   assertNotLastGlobalAdmin,
-  createUserProfile,
   ensurePrincipalCanGrantRole,
   setGlobalAdminClaim,
 } from '../services/userManagement.js';
@@ -42,15 +43,7 @@ export async function createStaffHandler(request) {
   ensurePrincipalCanGrantRole(actor, input.role);
   await enforceRateLimit({ uid: actor.uid, action: 'createStaffUser', limit: 10 });
 
-  const userId = await createUserProfile(input);
-  await writeAuditLog({
-    actorUid: actor.uid,
-    action: 'staff.create',
-    targetUid: userId,
-    schoolId: input.schoolId,
-    metadata: { role: input.role },
-  });
-  return { userId, passwordResetRequired: true };
+  return createInvitationRecord({ actor, ...input });
 }
 
 export async function updateStaffHandler(request) {
@@ -159,8 +152,12 @@ export async function requestPasswordResetHandler(request) {
   const actor = await requireActor(request);
   const input = passwordResetSchema.parse(request.data);
   requireSchoolManager(actor, input.schoolId);
-  await requireTargetInSchool(actor, input.userId, input.schoolId);
   await enforceRateLimit({ uid: actor.uid, action: 'requestStaffPasswordReset', limit: 10 });
+  const target = await requireTargetInSchool(actor, input.userId, input.schoolId);
+  const resetLink = await adminAuth.generatePasswordResetLink(target.auth.email, {
+    url: `${APP_BASE_URL.value().replace(/\/$/, '')}/#/login`,
+  });
+  await sendPasswordResetLinkEmail({ email: target.auth.email, fullName: target.data.fullName, resetLink });
   await writeAuditLog({
     actorUid: actor.uid,
     action: 'staff.password_reset.request',
@@ -170,8 +167,9 @@ export async function requestPasswordResetHandler(request) {
   return { ok: true };
 }
 
-export const createStaffUser = onCall(CALLABLE_OPTIONS, request => runSafely(createStaffHandler, request));
+const STAFF_EMAIL_OPTIONS = { ...CALLABLE_OPTIONS, secrets: [EMAIL_PROVIDER_API_KEY] };
+export const createStaffUser = onCall(STAFF_EMAIL_OPTIONS, request => runSafely(createStaffHandler, request));
 export const updateStaffUser = onCall(CALLABLE_OPTIONS, request => runSafely(updateStaffHandler, request));
 export const deleteStaffUser = onCall(CALLABLE_OPTIONS, request => runSafely(deleteStaffHandler, request));
 export const setUserRole = onCall(CALLABLE_OPTIONS, request => runSafely(setRoleHandler, request));
-export const requestStaffPasswordReset = onCall(CALLABLE_OPTIONS, request => runSafely(requestPasswordResetHandler, request));
+export const requestStaffPasswordReset = onCall(STAFF_EMAIL_OPTIONS, request => runSafely(requestPasswordResetHandler, request));

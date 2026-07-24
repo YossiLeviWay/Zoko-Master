@@ -14,7 +14,9 @@ export const SYSTEM_ROLES = Object.freeze({
   VIEWER: 'viewer',
   EDITOR: 'editor',
   PRINCIPAL: 'principal',
+  INSTITUTION_MANAGER: 'institution_manager',
   GLOBAL_ADMIN: 'global_admin',
+  PLATFORM_ADMIN: 'platform_admin',
 });
 
 export const PERMISSION_KEYS = ALL_PERMISSION_KEYS;

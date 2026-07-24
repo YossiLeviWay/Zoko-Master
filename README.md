@@ -49,3 +49,16 @@ VITE_FIREBASE_APPCHECK_SITE_KEY=...
 הסיסמה המשותפת שהופיעה בעבר בקוד ובתיעוד נחשבת חשופה. יש להחליף ולבטל אותה בחשבון הישן ולבטל את כל ה-refresh tokens שלו. הסרתה מהגרסה הנוכחית אינה מוחקת אותה מהיסטוריית Git.
 
 App Check נאכף ב־Cloud Functions. לפני שימוש בסביבת staging או production יש לרשום אפליקציית Web עם reCAPTCHA Enterprise ב־Firebase Console ולהגדיר את ה־site key כמשתנה סביבה; אין לשמור מפתחות שרת או debug tokens בריפו.
+
+## בדיקות מקומיות
+
+```bash
+npm run lint
+npm --prefix functions run lint
+npm run typecheck
+npm run test:unit
+npm run test:emulator
+npm run build
+```
+
+מודל ההרשאות, ACL, תצוגת ההרשאות ותהליך ההעברה היבש מתועדים ב־[`docs/security/permissions-model.md`](docs/security/permissions-model.md). אין להריץ migration או לפרוס Functions/Rules ישירות לייצור ללא גיבוי, סביבת staging ואישור מפורש.

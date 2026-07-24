@@ -31,7 +31,59 @@ service firebase.storage {
     }
 
     function isSchoolPrincipal(schoolId) {
-      return isSchoolMember(schoolId) && currentUser().role == 'principal';
+      return isSchoolMember(schoolId) && currentUser().role in ['principal', 'institution_manager'];
+    }
+
+    function aclPolicy(schoolId, resourceType, resourceId) {
+      return firestore.get(/databases/(default)/documents/schools/$(schoolId)/resourceAclPolicies/$(resourceType + '_' + resourceId)).data;
+    }
+
+    function hasAclPolicy(schoolId, resourceType, resourceId) {
+      return firestore.exists(/databases/(default)/documents/schools/$(schoolId)/resourceAclPolicies/$(resourceType + '_' + resourceId))
+        && aclPolicy(schoolId, resourceType, resourceId).configured == true;
+    }
+
+    function legacyIdsAllowedForSchool(schoolId) {
+      return currentUser().schoolId == schoolId
+        && currentUser().get('schoolIds', []).size() <= 1;
+    }
+
+    function currentUserRoleIds(schoolId) {
+      let legacyIds = legacyIdsAllowedForSchool(schoolId) ? currentUser().get('customRoleIds', []) : [];
+      return currentUser().get('customRoleAssignments', {}).get(schoolId, legacyIds);
+    }
+
+    function aclPrincipalMatches(schoolId, levelData, prefix) {
+      let legacyTeams = legacyIdsAllowedForSchool(schoolId) ? currentUser().get('teamIds', []) : [];
+      let legacyClasses = legacyIdsAllowedForSchool(schoolId) ? currentUser().get('classIds', []) : [];
+      let teamIds = currentUser().get('teamIdsBySchool', {}).get(schoolId, legacyTeams);
+      let classIds = currentUser().get('classIdsBySchool', {}).get(schoolId, legacyClasses);
+      return request.auth.uid in levelData[prefix + 'Users']
+        || levelData[prefix + 'Teams'].hasAny(teamIds)
+        || levelData[prefix + 'Roles'].hasAny(currentUserRoleIds(schoolId))
+        || levelData[prefix + 'Classes'].hasAny(classIds);
+    }
+
+    function aclAllows(schoolId, resourceType, resourceId, accessLevel) {
+      let levelData = aclPolicy(schoolId, resourceType, resourceId)[accessLevel];
+      return isSchoolPrincipal(schoolId)
+        || (!aclPrincipalMatches(schoolId, levelData, 'denied') && aclPrincipalMatches(schoolId, levelData, 'allowed'));
+    }
+
+    function schoolFile(schoolId, fileId) {
+      return firestore.get(/databases/(default)/documents/schools/$(schoolId)/files/$(fileId)).data;
+    }
+
+    function schoolFileAclAllows(schoolId, fileId, accessLevel) {
+      return hasAclPolicy(schoolId, 'file', fileId)
+        ? aclAllows(schoolId, 'file', fileId, accessLevel)
+        : (
+          firestore.exists(/databases/(default)/documents/schools/$(schoolId)/files/$(fileId))
+          && schoolFile(schoolId, fileId).folderId is string
+          && hasAclPolicy(schoolId, 'folder', schoolFile(schoolId, fileId).folderId)
+            ? aclAllows(schoolId, 'folder', schoolFile(schoolId, fileId).folderId, accessLevel)
+            : isSchoolMember(schoolId)
+        );
     }
 
     function hasPermission(schoolId, permission) {
@@ -157,10 +209,12 @@ service firebase.storage {
     }
 
     match /schools/{schoolId}/files/{fileId}/{filename} {
-      allow read: if isSchoolMember(schoolId);
-      allow create, update: if hasPermission(schoolId, 'files_upload')
+      allow read: if isSchoolMember(schoolId) && schoolFileAclAllows(schoolId, fileId, 'view');
+      allow create, update: if (hasPermission(schoolId, 'files_upload') || hasPermission(schoolId, 'files.create'))
+        && schoolFileAclAllows(schoolId, fileId, 'edit')
         && safeGeneralUpload(filename);
-      allow delete: if hasPermission(schoolId, 'files_delete');
+      allow delete: if (hasPermission(schoolId, 'files_delete') || hasPermission(schoolId, 'files.delete'))
+        && schoolFileAclAllows(schoolId, fileId, 'manage');
     }
 
     match /schools/{schoolId}/chat-images/{conversationId}/{filename} {

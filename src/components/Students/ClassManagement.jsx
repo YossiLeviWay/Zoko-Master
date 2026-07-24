@@ -4,6 +4,7 @@ import {
   Archive,
   CalendarDays,
   Edit3,
+  FileBarChart2,
   FileSpreadsheet,
   Plus,
   RotateCcw,
@@ -19,6 +20,8 @@ import {
   updateClass,
 } from '../../services/firestore/classStudentRepository';
 import { db } from '../../firebase';
+import { academicYearDisplay, academicYearForDate } from '../../utils/academicYears';
+import { classGradebookId, ensureClassFolder, ensureClassGradebook } from '../../services/firestore/gradebookRepository';
 
 const GRADES = ['ז׳', 'ח׳', 'ט׳', 'י׳', 'י״א', 'י״ב'];
 const STUDY_DAYS = [
@@ -33,17 +36,16 @@ const PROGRAMS = [
 ];
 
 function defaultAcademicYear() {
-  const now = new Date();
-  const start = now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1;
-  return `${start}-${start + 1}`;
+  return academicYearForDate().hebrewLabel;
 }
 
 function emptyClass(academicYear) {
   return {
     name: '',
     gradeLevel: 'י׳',
-    academicYear: academicYear ? `${academicYear.startYear}-${academicYear.endYear}` : defaultAcademicYear(),
-    academicYearLabel: academicYear?.label || '',
+    academicYear: academicYear?.hebrewLabel || academicYear?.label || defaultAcademicYear(),
+    academicYearLabel: academicYear?.hebrewLabel || academicYear?.label || '',
+    academicYearRange: academicYear ? `${academicYear.gregorianStartYear || academicYear.startYear}-${academicYear.gregorianEndYear || academicYear.endYear}` : '',
     academicYearId: academicYear?.id || '',
     teacherId: '',
     staffIds: [],
@@ -79,6 +81,8 @@ export default function ClassManagement({
   permissions,
   academicYear,
   onOpenStudents,
+  canViewGradesForClass,
+  canManageGradebookForClass,
 }) {
   const navigate = useNavigate();
   const [showForm, setShowForm] = useState(false);
@@ -89,6 +93,7 @@ export default function ClassManagement({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [openingMapping, setOpeningMapping] = useState('');
 
   const canCreate = permissions.classes_create;
   const canUpdate = permissions.classes_update;
@@ -161,6 +166,34 @@ export default function ClassManagement({
     return staff.find(user => user.id === id)?.fullName || 'לא שויך מחנך';
   }
 
+  async function openGradeMapping(item) {
+    setOpeningMapping(`grades_${item.id}`);
+    setError('');
+    try {
+      const mapping = (canManageGradebookForClass(item.id) || item.teacherId === actor.uid)
+        ? await ensureClassGradebook({ db, schoolId, actor, classItem: item })
+        : { fileId: `gradebook_${classGradebookId(item.id, item.academicYearId)}` };
+      navigate(`/files?openFile=${encodeURIComponent(mapping.fileId)}`);
+    } catch {
+      setError('לא ניתן לפתוח את מיפוי הציונים. בדקו את ההרשאות ונסו שוב.');
+    } finally {
+      setOpeningMapping('');
+    }
+  }
+
+  async function openAttendanceMapping(item) {
+    setOpeningMapping(`attendance_${item.id}`);
+    setError('');
+    try {
+      const folderId = await ensureClassFolder({ db, schoolId, actor, classItem: item });
+      navigate(`/files?createAttendance=${encodeURIComponent(item.id)}&folderId=${encodeURIComponent(folderId)}`);
+    } catch {
+      setError('לא ניתן לפתוח את מיפוי הנוכחות. בדקו את ההרשאות ונסו שוב.');
+    } finally {
+      setOpeningMapping('');
+    }
+  }
+
   return (
     <section className="classes-section" aria-label="ניהול כיתות">
       <div className="students-section-toolbar">
@@ -185,7 +218,7 @@ export default function ClassManagement({
             <div className="class-card-header">
               <div>
                 <h3>{item.name}</h3>
-                <p>{item.gradeLevel || 'ללא שכבה'} · {item.academicYear}</p>
+                <p>{item.gradeLevel || 'ללא שכבה'} · {item.academicYearLabel || item.academicYear}{item.academicYearRange ? ` (${item.academicYearRange})` : ''}</p>
               </div>
               <span className={`class-status class-status--${item.status || CLASS_STATUS.ACTIVE}`}>
                 {item.status === CLASS_STATUS.ARCHIVED ? 'ארכיון' : 'פעילה'}
@@ -201,13 +234,21 @@ export default function ClassManagement({
             )}
             <div className="class-card-actions">
               <button className="btn btn-secondary btn-sm" onClick={() => onOpenStudents(item)}><Users size={14} /> תלמידי הכיתה</button>
+              {(canViewGradesForClass(item.id) || item.teacherId === actor.uid) && <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => openGradeMapping(item)}
+                disabled={item.status === CLASS_STATUS.ARCHIVED || openingMapping === `grades_${item.id}`}
+                title="פתיחת מיפוי הציונים של כל תלמידי הכיתה"
+              >
+                <FileBarChart2 size={14} /> {openingMapping === `grades_${item.id}` ? 'פותח…' : 'מיפוי ציונים'}
+              </button>}
               <button
                 className="btn btn-secondary btn-sm"
-                onClick={() => navigate(`/files?createAttendance=${encodeURIComponent(item.id)}`)}
-                disabled={item.status === CLASS_STATUS.ARCHIVED || (!canCreateAttendance && item.teacherId !== actor.uid)}
+                onClick={() => openAttendanceMapping(item)}
+                disabled={item.status === CLASS_STATUS.ARCHIVED || openingMapping === `attendance_${item.id}` || (!canCreateAttendance && item.teacherId !== actor.uid)}
                 title={item.status === CLASS_STATUS.ARCHIVED ? 'לא ניתן ליצור גיליון לכיתה בארכיון' : 'יצירת גיליון נוכחות לכיתה'}
               >
-                <FileSpreadsheet size={14} /> גיליון נוכחות
+                <FileSpreadsheet size={14} /> {openingMapping === `attendance_${item.id}` ? 'פותח…' : 'מיפוי נוכחות'}
               </button>
               {canUpdate && <button className="icon-btn" onClick={() => openEdit(item)} aria-label={`עריכת ${item.name}`}><Edit3 size={15} /></button>}
               {canArchive && (
@@ -232,7 +273,7 @@ export default function ClassManagement({
               <div className="student-form-grid">
                 <div className="form-group"><label>שם הכיתה *</label><input value={form.name} onChange={event => setForm(previous => ({ ...previous, name: event.target.value }))} required maxLength={80} /></div>
                 <div className="form-group"><label>שכבה</label><select value={form.gradeLevel} onChange={event => setForm(previous => ({ ...previous, gradeLevel: event.target.value }))}>{GRADES.map(grade => <option key={grade}>{grade}</option>)}</select></div>
-                <div className="form-group"><label>שנת לימודים</label><input value={`${academicYear?.label || form.academicYear} · ${academicYear?.startYear || ''}-${academicYear?.endYear || ''}`} readOnly /><span className="form-hint">הכיתה תישמר תחת השנה שנבחרה בראש הדף.</span></div>
+                <div className="form-group"><label>שנת לימודים</label><input value={academicYearDisplay(academicYear) || form.academicYear} readOnly /><span className="form-hint">הכיתה תישמר תחת השנה שנבחרה בראש הדף.</span></div>
                 <div className="form-group"><label>מחנך</label><select value={form.teacherId} onChange={event => setForm(previous => ({ ...previous, teacherId: event.target.value }))} disabled={!canAssignTeacher}><option value="">ללא מחנך</option>{staff.map(user => <option key={user.id} value={user.id}>{user.fullName}</option>)}</select></div>
               </div>
 

@@ -38,6 +38,9 @@ export async function updateTeamMembershipHandler(request) {
   });
   batch.update(target.ref, {
     teamIds: add ? FieldValue.arrayUnion(input.teamId) : FieldValue.arrayRemove(input.teamId),
+    [`teamIdsBySchool.${input.schoolId}`]: add
+      ? FieldValue.arrayUnion(input.teamId)
+      : FieldValue.arrayRemove(input.teamId),
     updatedAt: FieldValue.serverTimestamp(),
   });
   await batch.commit();

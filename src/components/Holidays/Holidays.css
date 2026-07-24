@@ -510,3 +510,4 @@
     padding: 0.2rem 0.55rem;
   }
 }
+.holiday-academic-year { display: inline-flex; align-items: center; padding: 0.28rem 0.6rem; border-radius: 999px; background: #eff6ff; color: #1d4ed8; font-size: 0.74rem; font-weight: 650; }

@@ -4,12 +4,14 @@ import { PERMISSION_KEYS } from '../config.js';
 const id = z.string().trim().min(1).max(128).regex(/^[A-Za-z0-9_-]+$/);
 const email = z.string().trim().toLowerCase().email().max(254);
 const shortText = z.string().trim().max(120);
-const role = z.enum(['viewer', 'editor', 'principal', 'global_admin']);
+const role = z.enum(['viewer', 'editor', 'principal', 'institution_manager', 'global_admin']);
 const permissionsShape = Object.fromEntries(PERMISSION_KEYS.map(key => [key, z.boolean().optional()]));
 const permissions = z.object(permissionsShape).strict();
 const accessScope = z.discriminatedUnion('type', [
   z.object({ type: z.literal('school'), classIds: z.array(id).max(100).default([]) }).strict(),
   z.object({ type: z.literal('classes'), classIds: z.array(id).min(1).max(100) }).strict(),
+  z.object({ type: z.literal('self'), values: z.array(id).max(1).optional().default([]) }).strict(),
+  z.object({ type: z.enum(['grades', 'tracks', 'teams', 'resources']), values: z.array(id).min(1).max(100) }).strict(),
 ]);
 
 export const createStaffSchema = z.object({
@@ -58,6 +60,85 @@ export const passwordResetSchema = z.object({
   schoolId: id,
 }).strict();
 
+export const staffInvitationSchema = z.object({
+  schoolId: id,
+  fullName: shortText.min(1),
+  email,
+  role: z.enum(['viewer', 'editor']),
+  customRoleIds: z.array(id).max(50).optional().default([]),
+  teamIds: z.array(id).max(50).optional().default([]),
+  classIds: z.array(id).max(100).optional().default([]),
+  permissions: permissions.optional().default({}),
+  message: z.string().trim().max(1000).optional().default(''),
+  sourceJoinRequestId: id.optional(),
+}).strict();
+
+export const invitationActionSchema = z.object({
+  schoolId: id,
+  invitationId: id,
+  action: z.enum(['resend', 'revoke']),
+}).strict();
+
+export const acceptInvitationSchema = z.object({
+  invitationId: id,
+  token: z.string().min(32).max(256).regex(/^[A-Za-z0-9_-]+$/),
+  password: z.string().min(12).max(128),
+  fullName: shortText.min(1),
+}).strict();
+
+export const joinRequestSchema = z.object({
+  schoolId: id,
+  fullName: shortText.min(1),
+  email,
+  message: z.string().trim().max(1000).optional().default(''),
+}).strict();
+
+export const reviewJoinRequestSchema = z.object({
+  schoolId: id,
+  requestId: id,
+  action: z.enum(['invite', 'reject', 'resolved']),
+  role: z.enum(['viewer', 'editor']).optional(),
+  customRoleIds: z.array(id).max(50).optional().default([]),
+  teamIds: z.array(id).max(50).optional().default([]),
+  classIds: z.array(id).max(100).optional().default([]),
+  permissions: permissions.optional().default({}),
+  rejectionReason: z.string().trim().max(500).optional().default(''),
+}).strict();
+
+export const publicPasswordResetSchema = z.object({
+  schoolId: id,
+  email,
+}).strict();
+
+const taskDetails = {
+  title: z.string().trim().min(1).max(200),
+  description: z.string().trim().max(5000).optional().default(''),
+  dueDate: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal('')]).optional().default(''),
+  priority: z.enum(['low', 'medium', 'high']).optional().default('medium'),
+};
+
+export const taskCollaboratorInvitationSchema = z.object({
+  schoolId: id,
+  personalTaskId: id,
+  recipientIds: z.array(id).min(1).max(20).transform(values => [...new Set(values)]),
+  message: z.string().trim().max(1000).optional().default(''),
+}).strict();
+
+export const taskInvitationResponseSchema = z.object({
+  schoolId: id,
+  invitationId: id,
+  action: z.enum(['accept', 'decline', 'cancel']),
+  response: z.string().trim().max(1000).optional().default(''),
+}).strict();
+
+export const mandatoryTaskSchema = z.object({
+  schoolId: id,
+  recipientIds: z.array(id).min(1).max(50).transform(values => [...new Set(values)]),
+  ...taskDetails,
+}).strict();
+
+export const activeSchoolSchema = z.object({ schoolId: id }).strict();
+
 export const teamMembershipSchema = z.object({
   userId: id,
   schoolId: id,
@@ -73,6 +154,11 @@ const roleDetails = {
   delegatedPermissionKeys: z.array(z.enum(PERMISSION_KEYS)).max(PERMISSION_KEYS.length)
     .transform(values => [...new Set(values)]).optional().default([]),
   accessScope: accessScope.optional().default({ type: 'school', classIds: [] }),
+  icon: z.string().trim().max(40).optional().default('shield'),
+  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional().default('#2563eb'),
+  delegable: z.boolean().optional().default(true),
+  assignableBy: z.array(id).max(100).optional().default([]),
+  defaultForInvites: z.boolean().optional().default(false),
 };
 
 export const createCustomRoleSchema = z.object(roleDetails).strict();
@@ -89,6 +175,80 @@ export const assignCustomRoleSchema = z.object({
   userId: id,
   action: z.enum(['assign', 'remove']),
   confirmSensitiveChange: z.literal(true),
+}).strict();
+
+export const resourceAclSchema = z.object({
+  schoolId: id,
+  aclId: id.optional(),
+  resourceType: z.enum(['file', 'folder', 'task', 'team', 'student']),
+  resourceId: id,
+  principalType: z.enum(['user', 'team', 'role', 'class']),
+  principalId: id,
+  accessLevel: z.enum(['view', 'comment', 'edit', 'manage']).optional().default('view'),
+  explicitDeny: z.boolean().optional().default(false),
+  inherit: z.boolean().optional().default(true),
+  expiresAt: z.string().datetime().nullable().optional().default(null),
+}).strict();
+
+export const removeResourceAclSchema = z.object({ schoolId: id, aclId: id }).strict();
+
+export const permissionDelegationSchema = z.object({
+  schoolId: id,
+  delegationId: id.optional(),
+  delegateUserId: id,
+  assignableRoleIds: z.array(id).min(1).max(100),
+  maximumPermissions: z.array(z.enum(PERMISSION_KEYS)).max(PERMISSION_KEYS.length),
+  expiresAt: z.string().datetime().nullable().optional().default(null),
+  active: z.boolean().optional().default(true),
+}).strict();
+
+export const permissionPreviewSchema = z.object({
+  schoolId: id,
+  targetUserId: id,
+}).strict();
+
+export const previewAccessSchema = z.object({
+  schoolId: id,
+  sessionId: id,
+  capability: z.enum(PERMISSION_KEYS),
+  resourceType: z.enum(['file', 'folder', 'task', 'team', 'student']).optional(),
+  resourceId: id.optional(),
+  accessLevel: z.enum(['view', 'comment', 'edit', 'manage']).optional().default('view'),
+  resource: z.object({
+    classId: id.optional(), gradeId: id.optional(), trackId: id.optional(), teamId: id.optional(),
+    ownerId: id.optional(), userId: id.optional(), resourceId: id.optional(),
+    parentIds: z.array(id).max(10).optional().default([]),
+  }).strict().optional().default({ parentIds: [] }),
+}).strict().refine(value => Boolean(value.resourceType) === Boolean(value.resourceId), {
+  message: 'resourceType and resourceId must be supplied together',
+});
+
+const importStudent = z.object({
+  rowId: id,
+  firstName: z.string().trim().min(1).max(80),
+  lastName: z.string().trim().min(1).max(80),
+  idNumber: z.string().trim().min(1).max(32),
+  classId: id,
+  academicYearId: id,
+  academicYear: z.string().trim().min(1).max(30),
+  status: z.enum(['active', 'inactive', 'graduated', 'withdrawn', 'dropout']).default('active'),
+  gradeLevel: z.string().trim().max(30).optional().default(''),
+  trackIds: z.array(id).max(20).optional().default([]),
+  programTypes: z.array(z.string().trim().min(1).max(80)).max(20).optional().default([]),
+  birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).or(z.literal('')).optional().default(''),
+  phone: z.string().trim().max(32).optional().default(''),
+  email: z.string().trim().toLowerCase().email().max(254).or(z.literal('')).optional().default(''),
+  contactName: z.string().trim().max(120).optional().default(''),
+  contactPhone: z.string().trim().max(32).optional().default(''),
+  initialNote: z.string().trim().max(1000).optional().default(''),
+  teacherId: id.optional(),
+  joinedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).or(z.literal('')).optional().default(''),
+  duplicateAction: z.enum(['skip', 'update', 'review']).optional().default('review'),
+}).strict();
+
+export const bulkStudentImportSchema = z.object({
+  requestId: id,
+  students: z.array(importStudent).min(1).max(200),
 }).strict();
 
 const optionalText = max => z.string().trim().max(max).optional().default('');
@@ -329,12 +489,24 @@ export const notificationSchema = z.object({
 
 const schoolDetails = {
   name: z.string().trim().min(1).max(120),
+  code: z.string().trim().min(1).max(40).regex(/^[A-Za-z0-9_-]+$/),
   address: z.string().trim().max(250).optional().default(''),
   phone: z.string().trim().max(32).optional().default(''),
+  institutionalEmail: z.union([email, z.literal('')]).optional().default(''),
+  activeAcademicYearId: id,
+  status: z.enum(['active', 'disabled']).optional().default('active'),
 };
 
-export const createSchoolSchema = z.object(schoolDetails).strict();
+export const createSchoolSchema = z.object({
+  ...schoolDetails,
+  manager: z.object({ fullName: shortText.min(1), email }).strict(),
+}).strict();
 export const updateSchoolSchema = z.object({ schoolId: id, ...schoolDetails }).strict();
+export const assignInstitutionManagerSchema = z.object({
+  schoolId: id,
+  fullName: shortText.min(1),
+  email,
+}).strict();
 export const deleteSchoolSchema = z.object({
   schoolId: id,
   confirmDelete: z.literal(true),

@@ -1,0 +1,19 @@
+/* Secure resource ACL editor shared by files, folders, and organization tasks. */
+.resource-acl-menu { z-index: 9999; width: min(440px, calc(100vw - 24px)); max-height: min(680px, calc(100vh - 24px)); overflow: auto; border: 1px solid #dbe4f0; border-radius: 12px; background: #fff; box-shadow: 0 12px 36px rgb(15 23 42 / 20%); direction: rtl; }
+.resource-acl-menu header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 12px 14px; border-bottom: 1px solid #e2e8f0; }
+.resource-acl-menu header > div { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px 7px; }
+.resource-acl-menu header small { grid-column: 2; color: #94a3b8; }
+.resource-acl-menu header button { border: 0; background: transparent; cursor: pointer; }
+.resource-acl-warning { padding: 9px 14px; color: #92400e; background: #fffbeb; font-size: 11px; line-height: 1.5; }
+.resource-acl-tabs { display: flex; overflow-x: auto; border-bottom: 1px solid #e2e8f0; }
+.resource-acl-tabs button { flex: 1 0 auto; display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 9px 8px; border: 0; border-bottom: 2px solid transparent; color: #64748b; background: #fff; font: inherit; font-size: 11px; cursor: pointer; }
+.resource-acl-tabs button:hover, .resource-acl-tabs button:focus-visible, .resource-acl-tabs button.active { color: #1d4ed8; background: #eff6ff; border-bottom-color: #2563eb; outline: none; }
+.resource-acl-tabs button:last-child.active { color: #be123c; background: #fff1f2; border-bottom-color: #e11d48; }
+.resource-acl-search { width: calc(100% - 28px); margin: 10px 14px 4px; box-sizing: border-box; }
+.resource-acl-content { display: grid; gap: 10px; padding: 8px 14px 14px; max-height: 360px; overflow: auto; }
+.resource-acl-content section { display: grid; gap: 4px; }
+.resource-acl-content h4 { display: flex; align-items: center; gap: 5px; margin: 6px 0 2px; color: #64748b; font-size: 11px; }
+.resource-acl-content label { display: flex; align-items: center; gap: 7px; padding: 5px; border-radius: 6px; font-size: 12px; cursor: pointer; }
+.resource-acl-content label:hover { background: #f8fafc; }
+.resource-acl-error { margin: 8px 14px 0; padding: 8px; border-radius: 7px; color: #be123c; background: #fff1f2; font-size: 11px; }
+.resource-acl-menu footer { display: flex; gap: 8px; padding: 10px 14px; border-top: 1px solid #e2e8f0; }

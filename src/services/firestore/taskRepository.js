@@ -102,6 +102,7 @@ export function subscribeOrganizationTasks({
   const queries = [
     query(tasksRef, where('assigneeType', '==', 'all_school')),
     query(tasksRef, where('assigneeIds', 'array-contains', uid)),
+    query(tasksRef, where('participantIds', 'array-contains', uid)),
     query(tasksRef, where('createdBy', '==', uid)),
     ...teamIds.map(teamId => query(tasksRef, where('assigneeTeamId', '==', teamId))),
   ];

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { db, storage } from '../../firebase';
@@ -26,6 +26,7 @@ import SpreadsheetEditor from './SpreadsheetEditor';
 import DocumentEditor from './DocumentEditor';
 import AttendanceSheetEditor from './AttendanceSheetEditor';
 import AttendanceSheetWizard from './AttendanceSheetWizard';
+import GradeMappingEditor from './GradeMappingEditor';
 import { subscribeClasses } from '../../services/firestore/classStudentRepository';
 import { archiveAttendanceSheet } from '../../services/firestore/attendanceRepository';
 import {
@@ -66,12 +67,14 @@ import './Files.css';
 
 export default function FileManager() {
   const { userData, currentUser, selectedSchool, isPrincipal, isGlobalAdmin } = useAuth();
-  const { permissions } = usePermissions();
+  const { permissions, schoolWidePermissions, permissionScopes } = usePermissions();
   const [showPermissionsPanel, setShowPermissionsPanel] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const uid = currentUser?.uid;
-  const [folders, setFolders] = useState([]);
-  const [files, setFiles] = useState([]);
+  const [legacyFolders, setLegacyFolders] = useState([]);
+  const [nestedFolders, setNestedFolders] = useState([]);
+  const [legacyFiles, setLegacyFiles] = useState([]);
+  const [nestedFiles, setNestedFiles] = useState([]);
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [folderName, setFolderName] = useState('');
   const [folderVisibility, setFolderVisibility] = useState('all');
@@ -115,22 +118,44 @@ export default function FileManager() {
     || permissions.attendance_manage_legend
     || permissions.attendance_manage_dates
     || permissions.attendance_block_days;
+  const gradesSchoolWide = canManage
+    || schoolWidePermissions['grades.view']
+    || schoolWidePermissions['grades.edit']
+    || schoolWidePermissions['gradebooks.manage'];
   const canCreateAttendance = attendanceSchoolWide
     || attendanceClasses.some(item => item.teacherId === uid);
+  const permissionForClass = useCallback((key, classId) => (
+    schoolWidePermissions[key] === true
+    || (
+      permissionScopes[key]?.type === 'classes'
+      && permissionScopes[key].classIds.includes(classId)
+    )
+  ), [permissionScopes, schoolWidePermissions]);
 
   const attendanceClassForFile = useCallback((file) => (
     attendanceClasses.find(item => item.id === file.classId)
   ), [attendanceClasses]);
 
-  const userCanOpenAttendance = useCallback((file) => (
-    file.fileType !== 'attendance'
-    || canManage
-    || attendanceSchoolWide
-    || Boolean(attendanceClassForFile(file))
-  ), [attendanceClassForFile, attendanceSchoolWide, canManage]);
+  const accessibleClassIds = useMemo(() => {
+    const values = new Set(attendanceClasses.map(item => item.id));
+    const scoped = userData?.classRolePermissionsBySchool?.[schoolId] || {};
+    Object.values(scoped).forEach(classIds => (classIds || []).forEach(classId => values.add(classId)));
+    return [...values];
+  }, [attendanceClasses, schoolId, userData?.classRolePermissionsBySchool]);
+
+  const userCanOpenFile = useCallback((file) => {
+    if (file.fileType === 'attendance') {
+      return canManage || attendanceSchoolWide || accessibleClassIds.includes(file.classId);
+    }
+    if (file.fileType === 'gradebook') {
+      return canManage || gradesSchoolWide || accessibleClassIds.includes(file.classId);
+    }
+    return true;
+  }, [accessibleClassIds, attendanceSchoolWide, canManage, gradesSchoolWide]);
 
   const userCanAccessFolder = useCallback((folder) => {
     if (canManage) return true;
+    if (folder.visibility === 'class_restricted') return accessibleClassIds.includes(folder.classId);
     if (folder.visibility === 'principal_only') return false;
     // Check resource_permissions for this folder
     const perm = folderPerms[folder.id];
@@ -147,7 +172,11 @@ export default function FileManager() {
     if (folder.visibility === 'all') return true;
     if (folder.allowedUsers && folder.allowedUsers.includes(userData?.uid)) return true;
     return false;
-  }, [canManage, folderPerms, userData]);
+  }, [accessibleClassIds, canManage, folderPerms, userData]);
+
+  const folders = useMemo(() => [...legacyFolders, ...nestedFolders]
+    .filter(userCanAccessFolder), [legacyFolders, nestedFolders, userCanAccessFolder]);
+  const files = useMemo(() => [...legacyFiles, ...nestedFiles].filter(userCanOpenFile), [legacyFiles, nestedFiles, userCanOpenFile]);
 
   function userCanCreateFiles() {
     if (!canUploadFiles) return false;
@@ -159,16 +188,22 @@ export default function FileManager() {
     return false;
   }
 
-  async function togglePinFile(fileId, isPinned) {
+  async function togglePinFile(fileItem, isPinned) {
     if (!uid || !schoolId) return;
-    await updateDoc(doc(db, `files_${schoolId}`, fileId), {
+    const fileRef = fileItem._dataMode === 'nested'
+      ? doc(db, 'schools', schoolId, 'files', fileItem.id)
+      : doc(db, `files_${schoolId}`, fileItem.id);
+    await updateDoc(fileRef, {
       pinnedBy: isPinned ? arrayRemove(uid) : arrayUnion(uid)
     });
   }
 
-  async function togglePinFolder(folderId, isPinned) {
+  async function togglePinFolder(folder, isPinned) {
     if (!uid || !schoolId) return;
-    await updateDoc(doc(db, `folders_${schoolId}`, folderId), {
+    const folderRef = folder._dataMode === 'nested'
+      ? doc(db, 'schools', schoolId, 'folders', folder.id)
+      : doc(db, `folders_${schoolId}`, folder.id);
+    await updateDoc(folderRef, {
       pinnedBy: isPinned ? arrayRemove(uid) : arrayUnion(uid)
     });
   }
@@ -195,20 +230,61 @@ export default function FileManager() {
     const q = query(collection(db, `folders_${schoolId}`), orderBy('name'));
     const unsub = onSnapshot(q, (snap) => {
       const allFolders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setFolders(allFolders.filter(f => userCanAccessFolder(f)));
+      setLegacyFolders(allFolders.map(folder => ({ ...folder, _dataMode: 'legacy' })));
     });
     return unsub;
-  }, [schoolId, userCanAccessFolder]);
+  }, [schoolId]);
+
+  useEffect(() => {
+    if (!schoolId || (!canManage && !attendanceSchoolWide && !gradesSchoolWide && accessibleClassIds.length === 0)) {
+      setNestedFolders([]);
+      return undefined;
+    }
+    const base = collection(db, 'schools', schoolId, 'folders');
+    const folderQuery = canManage || attendanceSchoolWide || gradesSchoolWide
+      ? query(base, orderBy('name'))
+      : query(base, where('classId', 'in', accessibleClassIds.slice(0, 30)));
+    return onSnapshot(folderQuery, snapshot => {
+      setNestedFolders(snapshot.docs.map(item => ({ id: item.id, ...item.data(), _dataMode: 'nested' })));
+    }, () => setNestedFolders([]));
+  }, [accessibleClassIds, attendanceSchoolWide, canManage, gradesSchoolWide, schoolId]);
 
   // Load all files for all folders
   useEffect(() => {
     if (!schoolId) return;
     const q = query(collection(db, `files_${schoolId}`), orderBy('createdAt', 'desc'));
     const unsub = onSnapshot(q, (snap) => {
-      setFiles(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setLegacyFiles(snap.docs.map(d => ({ id: d.id, ...d.data(), _dataMode: 'legacy' })));
     });
     return unsub;
   }, [schoolId]);
+
+  useEffect(() => {
+    if (!schoolId || (!canManage && !attendanceSchoolWide && !gradesSchoolWide && accessibleClassIds.length === 0)) {
+      setNestedFiles([]);
+      return undefined;
+    }
+    const base = collection(db, 'schools', schoolId, 'files');
+    const queries = canManage
+      ? [['all', query(base, orderBy('createdAt', 'desc'))]]
+      : [
+          ...(attendanceSchoolWide ? [['attendance', query(base, where('fileType', '==', 'attendance'))]] : []),
+          ...(gradesSchoolWide ? [['gradebook', query(base, where('fileType', '==', 'gradebook'))]] : []),
+          ...(accessibleClassIds.length > 0 ? [['classes', query(base, where('classId', 'in', accessibleClassIds.slice(0, 30)))]] : []),
+        ];
+    const results = new Map();
+    const publish = () => setNestedFiles([...new Map(
+      [...results.values()].flat().map(item => [item.id, item]),
+    ).values()]);
+    const unsubscribers = queries.map(([key, filesQuery]) => onSnapshot(filesQuery, snapshot => {
+      results.set(key, snapshot.docs.map(item => ({ id: item.id, ...item.data(), _dataMode: 'nested' })));
+      publish();
+    }, () => {
+      results.set(key, []);
+      publish();
+    }));
+    return () => unsubscribers.forEach(unsubscribe => unsubscribe());
+  }, [accessibleClassIds, attendanceSchoolWide, canManage, gradesSchoolWide, schoolId]);
 
   useEffect(() => {
     if (!schoolId || !uid) return undefined;
@@ -216,18 +292,18 @@ export default function FileManager() {
       db,
       schoolId,
       uid,
-      canViewAll: attendanceSchoolWide,
+      canViewAll: attendanceSchoolWide || gradesSchoolWide,
       onData: items => setAttendanceClasses(items.filter(item => item.status !== 'archived')),
       onError: () => setAttendanceClasses([]),
     });
-  }, [attendanceSchoolWide, schoolId, uid]);
+  }, [attendanceSchoolWide, gradesSchoolWide, schoolId, uid]);
 
   // Open file from URL param (e.g. /files?openFile=abc123)
   useEffect(() => {
     const openFileId = searchParams.get('openFile');
     if (openFileId && files.length > 0 && !editingFile) {
       const file = files.find(f => f.id === openFileId);
-      if (file && ['spreadsheet', 'document', 'attendance'].includes(file.fileType) && userCanOpenAttendance(file)) {
+      if (file && ['spreadsheet', 'document', 'attendance', 'gradebook'].includes(file.fileType) && userCanOpenFile(file)) {
         setEditingFile(file);
         if (file.folderId) {
           setSelectedFolder(file.folderId);
@@ -237,11 +313,17 @@ export default function FileManager() {
       // Clear the param so it doesn't re-trigger
       setSearchParams({}, { replace: true });
     }
-  }, [searchParams, files, editingFile, setSearchParams, userCanOpenAttendance]);
+  }, [searchParams, files, editingFile, setSearchParams, userCanOpenFile]);
 
   useEffect(() => {
     const requestedClassId = searchParams.get('createAttendance');
     if (!requestedClassId || !canCreateAttendance) return;
+    const requestedFolderId = searchParams.get('folderId');
+    if (requestedFolderId) {
+      setCreateInFolder(requestedFolderId);
+      setSelectedFolder(requestedFolderId);
+      setExpandedFolders(previous => ({ ...previous, [requestedFolderId]: true }));
+    }
     setAttendanceInitialClassId(requestedClassId);
     setShowAttendanceWizard(true);
     setSearchParams({}, { replace: true });
@@ -456,6 +538,7 @@ export default function FileManager() {
   }
 
   async function deleteFile(fileItem) {
+    if (fileItem.fileType === 'gradebook') return;
     if (fileItem.fileType === 'attendance') {
       if (!canManage && !permissions.attendance_edit) return;
       if (!confirm('האם להעביר את גיליון הנוכחות לארכיון? הנתונים והיסטוריית השינויים יישמרו.')) return;
@@ -464,6 +547,7 @@ export default function FileManager() {
         schoolId,
         fileId: fileItem.id,
         actor: { uid },
+        mode: fileItem._dataMode || 'nested',
       });
       if (editingFile?.id === fileItem.id) setEditingFile(null);
       return;
@@ -549,9 +633,9 @@ export default function FileManager() {
   }
 
   function openFile(file) {
-    if (['spreadsheet', 'document', 'attendance'].includes(file.fileType)) {
-      if (!userCanOpenAttendance(file)) {
-        alert('אין הרשאה לצפות בגיליון הנוכחות הזה.');
+    if (['spreadsheet', 'document', 'attendance', 'gradebook'].includes(file.fileType)) {
+      if (!userCanOpenFile(file)) {
+        alert('אין הרשאה לצפות בקובץ הכיתתי הזה.');
         return;
       }
       // Flush pending autosave for current file before switching
@@ -563,7 +647,7 @@ export default function FileManager() {
         }
       }
       setEditingFile(file);
-      if (file.fileType === 'attendance') setShowHistory(false);
+      if (['attendance', 'gradebook'].includes(file.fileType)) setShowHistory(false);
       lastSavedContentRef.current = file.content;
       fileEditNotifSentRef.current = null;
       // Reload history if panel is open
@@ -617,6 +701,7 @@ export default function FileManager() {
     if (file.fileType === 'spreadsheet') return <Table2 size={size} className="file-icon file-icon--sheet" />;
     if (file.fileType === 'document') return <FileEdit size={size} className="file-icon file-icon--doc" />;
     if (file.fileType === 'attendance') return <ClipboardCheck size={size} className="file-icon file-icon--attendance" />;
+    if (file.fileType === 'gradebook') return <Table2 size={size} className="file-icon file-icon--sheet" />;
     return <FileText size={size} className="file-icon" />;
   }
 
@@ -732,7 +817,7 @@ export default function FileManager() {
       parts.push(`עודכן: ${d.toLocaleDateString('he-IL')} ${d.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}`);
     }
     if (f.lastModifiedBy) parts.push(`עודכן ע"י: ${f.lastModifiedBy}`);
-    if (f.fileType) parts.push(`סוג: ${f.fileType === 'spreadsheet' ? 'גיליון' : f.fileType === 'document' ? 'מסמך' : f.fileType === 'attendance' ? 'גיליון נוכחות' : 'קובץ'}`);
+    if (f.fileType) parts.push(`סוג: ${f.fileType === 'spreadsheet' ? 'גיליון' : f.fileType === 'document' ? 'מסמך' : f.fileType === 'attendance' ? 'גיליון נוכחות' : f.fileType === 'gradebook' ? 'מיפוי ציונים' : 'קובץ'}`);
     if (f.size) parts.push(`גודל: ${formatSize(f.size)}`);
     alert(parts.join('\n'));
   }
@@ -755,7 +840,7 @@ export default function FileManager() {
     return files
       .filter(f => f.folderId === folderId)
       .filter(f => f.status !== 'archived')
-      .filter(userCanOpenAttendance)
+      .filter(userCanOpenFile)
       .filter(f => !fileSearch.trim() || f.name.toLowerCase().includes(fileSearch.toLowerCase()))
       .sort((a, b) => {
         const aPin = a.pinnedBy?.includes(uid) ? 0 : 1;
@@ -767,7 +852,7 @@ export default function FileManager() {
   // Get pinned files across all folders
   const pinnedFiles = files.filter(f => f.pinnedBy?.includes(uid))
     .filter(f => f.status !== 'archived')
-    .filter(userCanOpenAttendance)
+    .filter(userCanOpenFile)
     .filter(f => !fileSearch.trim() || f.name.toLowerCase().includes(fileSearch.toLowerCase()));
 
   function renderFolderTree(folderList) {
@@ -802,7 +887,7 @@ export default function FileManager() {
               <button
                 className={`tree-pin-btn ${isPinnedFolder ? 'tree-pin-btn--active' : ''}`}
                 title={isPinnedFolder ? 'הסר נעיצה' : 'נעץ תיקייה'}
-                onClick={() => togglePinFolder(folder.id, isPinnedFolder)}
+                onClick={() => togglePinFolder(folder, isPinnedFolder)}
               >
                 <Pin size={11} style={isPinnedFolder ? { color: '#2563eb' } : undefined} />
               </button>
@@ -839,19 +924,21 @@ export default function FileManager() {
                       <span className="tree-file-name">{f.name}</span>
                     )}
                     <div className="tree-item-actions" onClick={e => e.stopPropagation()}>
-                      <button
-                        className={`tree-pin-btn ${isPinned ? 'tree-pin-btn--active' : ''}`}
-                        title={isPinned ? 'הסר נעיצה' : 'נעץ'}
-                        onClick={() => togglePinFile(f.id, isPinned)}
-                      >
-                        <Pin size={10} style={isPinned ? { color: '#2563eb' } : undefined} />
-                      </button>
+                      {f.fileType !== 'gradebook' && (
+                        <button
+                          className={`tree-pin-btn ${isPinned ? 'tree-pin-btn--active' : ''}`}
+                          title={isPinned ? 'הסר נעיצה' : 'נעץ'}
+                          onClick={() => togglePinFile(f, isPinned)}
+                        >
+                          <Pin size={10} style={isPinned ? { color: '#2563eb' } : undefined} />
+                        </button>
+                      )}
                       {f.url && (
                         <a href={f.url} target="_blank" rel="noopener noreferrer" className="tree-action-btn" title="הורדה">
                           <Download size={10} />
                         </a>
                       )}
-                      {canManage && (
+                      {canManage && f.fileType !== 'gradebook' && (
                         <button className="tree-delete-btn" onClick={() => deleteFile(f)} title="מחיקה">
                           <Trash2 size={10} />
                         </button>
@@ -967,7 +1054,7 @@ export default function FileManager() {
                           <button
                             className="tree-pin-btn tree-pin-btn--active"
                             title="הסר נעיצה"
-                            onClick={() => togglePinFile(f.id, true)}
+                            onClick={() => togglePinFile(f, true)}
                           >
                             <Pin size={10} style={{ color: '#2563eb' }} />
                           </button>
@@ -1009,13 +1096,15 @@ export default function FileManager() {
                   <span className="file-editor-name">
                     {editingFile.fileType === 'spreadsheet'
                       ? <Table2 size={16} />
+                      : editingFile.fileType === 'gradebook'
+                        ? <Table2 size={16} />
                       : editingFile.fileType === 'attendance'
                         ? <ClipboardCheck size={16} />
                         : <FileEdit size={16} />}
                     {editingFile.name}
                   </span>
                   <div className="file-editor-actions">
-                    {!['spreadsheet', 'attendance'].includes(editingFile.fileType) && (
+                    {!['spreadsheet', 'attendance', 'gradebook'].includes(editingFile.fileType) && (
                       <button
                         className="icon-btn"
                         onClick={() => setFullscreen(!fullscreen)}
@@ -1024,7 +1113,7 @@ export default function FileManager() {
                         {fullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
                       </button>
                     )}
-                    {!!canUploadFiles && editingFile.fileType !== 'attendance' && (
+                    {!!canUploadFiles && !['attendance', 'gradebook'].includes(editingFile.fileType) && (
                       <>
                         <span className="autosave-status">
                           <span className={`autosave-dot-inline ${fileSaving ? 'autosave-dot-inline--saving' : ''}`} />
@@ -1040,8 +1129,8 @@ export default function FileManager() {
                         </button>
                       </>
                     )}
-                    {!canUploadFiles && editingFile.fileType !== 'attendance' && <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>צפייה בלבד</span>}
-                    {editingFile.fileType !== 'attendance' && (
+                    {!canUploadFiles && !['attendance', 'gradebook'].includes(editingFile.fileType) && <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>צפייה בלבד</span>}
+                    {!['attendance', 'gradebook'].includes(editingFile.fileType) && (
                       <>
                         <button
                           className="icon-btn"
@@ -1073,6 +1162,15 @@ export default function FileManager() {
                       canManage={canManage}
                       classItem={attendanceClassForFile(editingFile)}
                     />
+                  ) : editingFile.fileType === 'gradebook' ? (
+                    <GradeMappingEditor
+                      key={editingFile.id}
+                      file={editingFile}
+                      schoolId={schoolId}
+                      actor={{ uid, fullName: userData?.fullName || '' }}
+                      canEditScores={canManage || permissionForClass('grades.edit', editingFile.classId) || [attendanceClassForFile(editingFile)?.teacherId, ...(attendanceClassForFile(editingFile)?.staffIds || [])].includes(uid)}
+                      canManageConfig={canManage || permissionForClass('gradebooks.manage', editingFile.classId) || attendanceClassForFile(editingFile)?.teacherId === uid}
+                    />
                   ) : editingFile.fileType === 'spreadsheet' ? (
                     <SpreadsheetEditor
                       key={editingFile.id}
@@ -1099,7 +1197,7 @@ export default function FileManager() {
                   )}
                 </div>
                 {/* Edit History Panel */}
-                {showHistory && editingFile.fileType !== 'attendance' && (
+                {showHistory && !['attendance', 'gradebook'].includes(editingFile.fileType) && (
                   <div className="file-history-panel">
                     <div className="file-history-header">
                       <History size={14} />
@@ -1229,24 +1327,26 @@ export default function FileManager() {
                         <div className="file-card-info">
                           <div className="file-card-name">{f.name}</div>
                           <div className="file-card-meta">
-                            {f.fileType === 'spreadsheet' ? 'גיליון' : f.fileType === 'document' ? 'מסמך' : f.fileType === 'attendance' ? 'גיליון נוכחות' : formatSize(f.size)}
+                            {f.fileType === 'spreadsheet' ? 'גיליון' : f.fileType === 'document' ? 'מסמך' : f.fileType === 'attendance' ? 'גיליון נוכחות' : f.fileType === 'gradebook' ? 'מיפוי ציונים' : formatSize(f.size)}
                             {' · '}{f.uploadedBy}
                           </div>
                         </div>
                         <div className="file-card-actions" onClick={e => e.stopPropagation()}>
-                          <button
-                            className={`tree-pin-btn ${isPinned ? 'tree-pin-btn--active' : ''}`}
-                            title={isPinned ? 'הסר נעיצה' : 'נעץ'}
-                            onClick={() => togglePinFile(f.id, isPinned)}
-                          >
-                            <Pin size={13} style={isPinned ? { color: '#2563eb' } : undefined} />
-                          </button>
+                          {f.fileType !== 'gradebook' && (
+                            <button
+                              className={`tree-pin-btn ${isPinned ? 'tree-pin-btn--active' : ''}`}
+                              title={isPinned ? 'הסר נעיצה' : 'נעץ'}
+                              onClick={() => togglePinFile(f, isPinned)}
+                            >
+                              <Pin size={13} style={isPinned ? { color: '#2563eb' } : undefined} />
+                            </button>
+                          )}
                           {f.url && (
                             <a href={f.url} target="_blank" rel="noopener noreferrer" className="icon-btn" title="הורדה">
                               <Download size={13} />
                             </a>
                           )}
-                          {(canManage || (f.fileType === 'attendance' && permissions.attendance_edit)) && (
+                          {f.fileType !== 'gradebook' && (canManage || (f.fileType === 'attendance' && permissions.attendance_edit)) && (
                             <button className="icon-btn icon-btn--danger" onClick={() => deleteFile(f)} title={f.fileType === 'attendance' ? 'העברה לארכיון' : 'מחיקה'}>
                               {f.fileType === 'attendance' ? <Archive size={13} /> : <Trash2 size={13} />}
                             </button>
@@ -1281,7 +1381,7 @@ export default function FileManager() {
           style={{ top: contextMenu.position.y, left: contextMenu.position.x }}
           onClick={e => e.stopPropagation()}
         >
-          {canManage && (
+          {canManage && contextMenu.item.fileType !== 'gradebook' && !contextMenu.item.specialFolder && (
             <button className="context-menu-item" onClick={() => {
               setPermMenu({
                 type: contextMenu.type,
@@ -1295,10 +1395,12 @@ export default function FileManager() {
               שיתוף
             </button>
           )}
-          <button className="context-menu-item" onClick={() => startRename(contextMenu.type, contextMenu.item)}>
-            <Pencil size={14} />
-            שינוי שם
-          </button>
+          {contextMenu.item.fileType !== 'gradebook' && !contextMenu.item.specialFolder && (
+            <button className="context-menu-item" onClick={() => startRename(contextMenu.type, contextMenu.item)}>
+              <Pencil size={14} />
+              שינוי שם
+            </button>
+          )}
           <button className="context-menu-item" onClick={() => {
             getFileInfo(contextMenu.item);
             setContextMenu(null);
@@ -1329,7 +1431,7 @@ export default function FileManager() {
             </button>
           )}
           <div className="context-menu-divider" />
-          {(canManage || (contextMenu.type === 'file' && contextMenu.item.fileType === 'attendance' && permissions.attendance_edit)) && (
+          {contextMenu.item.fileType !== 'gradebook' && !contextMenu.item.specialFolder && (canManage || (contextMenu.type === 'file' && contextMenu.item.fileType === 'attendance' && permissions.attendance_edit)) && (
             <button className="context-menu-item context-menu-item--danger" onClick={() => {
               if (contextMenu.type === 'folder') deleteFolder(contextMenu.item.id);
               else deleteFile(contextMenu.item);

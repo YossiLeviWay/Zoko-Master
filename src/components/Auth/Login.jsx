@@ -1,13 +1,19 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { sendPasswordResetEmail } from 'firebase/auth';
+import { Search } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { auth } from '../../firebase';
+import { db } from '../../firebase';
+import { requestPublicPasswordReset } from '../../services/adminUserService';
+import { subscribePublicSchools } from '../../services/firestore/publicSchoolRepository';
 import './Auth.css';
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [schoolId, setSchoolId] = useState('');
+  const [schoolSearch, setSchoolSearch] = useState('');
+  const [schools, setSchools] = useState([]);
+  const [schoolsLoading, setSchoolsLoading] = useState(true);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showReset, setShowReset] = useState(false);
@@ -17,15 +23,30 @@ export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
 
+  useEffect(() => subscribePublicSchools({
+    db,
+    onData: items => { setSchools(items); setSchoolsLoading(false); },
+    onError: () => { setSchools([]); setSchoolsLoading(false); },
+  }), []);
+
+  const filteredSchools = useMemo(() => {
+    const needle = schoolSearch.trim().toLowerCase();
+    return needle ? schools.filter(item => String(item.name || '').toLowerCase().includes(needle)) : schools;
+  }, [schoolSearch, schools]);
+
   async function handleSubmit(event) {
     event.preventDefault();
     setError('');
     setLoading(true);
     try {
-      await login(email, password);
+      await login(email, password, schoolId);
       navigate('/');
-    } catch {
-      setError('שם משתמש או סיסמה שגויים');
+    } catch (loginError) {
+      setError(loginError?.code === 'school-membership-required'
+        ? 'החשבון אינו חבר פעיל במוסד שנבחר.'
+        : String(loginError?.code || '').includes('unauthenticated')
+          ? 'אימות האפליקציה נכשל. רעננו את הדף ונסו שוב.'
+          : 'פרטי ההתחברות שגויים או שהחשבון אינו פעיל.');
     } finally {
       setLoading(false);
     }
@@ -37,7 +58,7 @@ export default function Login() {
     setResetLoading(true);
     setResetStatus('');
     try {
-      await sendPasswordResetEmail(auth, resetEmail.trim());
+      await requestPublicPasswordReset({ schoolId, email: resetEmail.trim() });
       setResetStatus('sent');
     } catch {
       setResetStatus('error');
@@ -58,6 +79,13 @@ export default function Login() {
           <>
             {error && <div className="auth-error">{error}</div>}
             <form onSubmit={handleSubmit} className="auth-form">
+              <fieldset className="auth-step">
+                <legend><span>1</span> בחירת מוסד</legend>
+                <div className="auth-school-search"><Search size={15} /><input value={schoolSearch} onChange={event => setSchoolSearch(event.target.value)} placeholder="חיפוש לפי שם מוסד" aria-label="חיפוש מוסד" /></div>
+                <label className="form-group">מוסד<select value={schoolId} onChange={event => setSchoolId(event.target.value)} required disabled={schoolsLoading}><option value="">{schoolsLoading ? 'טוען מוסדות…' : 'בחרו מוסד'}</option>{filteredSchools.map(item => <option key={item.id} value={item.id}>{item.name}{item.code ? ` · ${item.code}` : ''}</option>)}</select></label>
+              </fieldset>
+              <fieldset className="auth-step" disabled={!schoolId}>
+                <legend><span>2</span> פרטי התחברות</legend>
               <div className="form-group">
                 <label>דוא"ל</label>
                 <input
@@ -82,6 +110,7 @@ export default function Login() {
                   dir="ltr"
                 />
               </div>
+              </fieldset>
               <button type="submit" className="auth-btn" disabled={loading}>
                 {loading ? 'מתחבר...' : 'כניסה'}
               </button>
@@ -95,7 +124,7 @@ export default function Login() {
               </button>
             </p>
             <p className="auth-link" style={{ marginTop: '0.5rem' }}>
-              אין לך חשבון? <Link to="/register">קבלת הזמנה</Link>
+              אין לך חשבון? <Link to="/register">בקשת הצטרפות</Link>
             </p>
           </>
         ) : (
@@ -115,6 +144,7 @@ export default function Login() {
               <div className="auth-error">לא ניתן להשלים את הבקשה כרגע. נסו שוב מאוחר יותר.</div>
             )}
             <form onSubmit={handleResetPassword} className="auth-form">
+              <div className="form-group"><label>מוסד</label><select value={schoolId} onChange={event => setSchoolId(event.target.value)} required><option value="">בחרו מוסד</option>{schools.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
               <div className="form-group">
                 <label>דוא"ל</label>
                 <input

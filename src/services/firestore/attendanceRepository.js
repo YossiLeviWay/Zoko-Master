@@ -1,4 +1,5 @@
 import {
+  deleteDoc,
   doc,
   getDoc,
   onSnapshot,
@@ -16,13 +17,14 @@ import {
 } from '../../utils/attendance';
 
 const CHILD_BATCH_SIZE = 400;
+const DATA_MODE = 'nested';
 
 function uniqueStrings(values = []) {
   return [...new Set(values.filter(value => typeof value === 'string' && value))];
 }
 
-function childCollection(db, schoolId, fileId, name) {
-  return schoolSubcollection(db, schoolId, 'files', fileId, name);
+function childCollection(db, schoolId, fileId, name, mode = DATA_MODE) {
+  return schoolSubcollection(db, schoolId, 'files', fileId, name, mode);
 }
 
 async function commitInChunks(db, operations) {
@@ -44,7 +46,7 @@ export async function createAttendanceSheets({ db, schoolId, actor, folderId, in
       endDate: input.endDate,
       studyDays: classItem.studyDays || [],
     });
-    const fileRef = doc(schoolCollection(db, schoolId, 'files'));
+    const fileRef = doc(schoolCollection(db, schoolId, 'files', DATA_MODE));
     const title = selections.length === 1
       ? input.title.trim()
       : `${input.title.trim()} - ${classItem.name}`;
@@ -58,7 +60,9 @@ export async function createAttendanceSheets({ db, schoolId, actor, folderId, in
       schoolId,
       classId: classItem.id,
       className: classItem.name,
+      academicYearId: input.academicYearId || classItem.academicYearId,
       academicYear: input.academicYear || classItem.academicYear,
+      academicYearRange: input.academicYearRange || classItem.academicYearRange || '',
       dateRange: { start: input.startDate, end: input.endDate },
       timezone: ATTENDANCE_TIMEZONE,
       description: input.description?.trim() || '',
@@ -141,7 +145,9 @@ export async function createAttendanceSheets({ db, schoolId, actor, folderId, in
       schoolId,
       classId: classItem.id,
       className: classItem.name,
+      academicYearId: input.academicYearId || classItem.academicYearId,
       academicYear: input.academicYear || classItem.academicYear,
+      academicYearRange: input.academicYearRange || classItem.academicYearRange || '',
       dateRange: { start: input.startDate, end: input.endDate },
       timezone: ATTENDANCE_TIMEZONE,
       status: 'active',
@@ -151,9 +157,9 @@ export async function createAttendanceSheets({ db, schoolId, actor, folderId, in
   return created;
 }
 
-function subscribeChild({ db, schoolId, fileId, name, onData, onError, sort }) {
+function subscribeChild({ db, schoolId, fileId, name, mode = DATA_MODE, onData, onError, sort }) {
   return onSnapshot(
-    childCollection(db, schoolId, fileId, name),
+    childCollection(db, schoolId, fileId, name, mode),
     snapshot => {
       const items = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
       onData(sort ? items.sort(sort) : items);
@@ -180,8 +186,8 @@ export function subscribeAttendanceRecords(options) {
 
 export async function saveAttendanceCell({ db, schoolId, file, actor, studentId, dateKey, value }) {
   const recordId = attendanceRecordId(studentId, dateKey);
-  const recordRef = doc(childCollection(db, schoolId, file.id, 'attendanceRecords'), recordId);
-  const historyRef = doc(childCollection(db, schoolId, file.id, 'attendanceHistory'));
+  const recordRef = doc(childCollection(db, schoolId, file.id, 'attendanceRecords', file._dataMode), recordId);
+  const historyRef = doc(childCollection(db, schoolId, file.id, 'attendanceHistory', file._dataMode));
   const previousSnapshot = await getDoc(recordRef);
   const previous = previousSnapshot.exists() ? previousSnapshot.data() : null;
   const primaryStatusId = value.primaryStatusId || '';
@@ -242,8 +248,8 @@ export async function markAttendanceDate({ db, schoolId, file, actor, members, d
   const operations = [];
   members.filter(member => member.included !== false).forEach(member => {
     const recordId = attendanceRecordId(member.studentId, dateKey);
-    const recordRef = doc(childCollection(db, schoolId, file.id, 'attendanceRecords'), recordId);
-    const historyRef = doc(childCollection(db, schoolId, file.id, 'attendanceHistory'));
+    const recordRef = doc(childCollection(db, schoolId, file.id, 'attendanceRecords', file._dataMode), recordId);
+    const historyRef = doc(childCollection(db, schoolId, file.id, 'attendanceHistory', file._dataMode));
     operations.push(batch => batch.set(recordRef, {
       schoolId,
       fileId: file.id,
@@ -273,7 +279,7 @@ export async function markAttendanceDate({ db, schoolId, file, actor, members, d
 }
 
 export async function addAttendanceLegendItem({ db, schoolId, file, actor, input, order }) {
-  const itemRef = doc(childCollection(db, schoolId, file.id, 'attendanceLegend'));
+  const itemRef = doc(childCollection(db, schoolId, file.id, 'attendanceLegend', file._dataMode));
   await setDoc(itemRef, {
     schoolId,
     fileId: file.id,
@@ -291,16 +297,12 @@ export async function addAttendanceLegendItem({ db, schoolId, file, actor, input
   return itemRef.id;
 }
 
-export async function setAttendanceLegendItemActive({ db, schoolId, fileId, itemId, actor, active }) {
-  await updateDoc(doc(childCollection(db, schoolId, fileId, 'attendanceLegend'), itemId), {
-    active,
-    updatedBy: actor.uid,
-    updatedAt: serverTimestamp(),
-  });
+export async function deleteAttendanceLegendItem({ db, schoolId, fileId, itemId, mode = DATA_MODE }) {
+  await deleteDoc(doc(childCollection(db, schoolId, fileId, 'attendanceLegend', mode), itemId));
 }
 
-export async function archiveAttendanceSheet({ db, schoolId, fileId, actor }) {
-  await updateDoc(schoolDoc(db, schoolId, 'files', fileId), {
+export async function archiveAttendanceSheet({ db, schoolId, fileId, actor, mode = DATA_MODE }) {
+  await updateDoc(schoolDoc(db, schoolId, 'files', fileId, mode), {
     status: 'archived',
     updatedBy: actor.uid,
     updatedAt: serverTimestamp(),

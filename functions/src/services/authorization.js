@@ -17,16 +17,21 @@ export async function requireActor(request) {
     uid: request.auth.uid,
     data,
     globalAdmin: request.auth.token.global_admin === true,
+    platformAdmin: request.auth.token.platform_admin === true,
     schoolIds: memberships(data),
   };
 }
 
 export function isPrincipalFor(actor, schoolId) {
-  return actor.data.role === 'principal' && actor.schoolIds.has(schoolId);
+  return ['principal', 'institution_manager'].includes(actor.data.role) && actor.schoolIds.has(schoolId);
+}
+
+export function isInstitutionManagerFor(actor, schoolId) {
+  return isPrincipalFor(actor, schoolId);
 }
 
 export function requireSchoolManager(actor, schoolId) {
-  if (actor.globalAdmin || isPrincipalFor(actor, schoolId)) return;
+  if (actor.platformAdmin || actor.globalAdmin || isPrincipalFor(actor, schoolId)) return;
   throw permissionDenied();
 }
 

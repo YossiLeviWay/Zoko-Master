@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Archive, Check, ChevronLeft, ChevronRight, CirclePlus, RotateCcw, Save, Settings2, X } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, CirclePlus, Save, Settings2, Trash2, X } from 'lucide-react';
 import { db } from '../../firebase';
 import {
   addAttendanceLegendItem,
+  deleteAttendanceLegendItem,
   markAttendanceDate,
   saveAttendanceCell,
-  setAttendanceLegendItemActive,
   subscribeAttendanceDays,
   subscribeAttendanceLegend,
   subscribeAttendanceMembers,
@@ -50,14 +50,14 @@ export default function AttendanceSheetEditor({ file, schoolId, actor, permissio
   const canManageLegend = canManage || permissions.attendance_manage_legend;
 
   useEffect(() => {
-    const common = { db, schoolId, fileId: file.id, onError: () => setError('לא ניתן לטעון את נתוני הנוכחות.') };
+    const common = { db, schoolId, fileId: file.id, mode: file._dataMode || 'nested', onError: () => setError('לא ניתן לטעון את נתוני הנוכחות.') };
     return [
       subscribeAttendanceLegend({ ...common, onData: setLegend }),
       subscribeAttendanceMembers({ ...common, onData: setMembers }),
       subscribeAttendanceDays({ ...common, onData: setDays }),
       subscribeAttendanceRecords({ ...common, onData: setRecords }),
     ].reduce((cleanup, unsubscribe) => () => { cleanup(); unsubscribe(); }, () => undefined);
-  }, [file.id, schoolId]);
+  }, [file._dataMode, file.id, schoolId]);
 
   useEffect(() => {
     if (!days.length) return;
@@ -68,6 +68,7 @@ export default function AttendanceSheetEditor({ file, schoolId, actor, permissio
   const activeLegend = legend.filter(item => item.active !== false);
   const statusItems = activeLegend.filter(item => item.type === 'status');
   const actionItems = activeLegend.filter(item => item.type !== 'status');
+  const presentStatus = statusItems.find(item => item.attendanceEffect === 'present');
   const legendById = useMemo(() => new Map(legend.map(item => [item.id, item])), [legend]);
   const recordByCell = useMemo(() => new Map(records.map(item => [`${item.studentId}:${item.dateKey}`, item])), [records]);
   const visibleMembers = members.filter(member => member.included !== false && (!search.trim() || member.displayName?.toLowerCase().includes(search.trim().toLowerCase())));
@@ -117,10 +118,15 @@ export default function AttendanceSheetEditor({ file, schoolId, actor, permissio
   }
 
   async function markAllPresent(day) {
-    if (!canEdit || day.blocked || !window.confirm(`לסמן את כל הכיתה כנוכחת בתאריך ${day.dateKey}?`)) return;
+    if (!canEdit || day.blocked) return;
+    if (!presentStatus) {
+      setError('כדי לסמן נוכחות קבוצתית יש להוסיף למקרא סטטוס שהשפעתו "נוכחות".');
+      return;
+    }
+    if (!window.confirm(`לסמן את כל הכיתה כנוכחת בתאריך ${day.dateKey}?`)) return;
     setSaveState('saving');
     try {
-      await markAttendanceDate({ db, schoolId, file, actor, members: visibleMembers, dateKey: day.dateKey });
+      await markAttendanceDate({ db, schoolId, file, actor, members: visibleMembers, dateKey: day.dateKey, statusId: presentStatus.id });
       setSaveState('saved');
     } catch {
       setSaveState('error');
@@ -139,12 +145,18 @@ export default function AttendanceSheetEditor({ file, schoolId, actor, permissio
     }
   }
 
-  async function toggleLegendActive(item) {
+  async function deleteLegendItem(item) {
     if (!canManageLegend) return;
+    if (!window.confirm(`למחוק לצמיתות את "${item.label}"? לא ניתן לשחזר את הפריט לאחר המחיקה.`)) return;
     try {
-      await setAttendanceLegendItemActive({ db, schoolId, fileId: file.id, itemId: item.id, actor, active: item.active === false });
+      await deleteAttendanceLegendItem({ db, schoolId, fileId: file.id, itemId: item.id, mode: file._dataMode || 'nested' });
+      setDraft(previous => ({
+        ...previous,
+        primaryStatusId: previous.primaryStatusId === item.id ? '' : previous.primaryStatusId,
+        actionIds: previous.actionIds.filter(id => id !== item.id),
+      }));
     } catch {
-      setError('לא ניתן לשנות את פריט המקראה.');
+      setError('לא ניתן למחוק את פריט המקרא. בדקו את ההרשאות ונסו שוב.');
     }
   }
 
@@ -159,7 +171,7 @@ export default function AttendanceSheetEditor({ file, schoolId, actor, permissio
   return (
     <div className="attendance-editor" dir="rtl">
       <div className="attendance-toolbar">
-        <div><strong>{file.className}</strong><span>{file.academicYear} · {file.dateRange?.start}–{file.dateRange?.end}</span></div>
+        <div><strong>{file.className}</strong><span>{file.academicYear}{file.academicYearRange ? ` (${file.academicYearRange})` : ''} · {file.dateRange?.start}–{file.dateRange?.end}</span></div>
         <div className="attendance-toolbar-actions">
           <label className="attendance-search">חיפוש תלמיד<input value={search} onChange={event => setSearch(event.target.value)} /></label>
           <button className="btn btn-secondary btn-sm" onClick={() => setShowLegend(previous => !previous)}><Settings2 size={14} /> מקראה</button>
@@ -170,7 +182,7 @@ export default function AttendanceSheetEditor({ file, schoolId, actor, permissio
       {error && <div className="attendance-feedback attendance-feedback--error" role="alert">{error}</div>}
       {showLegend && (
         <aside className="attendance-legend-panel">
-          <div className="attendance-legend-list">{legend.map(item => <span key={item.id} className={item.active === false ? 'archived' : ''} style={{ '--legend-color': item.color }}><b>{item.shortCode}</b>{item.label}{canManageLegend && <button className="icon-btn" onClick={() => toggleLegendActive(item)} aria-label={item.active === false ? `שחזור ${item.label}` : `ארכוב ${item.label}`}>{item.active === false ? <RotateCcw size={12} /> : <Archive size={12} />}</button>}</span>)}</div>
+          <div className="attendance-legend-list">{legend.map(item => <span key={item.id} style={{ '--legend-color': item.color }}><b>{item.shortCode}</b>{item.label}{canManageLegend && <button className="icon-btn icon-btn--danger" onClick={() => deleteLegendItem(item)} aria-label={`מחיקה לצמיתות של ${item.label}`} title="מחיקה לצמיתות"><Trash2 size={12} /></button>}</span>)}</div>
           {canManageLegend && <form onSubmit={addLegend} className="attendance-legend-form"><input value={legendForm.label} onChange={event => setLegendForm(previous => ({ ...previous, label: event.target.value }))} placeholder="שם הפריט" maxLength={80} /><input value={legendForm.shortCode} onChange={event => setLegendForm(previous => ({ ...previous, shortCode: event.target.value }))} placeholder="קוד" maxLength={4} /><input type="color" value={legendForm.color} onChange={event => setLegendForm(previous => ({ ...previous, color: event.target.value }))} aria-label="צבע" /><select value={legendForm.type} onChange={event => setLegendForm(previous => ({ ...previous, type: event.target.value }))}><option value="status">סטטוס נוכחות</option><option value="action">פעולת מעקב</option><option value="event">אירוע או הערה</option></select><select value={legendForm.attendanceEffect} onChange={event => setLegendForm(previous => ({ ...previous, attendanceEffect: event.target.value }))}><option value="neutral">ללא השפעה</option><option value="present">נוכחות</option><option value="absent">היעדרות</option><option value="excused_absence">היעדרות מוצדקת</option><option value="approved_activity">פעילות מאושרת</option></select><button className="btn btn-primary btn-sm"><CirclePlus size={14} /> הוספה</button></form>}
         </aside>
       )}

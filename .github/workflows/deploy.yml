@@ -35,6 +35,7 @@ jobs:
       - run: npm --prefix functions run lint
       - run: npm --prefix functions test
       - run: npm run test:pdf
+      - run: npm run test:unit
       - run: npm run test:emulator
 
       - name: Build

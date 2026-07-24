@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { auth, db } from '../../firebase';
+import { db } from '../../firebase';
 import {
   collection,
   query,
@@ -14,25 +14,31 @@ import {
   orderBy,
   limit
 } from 'firebase/firestore';
-import { sendPasswordResetEmail } from 'firebase/auth';
 import {
   approveSchoolMembership,
-  createStaffUser,
+  createStaffInvitation,
   deleteStaffUser,
   removeSchoolMembership,
   requestStaffPasswordReset,
+  invitationErrorMessage,
+  manageStaffInvitation,
+  reviewJoinRequest,
   setUserRole,
+  startPermissionPreview,
   updateStaffUser,
 } from '../../services/adminUserService';
 import Header from '../Layout/Header';
 import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
-import { Edit3, Trash2, Shield, Search, X, UserPlus, CheckCircle, XCircle, ChevronDown, ChevronUp, Save, Filter, Phone, Mail, User, MessageCircle, Briefcase, Eye, Key, RefreshCw, Users, Plus, Trash, Check, AlertCircle } from 'lucide-react';
+import { Edit3, Trash2, Shield, Search, X, UserPlus, CheckCircle, XCircle, ChevronDown, ChevronUp, Save, Filter, Phone, Mail, User, MessageCircle, Briefcase, Eye, Key, RefreshCw, Users, Plus, Trash, Check, AlertCircle, LayoutGrid, Table2 } from 'lucide-react';
 import RolesManager from './RolesManager';
+import SegmentedControl from '../Common/SegmentedControl';
 import '../Gantt/Gantt.css';
 import './Staff.css';
 
 const ROLE_LABELS = {
+  platform_admin: 'מנהל־על פלטפורמה',
   global_admin: 'מנהל על',
+  institution_manager: 'מנהל מוסד',
   principal: 'מנהל מוסד',
   editor: 'עורך',
   viewer: 'צופה'
@@ -61,9 +67,16 @@ const DEFAULT_PERMISSIONS = {
   staff_view: true,
   staff_edit: false,
   staff_delete: false,
+  'staff.invite': false,
+  'staff.viewJoinRequests': false,
+  'staff.reviewJoinRequests': false,
+  'staff.resetPassword': false,
   tasks_view: true,
   tasks_edit: false,
   tasks_assign: false,
+  'tasks.inviteCollaborators': false,
+  'tasks.assignMandatory': false,
+  'tasks.manageAssignments': false,
   teams_view: true,
   teams_edit: false,
   classes_view: false,
@@ -80,6 +93,9 @@ const DEFAULT_PERMISSIONS = {
   students_manage_programs: false,
   students_add_notes: false,
   students_view_notes: false,
+  'grades.view': false,
+  'grades.edit': false,
+  'gradebooks.manage': false,
   attendance_create: false,
   attendance_view: false,
   attendance_edit: false,
@@ -120,6 +136,10 @@ const PERMISSION_GROUPS = [
       { key: 'staff_view', label: 'צפייה בסגל' },
       { key: 'staff_edit', label: 'עריכת סגל והרשאות' },
       { key: 'staff_delete', label: 'מחיקת איש צוות' },
+      { key: 'staff.invite', label: 'שליחת הזמנות לצוות' },
+      { key: 'staff.viewJoinRequests', label: 'צפייה בבקשות הצטרפות' },
+      { key: 'staff.reviewJoinRequests', label: 'טיפול בבקשות הצטרפות' },
+      { key: 'staff.resetPassword', label: 'שליחת קישור איפוס סיסמה' },
     ]
   },
   {
@@ -128,6 +148,9 @@ const PERMISSION_GROUPS = [
       { key: 'tasks_view', label: 'צפייה במשימות' },
       { key: 'tasks_edit', label: 'יצירה ועריכת משימות' },
       { key: 'tasks_assign', label: 'הקצאת משימות לאחרים' },
+      { key: 'tasks.inviteCollaborators', label: 'הזמנת שותפים למשימה' },
+      { key: 'tasks.assignMandatory', label: 'הקצאת משימה מחייבת' },
+      { key: 'tasks.manageAssignments', label: 'ניהול הקצאות משימה' },
     ]
   },
   {
@@ -153,6 +176,14 @@ const PERMISSION_GROUPS = [
       { key: 'students_manage_programs', label: 'ניהול מגמות ותוכניות' },
       { key: 'students_add_notes', label: 'הוספת הערות תלמיד' },
       { key: 'students_view_notes', label: 'צפייה בהערות תלמיד' },
+    ]
+  },
+  {
+    label: 'ציונים ומיפויים',
+    permissions: [
+      { key: 'grades.view', label: 'צפייה בציונים' },
+      { key: 'grades.edit', label: 'עריכת ציוני תלמידים' },
+      { key: 'gradebooks.manage', label: 'ניהול מקצועות, רכיבים ונוסחאות' },
     ]
   },
   {
@@ -206,9 +237,9 @@ const PERMISSION_GROUPS = [
 
 function getPermissionsForRole(role) {
   const perms = { ...DEFAULT_PERMISSIONS };
-  if (role === 'global_admin') {
+  if (role === 'global_admin' || role === 'platform_admin') {
     for (const key of Object.keys(perms)) perms[key] = true;
-  } else if (role === 'principal') {
+  } else if (role === 'principal' || role === 'institution_manager') {
     for (const key of Object.keys(perms)) perms[key] = true;
     perms.schools_manage = false;
   } else if (role === 'editor') {
@@ -237,7 +268,7 @@ export default function StaffManagement() {
 
   // Add modal
   const [showAddModal, setShowAddModal] = useState(false);
-  const [addForm, setAddForm] = useState({ fullName: '', email: '', jobTitle: '', role: 'viewer', schoolId: '', avatarStyle: 'default' });
+  const [addForm, setAddForm] = useState({ fullName: '', email: '', jobTitle: '', role: 'viewer', schoolId: '', avatarStyle: 'default', customRoleIds: [], teamIds: [], message: '' });
   const [addError, setAddError] = useState('');
 
   // Bulk add modal
@@ -260,8 +291,15 @@ export default function StaffManagement() {
   const [permissionsForm, setPermissionsForm] = useState({});
   const [expandedGroups, setExpandedGroups] = useState({});
   const [showRolesManager, setShowRolesManager] = useState(false);
+  const [permissionPreview, setPermissionPreview] = useState(null);
+  const [previewLoadingId, setPreviewLoadingId] = useState('');
   const [customRoles, setCustomRoles] = useState([]);
   const [teams, setTeams] = useState([]);
+  const [staffSection, setStaffSection] = useState('staff');
+  const [invitations, setInvitations] = useState([]);
+  const [joinRequests, setJoinRequests] = useState([]);
+  const [joinRequestRoles, setJoinRequestRoles] = useState({});
+  const [requestActionId, setRequestActionId] = useState('');
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState(null); // { x, y, user }
@@ -359,6 +397,25 @@ export default function StaffManagement() {
     setPendingUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
   }, [schoolId]);
 
+  const loadInvitationsAndRequests = useCallback(async () => {
+    if (!schoolId || !canApprove) {
+      setInvitations([]);
+      setJoinRequests([]);
+      return;
+    }
+    try {
+      const [invitationSnapshot, requestSnapshot] = await Promise.all([
+        getDocs(query(collection(db, `schools/${schoolId}/invitations`), orderBy('createdAt', 'desc'), limit(100))),
+        getDocs(query(collection(db, `schools/${schoolId}/joinRequests`), orderBy('createdAt', 'desc'), limit(100))),
+      ]);
+      setInvitations(invitationSnapshot.docs.map(item => ({ id: item.id, ...item.data() })));
+      setJoinRequests(requestSnapshot.docs.map(item => ({ id: item.id, ...item.data() })));
+    } catch {
+      setInvitations([]);
+      setJoinRequests([]);
+    }
+  }, [schoolId, canApprove]);
+
   useEffect(() => {
     if (isAdmin) {
       loadAllStaff();
@@ -367,6 +424,42 @@ export default function StaffManagement() {
       loadPendingUsers();
     }
   }, [schoolId, isAdmin, loadStaff, loadPendingUsers]);
+
+  useEffect(() => {
+    loadInvitationsAndRequests();
+  }, [loadInvitationsAndRequests]);
+
+  async function handleInvitationAction(invitationId, action) {
+    setRequestActionId(invitationId);
+    try {
+      await manageStaffInvitation({ schoolId, invitationId, action });
+      await loadInvitationsAndRequests();
+    } catch (caught) {
+      alert(invitationErrorMessage(caught));
+    } finally {
+      setRequestActionId('');
+    }
+  }
+
+  async function handleJoinRequestAction(requestId, action) {
+    setRequestActionId(requestId);
+    try {
+      await reviewJoinRequest({
+        schoolId,
+        requestId,
+        action,
+        role: action === 'invite' ? (joinRequestRoles[requestId] || 'viewer') : undefined,
+        rejectionReason: action === 'reject' ? 'הבקשה נדחתה על ידי מנהל המוסד.' : '',
+        permissions: {}, customRoleIds: [], teamIds: [], classIds: [],
+      });
+      await loadInvitationsAndRequests();
+      setStaffSection(action === 'invite' ? 'invitations' : 'requests');
+    } catch (caught) {
+      alert(invitationErrorMessage(caught));
+    } finally {
+      setRequestActionId('');
+    }
+  }
 
   async function handleApprove(userId) {
     await approveUser(userId, schoolId);
@@ -453,10 +546,9 @@ export default function StaffManagement() {
     setEditError('');
     try {
       await requestStaffPasswordReset({ userId: editUser.id, schoolId });
-      await sendPasswordResetEmail(auth, editUser.email);
       setResetEmailSent(true);
-    } catch {
-      setEditError('לא ניתן לשלוח כרגע קישור לאיפוס סיסמה.');
+    } catch (caught) {
+      setEditError(invitationErrorMessage(caught));
     } finally {
       setResetPasswordLoading(false);
     }
@@ -505,21 +597,25 @@ export default function StaffManagement() {
     const targetSchoolId = addForm.schoolId || schoolId;
 
     try {
-      await createStaffUser({
+      await createStaffInvitation({
         email: addForm.email.trim(),
         fullName: addForm.fullName.trim(),
-        jobTitle: addForm.jobTitle.trim(),
         role: addForm.role,
         schoolId: targetSchoolId,
-        avatarStyle: addForm.avatarStyle || 'default',
+        customRoleIds: addForm.customRoleIds,
+        teamIds: addForm.teamIds,
+        classIds: [],
+        permissions: {},
+        message: addForm.message.trim() || addForm.jobTitle.trim(),
       });
-      await sendPasswordResetEmail(auth, addForm.email.trim());
 
       setShowAddModal(false);
-      setAddForm({ fullName: '', email: '', jobTitle: '', role: 'viewer', schoolId: '', avatarStyle: 'default' });
+      setAddForm({ fullName: '', email: '', jobTitle: '', role: 'viewer', schoolId: '', avatarStyle: 'default', customRoleIds: [], teamIds: [], message: '' });
+      setStaffSection('invitations');
+      await loadInvitationsAndRequests();
       isAdmin ? loadAllStaff() : loadStaff();
-    } catch {
-      setAddError('לא ניתן ליצור את ההזמנה. בדקו את הפרטים וההרשאה.');
+    } catch (caught) {
+      setAddError(invitationErrorMessage(caught));
     }
   }
 
@@ -570,7 +666,7 @@ export default function StaffManagement() {
             let value = cell.trim();
             // Normalize role values
             if (field === 'role') {
-              const roleMap = { 'צופה': 'viewer', 'עורך': 'editor', 'מנהל מוסד': 'principal', 'viewer': 'viewer', 'editor': 'editor', 'principal': 'principal' };
+              const roleMap = { 'צופה': 'viewer', 'עורך': 'editor', 'viewer': 'viewer', 'editor': 'editor' };
               value = roleMap[value] || 'viewer';
             }
             updated[startRow + lineIdx] = { ...updated[startRow + lineIdx], [field]: value };
@@ -595,23 +691,22 @@ export default function StaffManagement() {
     for (let i = 0; i < validRows.length; i++) {
       const row = validRows[i];
       try {
-        await createStaffUser({
+        await createStaffInvitation({
           email: row.email.trim(),
           fullName: row.fullName.trim(),
-          jobTitle: row.jobTitle.trim(),
           role: row.role,
           schoolId: targetSchoolId,
-          avatarStyle: 'default',
+          customRoleIds: [], teamIds: [], classIds: [], permissions: {}, message: row.jobTitle.trim(),
         });
-        await sendPasswordResetEmail(auth, row.email.trim());
         results.push({ name: row.fullName, success: true });
-      } catch {
-        results.push({ name: row.fullName, success: false, error: 'ההזמנה לא נוצרה' });
+      } catch (caught) {
+        results.push({ name: row.fullName, success: false, error: invitationErrorMessage(caught) });
       }
       setBulkProgress({ current: i + 1, total: validRows.length, results: [...results] });
     }
 
     isAdmin ? loadAllStaff() : loadStaff();
+    await loadInvitationsAndRequests();
   }
 
   // Get school names for a user
@@ -656,7 +751,7 @@ export default function StaffManagement() {
     // Principal can edit only viewer/editor in their own school (not other principals/admins)
     const userSchoolIds = user.schoolIds || (user.schoolId ? [user.schoolId] : []);
     const inMySchool = userSchoolIds.includes(schoolId);
-    const isHigherRole = user.role === 'principal' || user.role === 'global_admin';
+    const isHigherRole = ['principal', 'institution_manager', 'global_admin', 'platform_admin'].includes(user.role);
     return inMySchool && !isHigherRole;
   }
 
@@ -667,7 +762,7 @@ export default function StaffManagement() {
     if (!isPrincipal()) return false;
     const userSchoolIds = user.schoolIds || (user.schoolId ? [user.schoolId] : []);
     const inMySchool = userSchoolIds.includes(schoolId);
-    const isHigherRole = user.role === 'principal' || user.role === 'global_admin';
+    const isHigherRole = ['principal', 'institution_manager', 'global_admin', 'platform_admin'].includes(user.role);
     return inMySchool && !isHigherRole;
   }
 
@@ -704,6 +799,16 @@ export default function StaffManagement() {
   function handleSendMessage(user) {
     closeContextMenu();
     navigate(`/messages?userId=${user.id}`);
+  }
+
+  async function openPermissionPreview(user) {
+    setPreviewLoadingId(user.id);
+    try {
+      const preview = await startPermissionPreview({ schoolId, targetUserId: user.id });
+      setPermissionPreview(preview);
+    } catch {
+      window.alert('לא ניתן לפתוח תצוגה מקדימה. הפעולה מותרת רק למנהל מוסד או לבעל הרשאת תצוגה מתאימה.');
+    } finally { setPreviewLoadingId(''); }
   }
 
   async function handleAttachToTask(user) {
@@ -817,22 +922,65 @@ export default function StaffManagement() {
   });
 
   const activeFilters = (filterRole ? 1 : 0) + (filterSchool ? 1 : 0);
+  const pendingInvitationCount = invitations.filter(item => item.status === 'pending').length;
+  const pendingRequestCount = joinRequests.filter(item => item.status === 'pending').length;
+
+  function formatRequestDate(value) {
+    if (!value) return '—';
+    const date = value.toDate ? value.toDate() : new Date(value);
+    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('he-IL');
+  }
 
   return (
     <div className="page">
       <Header title="סגל וקהילה" onPermissions={() => setShowPermissionsPanel(true)} />
       {showPermissionsPanel && <PagePermissionsPanel feature="staff" onClose={() => setShowPermissionsPanel(false)} />}
       <div className="page-content">
+        {canApprove && (
+          <div className="staff-section-nav">
+            <SegmentedControl
+              value={staffSection}
+              onChange={setStaffSection}
+              label="אזור ניהול צוות"
+              options={[
+                { value: 'staff', label: 'אנשי צוות', count: staff.length },
+                { value: 'invitations', label: 'הזמנות', count: pendingInvitationCount },
+                { value: 'requests', label: 'בקשות הצטרפות', count: pendingRequestCount },
+              ]}
+            />
+          </div>
+        )}
+        {staffSection === 'invitations' && canApprove && (
+          <section className="card staff-request-panel">
+            <h3>הזמנות צוות</h3>
+            <div className="data-table-wrap"><table className="data-table"><thead><tr><th>שם</th><th>דוא״ל</th><th>תפקיד</th><th>סטטוס</th><th>תפוגה</th><th>פעולות</th></tr></thead><tbody>
+              {invitations.map(item => <tr key={item.id}><td>{item.fullName}</td><td dir="ltr">{item.normalizedEmail}</td><td>{ROLE_LABELS[item.role] || item.role}</td><td>{item.status === 'pending' ? 'ממתינה' : item.status === 'accepted' ? 'התקבלה' : item.status === 'revoked' ? 'בוטלה' : item.status}</td><td>{formatRequestDate(item.expiresAt)}</td><td><div className="td-actions">{['pending', 'expired'].includes(item.status) && <button disabled={requestActionId === item.id} className="btn btn-secondary btn-sm" onClick={() => handleInvitationAction(item.id, 'resend')}><RefreshCw size={13} /> שליחה מחדש</button>}{item.status === 'pending' && <button disabled={requestActionId === item.id} className="btn btn-secondary btn-sm staff-danger-action" onClick={() => handleInvitationAction(item.id, 'revoke')}><XCircle size={13} /> ביטול</button>}</div></td></tr>)}
+              {invitations.length === 0 && <tr><td colSpan={6} className="td-empty">אין הזמנות להצגה</td></tr>}
+            </tbody></table></div>
+          </section>
+        )}
+        {staffSection === 'requests' && canApprove && (
+          <section className="card staff-request-panel">
+            <h3>בקשות הצטרפות</h3>
+            <div className="data-table-wrap"><table className="data-table"><thead><tr><th>שם</th><th>דוא״ל</th><th>תאריך</th><th>הודעה</th><th>סטטוס</th><th>פעולות</th></tr></thead><tbody>
+              {joinRequests.map(item => <tr key={item.id}><td>{item.fullName}</td><td dir="ltr">{item.normalizedEmail}</td><td>{formatRequestDate(item.createdAt)}</td><td>{item.message || '—'}</td><td>{item.status === 'pending' ? 'ממתינה' : item.status === 'invited' ? 'נשלחה הזמנה' : item.status === 'rejected' ? 'נדחתה' : item.status}</td><td>{item.status === 'pending' && <div className="join-request-actions"><select aria-label="תפקיד להזמנה" value={joinRequestRoles[item.id] || 'viewer'} onChange={event => setJoinRequestRoles(previous => ({ ...previous, [item.id]: event.target.value }))}><option value="viewer">צופה</option><option value="editor">עורך</option></select><button disabled={requestActionId === item.id} className="btn btn-primary btn-sm" onClick={() => handleJoinRequestAction(item.id, 'invite')}><CheckCircle size={13} /> אישור והזמנה</button><button disabled={requestActionId === item.id} className="btn btn-secondary btn-sm staff-danger-action" onClick={() => handleJoinRequestAction(item.id, 'reject')}><XCircle size={13} /> דחייה</button></div>}</td></tr>)}
+              {joinRequests.length === 0 && <tr><td colSpan={6} className="td-empty">אין בקשות להצגה</td></tr>}
+            </tbody></table></div>
+          </section>
+        )}
+        {staffSection === 'staff' && <>
         <div className="page-toolbar">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <div className="view-toggle">
-              <button className={`toggle-btn ${viewMode === 'table' ? 'active' : ''}`} onClick={() => setViewMode('table')}>
-                טבלה
-              </button>
-              <button className={`toggle-btn ${viewMode === 'grid' ? 'active' : ''}`} onClick={() => setViewMode('grid')}>
-                כרטיסיות
-              </button>
-            </div>
+            <SegmentedControl
+              value={viewMode}
+              onChange={setViewMode}
+              label="אופן הצגת אנשי הצוות"
+              size="small"
+              options={[
+                { value: 'table', label: 'טבלה', icon: Table2 },
+                { value: 'grid', label: 'כרטיסיות', icon: LayoutGrid },
+              ]}
+            />
             {canEdit && (
               <>
                 <button className="btn btn-primary" onClick={() => setShowAddModal(true)}>
@@ -989,6 +1137,7 @@ export default function StaffManagement() {
                   <p className="staff-card-email">{user.email}</p>
                   {canEditUser(user) && (
                     <div className="staff-card-actions">
+                      <button className="icon-btn" disabled={previewLoadingId === user.id} onClick={() => openPermissionPreview(user)} title="תצוגה כמשתמש" aria-label={`תצוגה כמשתמש ${user.fullName}`}><Eye size={14} /></button>
                       <button className="icon-btn" onClick={() => openPermissions(user)} title="הרשאות מפורטות">
                         <Shield size={14} />
                       </button>
@@ -1052,6 +1201,7 @@ export default function StaffManagement() {
                           <div className="td-actions">
                             {canEditUser(user) ? (
                               <>
+                                <button className="icon-btn" disabled={previewLoadingId === user.id} title="תצוגה כמשתמש" aria-label={`תצוגה כמשתמש ${user.fullName}`} onClick={() => openPermissionPreview(user)}><Eye size={15} /></button>
                                 <button className="icon-btn" title="הרשאות מפורטות" onClick={() => openPermissions(user)}>
                                   <Shield size={15} />
                                 </button>
@@ -1149,8 +1299,6 @@ export default function StaffManagement() {
                     >
                       <option value="viewer">צופה</option>
                       <option value="editor">עורך</option>
-                      {isAdmin && <option value="principal">מנהל מוסד</option>}
-                      {isAdmin && <option value="global_admin">מנהל על</option>}
                     </select>
                   </div>
 
@@ -1327,7 +1475,7 @@ export default function StaffManagement() {
                     />
                   </div>
                   <div style={{ fontSize: '0.76rem', color: '#64748b', background: '#f8fafc', padding: '0.65rem', borderRadius: 8 }}>
-                    לאחר יצירת החשבון יישלח למשתמש קישור מאובטח לקביעת סיסמה.
+                    החשבון ייווצר רק לאחר קבלת הזמנה חד־פעמית וקביעת סיסמה על ידי המשתמש.
                   </div>
                   <div className="form-group">
                     <label>תפקיד</label>
@@ -1357,9 +1505,11 @@ export default function StaffManagement() {
                     >
                       <option value="viewer">צופה</option>
                       <option value="editor">עורך</option>
-                      {isAdmin && <option value="principal">מנהל מוסד</option>}
                     </select>
                   </div>
+                  {customRoles.length > 0 && <div className="form-group"><label>תפקידים מוגדרים</label><div className="staff-choice-list">{customRoles.filter(role => role.status !== 'archived').map(role => <label key={role.id}><input type="checkbox" checked={addForm.customRoleIds.includes(role.id)} onChange={event => setAddForm(previous => ({ ...previous, customRoleIds: event.target.checked ? [...previous.customRoleIds, role.id] : previous.customRoleIds.filter(id => id !== role.id) }))} /> {role.name}</label>)}</div></div>}
+                  {teams.length > 0 && <div className="form-group"><label>צוותים</label><div className="staff-choice-list">{teams.map(team => <label key={team.id}><input type="checkbox" checked={addForm.teamIds.includes(team.id)} onChange={event => setAddForm(previous => ({ ...previous, teamIds: event.target.checked ? [...previous.teamIds, team.id] : previous.teamIds.filter(id => id !== team.id) }))} /> {team.name}</label>)}</div></div>}
+                  <div className="form-group"><label>הודעה להזמנה (אופציונלי)</label><textarea value={addForm.message} onChange={event => setAddForm(previous => ({ ...previous, message: event.target.value }))} maxLength={1000} /></div>
                   <div className="form-group">
                     <label>סגנון אוואטר</label>
                     <div className="avatar-style-picker">
@@ -1458,7 +1608,6 @@ export default function StaffManagement() {
                                 >
                                   <option value="viewer">צופה</option>
                                   <option value="editor">עורך</option>
-                                  {isAdmin && <option value="principal">מנהל מוסד</option>}
                                 </select>
                               </td>
                               <td>
@@ -1622,6 +1771,7 @@ export default function StaffManagement() {
             </div>
           </div>
         )}
+        </>}
 
         {/* Context Menu */}
         {contextMenu && (
@@ -1789,6 +1939,7 @@ export default function StaffManagement() {
             onClose={() => { setShowRolesManager(false); loadCustomRoles(); }}
           />
         )}
+        {permissionPreview && <div className="modal-overlay" onClick={() => setPermissionPreview(null)}><div className="modal-content modal-content--wide permission-preview-modal" role="dialog" aria-modal="true" aria-label="תצוגה מקדימה כמשתמש" onClick={event => event.stopPropagation()}><div className="permission-preview-banner"><Eye size={18} /><strong>מצב תצוגה מקדימה: כך {permissionPreview.target.fullName || 'המשתמש'} רואה את המערכת</strong><span>קריאה בלבד · אין שינוי בזהות ההתחברות</span><button className="btn btn-secondary btn-sm" onClick={() => setPermissionPreview(null)}>יציאה מתצוגה מקדימה</button></div><div className="modal-form"><section><h4>תפקידים פעילים</h4><div className="staff-profile-tags">{permissionPreview.roles.map(role => <span key={role.id} className="staff-profile-tag staff-profile-tag--role">{role.name || role.id} · {role.scope?.type === 'classes' ? `${role.scope.classIds?.length || role.scope.values?.length || 0} כיתות` : 'כל המוסד'}</span>)}{permissionPreview.roles.length === 0 && <span className="form-hint">אין תפקידים מותאמים.</span>}</div></section><section><h4>פירוט גישה אפקטיבית</h4><div className="permission-preview-list">{permissionPreview.capabilities.map((grant, index) => <div key={`${grant.capability}_${index}`}><strong>{grant.capability}</strong><span>{grant.scope?.type || 'school'}</span><small>{grant.source}</small></div>)}</div></section><div className="students-feedback students-feedback--warning">במצב זה לא מוצגים כפתורי שמירה, מחיקה, הודעה, העלאה או יצירה. session השרת יפוג אוטומטית ב־{new Date(permissionPreview.expiresAt).toLocaleTimeString('he-IL')}.</div></div></div></div>}
       </div>
     </div>
   );

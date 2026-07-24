@@ -132,7 +132,9 @@ export default function Header({ title, onPermissions }) {
   const initial = userData?.fullName?.charAt(0) || '?';
 
   const ROLE_LABELS_HEADER = {
+    platform_admin: 'מנהל־על פלטפורמה',
     global_admin: 'מנהל על',
+    institution_manager: 'מנהל מוסד',
     principal: 'מנהל מוסד',
     editor: 'עורך',
     viewer: 'צופה'
