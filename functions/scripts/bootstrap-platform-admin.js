@@ -29,5 +29,5 @@ const db = getFirestore();
 const user = await auth.getUser(uid);
 await auth.setCustomUserClaims(uid, { ...(user.customClaims || {}), platform_admin: true });
 await db.collection('users').doc(uid).set({ uid, role: 'platform_admin', accountStatus: 'active', updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-await db.collection('auditLogs').add({ actorUid: uid, targetUid: uid, action: 'platform_admin.bootstrap', schoolId: null, metadata: { source: 'approved-local-script' }, createdAt: FieldValue.serverTimestamp() });
+await db.collection('platformAuditLogs').add({ actorId: uid, actorUid: uid, actorRole: 'platform_admin', targetId: uid, targetUid: uid, targetType: 'platformAdmin', action: 'platform_admin.bootstrap', institutionId: null, reason: 'approved-local-script', before: {}, after: { claimAssigned: true }, timestamp: FieldValue.serverTimestamp(), createdAt: FieldValue.serverTimestamp() });
 process.stdout.write('Platform administrator claim assigned. Revoke existing sessions or refresh the ID token before use.\n');

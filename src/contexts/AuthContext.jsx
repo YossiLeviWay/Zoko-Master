@@ -2,9 +2,11 @@ import { createContext, useCallback, useContext, useEffect, useState } from 'rea
 import { auth, db } from '../firebase';
 import {
   getIdTokenResult,
+  getMultiFactorResolver,
   onIdTokenChanged,
   signInWithEmailAndPassword,
   signOut,
+  TotpMultiFactorGenerator,
 } from 'firebase/auth';
 import { doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import {
@@ -76,7 +78,19 @@ export function AuthProvider({ children }) {
   const [selectedSchool, setSelectedSchool] = useState(null);
 
   async function login(email, password, schoolId) {
-    const credential = await signInWithEmailAndPassword(auth, email.trim(), password);
+    let credential;
+    try {
+      credential = await signInWithEmailAndPassword(auth, email.trim(), password);
+    } catch (error) {
+      if (error?.code !== 'auth/multi-factor-auth-required') throw error;
+      const resolver = getMultiFactorResolver(auth, error);
+      const totpHint = resolver.hints.find(hint => hint.factorId === TotpMultiFactorGenerator.FACTOR_ID);
+      if (!totpHint) throw Object.assign(new Error('UNSUPPORTED_MFA_FACTOR'), { code: 'auth/unsupported-mfa-factor' });
+      const oneTimeCode = window.prompt('הזינו קוד חד־פעמי מאפליקציית האימות:');
+      if (!oneTimeCode) throw Object.assign(new Error('MFA_REQUIRED'), { code: 'auth/mfa-code-required' });
+      const assertion = TotpMultiFactorGenerator.assertionForSignIn(totpHint.uid, oneTimeCode.trim());
+      credential = await resolver.resolveSignIn(assertion);
+    }
     try {
       const token = await getIdTokenResult(credential.user, true);
       const isPlatformAdminClaim = token.claims.platform_admin === true;
@@ -85,15 +99,16 @@ export function AuthProvider({ children }) {
       const normalized = normalizeUserData(credential.user, snapshot.data(), isLegacyGlobalAdmin, isPlatformAdminClaim);
       const memberships = new Set(normalized.schoolIds || []);
       if (normalized.schoolId) memberships.add(normalized.schoolId);
-      if (!schoolId || (!isPlatformAdminClaim && !isLegacyGlobalAdmin && !memberships.has(schoolId))) {
+      if ((!schoolId && !isPlatformAdminClaim && !isLegacyGlobalAdmin)
+        || (schoolId && !isPlatformAdminClaim && !isLegacyGlobalAdmin && !memberships.has(schoolId))) {
         const error = Object.assign(new Error('SCHOOL_MEMBERSHIP_REQUIRED'), { code: 'school-membership-required' });
         throw error;
       }
-      await validateActiveSchool({ schoolId });
+      if (schoolId) await validateActiveSchool({ schoolId });
       setPlatformAdminClaim(isPlatformAdminClaim);
       setGlobalAdminClaim(isLegacyGlobalAdmin);
       setUserData(normalized);
-      setSelectedSchool(schoolId);
+      setSelectedSchool(schoolId || null);
       return credential;
     } catch (error) {
       await signOut(auth).catch(() => undefined);
@@ -162,7 +177,7 @@ export function AuthProvider({ children }) {
   async function switchSchool(schoolId) {
     const memberships = userData?.schoolIds || [];
     const legacyMembership = userData?.schoolId === schoolId;
-    if (platformAdminClaim || globalAdminClaim || memberships.includes(schoolId) || legacyMembership) {
+    if (globalAdminClaim || memberships.includes(schoolId) || legacyMembership) {
       await validateActiveSchool({ schoolId });
       setSelectedSchool(schoolId);
     }
@@ -173,7 +188,7 @@ export function AuthProvider({ children }) {
   }
 
   function isGlobalAdmin() {
-    return platformAdminClaim === true || globalAdminClaim === true;
+    return globalAdminClaim === true;
   }
 
   function isPrincipal() {

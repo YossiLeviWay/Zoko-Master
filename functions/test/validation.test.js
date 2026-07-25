@@ -8,6 +8,9 @@ import {
   setRoleSchema,
   upsertPersonalFileItemSchema,
   createCvDocumentSchema,
+  forumAccessRequestSchema,
+  outcomeDefinitionSchema,
+  manualOutcomeApprovalSchema,
 } from '../src/validation/schemas.js';
 
 test('regular staff creation cannot request global_admin', () => {
@@ -84,6 +87,42 @@ test('personal-file payload rejects spoofed ownership and unsafe attachment size
       }],
     },
   }));
+});
+
+test('outcome definitions accept only structured criteria and reject executable expressions', () => {
+  const base = {
+    schoolId: 'school_a', name: 'Certificate', academicYearId: 'year_2026_2027',
+    calculationMode: 'calculated', criteria: [{ type: 'average_min', minimum: 60 }],
+  };
+  assert.equal(outcomeDefinitionSchema.parse(base).criteria[0].type, 'average_min');
+  assert.throws(() => outcomeDefinitionSchema.parse({
+    ...base,
+    criteria: [{ type: 'javascript', expression: 'return true' }],
+  }));
+  assert.throws(() => outcomeDefinitionSchema.parse({
+    ...base,
+    criteria: [{ type: 'average_min', minimum: 60, expression: 'student.score > 0' }],
+  }));
+});
+
+test('forum delegate request cannot ask for platform administration permissions', () => {
+  assert.throws(() => forumAccessRequestSchema.parse({
+    schoolId: 'school_a', userId: 'staff_a', reason: 'Support collaboration',
+    requestedPermissions: ['forum.managePermissions'],
+  }));
+});
+
+test('manual outcome approval is tied to an immutable calculation result', () => {
+  assert.throws(() => manualOutcomeApprovalSchema.parse({
+    schoolId: 'school_a', studentId: 'student_a', classId: 'class_a',
+    academicYearId: 'year_2026_2027', outcomeDefinitionId: 'definition_a',
+    approved: true, reason: 'Verified evidence', requestId: 'approval_a',
+  }));
+  assert.equal(manualOutcomeApprovalSchema.parse({
+    schoolId: 'school_a', resultId: 'result_a', studentId: 'student_a', classId: 'class_a',
+    academicYearId: 'year_2026_2027', outcomeDefinitionId: 'definition_a',
+    approved: true, reason: 'Verified evidence', requestId: 'approval_a',
+  }).resultId, 'result_a');
 });
 
 test('CV snapshot validation is strict and keeps tenant ownership outside the snapshot', () => {

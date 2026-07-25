@@ -59,6 +59,28 @@ export const setPermissionDelegation = callable('setPermissionDelegation');
 export const startPermissionPreview = callable('startPermissionPreview');
 export const evaluatePreviewAccess = callable('evaluatePreviewAccess');
 export const fileTrashAction = callable('fileTrashAction');
+export const previewClassGraduation = callable('previewClassGraduation');
+export const graduateClass = callable('graduateClass');
+export const restoreGraduate = callable('restoreGraduate');
+export const initializeOutcomeTemplates = callable('initializeOutcomeTemplates');
+export const upsertOutcomeDefinition = callable('upsertOutcomeDefinition');
+export const outcomeDefinitionAction = callable('outcomeDefinitionAction');
+export const upsertClassOutcomeTarget = callable('upsertClassOutcomeTarget');
+export const calculateClassOutcomes = callable('calculateClassOutcomes');
+export const manualOutcomeApproval = callable('manualOutcomeApproval');
+export const requestForumAccess = callable('requestForumAccess');
+export const reviewForumAccess = callable('reviewForumAccess');
+export const revokeForumMembership = callable('revokeForumMembership');
+export const upsertForumFolder = callable('upsertForumFolder');
+export const createForumThread = callable('createForumThread');
+export const createForumPost = callable('createForumPost');
+export const forumContentAction = callable('forumContentAction');
+export const createSupportTicket = callable('createSupportTicket');
+export const updateSupportTicket = callable('updateSupportTicket');
+export const listPlatformInstitutions = callable('listPlatformInstitutions');
+export const listPlatformStaff = callable('listPlatformStaff');
+export const platformStaffAction = callable('platformStaffAction');
+export const repairPlatformStaffPermissions = callable('repairPlatformStaffPermissions');
 
 export function callableReason(error) {
   return error?.details?.reason || error?.customData?.details?.reason || String(error?.code || '').replace(/^functions\//, '') || 'internal-error';

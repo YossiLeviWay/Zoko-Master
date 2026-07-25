@@ -12,13 +12,15 @@ const CategoryManager = lazy(() => import('./components/Gantt/CategoryManager'))
 const StaffManagement = lazy(() => import('./components/Staff/StaffManagement'));
 const TaskBoard = lazy(() => import('./components/Tasks/TaskBoard'));
 const FileManager = lazy(() => import('./components/Files/FileManager'));
-const SchoolManagement = lazy(() => import('./components/Schools/SchoolManagement'));
 const Teams = lazy(() => import('./components/Teams/Teams'));
 const Students = lazy(() => import('./components/Students/Students'));
 const Messages = lazy(() => import('./components/Messages/Messages'));
 const HolidayManager = lazy(() => import('./components/Holidays/HolidayManager'));
 const Settings = lazy(() => import('./components/Settings/Settings'));
 const Notifications = lazy(() => import('./components/Notifications/Notifications'));
+const ForumPage = lazy(() => import('./components/Forum/ForumPage'));
+const SupportPage = lazy(() => import('./components/Support/SupportPage'));
+const PlatformManagement = lazy(() => import('./components/Platform/PlatformManagement'));
 
 function ProtectedRoute({ children }) {
   const { currentUser, loading } = useAuth();
@@ -41,13 +43,25 @@ function AdminRoute({ children }) {
   return children;
 }
 function SchoolRequiredRoute({ children }) {
-  const { userData, selectedSchool, loading } = useAuth();
+  const { userData, selectedSchool, loading, isPlatformAdmin } = useAuth();
   if (loading) return null;
+  if (isPlatformAdmin()) return <Navigate to="/platform" />;
   const schoolId = selectedSchool || userData?.schoolId;
   if (!schoolId) {
     return <Navigate to="/" />;
   }
   return children;
+}
+
+function HomeRoute() {
+  const { isPlatformAdmin } = useAuth();
+  return isPlatformAdmin() ? <Navigate to="/platform" /> : <Dashboard />;
+}
+
+function NonPlatformRoute({ children }) {
+  const { loading, isPlatformAdmin } = useAuth();
+  if (loading) return null;
+  return isPlatformAdmin() ? <Navigate to="/platform" /> : children;
 }
 
 // Blocks pending users from accessing any route except dashboard
@@ -80,7 +94,7 @@ export default function App() {
             <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
 
             <Route path="/" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
-              <Route index element={<Dashboard />} />
+              <Route index element={<HomeRoute />} />
               <Route path="calendar" element={<ApprovedRoute><SchoolRequiredRoute><GanttChart /></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="categories" element={<ApprovedRoute><SchoolRequiredRoute><CategoryManager /></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="staff" element={<ApprovedRoute><SchoolRequiredRoute><StaffManagement /></SchoolRequiredRoute></ApprovedRoute>} />
@@ -88,11 +102,14 @@ export default function App() {
               <Route path="files" element={<ApprovedRoute><SchoolRequiredRoute><FileManager /></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="teams" element={<ApprovedRoute><SchoolRequiredRoute><Teams /></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="students" element={<ApprovedRoute><SchoolRequiredRoute><Students /></SchoolRequiredRoute></ApprovedRoute>} />
-              <Route path="messages" element={<ApprovedRoute><Messages /></ApprovedRoute>} />
-              <Route path="notifications" element={<Notifications />} />
+              <Route path="messages" element={<NonPlatformRoute><ApprovedRoute><Messages /></ApprovedRoute></NonPlatformRoute>} />
+              <Route path="notifications" element={<NonPlatformRoute><Notifications /></NonPlatformRoute>} />
               <Route path="holidays" element={<ApprovedRoute><SchoolRequiredRoute><HolidayManager /></SchoolRequiredRoute></ApprovedRoute>} />
-              <Route path="schools" element={<AdminRoute><SchoolManagement /></AdminRoute>} />
-              <Route path="settings" element={<Settings />} />
+              <Route path="schools" element={<AdminRoute><Navigate to="/platform" /></AdminRoute>} />
+              <Route path="forum" element={<ApprovedRoute><ForumPage /></ApprovedRoute>} />
+              <Route path="support" element={<ApprovedRoute><SchoolRequiredRoute><SupportPage /></SchoolRequiredRoute></ApprovedRoute>} />
+              <Route path="platform" element={<AdminRoute><PlatformManagement /></AdminRoute>} />
+              <Route path="settings" element={<NonPlatformRoute><Settings /></NonPlatformRoute>} />
             </Route>
 
             <Route path="*" element={<Navigate to="/" />} />

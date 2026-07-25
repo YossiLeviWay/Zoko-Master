@@ -312,7 +312,10 @@ export default function TaskBoard() {
 
   useEffect(() => {
     if (!schoolId || !uid) return;
-    const invitationRef = schoolCollection(db, schoolId, 'taskInvitations');
+    // Invitations are server-managed and exist only in the tenant-scoped
+    // collection. Do not let the global legacy data-mode redirect this read to
+    // a non-existent top-level collection.
+    const invitationRef = schoolCollection(db, schoolId, 'taskInvitations', 'nested');
     const sets = new Map();
     const emit = () => {
       const merged = new Map();

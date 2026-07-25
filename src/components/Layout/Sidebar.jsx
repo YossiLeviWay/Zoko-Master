@@ -33,7 +33,10 @@ import {
   FileText,
   UserPlus,
   AlertCircle,
-  GraduationCap
+  GraduationCap,
+  LifeBuoy,
+  MessagesSquare,
+  ShieldCheck
 } from 'lucide-react';
 import { AVATAR_OPTIONS, AVATAR_ICON_PATHS } from '../../data/avatars';
 import NavPermissionsPanel, { PATH_TO_PERMISSION as PATH_TO_PERMISSION_SIDEBAR } from '../Shared/NavPermissionsPanel';
@@ -41,7 +44,7 @@ import { usePermissions } from '../../hooks/usePermissions';
 import './Layout.css';
 
 const NAV_ITEMS = [
-  { path: '/', icon: Home, label: 'דשבורד' },
+  { path: '/', icon: Home, label: 'דשבורד', platformAllowed: true },
   { path: '/calendar', icon: Calendar, label: 'לוח שנה', requiresSchool: true, permission: 'calendar_view' },
   { path: '/categories', icon: LayoutGrid, label: 'קטגוריות', requiresSchool: true, permission: 'categories_view' },
   { path: '/staff', icon: Users, label: 'סגל וקהילה', requiresSchool: true, permission: 'staff_view' },
@@ -51,7 +54,9 @@ const NAV_ITEMS = [
   { path: '/students', icon: GraduationCap, label: 'תלמידים', requiresSchool: true, permission: 'students_view' },
   { path: '/messages', icon: MessageCircle, label: 'הודעות', permission: 'messages_send' },
   { path: '/holidays', icon: Sun, label: 'חופשות וחגים', requiresSchool: true, permission: 'holidays_view' },
-  { path: '/schools', icon: School, label: 'ניהול מוסדות', adminOnly: true },
+  { path: '/forum', icon: MessagesSquare, label: 'פורום בתי הספר', forumOnly: true, platformAllowed: true },
+  { path: '/support', icon: LifeBuoy, label: 'תמיכת המערכת', requiresSchool: true },
+  { path: '/platform', icon: ShieldCheck, label: 'ניהול הפלטפורמה', adminOnly: true, platformAllowed: true },
   { path: '/settings', icon: Settings, label: 'הגדרות' }
 ];
 
@@ -102,6 +107,7 @@ export default function Sidebar() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [latestNotifs, setLatestNotifs] = useState([]);
   const [showNotifPopup, setShowNotifPopup] = useState(false);
+  const [forumMembershipActive, setForumMembershipActive] = useState(false);
   const notifPopupRef = useRef(null);
   const notifBellRef = useRef(null);
 
@@ -109,6 +115,18 @@ export default function Sidebar() {
   const [navPermPanel, setNavPermPanel] = useState(null); // { item, x, y }
   const canManagePermissions = isPrincipal() || isGlobalAdmin();
   const schoolId = selectedSchool || userData?.schoolId;
+
+  useEffect(() => {
+    if (!currentUser?.uid || isPlatformAdmin() || isPrincipal()) {
+      setForumMembershipActive(Boolean(currentUser?.uid && (isPlatformAdmin() || isPrincipal())));
+      return undefined;
+    }
+    return onSnapshot(doc(db, 'platformForumMemberships', currentUser.uid), snapshot => {
+      const membership = snapshot.data();
+      const expiresAt = membership?.expiresAt?.toMillis?.() || Number.POSITIVE_INFINITY;
+      setForumMembershipActive(membership?.status === 'active' && expiresAt > Date.now());
+    }, () => setForumMembershipActive(false));
+  }, [currentUser?.uid, isPlatformAdmin, isPrincipal]);
 
   function handleNavContextMenu(e, item) {
     if (!canManagePermissions) return;
@@ -202,7 +220,9 @@ export default function Sidebar() {
 
   function canSeeItem(item) {
     if (userIsPending) return item.path === '/';
+    if (isPlatformAdmin()) return item.platformAllowed === true;
     if (item.adminOnly) return isPlatformAdmin();
+    if (item.forumOnly && !forumMembershipActive && !isPrincipal()) return false;
     if (item.requiresSchool && !schoolId) return false;
     if (item.permission && !permissions[item.permission]) return false;
     return true;

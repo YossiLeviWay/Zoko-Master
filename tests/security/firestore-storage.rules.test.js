@@ -1446,3 +1446,70 @@ test('CV PDFs are private, immutable and require export permission to upload', a
   await assertFails(uploadBytes(ref(viewer, `schools/${SCHOOL_A}/students/student_a/cv/cv_a/v001/denied_${runId}/cv.pdf`), new Uint8Array([37, 80, 68, 70]), { contentType: 'application/pdf' }));
   await assertFails(deleteObject(ref(exporter, path)));
 });
+
+test('platform admin directory access never grants internal school data access', async () => {
+  await seedFirestore({
+    'users/platform_admin': { ...user({ schoolId: SCHOOL_A, role: 'viewer' }), uid: 'platform_admin' },
+    'users/principal_a': user({ schoolId: SCHOOL_A, role: 'principal' }),
+    [`schools/${SCHOOL_A}`]: { name: 'School A', status: 'active' },
+    [`schools/${SCHOOL_A}/students/student_a`]: studentRecord(),
+    [`schools/${SCHOOL_A}/gradebooks/grade_a`]: gradebookRecord(),
+    [`schools/${SCHOOL_A}/tasks/task_a`]: { schoolId: SCHOOL_A, scope: 'organization', assigneeType: 'all_school', title: 'Private task' },
+    [`schools/${SCHOOL_A}/files/file_a`]: { schoolId: SCHOOL_A, name: 'private.pdf', folderId: '' },
+    [`schools/${SCHOOL_A}/events/event_a`]: { schoolId: SCHOOL_A, title: 'Private event' },
+  });
+  const platformDb = context('platform_admin', { platform_admin: true }).firestore();
+  await assertSucceeds(getDoc(doc(platformDb, `schools/${SCHOOL_A}`)));
+  await assertFails(getDoc(doc(platformDb, `users/principal_a`)));
+  await assertFails(getDoc(doc(platformDb, `schools/${SCHOOL_A}/students/student_a`)));
+  await assertFails(getDoc(doc(platformDb, `schools/${SCHOOL_A}/gradebooks/grade_a`)));
+  await assertFails(getDoc(doc(platformDb, `schools/${SCHOOL_A}/tasks/task_a`)));
+  await assertFails(getDoc(doc(platformDb, `schools/${SCHOOL_A}/files/file_a`)));
+  await assertFails(getDoc(doc(platformDb, `schools/${SCHOOL_A}/events/event_a`)));
+});
+
+test('forum membership approval controls direct URL reads and never crosses into school data', async () => {
+  await seedFirestore({
+    'users/principal_a': user({ schoolId: SCHOOL_A, role: 'principal' }),
+    'users/pending_delegate': { ...user({ schoolId: SCHOOL_A }), uid: 'pending_delegate' },
+    'users/approved_delegate': { ...user({ schoolId: SCHOOL_A }), uid: 'approved_delegate' },
+    'platformForumMemberships/pending_delegate': { userId: 'pending_delegate', schoolId: SCHOOL_A, status: 'pending_admin_approval', permissions: [] },
+    'platformForumMemberships/approved_delegate': { userId: 'approved_delegate', schoolId: SCHOOL_A, status: 'active', permissions: ['forum.access', 'forum.read', 'forum.reply'] },
+    'platformForum/root/folders/general': { name: 'General', status: 'active' },
+    'platformForum/root/threads/thread_a': { folderId: 'general', title: 'Shared', body: 'Forum only', status: 'active', authorId: 'principal_a' },
+    [`schools/${SCHOOL_A}/files/private_a`]: { schoolId: SCHOOL_A, name: 'private.pdf', folderId: '' },
+  });
+  const folderPath = 'platformForum/root/folders/general';
+  await assertSucceeds(getDoc(doc(context('principal_a').firestore(), folderPath)));
+  await assertFails(getDoc(doc(context('pending_delegate').firestore(), folderPath)));
+  await assertSucceeds(getDoc(doc(context('approved_delegate').firestore(), folderPath)));
+  await assertFails(getDoc(doc(context('approved_delegate').firestore(), `schools/${SCHOOL_A}/files/private_a`)));
+  await assertFails(setDoc(doc(context('approved_delegate').firestore(), 'platformForum/root/threads/spoofed'), {
+    folderId: 'general', title: 'Bypass', body: 'Client write', status: 'active', authorId: 'approved_delegate',
+  }));
+});
+
+test('forum and support storage use isolated paths and approved metadata', async () => {
+  await seedFirestore({
+    'users/forum_uploader': { ...user({ schoolId: SCHOOL_A }), uid: 'forum_uploader' },
+    'users/principal_a': user({ schoolId: SCHOOL_A, role: 'principal' }),
+    'platformForumMemberships/forum_uploader': { userId: 'forum_uploader', schoolId: SCHOOL_A, status: 'active', permissions: ['forum.access', 'forum.read', 'forum.uploadAttachment'] },
+    'platformForum/root/attachments/attachment_a': { uploadedBy: 'forum_uploader', status: 'pending', storagePath: 'platform-forum/attachments/attachment_a/share.pdf', mimeType: 'application/pdf', size: 4 },
+    'supportAttachments/support_a': { schoolId: SCHOOL_A, uploadedBy: 'principal_a', status: 'pending', storagePath: `platform-support/${SCHOOL_A}/support_a/screenshot.png`, mimeType: 'image/png', size: 4 },
+  });
+  await assertSucceeds(uploadBytes(ref(context('forum_uploader').storage(), 'platform-forum/attachments/attachment_a/share.pdf'), new Uint8Array([1, 2, 3, 4]), { contentType: 'application/pdf' }));
+  await assertFails(uploadBytes(ref(context('forum_uploader').storage(), 'platform-forum/attachments/unregistered/share.pdf'), new Uint8Array([1]), { contentType: 'application/pdf' }));
+  await assertSucceeds(uploadBytes(ref(context('principal_a').storage(), `platform-support/${SCHOOL_A}/support_a/screenshot.png`), new Uint8Array([1, 2, 3, 4]), { contentType: 'image/png' }));
+});
+
+test('outcome definitions are tenant isolated and all writes are server-only', async () => {
+  await seedFirestore({
+    'users/outcome_manager_a': user({ schoolId: SCHOOL_A, permissions: { 'outcomes.view': true, 'outcomes.manageDefinitions': true } }),
+    'users/outcome_manager_b': user({ schoolId: SCHOOL_B, permissions: { 'outcomes.view': true } }),
+    [`schools/${SCHOOL_A}/outcomeDefinitions/full`]: { schoolId: SCHOOL_A, academicYearId: 'year_2026_2027', name: 'Full', active: true, version: 1 },
+  });
+  const path = `schools/${SCHOOL_A}/outcomeDefinitions/full`;
+  await assertSucceeds(getDoc(doc(context('outcome_manager_a').firestore(), path)));
+  await assertFails(getDoc(doc(context('outcome_manager_b').firestore(), path)));
+  await assertFails(updateDoc(doc(context('outcome_manager_a').firestore(), path), { name: 'Client bypass' }));
+});

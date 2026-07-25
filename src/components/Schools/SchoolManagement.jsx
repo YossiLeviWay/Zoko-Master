@@ -125,7 +125,7 @@ export default function SchoolManagement() {
     setError('');
     setSaving(true);
     try {
-      await assignInstitutionManager({ schoolId: assignModal, ...managerForm });
+      await assignInstitutionManager({ schoolId: assignModal, ...managerForm, reason: 'מינוי מנהל מוסד דרך ממשק ניהול הפלטפורמה', replaceExisting: false });
       setAssignModal(null);
       setManagerForm({ fullName: '', email: '' });
       await loadData();

@@ -22,6 +22,40 @@ service firebase.storage {
         && request.auth.token.global_admin == true;
     }
 
+    function isPlatformAdmin() {
+      return signedIn()
+        && request.auth.token.keys().hasAny(['platform_admin'])
+        && request.auth.token.platform_admin == true;
+    }
+
+    function isAnySchoolPrincipal() {
+      return activeUser()
+        && currentUser().role in ['principal', 'institution_manager']
+        && (
+          (currentUser().schoolId is string && currentUser().schoolId.size() > 0)
+          || (currentUser().schoolIds is list && currentUser().schoolIds.size() > 0)
+        );
+    }
+
+    function hasActiveForumMembership() {
+      return activeUser()
+        && firestore.exists(/databases/(default)/documents/platformForumMemberships/$(request.auth.uid))
+        && firestore.get(/databases/(default)/documents/platformForumMemberships/$(request.auth.uid)).data.status == 'active'
+        && (
+          firestore.get(/databases/(default)/documents/platformForumMemberships/$(request.auth.uid)).data.get('expiresAt', null) == null
+          || firestore.get(/databases/(default)/documents/platformForumMemberships/$(request.auth.uid)).data.expiresAt > request.time
+        );
+    }
+
+    function hasForumPermission(permission) {
+      return isPlatformAdmin()
+        || (isAnySchoolPrincipal() && permission in ['forum.access', 'forum.read'])
+        || (
+          hasActiveForumMembership()
+          && permission in firestore.get(/databases/(default)/documents/platformForumMemberships/$(request.auth.uid)).data.permissions
+        );
+    }
+
     function isSchoolMember(schoolId) {
       return activeUser() && (
         isGlobalAdmin()
@@ -251,6 +285,47 @@ service firebase.storage {
       allow create, update: if request.auth.uid == userId
         && safeImageUpload(filename, 5 * 1024 * 1024);
       allow delete: if request.auth.uid == userId;
+    }
+
+    match /platform-forum/attachments/{attachmentId}/{filename} {
+      allow read: if hasForumPermission('forum.access')
+        && hasForumPermission('forum.read')
+        && firestore.exists(/databases/(default)/documents/platformForum/root/attachments/$(attachmentId))
+        && firestore.get(/databases/(default)/documents/platformForum/root/attachments/$(attachmentId)).data.status == 'uploaded';
+      allow create: if hasForumPermission('forum.uploadAttachment')
+        && firestore.exists(/databases/(default)/documents/platformForum/root/attachments/$(attachmentId))
+        && firestore.get(/databases/(default)/documents/platformForum/root/attachments/$(attachmentId)).data.uploadedBy == request.auth.uid
+        && firestore.get(/databases/(default)/documents/platformForum/root/attachments/$(attachmentId)).data.status == 'pending'
+        && firestore.get(/databases/(default)/documents/platformForum/root/attachments/$(attachmentId)).data.storagePath == 'platform-forum/attachments/' + attachmentId + '/' + filename
+        && request.resource.size <= 10 * 1024 * 1024
+        && request.resource.contentType in ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
+        && !filename.matches('(?i).+\\.(exe|dll|bat|cmd|com|msi|ps1|sh|js|mjs|html|htm|svg|jar|apk)$');
+      allow update: if false;
+      allow delete: if hasForumPermission('forum.moderate') || (
+        firestore.exists(/databases/(default)/documents/platformForum/root/attachments/$(attachmentId))
+        && firestore.get(/databases/(default)/documents/platformForum/root/attachments/$(attachmentId)).data.uploadedBy == request.auth.uid
+      );
+    }
+
+    match /platform-support/{schoolId}/{attachmentId}/{filename} {
+      allow read: if isPlatformAdmin() || (
+        isSchoolMember(schoolId)
+        && firestore.exists(/databases/(default)/documents/supportAttachments/$(attachmentId))
+        && (
+          isSchoolPrincipal(schoolId)
+          || firestore.get(/databases/(default)/documents/supportAttachments/$(attachmentId)).data.uploadedBy == request.auth.uid
+        )
+      );
+      allow create: if isSchoolMember(schoolId)
+        && firestore.exists(/databases/(default)/documents/supportAttachments/$(attachmentId))
+        && firestore.get(/databases/(default)/documents/supportAttachments/$(attachmentId)).data.schoolId == schoolId
+        && firestore.get(/databases/(default)/documents/supportAttachments/$(attachmentId)).data.uploadedBy == request.auth.uid
+        && firestore.get(/databases/(default)/documents/supportAttachments/$(attachmentId)).data.status == 'pending'
+        && firestore.get(/databases/(default)/documents/supportAttachments/$(attachmentId)).data.storagePath == 'platform-support/' + schoolId + '/' + attachmentId + '/' + filename
+        && request.resource.size <= 10 * 1024 * 1024
+        && request.resource.contentType in ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
+        && !filename.matches('(?i).+\\.(exe|dll|bat|cmd|com|msi|ps1|sh|js|mjs|html|htm|svg|jar|apk)$');
+      allow update, delete: if false;
     }
 
     // Transitional legacy paths. Remove after the verified nested migration window.

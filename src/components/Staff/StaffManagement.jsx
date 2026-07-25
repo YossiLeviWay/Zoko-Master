@@ -27,10 +27,11 @@ import {
   startPermissionPreview,
   updateStaffUser,
   callableReason,
+  requestForumAccess,
 } from '../../services/adminUserService';
 import Header from '../Layout/Header';
 import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
-import { Edit3, Trash2, Shield, Search, X, UserPlus, CheckCircle, XCircle, ChevronDown, ChevronUp, Save, Filter, Phone, Mail, User, MessageCircle, Briefcase, Eye, Key, RefreshCw, Users, Plus, Trash, Check, AlertCircle, LayoutGrid, Table2 } from 'lucide-react';
+import { Edit3, Trash2, Shield, Search, X, UserPlus, CheckCircle, XCircle, ChevronDown, ChevronUp, Save, Filter, Phone, Mail, User, MessageCircle, Briefcase, Eye, Key, RefreshCw, Users, Plus, Trash, Check, AlertCircle, LayoutGrid, Table2, MessagesSquare } from 'lucide-react';
 import RolesManager from './RolesManager';
 import SegmentedControl from '../Common/SegmentedControl';
 import '../Gantt/Gantt.css';
@@ -294,6 +295,8 @@ export default function StaffManagement() {
   const [showRolesManager, setShowRolesManager] = useState(false);
   const [permissionPreview, setPermissionPreview] = useState(null);
   const [previewLoadingId, setPreviewLoadingId] = useState('');
+  const [forumRequestUser, setForumRequestUser] = useState(null);
+  const [forumRequestForm, setForumRequestForm] = useState({ permissions: ['forum.createThread', 'forum.reply'], reason: '', expiresAt: '' });
   const [customRoles, setCustomRoles] = useState([]);
   const [teams, setTeams] = useState([]);
   const [staffSection, setStaffSection] = useState('staff');
@@ -844,6 +847,28 @@ export default function StaffManagement() {
     } finally { setPreviewLoadingId(''); }
   }
 
+  async function submitForumAccessRequest(event) {
+    event.preventDefault();
+    if (!forumRequestUser || forumRequestForm.permissions.length === 0) return;
+    setRequestActionId(`forum_${forumRequestUser.id}`);
+    try {
+      await requestForumAccess({
+        schoolId,
+        userId: forumRequestUser.id,
+        requestedPermissions: forumRequestForm.permissions,
+        reason: forumRequestForm.reason,
+        ...(forumRequestForm.expiresAt ? { expiresAt: new Date(`${forumRequestForm.expiresAt}T23:59:59`).toISOString() } : {}),
+      });
+      setForumRequestUser(null);
+      setForumRequestForm({ permissions: ['forum.createThread', 'forum.reply'], reason: '', expiresAt: '' });
+      window.alert('הבקשה נשלחה ל־Platform Admin. איש הצוות לא יקבל גישה לפני אישור.');
+    } catch {
+      window.alert('לא ניתן לשלוח את בקשת הגישה לפורום.');
+    } finally {
+      setRequestActionId('');
+    }
+  }
+
   async function handleAttachToTask(user) {
     closeContextMenu();
     setTaskAttachUser(user);
@@ -1171,6 +1196,7 @@ export default function StaffManagement() {
                   {canEditUser(user) && (
                     <div className="staff-card-actions">
                       <button className="icon-btn" disabled={previewLoadingId === user.id} onClick={() => openPermissionPreview(user)} title="תצוגה כמשתמש" aria-label={`תצוגה כמשתמש ${user.fullName}`}><Eye size={14} /></button>
+                      {isPrincipal() && <button className="icon-btn" onClick={() => setForumRequestUser(user)} title="בקשת גישה לפורום בתי הספר"><MessagesSquare size={14} /></button>}
                       <button className="icon-btn" onClick={() => openPermissions(user)} title="הרשאות מפורטות">
                         <Shield size={14} />
                       </button>
@@ -1235,6 +1261,7 @@ export default function StaffManagement() {
                             {canEditUser(user) ? (
                               <>
                                 <button className="icon-btn" disabled={previewLoadingId === user.id} title="תצוגה כמשתמש" aria-label={`תצוגה כמשתמש ${user.fullName}`} onClick={() => openPermissionPreview(user)}><Eye size={15} /></button>
+                                {isPrincipal() && <button className="icon-btn" title="בקשת גישה לפורום בתי הספר" onClick={() => setForumRequestUser(user)}><MessagesSquare size={15} /></button>}
                                 <button className="icon-btn" title="הרשאות מפורטות" onClick={() => openPermissions(user)}>
                                   <Shield size={15} />
                                 </button>
@@ -1973,6 +2000,7 @@ export default function StaffManagement() {
           />
         )}
         {permissionPreview && <div className="modal-overlay" onClick={() => setPermissionPreview(null)}><div className="modal-content modal-content--wide permission-preview-modal" role="dialog" aria-modal="true" aria-label="תצוגה מקדימה כמשתמש" onClick={event => event.stopPropagation()}><div className="permission-preview-banner"><Eye size={18} /><strong>מצב תצוגה מקדימה: כך {permissionPreview.target.fullName || 'המשתמש'} רואה את המערכת</strong><span>קריאה בלבד · אין שינוי בזהות ההתחברות</span><button className="btn btn-secondary btn-sm" onClick={() => setPermissionPreview(null)}>יציאה מתצוגה מקדימה</button></div><div className="modal-form"><section><h4>תפקידים פעילים</h4><div className="staff-profile-tags">{permissionPreview.roles.map(role => <span key={role.id} className="staff-profile-tag staff-profile-tag--role">{role.name || role.id} · {role.scope?.type === 'classes' ? `${role.scope.classIds?.length || role.scope.values?.length || 0} כיתות` : 'כל המוסד'}</span>)}{permissionPreview.roles.length === 0 && <span className="form-hint">אין תפקידים מותאמים.</span>}</div></section><section><h4>פירוט גישה אפקטיבית</h4><div className="permission-preview-list">{permissionPreview.capabilities.map((grant, index) => <div key={`${grant.capability}_${index}`}><strong>{grant.capability}</strong><span>{grant.scope?.type || 'school'}</span><small>{grant.source}</small></div>)}</div></section><div className="students-feedback students-feedback--warning">במצב זה לא מוצגים כפתורי שמירה, מחיקה, הודעה, העלאה או יצירה. session השרת יפוג אוטומטית ב־{new Date(permissionPreview.expiresAt).toLocaleTimeString('he-IL')}.</div></div></div></div>}
+        {forumRequestUser && <div className="modal-overlay" onClick={() => setForumRequestUser(null)}><div className="modal-content" role="dialog" aria-modal="true" aria-label="בקשת גישה לפורום" onClick={event => event.stopPropagation()}><div className="modal-header"><h3>בקשת גישה לפורום עבור {forumRequestUser.fullName}</h3><button className="modal-close" onClick={() => setForumRequestUser(null)}><X size={18} /></button></div><form className="modal-form" onSubmit={submitForumAccessRequest}><p className="form-hint">הבקשה תמתין לאישור Platform Admin. עד האישור הפורום לא יוצג לאיש הצוות וגם URL ישיר ייחסם.</p>{[['forum.createThread', 'פתיחת דיונים'], ['forum.reply', 'תגובות'], ['forum.uploadAttachment', 'העלאת קבצים'], ['forum.createFolder', 'יצירת תיקיות'], ['forum.lockThread', 'נעילת דיונים']].map(([permission, label]) => <label className="students-inline-check" key={permission}><input type="checkbox" checked={forumRequestForm.permissions.includes(permission)} onChange={() => setForumRequestForm(previous => ({ ...previous, permissions: previous.permissions.includes(permission) ? previous.permissions.filter(item => item !== permission) : [...previous.permissions, permission] }))} /> {label}</label>)}<label className="form-group">סיבה<textarea value={forumRequestForm.reason} onChange={event => setForumRequestForm(previous => ({ ...previous, reason: event.target.value }))} required minLength="5" /></label><label className="form-group">תפוגה (אופציונלי)<input type="date" value={forumRequestForm.expiresAt} onChange={event => setForumRequestForm(previous => ({ ...previous, expiresAt: event.target.value }))} /></label><div className="modal-actions"><button className="btn btn-primary" disabled={requestActionId === `forum_${forumRequestUser.id}` || forumRequestForm.permissions.length === 0}>שליחת בקשה</button><button type="button" className="btn btn-secondary" onClick={() => setForumRequestUser(null)}>ביטול</button></div></form></div></div>}
       </div>
     </div>
   );

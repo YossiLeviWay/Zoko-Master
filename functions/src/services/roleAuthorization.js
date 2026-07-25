@@ -24,7 +24,7 @@ export async function getRole(roleId, schoolId) {
 }
 
 export async function resolveActorRoleAuthority(actor, schoolId) {
-  if (actor.platformAdmin || actor.globalAdmin || (
+  if (actor.globalAdmin || (
     ['principal', 'institution_manager'].includes(actor.data.rolesBySchool?.[schoolId] || actor.data.role)
     && actor.schoolIds.has(schoolId)
   )) {
@@ -120,7 +120,7 @@ export function assertRoleCanBeGranted(authority, roleInput) {
 }
 
 export function canGrantRole({ authority, actor, target, role }) {
-  if (!actor.schoolIds.has(role.schoolId) && !actor.platformAdmin && !actor.globalAdmin) return false;
+  if (!actor.schoolIds.has(role.schoolId) && !actor.globalAdmin) return false;
   if (!target.schoolIds.has(role.schoolId)) return false;
   if (['principal', 'institution_manager'].includes(target.data.role)) return false;
   if (role.protected === true || role.status === 'archived') return false;

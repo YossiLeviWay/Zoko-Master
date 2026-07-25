@@ -53,3 +53,28 @@ export {
   startPermissionPreview,
   evaluatePreviewAccess,
 } from './callables/permissions.js';
+export { previewClassGraduation, graduateClass, restoreGraduate } from './callables/graduation.js';
+export {
+  initializeOutcomeTemplates,
+  upsertOutcomeDefinition,
+  outcomeDefinitionAction,
+  upsertClassOutcomeTarget,
+  calculateClassOutcomes,
+  manualOutcomeApproval,
+} from './callables/outcomes.js';
+export {
+  requestForumAccess,
+  reviewForumAccess,
+  revokeForumMembership,
+  upsertForumFolder,
+  createForumThread,
+  createForumPost,
+  forumContentAction,
+} from './callables/forum.js';
+export { createSupportTicket, updateSupportTicket } from './callables/support.js';
+export {
+  listPlatformInstitutions,
+  listPlatformStaff,
+  platformStaffAction,
+  repairPlatformStaffPermissions,
+} from './callables/platformAdministration.js';

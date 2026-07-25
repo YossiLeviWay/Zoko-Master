@@ -15,6 +15,7 @@ import {
 } from '../validation/schemas.js';
 import { findAuthUserByEmail, createInvitationRecord } from '../services/invitations.js';
 import { EMAIL_PROVIDER_API_KEY } from '../services/email.js';
+import { requireRecentMfa } from '../services/platformSecurity.js';
 
 const LEGACY_SCHOOL_RESOURCES = [
   'tasks', 'classes', 'students', 'files', 'file_history', 'folders', 'teams', 'events',
@@ -140,12 +141,42 @@ async function assignManager({ actor, schoolId, fullName, email }) {
 export async function assignInstitutionManagerHandler(request) {
   const actor = await requireActor(request);
   if (!actor.platformAdmin) throw permissionDenied();
+  requireRecentMfa(request);
   const input = assignInstitutionManagerSchema.parse(request.data);
   const school = await adminDb.collection('schools').doc(input.schoolId).get();
   if (!school.exists) throw failedPrecondition();
   await enforceRateLimit({ uid: actor.uid, action: 'assignInstitutionManager', limit: 10, windowSeconds: 300 });
   const result = await assignManager({ actor, ...input });
-  await writeAuditLog({ actorUid: actor.uid, action: 'school.manager.assign', schoolId: input.schoolId, metadata: { assignmentType: result.type } });
+  const previousManagerId = school.data().primaryManagerId || '';
+  if (input.replaceExisting && result.type === 'existing-user' && previousManagerId && previousManagerId !== result.userId) {
+    const previousRef = adminDb.doc(`users/${previousManagerId}`);
+    const membershipRef = adminDb.doc(`schools/${input.schoolId}/memberships/${previousManagerId}`);
+    await adminDb.runTransaction(async transaction => {
+      const previousSnapshot = await transaction.get(previousRef);
+      if (previousSnapshot.exists) {
+        const data = previousSnapshot.data();
+        transaction.update(previousRef, {
+          rolesBySchool: { ...(data.rolesBySchool || {}), [input.schoolId]: 'viewer' },
+          updatedBy: actor.uid,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      }
+      transaction.set(membershipRef, { role: 'viewer', updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      transaction.update(adminDb.doc(`schools/${input.schoolId}`), { managerIds: FieldValue.arrayRemove(previousManagerId), updatedAt: FieldValue.serverTimestamp() });
+    });
+  }
+  await writeAuditLog({
+    actorUid: actor.uid,
+    actorRole: 'platform_admin',
+    action: input.replaceExisting ? 'school.manager.replace' : 'school.manager.assign',
+    targetType: 'institutionManager',
+    targetId: result.userId || result.invitationId || input.schoolId,
+    schoolId: input.schoolId,
+    reason: input.reason,
+    before: { primaryManagerId: school.data().primaryManagerId || '' },
+    after: { assignmentType: result.type, primaryManagerId: result.userId || '' },
+    collectionName: 'platformAuditLogs',
+  });
   return result;
 }
 
