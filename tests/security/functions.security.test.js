@@ -34,6 +34,7 @@ import {
   upsertCvTemplateHandler,
 } from '../../functions/src/callables/cvTemplates.js';
 import { bulkImportStudentsHandler } from '../../functions/src/callables/studentImports.js';
+import { fileTrashActionHandler } from '../../functions/src/callables/fileTrash.js';
 import {
   evaluatePreviewAccessHandler,
   startPermissionPreviewHandler,
@@ -86,6 +87,42 @@ test('privileged functions reject unauthenticated and cross-school actors', asyn
     role: 'viewer',
     schoolId: SCHOOL_B,
   })), error => error.code === 'permission-denied');
+});
+
+test('permission preview supports legacy staff documents without an Auth account', async () => {
+  await seedUser('principal_a', SCHOOL_A, 'principal');
+  await seedUser('legacy_staff_a', SCHOOL_A, 'viewer', { fullName: 'Legacy Staff' });
+  const preview = await startPermissionPreviewHandler(actorRequest('principal_a', {
+    schoolId: SCHOOL_A,
+    targetUserId: 'legacy_staff_a',
+  }));
+  assert.equal(preview.target.userId, 'legacy_staff_a');
+  assert.equal(preview.readOnly, true);
+});
+
+test('file and folder deletion uses a recoverable server-side recycle bin', async () => {
+  await seedUser('principal_a', SCHOOL_A, 'principal');
+  await seedUser('viewer_a', SCHOOL_A, 'viewer');
+  await adminDb.doc(`folders_${SCHOOL_A}/folder_1`).set({ schoolId: SCHOOL_A, name: 'Mappings' });
+  await adminDb.doc(`files_${SCHOOL_A}/file_1`).set({
+    schoolId: SCHOOL_A, folderId: 'folder_1', name: 'Grades',
+    fileType: 'gradebook', gradebookId: 'gradebook_1',
+  });
+  await adminDb.doc(`schools/${SCHOOL_A}/gradebooks/gradebook_1`).set({ schoolId: SCHOOL_A, classId: 'class_1' });
+  const trashInput = { schoolId: SCHOOL_A, resourceType: 'folder', resourceId: 'folder_1', action: 'trash' };
+  await assert.rejects(fileTrashActionHandler(actorRequest('viewer_a', trashInput)), error => error.code === 'permission-denied');
+  await fileTrashActionHandler(actorRequest('principal_a', trashInput));
+  assert.ok((await adminDb.doc(`folders_${SCHOOL_A}/folder_1`).get()).data().trashedAt);
+  assert.equal((await adminDb.doc(`files_${SCHOOL_A}/file_1`).get()).data().trashedWithFolderId, 'folder_1');
+  assert.ok((await adminDb.doc(`schools/${SCHOOL_A}/gradebooks/gradebook_1`).get()).data().trashedAt);
+  await fileTrashActionHandler(actorRequest('principal_a', { ...trashInput, action: 'restore' }));
+  assert.equal((await adminDb.doc(`folders_${SCHOOL_A}/folder_1`).get()).data().trashedAt, undefined);
+  assert.equal((await adminDb.doc(`schools/${SCHOOL_A}/gradebooks/gradebook_1`).get()).data().trashedAt, undefined);
+  await fileTrashActionHandler(actorRequest('principal_a', { ...trashInput, action: 'trash' }));
+  await fileTrashActionHandler(actorRequest('principal_a', { ...trashInput, action: 'purge', confirmPermanent: true }));
+  assert.equal((await adminDb.doc(`folders_${SCHOOL_A}/folder_1`).get()).exists, false);
+  assert.equal((await adminDb.doc(`files_${SCHOOL_A}/file_1`).get()).exists, false);
+  assert.equal((await adminDb.doc(`schools/${SCHOOL_A}/gradebooks/gradebook_1`).get()).exists, false);
 });
 
 test('principal cannot grant global_admin through setUserRole', async () => {

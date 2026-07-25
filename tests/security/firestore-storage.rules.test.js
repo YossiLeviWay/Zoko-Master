@@ -857,6 +857,42 @@ test('materialized custom-role permissions remain school and class scoped', asyn
   }));
 });
 
+test('calendar edit granted by a custom role permits event changes without broadening viewer access', async () => {
+  await seedFirestore({
+    'users/calendar_editor_a': {
+      ...user({ schoolId: SCHOOL_A }),
+      customRoleIds: ['calendar_editor'],
+      rolePermissionsBySchool: { [SCHOOL_A]: { 'calendar.edit': true } },
+    },
+    'users/calendar_viewer_a': user({ schoolId: SCHOOL_A }),
+  });
+
+  const editorDb = context('calendar_editor_a').firestore();
+  const viewerDb = context('calendar_viewer_a').firestore();
+  const eventPath = `schools/${SCHOOL_A}/events/calendar_event_a`;
+
+  await assertSucceeds(setDoc(doc(editorDb, eventPath), {
+    schoolId: SCHOOL_A,
+    title: 'Calendar event',
+    createdBy: 'calendar_editor_a',
+    updatedBy: 'calendar_editor_a',
+    createdAt: 'created',
+    updatedAt: 'created',
+  }));
+  await assertSucceeds(updateDoc(doc(editorDb, eventPath), {
+    title: 'Updated calendar event',
+    updatedAt: 'updated',
+  }));
+  await assertFails(setDoc(doc(viewerDb, `schools/${SCHOOL_A}/events/forbidden_event`), {
+    schoolId: SCHOOL_A,
+    title: 'Forbidden event',
+    createdBy: 'calendar_viewer_a',
+    updatedBy: 'calendar_viewer_a',
+    createdAt: 'created',
+    updatedAt: 'created',
+  }));
+});
+
 test('explicitly false permissions never grant student or class access', async () => {
   await seedFirestore({
     'users/false_permissions_a': user({

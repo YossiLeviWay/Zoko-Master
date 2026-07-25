@@ -511,3 +511,15 @@ export const deleteSchoolSchema = z.object({
   schoolId: id,
   confirmDelete: z.literal(true),
 }).strict();
+
+export const fileTrashActionSchema = z.object({
+  schoolId: id,
+  resourceType: z.enum(['file', 'folder']),
+  resourceId: id,
+  action: z.enum(['trash', 'restore', 'purge']),
+  confirmPermanent: z.literal(true).optional(),
+}).strict().superRefine((value, context) => {
+  if (value.action === 'purge' && value.confirmPermanent !== true) {
+    context.addIssue({ code: 'custom', path: ['confirmPermanent'], message: 'Permanent deletion requires confirmation' });
+  }
+});

@@ -30,7 +30,7 @@ export default function StudentLifecycleDialog({
   const [selectedIds, setSelectedIds] = useState(() => students.map(student => student.id));
   const [targetYearId, setTargetYearId] = useState('');
   const [targetClassId, setTargetClassId] = useState('');
-  const [status, setStatus] = useState(mode === 'graduate' ? ENROLLMENT_STATUS.GRADUATED : ENROLLMENT_STATUS.WITHDRAWN);
+  const [status, setStatus] = useState(mode === 'graduate' ? ENROLLMENT_STATUS.GRADUATED : mode === 'archive' ? ENROLLMENT_STATUS.ARCHIVED : ENROLLMENT_STATUS.WITHDRAWN);
   const [effectiveDate, setEffectiveDate] = useState(localDateKey);
   const [reason, setReason] = useState('');
   const [note, setNote] = useState('');
@@ -44,7 +44,7 @@ export default function StudentLifecycleDialog({
     && item.status !== 'archived'
   ));
   const targetClass = targetClasses.find(item => item.id === targetClassId);
-  const title = mode === 'promote' ? 'העלאת תלמידים לשנת לימודים חדשה' : mode === 'graduate' ? 'הפיכת תלמידים לבוגרים' : mode === 'restore' ? 'החזרת תלמידים לפעילות' : 'עדכון סטטוס לימודים';
+  const title = mode === 'promote' ? 'העלאת תלמידים לשנת לימודים חדשה' : mode === 'graduate' ? 'הפיכת תלמידים לבוגרים' : mode === 'restore' ? 'החזרת תלמידים לפעילות' : mode === 'archive' ? 'העברת תלמידים לארכיון' : 'עדכון סטטוס לימודים';
 
   const selections = useMemo(() => selectedStudents.map(student => ({
     student,
@@ -76,7 +76,7 @@ export default function StudentLifecycleDialog({
       } else {
         await changeEnrollmentStatus({
           db, schoolId, actor, selections,
-          status: mode === 'graduate' ? ENROLLMENT_STATUS.GRADUATED : mode === 'restore' ? ENROLLMENT_STATUS.ACTIVE : status,
+          status: mode === 'graduate' ? ENROLLMENT_STATUS.GRADUATED : mode === 'restore' ? ENROLLMENT_STATUS.ACTIVE : mode === 'archive' ? ENROLLMENT_STATUS.ARCHIVED : status,
           effectiveDate, reason, note,
           graduationYear: mode === 'graduate' ? String(selectedYear?.endYear || '') : '',
         });

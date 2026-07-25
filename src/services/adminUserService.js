@@ -58,6 +58,7 @@ export const removeResourceAcl = callable('removeResourceAcl');
 export const setPermissionDelegation = callable('setPermissionDelegation');
 export const startPermissionPreview = callable('startPermissionPreview');
 export const evaluatePreviewAccess = callable('evaluatePreviewAccess');
+export const fileTrashAction = callable('fileTrashAction');
 
 export function callableReason(error) {
   return error?.details?.reason || error?.customData?.details?.reason || String(error?.code || '').replace(/^functions\//, '') || 'internal-error';

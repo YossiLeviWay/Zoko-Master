@@ -277,11 +277,26 @@
   padding: 0.65rem 1.5rem;
   background: #fafbfc;
   border: none;
-  cursor: pointer;
+  cursor: default;
   font-family: 'Inter', sans-serif;
   gap: 0.5rem;
   transition: background 0.15s;
 }
+
+.permissions-group-toggle {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+}
+
+.permissions-group-bulk { display: flex; gap: 0.3rem; }
 
 .permissions-group-header:hover {
   background: #f1f5f9;
@@ -1063,7 +1078,7 @@
   }
 }
 /* Role management */
-.roles-manager-modal { max-width: 860px; max-height: 90vh; overflow: hidden; }
+.roles-manager-modal { width: min(1120px, 96vw); max-width: 1120px; max-height: 92vh; overflow: hidden; }
 .roles-manager-body { padding: 1rem 1.25rem; max-height: calc(90vh - 70px); overflow-y: auto; }
 .roles-manager-list { display: grid; gap: 0.7rem; margin-top: 0.85rem; }
 .roles-manager-tabs { display: flex; gap: 0.35rem; overflow-x: auto; margin-bottom: 0.9rem; padding-bottom: 0.35rem; }
@@ -1114,4 +1129,6 @@
   .role-assignment { flex-direction: column; }
   .role-manager-actions { position: static; margin-top: 0.6rem; }
   .permission-delegation-row { grid-template-columns: 1fr; }
+  .permissions-group-header { align-items: flex-start; padding-inline: 0.75rem; }
+  .permissions-group-bulk { flex-direction: column; }
 }

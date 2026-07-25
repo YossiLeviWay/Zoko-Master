@@ -57,6 +57,36 @@ export const FULL_PERMISSIONS = Object.fromEntries(
   Object.keys(VIEWER_DEFAULTS).map(k => [k, true])
 );
 
+const PERMISSION_ALIASES = Object.freeze({
+  calendar_view: 'calendar.view',
+  calendar_edit: 'calendar.edit',
+  tasks_view: 'tasks.viewOwn',
+  tasks_edit: 'tasks.editAll',
+  tasks_assign: 'tasks.assign',
+  staff_view: 'staff.view',
+  staff_edit: 'staff.edit',
+  files_view: 'files.view',
+  files_upload: 'files.create',
+  files_delete: 'files.delete',
+  classes_view: 'classes.view',
+  classes_create: 'classes.create',
+  classes_update: 'classes.update',
+  classes_archive: 'classes.archive',
+  classes_assign_teacher: 'classes.assignTeacher',
+  students_view: 'students.view',
+  students_create: 'students.create',
+  students_update: 'students.update',
+  students_archive: 'students.archive',
+  students_transfer_class: 'students.transferClass',
+});
+
+function setPermissionWithAlias(target, key, value) {
+  target[key] = value;
+  const alias = PERMISSION_ALIASES[key]
+    || Object.entries(PERMISSION_ALIASES).find(([, granular]) => granular === key)?.[0];
+  if (alias) target[alias] = value;
+}
+
 export function usePermissions() {
   const { userData, selectedSchool, isGlobalAdmin, isPrincipal } = useAuth();
   const [permissions, setPermissions] = useState(VIEWER_DEFAULTS);
@@ -109,7 +139,7 @@ export function usePermissions() {
                 : { type: 'school', classIds: [] };
               for (const [key, val] of Object.entries(rp)) {
                 if (val === true) {
-                  base[key] = true;
+                  setPermissionWithAlias(base, key, true);
                   if (roleScope.type === 'school') {
                     explicit[key] = true;
                     scopes[key] = roleScope;
@@ -130,7 +160,7 @@ export function usePermissions() {
       const userPerms = userData.permissions || {};
       for (const [key, val] of Object.entries(userPerms)) {
         if (val !== undefined) {
-          base[key] = val;
+          setPermissionWithAlias(base, key, val);
           explicit[key] = val;
           if (val === true) scopes[key] = { type: 'school', classIds: [] };
           else delete scopes[key];
