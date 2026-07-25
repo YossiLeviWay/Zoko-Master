@@ -23,7 +23,8 @@ export async function requireActor(request) {
 }
 
 export function isPrincipalFor(actor, schoolId) {
-  return ['principal', 'institution_manager'].includes(actor.data.role) && actor.schoolIds.has(schoolId);
+  const roleForSchool = actor.data.rolesBySchool?.[schoolId] || actor.data.role;
+  return ['principal', 'institution_manager'].includes(roleForSchool) && actor.schoolIds.has(schoolId);
 }
 
 export function isInstitutionManagerFor(actor, schoolId) {

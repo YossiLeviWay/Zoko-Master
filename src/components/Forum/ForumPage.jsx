@@ -35,9 +35,14 @@ export default function ForumPage() {
   }, [currentUser?.uid, isPlatformAdmin, isPrincipal]);
   const permissions = useMemo(() => new Set(isPlatformAdmin()
     ? ['forum.access', 'forum.read', 'forum.createThread', 'forum.reply', 'forum.uploadAttachment', 'forum.createFolder', 'forum.editFolder', 'forum.pinThread', 'forum.lockThread', 'forum.moderate']
-    : isPrincipal() ? ['forum.access', 'forum.read', ...(membership?.permissions || [])] : (membership?.permissions || [])), [isPlatformAdmin, isPrincipal, membership]);
+    : isPrincipal() ? [
+      'forum.access', 'forum.read', 'forum.createThread', 'forum.reply',
+      'forum.editOwnPost', 'forum.deleteOwnPost', 'forum.uploadAttachment',
+      'forum.createFolder', 'forum.editFolder', ...(membership?.permissions || []),
+    ] : (membership?.permissions || [])), [isPlatformAdmin, isPrincipal, membership]);
+  const managerAccess = isPlatformAdmin() || isPrincipal();
   const active = permissions.has('forum.access') && permissions.has('forum.read')
-    && (!membership?.expiresAt || membership.expiresAt.toMillis() > Date.now());
+    && (managerAccess || !membership?.expiresAt || membership.expiresAt.toMillis() > Date.now());
 
   useEffect(() => {
     if (!active) return undefined;

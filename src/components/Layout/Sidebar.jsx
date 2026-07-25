@@ -48,7 +48,7 @@ const NAV_ITEMS = [
   { path: '/calendar', icon: Calendar, label: 'לוח שנה', requiresSchool: true, permission: 'calendar_view' },
   { path: '/categories', icon: LayoutGrid, label: 'קטגוריות', requiresSchool: true, permission: 'categories_view' },
   { path: '/staff', icon: Users, label: 'סגל וקהילה', requiresSchool: true, permission: 'staff_view' },
-  { path: '/tasks', icon: CheckSquare, label: 'משימות', requiresSchool: true, permission: 'tasks_view' },
+  { path: '/tasks', icon: CheckSquare, label: 'פאנל משימות', requiresSchool: true, permission: 'tasks_view' },
   { path: '/files', icon: FolderOpen, label: 'קבצים', requiresSchool: true, permission: 'files_view' },
   { path: '/teams', icon: Users, label: 'צוותים', requiresSchool: true, permission: 'teams_view' },
   { path: '/students', icon: GraduationCap, label: 'תלמידים', requiresSchool: true, permission: 'students_view' },

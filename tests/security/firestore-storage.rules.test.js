@@ -14,6 +14,7 @@ import {
   getDoc,
   getDocs,
   query,
+  serverTimestamp,
   setDoc,
   updateDoc,
   where,
@@ -276,6 +277,38 @@ test('assigned user reads a task and may change only completion fields', async (
   await assertFails(updateDoc(doc(db, `schools/${SCHOOL_A}/students/student_1`), { className: '2B' }));
 });
 
+test('task participants can publish chat activity and keep only their own read receipt', async () => {
+  await seedFirestore({
+    'users/viewer_a': user({ schoolId: SCHOOL_A }),
+    'users/outsider_a': user({ schoolId: SCHOOL_A }),
+    [`schools/${SCHOOL_A}/tasks/assigned_chat`]: {
+      scope: 'assigned', schoolId: SCHOOL_A, createdBy: 'creator_a', title: 'Shared task',
+      assigneeType: 'individual', assigneeIds: ['viewer_a'], status: 'todo',
+    },
+  });
+  const viewerDb = context('viewer_a').firestore();
+  const taskRef = doc(viewerDb, `schools/${SCHOOL_A}/tasks/assigned_chat`);
+  await assertSucceeds(updateDoc(taskRef, {
+    lastChatMessageAt: serverTimestamp(),
+    lastChatMessageBy: 'viewer_a',
+    lastChatPreview: 'עדכון חדש',
+    updatedAt: serverTimestamp(),
+  }));
+  await assertFails(updateDoc(taskRef, {
+    lastChatMessageAt: serverTimestamp(),
+    lastChatMessageBy: 'outsider_a',
+    lastChatPreview: 'spoofed',
+    updatedAt: serverTimestamp(),
+  }));
+  const receiptRef = doc(viewerDb, `users/viewer_a/taskChatReceipts/${SCHOOL_A}__nested__assigned_chat`);
+  await assertSucceeds(setDoc(receiptRef, {
+    userId: 'viewer_a', schoolId: SCHOOL_A, taskId: 'assigned_chat', storageMode: 'nested', readAt: serverTimestamp(),
+  }));
+  await assertFails(setDoc(doc(context('outsider_a').firestore(), `users/viewer_a/taskChatReceipts/forged`), {
+    userId: 'viewer_a', schoolId: SCHOOL_A, taskId: 'assigned_chat', storageMode: 'nested', readAt: serverTimestamp(),
+  }));
+});
+
 test('personal task can be created, read, updated and deleted only by its owner', async () => {
   await seedFirestore({
     'users/owner_a': user({ schoolId: SCHOOL_A }),
@@ -425,6 +458,31 @@ test('legacy task collection enforces assigned visibility and immutable tenant f
     doc(context('member_a').firestore(), `tasks_${SCHOOL_A}/assigned_legacy`),
     { schoolId: SCHOOL_B },
   ));
+});
+
+test('legacy tasks without schoolId support chat activity only for task participants', async () => {
+  await seedFirestore({
+    'users/member_a': user({ schoolId: SCHOOL_A }),
+    'users/peer_a': user({ schoolId: SCHOOL_A }),
+    [`tasks_${SCHOOL_A}/legacy_without_school_id`]: {
+      scope: 'assigned', createdBy: 'owner_a', title: 'Older legacy task',
+      status: 'todo', assigneeType: 'individual', assigneeIds: ['member_a'],
+      participantIds: ['member_a'], teamId: '', assigneeTeamId: '',
+    },
+  });
+  const taskPath = `tasks_${SCHOOL_A}/legacy_without_school_id`;
+  await assertSucceeds(updateDoc(doc(context('member_a').firestore(), taskPath), {
+    lastChatMessageAt: serverTimestamp(),
+    lastChatMessageBy: 'member_a',
+    lastChatPreview: 'New message',
+    updatedAt: serverTimestamp(),
+  }));
+  await assertFails(updateDoc(doc(context('peer_a').firestore(), taskPath), {
+    lastChatMessageAt: serverTimestamp(),
+    lastChatMessageBy: 'peer_a',
+    lastChatPreview: 'Unauthorized message',
+    updatedAt: serverTimestamp(),
+  }));
 });
 
 test('editor cannot change user permissions', async () => {
@@ -1471,6 +1529,11 @@ test('platform admin directory access never grants internal school data access',
 test('forum membership approval controls direct URL reads and never crosses into school data', async () => {
   await seedFirestore({
     'users/principal_a': user({ schoolId: SCHOOL_A, role: 'principal' }),
+    'users/scoped_manager_a': {
+      ...user({ schoolId: SCHOOL_A }),
+      activeSchoolId: SCHOOL_A,
+      rolesBySchool: { [SCHOOL_A]: 'institution_manager' },
+    },
     'users/pending_delegate': { ...user({ schoolId: SCHOOL_A }), uid: 'pending_delegate' },
     'users/approved_delegate': { ...user({ schoolId: SCHOOL_A }), uid: 'approved_delegate' },
     'platformForumMemberships/pending_delegate': { userId: 'pending_delegate', schoolId: SCHOOL_A, status: 'pending_admin_approval', permissions: [] },
@@ -1481,6 +1544,7 @@ test('forum membership approval controls direct URL reads and never crosses into
   });
   const folderPath = 'platformForum/root/folders/general';
   await assertSucceeds(getDoc(doc(context('principal_a').firestore(), folderPath)));
+  await assertSucceeds(getDoc(doc(context('scoped_manager_a').firestore(), folderPath)));
   await assertFails(getDoc(doc(context('pending_delegate').firestore(), folderPath)));
   await assertSucceeds(getDoc(doc(context('approved_delegate').firestore(), folderPath)));
   await assertFails(getDoc(doc(context('approved_delegate').firestore(), `schools/${SCHOOL_A}/files/private_a`)));
@@ -1493,11 +1557,18 @@ test('forum and support storage use isolated paths and approved metadata', async
   await seedFirestore({
     'users/forum_uploader': { ...user({ schoolId: SCHOOL_A }), uid: 'forum_uploader' },
     'users/principal_a': user({ schoolId: SCHOOL_A, role: 'principal' }),
+    'users/scoped_manager_a': {
+      ...user({ schoolId: SCHOOL_A }),
+      activeSchoolId: SCHOOL_A,
+      rolesBySchool: { [SCHOOL_A]: 'institution_manager' },
+    },
     'platformForumMemberships/forum_uploader': { userId: 'forum_uploader', schoolId: SCHOOL_A, status: 'active', permissions: ['forum.access', 'forum.read', 'forum.uploadAttachment'] },
     'platformForum/root/attachments/attachment_a': { uploadedBy: 'forum_uploader', status: 'pending', storagePath: 'platform-forum/attachments/attachment_a/share.pdf', mimeType: 'application/pdf', size: 4 },
+    'platformForum/root/attachments/attachment_manager': { uploadedBy: 'scoped_manager_a', status: 'pending', storagePath: 'platform-forum/attachments/attachment_manager/share.pdf', mimeType: 'application/pdf', size: 4 },
     'supportAttachments/support_a': { schoolId: SCHOOL_A, uploadedBy: 'principal_a', status: 'pending', storagePath: `platform-support/${SCHOOL_A}/support_a/screenshot.png`, mimeType: 'image/png', size: 4 },
   });
   await assertSucceeds(uploadBytes(ref(context('forum_uploader').storage(), 'platform-forum/attachments/attachment_a/share.pdf'), new Uint8Array([1, 2, 3, 4]), { contentType: 'application/pdf' }));
+  await assertSucceeds(uploadBytes(ref(context('scoped_manager_a').storage(), 'platform-forum/attachments/attachment_manager/share.pdf'), new Uint8Array([1, 2, 3, 4]), { contentType: 'application/pdf' }));
   await assertFails(uploadBytes(ref(context('forum_uploader').storage(), 'platform-forum/attachments/unregistered/share.pdf'), new Uint8Array([1]), { contentType: 'application/pdf' }));
   await assertSucceeds(uploadBytes(ref(context('principal_a').storage(), `platform-support/${SCHOOL_A}/support_a/screenshot.png`), new Uint8Array([1, 2, 3, 4]), { contentType: 'image/png' }));
 });
