@@ -12,7 +12,7 @@ import {
   inviteTaskCollaboratorsHandler,
   respondTaskInvitationHandler,
 } from '../../functions/src/callables/tasks.js';
-import { createStaffHandler, setRoleHandler } from '../../functions/src/callables/staff.js';
+import { createStaffHandler, setRoleHandler, updateStaffHandler } from '../../functions/src/callables/staff.js';
 import {
   assignCustomRoleHandler,
   createCustomRoleHandler,
@@ -98,6 +98,24 @@ test('permission preview supports legacy staff documents without an Auth account
   }));
   assert.equal(preview.target.userId, 'legacy_staff_a');
   assert.equal(preview.readOnly, true);
+});
+
+test('institution manager patches page permissions without erasing existing legacy settings', async () => {
+  await seedUser('principal_a', SCHOOL_A, 'principal');
+  await seedUser('legacy_staff_a', SCHOOL_A, 'viewer', {
+    fullName: 'Legacy Staff',
+    permissions: { tasks_view: true, legacy_setting: true },
+  });
+  await updateStaffHandler(actorRequest('principal_a', {
+    schoolId: SCHOOL_A,
+    userId: 'legacy_staff_a',
+    permissions: { calendar_view: true, calendar_edit: true, 'calendar.view': true, 'calendar.edit': true },
+  }));
+  const updated = (await adminDb.doc('users/legacy_staff_a').get()).data().permissions;
+  assert.equal(updated.calendar_edit, true);
+  assert.equal(updated['calendar.edit'], true);
+  assert.equal(updated.tasks_view, true);
+  assert.equal(updated.legacy_setting, true);
 });
 
 test('file and folder deletion uses a recoverable server-side recycle bin', async () => {

@@ -16,7 +16,8 @@ const RESOURCE_CONFIG = Object.freeze({
   events: { legacy: 'events' },
   holidays: { legacy: 'holidays' },
   categories: { legacy: 'categories' },
-  roles: { legacy: 'roles' },
+  roles: { legacy: 'roles', nested: 'roleDefinitions' },
+  roleDefinitions: { legacy: 'roles', nested: 'roleDefinitions' },
   tracks: { legacy: 'tracks' },
   settings: { legacy: 'settings' },
   sheets: { legacy: 'sheets' },
@@ -42,7 +43,7 @@ export function schoolCollectionPath(schoolId, resource, mode = getDataMode()) {
   const config = RESOURCE_CONFIG[resource];
   if (!config) throw new Error('Unsupported school resource');
   return mode === 'nested'
-    ? `schools/${schoolId}/${resource}`
+    ? `schools/${schoolId}/${config.nested || resource}`
     : `${config.legacy}_${schoolId}`;
 }
 

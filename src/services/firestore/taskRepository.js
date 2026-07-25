@@ -12,7 +12,7 @@ import {
   where,
   writeBatch,
 } from 'firebase/firestore';
-import { schoolCollection, schoolDoc } from './paths';
+import { schoolCollection, schoolDoc } from './paths.js';
 
 export const TASK_SCOPES = Object.freeze({
   PERSONAL: 'personal',
@@ -20,38 +20,91 @@ export const TASK_SCOPES = Object.freeze({
   TEAM: 'team',
 });
 
+function safeString(value, fallback = '') {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return fallback;
+}
+
+function safeIdList(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value
+    .filter(item => typeof item === 'string' || typeof item === 'number')
+    .map(String)
+    .filter(Boolean))];
+}
+
+function safeDateValue(value) {
+  if (typeof value === 'string') return value;
+  let date = value instanceof Date ? value : null;
+  if (!date && typeof value?.toDate === 'function') {
+    try { date = value.toDate(); } catch { date = null; }
+  }
+  return date instanceof Date && !Number.isNaN(date.getTime())
+    ? date.toISOString().slice(0, 10)
+    : '';
+}
+
 export function isTaskComplete(task) {
   return task?.status === 'done' || task?.status === 'completed';
 }
 
 export function taskDueDate(task) {
-  return task?.dueDate || task?.dueAt || '';
+  return safeDateValue(task?.dueDate || task?.dueAt);
 }
 
-export function normalizeOrganizationTask(item) {
+export function normalizeOrganizationTask(item, storageMode = 'nested') {
   return {
     ...item,
-    assigneeIds: Array.isArray(item.assigneeIds) ? item.assigneeIds : [],
-    participantIds: Array.isArray(item.participantIds) ? item.participantIds : [],
-    pinnedBy: Array.isArray(item.pinnedBy) ? item.pinnedBy : [],
-    tags: Array.isArray(item.tags) ? item.tags : [],
-    scope: item.scope || TASK_SCOPES.TEAM,
+    id: safeString(item.id),
+    title: safeString(item.title, safeString(item.name, 'משימה ללא כותרת')),
+    description: safeString(item.description),
+    priority: safeString(item.priority, 'medium'),
+    status: safeString(item.status, 'todo'),
+    dueDate: safeDateValue(item.dueDate || item.dueAt),
+    reminderAt: safeString(item.reminderAt),
+    assigneeIds: safeIdList(item.assigneeIds),
+    participantIds: safeIdList(item.participantIds),
+    pinnedBy: safeIdList(item.pinnedBy),
+    tags: safeIdList(item.tags),
+    scope: safeString(item.scope, TASK_SCOPES.TEAM),
+    assigneeType: safeString(item.assigneeType),
+    teamId: safeString(item.teamId),
+    assigneeTeamId: safeString(item.assigneeTeamId),
+    createdBy: safeString(item.createdBy),
+    createdByName: safeString(item.createdByName),
+    assignedByName: safeString(item.assignedByName),
+    sourceTaskId: safeString(item.sourceTaskId),
+    attachedFileId: safeString(item.attachedFileId),
+    attachedFileName: safeString(item.attachedFileName),
+    _storageMode: storageMode,
     _source: 'organization',
-    _key: `organization:${item.id}`,
+    _key: `organization:${storageMode}:${safeString(item.id)}`,
   };
 }
 
-function normalizePersonalTask(item) {
+export function normalizePersonalTask(item) {
   return {
     ...item,
+    id: safeString(item.id),
+    title: safeString(item.title, safeString(item.name, 'משימה ללא כותרת')),
+    description: safeString(item.description),
+    priority: safeString(item.priority, 'medium'),
+    status: safeString(item.status, 'todo'),
+    dueDate: safeDateValue(item.dueDate || item.dueAt),
+    reminderAt: safeString(item.reminderAt),
     assigneeIds: [],
-    participantIds: Array.isArray(item.participantIds) ? item.participantIds : [],
-    pinnedBy: Array.isArray(item.pinnedBy) ? item.pinnedBy : [],
-    tags: Array.isArray(item.tags) ? item.tags : [],
+    participantIds: safeIdList(item.participantIds),
+    pinnedBy: safeIdList(item.pinnedBy),
+    tags: safeIdList(item.tags),
+    attachedFileId: safeString(item.attachedFileId),
+    attachedFileName: safeString(item.attachedFileName),
+    sourceTaskId: safeString(item.sourceTaskId),
     scope: TASK_SCOPES.PERSONAL,
     assigneeType: 'personal',
+    _storageMode: 'personal',
     _source: 'personal',
-    _key: `personal:${item.id}`,
+    _key: `personal:${safeString(item.id)}`,
   };
 }
 
@@ -63,18 +116,28 @@ function personalTaskDoc(db, uid, taskId) {
   return doc(db, 'users', uid, 'personalTasks', taskId);
 }
 
-function subscribeToQuerySet(queries, normalize, onData, onError) {
+function organizationTaskDoc(db, schoolId, task) {
+  return task._storageMode === 'legacy'
+    ? doc(db, `tasks_${schoolId}`, task.id)
+    : schoolDoc(db, schoolId, 'tasks', task.id, 'nested');
+}
+
+function subscribeToQuerySet(queryEntries, normalize, onData, onError) {
   const resultSets = new Map();
   const emit = () => {
     const merged = new Map();
-    resultSets.forEach(items => items.forEach(item => merged.set(item.id, item)));
-    onData([...merged.values()].map(normalize));
+    [...resultSets.entries()].sort(([left], [right]) => left - right)
+      .forEach(([, items]) => items.forEach(item => merged.set(item.id, item)));
+    onData([...merged.values()]);
   };
 
-  const unsubscribers = queries.map((taskQuery, index) => onSnapshot(
-    taskQuery,
+  const unsubscribers = queryEntries.map((entry, index) => onSnapshot(
+    entry.query,
     snapshot => {
-      resultSets.set(index, snapshot.docs.map(item => ({ id: item.id, ...item.data() })));
+      resultSets.set(index, snapshot.docs.map(item => normalize(
+        { ...item.data(), id: item.id },
+        entry.storageMode,
+      )));
       emit();
     },
     onError,
@@ -85,7 +148,7 @@ function subscribeToQuerySet(queries, normalize, onData, onError) {
 export function subscribePersonalTasks({ db, uid, schoolId, onData, onError }) {
   if (!uid || !schoolId) return () => undefined;
   return subscribeToQuerySet(
-    [query(personalTasksCollection(db, uid), where('schoolId', '==', schoolId))],
+    [{ query: query(personalTasksCollection(db, uid), where('schoolId', '==', schoolId)), storageMode: 'personal' }],
     normalizePersonalTask,
     onData,
     onError,
@@ -102,19 +165,30 @@ export function subscribeOrganizationTasks({
   onError,
 }) {
   if (!uid || !schoolId) return () => undefined;
-  const tasksRef = schoolCollection(db, schoolId, 'tasks');
+  const taskCollections = [
+    { ref: collection(db, `tasks_${schoolId}`), storageMode: 'legacy' },
+    { ref: schoolCollection(db, schoolId, 'tasks', 'nested'), storageMode: 'nested' },
+  ];
   if (canViewAll) {
-    return subscribeToQuerySet([tasksRef], normalizeOrganizationTask, onData, onError);
+    return subscribeToQuerySet(
+      taskCollections.map(item => ({ query: item.ref, storageMode: item.storageMode })),
+      normalizeOrganizationTask,
+      onData,
+      onError,
+    );
   }
 
-  const queries = [
-    query(tasksRef, where('assigneeType', '==', 'all_school')),
-    query(tasksRef, where('assigneeIds', 'array-contains', uid)),
-    query(tasksRef, where('participantIds', 'array-contains', uid)),
-    query(tasksRef, where('createdBy', '==', uid)),
-    ...teamIds.map(teamId => query(tasksRef, where('assigneeTeamId', '==', teamId))),
-  ];
-  return subscribeToQuerySet(queries, normalizeOrganizationTask, onData, onError);
+  const queryEntries = taskCollections.flatMap(item => [
+    { query: query(item.ref, where('assigneeType', '==', 'all_school')), storageMode: item.storageMode },
+    { query: query(item.ref, where('assigneeIds', 'array-contains', uid)), storageMode: item.storageMode },
+    { query: query(item.ref, where('participantIds', 'array-contains', uid)), storageMode: item.storageMode },
+    { query: query(item.ref, where('createdBy', '==', uid)), storageMode: item.storageMode },
+    ...teamIds.map(teamId => ({
+      query: query(item.ref, where('assigneeTeamId', '==', teamId)),
+      storageMode: item.storageMode,
+    })),
+  ]);
+  return subscribeToQuerySet(queryEntries, normalizeOrganizationTask, onData, onError);
 }
 
 function editableFields(input) {
@@ -175,7 +249,7 @@ export async function createOrganizationTask({ db, schoolId, user, input }) {
 export async function updateTask({ db, schoolId, uid, task, input }) {
   const taskRef = task._source === 'personal'
     ? personalTaskDoc(db, uid, task.id)
-    : schoolDoc(db, schoolId, 'tasks', task.id);
+    : organizationTaskDoc(db, schoolId, task);
   const organizationAssignment = task._source === 'organization' ? {
     scope: input.scope === TASK_SCOPES.ASSIGNED ? TASK_SCOPES.ASSIGNED : TASK_SCOPES.TEAM,
     assigneeType: input.scope === TASK_SCOPES.ASSIGNED ? 'individual' : 'team',
@@ -194,7 +268,7 @@ export async function updateTask({ db, schoolId, uid, task, input }) {
 export async function updateTaskStatus({ db, schoolId, uid, task, status }) {
   const taskRef = task._source === 'personal'
     ? personalTaskDoc(db, uid, task.id)
-    : schoolDoc(db, schoolId, 'tasks', task.id);
+    : organizationTaskDoc(db, schoolId, task);
   return updateDoc(taskRef, {
     status,
     completedAt: status === 'done' || status === 'completed' ? serverTimestamp() : null,
@@ -205,7 +279,7 @@ export async function updateTaskStatus({ db, schoolId, uid, task, status }) {
 export async function toggleTaskPin({ db, schoolId, uid, task, isPinned }) {
   const taskRef = task._source === 'personal'
     ? personalTaskDoc(db, uid, task.id)
-    : schoolDoc(db, schoolId, 'tasks', task.id);
+    : organizationTaskDoc(db, schoolId, task);
   return updateDoc(taskRef, {
     pinnedBy: isPinned ? arrayRemove(uid) : arrayUnion(uid),
     updatedAt: serverTimestamp(),
@@ -215,7 +289,7 @@ export async function toggleTaskPin({ db, schoolId, uid, task, isPinned }) {
 export async function deleteTask({ db, schoolId, uid, task }) {
   const taskRef = task._source === 'personal'
     ? personalTaskDoc(db, uid, task.id)
-    : schoolDoc(db, schoolId, 'tasks', task.id);
+    : organizationTaskDoc(db, schoolId, task);
   return deleteDoc(taskRef);
 }
 

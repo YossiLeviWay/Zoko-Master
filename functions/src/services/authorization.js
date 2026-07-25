@@ -44,9 +44,16 @@ export async function requireTargetInSchool(actor, targetUid, schoolId, { allowS
   const targetMemberships = memberships(targetData);
   if (!actor.globalAdmin && !targetMemberships.has(schoolId)) throw permissionDenied();
 
-  const targetAuth = requireAuthUser ? await adminAuth.getUser(targetUid) : null;
+  let targetAuth = null;
+  try {
+    targetAuth = await adminAuth.getUser(targetUid);
+  } catch (error) {
+    if (requireAuthUser || error?.code !== 'auth/user-not-found') throw error;
+  }
   const targetGlobalAdmin = targetAuth?.customClaims?.global_admin === true;
-  if (!actor.globalAdmin && (targetGlobalAdmin || targetData.role === 'principal')) {
+  const protectedRole = ['principal', 'institution_manager', 'global_admin', 'platform_admin']
+    .includes(targetData.role);
+  if (!actor.globalAdmin && (targetGlobalAdmin || protectedRole)) {
     throw permissionDenied();
   }
 

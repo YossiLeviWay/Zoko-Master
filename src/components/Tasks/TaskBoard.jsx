@@ -153,6 +153,18 @@ function timestampMillis(value) {
   return 0;
 }
 
+function displayText(value, fallback = '') {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return fallback;
+}
+
+function idList(value) {
+  return Array.isArray(value)
+    ? value.filter(item => typeof item === 'string' || typeof item === 'number').map(String)
+    : [];
+}
+
 export default function TaskBoard() {
   const { userData, selectedSchool, currentUser } = useAuth();
   const { permissions } = usePermissions();
@@ -252,9 +264,15 @@ export default function TaskBoard() {
       const users = new Map();
       try {
         const bySchools = await getDocs(query(collection(db, 'users'), where('schoolIds', 'array-contains', schoolId)));
-        bySchools.docs.forEach(item => users.set(item.id, { id: item.id, ...item.data() }));
+        bySchools.docs.forEach(item => {
+          const data = item.data();
+          users.set(item.id, { ...data, id: item.id, fullName: displayText(data.fullName), email: displayText(data.email) });
+        });
         const byLegacySchool = await getDocs(query(collection(db, 'users'), where('schoolId', '==', schoolId)));
-        byLegacySchool.docs.forEach(item => users.set(item.id, { id: item.id, ...item.data() }));
+        byLegacySchool.docs.forEach(item => {
+          const data = item.data();
+          users.set(item.id, { ...data, id: item.id, fullName: displayText(data.fullName), email: displayText(data.email) });
+        });
       } catch {
         setError('לא ניתן לטעון את רשימת העובדים.');
       }
@@ -263,17 +281,26 @@ export default function TaskBoard() {
     loadStaff();
     const unsubscribeTeams = onSnapshot(
       schoolCollection(db, schoolId, 'teams'),
-      snapshot => setTeams(snapshot.docs.map(item => ({ id: item.id, ...item.data() }))),
+      snapshot => setTeams(snapshot.docs.map(item => {
+        const data = item.data();
+        return { ...data, id: item.id, name: displayText(data.name, 'צוות'), memberIds: idList(data.memberIds) };
+      })),
       () => setTeams([]),
     );
     const unsubscribeFiles = onSnapshot(
       schoolCollection(db, schoolId, 'files'),
-      snapshot => setAllFiles(snapshot.docs.map(item => ({ id: item.id, ...item.data() }))),
+      snapshot => setAllFiles(snapshot.docs.map(item => {
+        const data = item.data();
+        return { ...data, id: item.id, name: displayText(data.name, 'קובץ'), folderId: displayText(data.folderId) };
+      })),
       () => setAllFiles([]),
     );
     const unsubscribeFolders = onSnapshot(
       schoolCollection(db, schoolId, 'folders'),
-      snapshot => setAllFolders(snapshot.docs.map(item => ({ id: item.id, ...item.data() }))),
+      snapshot => setAllFolders(snapshot.docs.map(item => {
+        const data = item.data();
+        return { ...data, id: item.id, visibility: displayText(data.visibility), allowedUsers: idList(data.allowedUsers) };
+      })),
       () => setAllFolders([]),
     );
     return () => {
@@ -296,7 +323,18 @@ export default function TaskBoard() {
       query(invitationRef, where('recipientId', '==', uid)),
       query(invitationRef, where('inviterId', '==', uid)),
     ].map((invitationQuery, index) => onSnapshot(invitationQuery, snapshot => {
-      sets.set(index, snapshot.docs.map(item => ({ id: item.id, ...item.data() })));
+      sets.set(index, snapshot.docs.map(item => {
+        const data = item.data();
+        return {
+          ...data,
+          id: item.id,
+          title: displayText(data.title, 'הזמנה למשימה'),
+          description: displayText(data.description),
+          inviterName: displayText(data.inviterName),
+          message: displayText(data.message),
+          response: displayText(data.response),
+        };
+      }));
       emit();
     }, () => setTaskInvitations([])));
     return () => unsubscribers.forEach(unsubscribe => unsubscribe());
