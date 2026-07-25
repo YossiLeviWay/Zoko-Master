@@ -6,6 +6,7 @@ import {
   Edit3,
   FileBarChart2,
   FileSpreadsheet,
+  GraduationCap,
   Plus,
   RotateCcw,
   School,
@@ -81,6 +82,7 @@ export default function ClassManagement({
   permissions,
   academicYear,
   onOpenStudents,
+  onGraduateClass,
   canViewGradesForClass,
   canManageGradebookForClass,
 }) {
@@ -100,6 +102,7 @@ export default function ClassManagement({
   const canArchive = permissions.classes_archive;
   const canAssignTeacher = permissions.classes_assign_teacher;
   const canCreateAttendance = permissions.attendance_create;
+  const canGraduateClass = permissions.students_graduate_class;
 
   const studentCounts = useMemo(() => {
     const counts = new Map();
@@ -234,6 +237,7 @@ export default function ClassManagement({
             )}
             <div className="class-card-actions">
               <button className="btn btn-secondary btn-sm" onClick={() => onOpenStudents(item)}><Users size={14} /> תלמידי הכיתה</button>
+              {canGraduateClass && item.status !== CLASS_STATUS.ARCHIVED && <button className="btn btn-secondary btn-sm" onClick={() => onGraduateClass(item)}><GraduationCap size={14} /> הפיכת הכיתה לבוגרים</button>}
               {(canViewGradesForClass(item.id) || item.teacherId === actor.uid) && <button
                 className="btn btn-secondary btn-sm"
                 onClick={() => openGradeMapping(item)}

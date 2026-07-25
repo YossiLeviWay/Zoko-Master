@@ -32,6 +32,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 
 const appCheckSiteKey = import.meta.env.VITE_FIREBASE_APPCHECK_SITE_KEY;
+export const isAppCheckConfigured = Boolean(isFirebaseConfigured && appCheckSiteKey);
 export const appCheck = isFirebaseConfigured && appCheckSiteKey
   ? initializeAppCheck(app, {
       provider: new ReCaptchaEnterpriseProvider(appCheckSiteKey),

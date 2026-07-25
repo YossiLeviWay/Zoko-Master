@@ -2,8 +2,10 @@ import { collection, doc } from 'firebase/firestore';
 
 const RESOURCE_CONFIG = Object.freeze({
   tasks: { legacy: 'tasks' },
+  taskInvitations: { legacy: 'taskInvitations', nested: 'taskInvitations', defaultMode: 'nested' },
   classes: { legacy: 'classes' },
   students: { legacy: 'students' },
+  gradebooks: { legacy: 'gradebooks', nested: 'gradebooks', defaultMode: 'nested' },
   academicYears: { legacy: 'academic_years' },
   studentEnrollments: { legacy: 'student_enrollments' },
   personalFiles: { legacy: 'personal_files' },
@@ -38,11 +40,13 @@ export function getDataMode() {
   return mode;
 }
 
-export function schoolCollectionPath(schoolId, resource, mode = getDataMode()) {
+export function schoolCollectionPath(schoolId, resource, mode) {
   assertSafeId(schoolId, 'school identifier');
   const config = RESOURCE_CONFIG[resource];
   if (!config) throw new Error('Unsupported school resource');
-  return mode === 'nested'
+  const resolvedMode = mode || config.defaultMode || getDataMode();
+  if (!['legacy', 'nested'].includes(resolvedMode)) throw new Error('Invalid Firestore data mode');
+  return resolvedMode === 'nested'
     ? `schools/${schoolId}/${config.nested || resource}`
     : `${config.legacy}_${schoolId}`;
 }

@@ -506,6 +506,8 @@ export const assignInstitutionManagerSchema = z.object({
   schoolId: id,
   fullName: shortText.min(1),
   email,
+  reason: z.string().trim().min(5).max(500),
+  replaceExisting: z.boolean().default(false),
 }).strict();
 export const deleteSchoolSchema = z.object({
   schoolId: id,
@@ -523,3 +525,198 @@ export const fileTrashActionSchema = z.object({
     context.addIssue({ code: 'custom', path: ['confirmPermanent'], message: 'Permanent deletion requires confirmation' });
   }
 });
+
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const nonNegativeNumber = z.number().finite().nonnegative();
+const outcomeCriterion = z.lazy(() => z.discriminatedUnion('type', [
+  z.object({ type: z.literal('subject_min'), subjectId: id, subjectName: shortText.optional().default(''), minimum: z.number().min(0).max(100) }).strict(),
+  z.object({ type: z.literal('average_min'), minimum: z.number().min(0).max(100) }).strict(),
+  z.object({ type: z.literal('units_min'), minimum: nonNegativeNumber.max(100) }).strict(),
+  z.object({ type: z.literal('practical_complete') }).strict(),
+  z.object({ type: z.literal('work_hours_min'), minimum: nonNegativeNumber.max(10000) }).strict(),
+  z.object({ type: z.literal('attendance_min'), minimum: z.number().min(0).max(100) }).strict(),
+  z.object({ type: z.literal('professional_exam_passed') }).strict(),
+  z.object({ type: z.literal('evidence_uploaded') }).strict(),
+  z.object({ type: z.literal('manual_approval') }).strict(),
+  z.object({
+    type: z.literal('group'),
+    operator: z.enum(['AND', 'OR']),
+    criteria: z.array(outcomeCriterion).min(1).max(30),
+  }).strict(),
+]));
+
+export const classGraduationPreviewSchema = z.object({
+  schoolId: id,
+  classId: id,
+  academicYearId: id,
+  graduationDate: isoDate,
+}).strict();
+
+export const graduateClassSchema = classGraduationPreviewSchema.extend({
+  requestId: id,
+  confirmationText: z.string().trim().min(1).max(160),
+}).strict();
+
+export const restoreGraduateSchema = z.object({
+  schoolId: id,
+  studentId: id,
+  targetAcademicYearId: id,
+  targetClassId: id,
+  effectiveDate: isoDate,
+  reason: z.string().trim().min(5).max(500),
+  requestId: id,
+}).strict();
+
+export const outcomeDefinitionSchema = z.object({
+  schoolId: id,
+  definitionId: id.optional(),
+  name: shortText.min(1),
+  description: z.string().trim().max(2000).optional().default(''),
+  academicYearId: id,
+  applicableGrades: z.array(shortText.min(1)).max(20).default([]),
+  applicableTracks: z.array(id).max(50).default([]),
+  applicablePrograms: z.array(shortText.min(1)).max(50).default([]),
+  active: z.boolean().default(true),
+  calculationMode: z.enum(['calculated', 'manual', 'combined']),
+  criteria: z.array(outcomeCriterion).min(1).max(50),
+  dropoutPolicy: z.enum(['exclude', 'include', 'separate']).default('exclude'),
+  version: z.number().int().positive().optional(),
+}).strict();
+
+export const outcomeDefinitionActionSchema = z.object({
+  schoolId: id,
+  definitionId: id,
+  action: z.enum(['clone', 'disable']),
+  name: shortText.min(1).optional(),
+}).strict();
+
+export const classOutcomeTargetSchema = z.object({
+  schoolId: id,
+  classId: id,
+  academicYearId: id,
+  outcomeDefinitionId: id,
+  targetPercentage: z.number().min(0).max(100),
+  includedStudentIds: z.array(id).max(300).default([]),
+  responsibleUserIds: z.array(id).max(30).default([]),
+  targetDate: isoDate.or(z.literal('')).default(''),
+  managementNote: z.string().trim().max(1000).default(''),
+}).strict();
+
+export const calculateClassOutcomesSchema = z.object({
+  schoolId: id,
+  classId: id,
+  academicYearId: id,
+  outcomeDefinitionIds: z.array(id).min(1).max(30),
+  requestId: id,
+}).strict();
+
+export const manualOutcomeApprovalSchema = z.object({
+  schoolId: id,
+  resultId: id,
+  studentId: id,
+  classId: id,
+  academicYearId: id,
+  outcomeDefinitionId: id,
+  approved: z.boolean(),
+  reason: z.string().trim().min(5).max(500),
+  requestId: id,
+}).strict();
+
+export const initializeOutcomeTemplatesSchema = z.object({
+  schoolId: id,
+  academicYearId: id,
+}).strict();
+
+export const forumAccessRequestSchema = z.object({
+  schoolId: id,
+  userId: id,
+  requestedPermissions: z.array(z.enum([
+    'forum.createThread', 'forum.reply', 'forum.editOwnPost', 'forum.deleteOwnPost',
+    'forum.uploadAttachment', 'forum.createFolder', 'forum.editFolder', 'forum.pinThread',
+    'forum.lockThread', 'forum.moderate',
+  ])).min(1).max(12).transform(values => [...new Set(values)]),
+  reason: z.string().trim().min(5).max(1000),
+  expiresAt: z.string().datetime().optional(),
+}).strict();
+
+export const forumAccessReviewSchema = z.object({
+  requestId: id,
+  action: z.enum(['approve', 'reject', 'clarification']),
+  approvedPermissions: z.array(z.string().trim().min(1).max(80)).max(20).default([]),
+  reason: z.string().trim().min(3).max(1000),
+  expiresAt: z.string().datetime().optional(),
+}).strict();
+
+export const forumMembershipRevokeSchema = z.object({
+  membershipId: id,
+  reason: z.string().trim().min(3).max(500),
+}).strict();
+
+export const forumFolderSchema = z.object({
+  folderId: id.optional(),
+  name: shortText.min(1),
+  description: z.string().trim().max(1000).default(''),
+}).strict();
+
+export const forumThreadSchema = z.object({
+  folderId: id,
+  title: z.string().trim().min(1).max(200),
+  body: z.string().trim().min(1).max(10000),
+  attachmentIds: z.array(id).max(10).default([]),
+}).strict();
+
+export const forumPostSchema = z.object({
+  threadId: id,
+  body: z.string().trim().min(1).max(10000),
+  attachmentIds: z.array(id).max(10).default([]),
+}).strict();
+
+export const forumContentActionSchema = z.object({
+  targetType: z.enum(['thread', 'post']),
+  threadId: id,
+  postId: id.optional(),
+  action: z.enum(['edit', 'delete', 'pin', 'lock', 'report', 'follow']),
+  body: z.string().trim().max(10000).optional(),
+  reason: z.string().trim().max(1000).optional().default(''),
+}).strict();
+
+export const supportTicketSchema = z.object({
+  schoolId: id,
+  title: z.string().trim().min(1).max(160),
+  description: z.string().trim().min(10).max(10000),
+  issueType: z.enum(['technical', 'permissions', 'billing', 'security', 'other']),
+  urgency: z.enum(['low', 'normal', 'high', 'critical']),
+  attachmentIds: z.array(id).max(5).default([]),
+  technicalContext: z.object({
+    appVersion: z.string().trim().max(30).default(''),
+    route: z.string().trim().max(200).default(''),
+    browser: z.string().trim().max(200).default(''),
+  }).strict().default({ appVersion: '', route: '', browser: '' }),
+}).strict();
+
+export const supportTicketUpdateSchema = z.object({
+  ticketId: id,
+  status: z.enum(['open', 'in_progress', 'waiting_for_school', 'resolved', 'closed']),
+  response: z.string().trim().max(5000).default(''),
+  reason: z.string().trim().min(3).max(500),
+}).strict();
+
+export const platformDirectoryQuerySchema = z.object({
+  schoolId: id.optional(),
+  limit: z.number().int().min(1).max(200).default(100),
+}).strict();
+
+export const platformStaffActionSchema = z.object({
+  schoolId: id,
+  userId: id,
+  action: z.enum(['send_password_reset', 'revoke_sessions', 'disable_account', 'enable_account']),
+  reason: z.string().trim().min(5).max(500),
+  revokeSessions: z.boolean().default(false),
+}).strict();
+
+export const platformPermissionRepairSchema = z.object({
+  schoolId: id,
+  userId: id,
+  customRoleIds: z.array(id).max(30),
+  reason: z.string().trim().min(5).max(500),
+}).strict();

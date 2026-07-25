@@ -62,3 +62,10 @@ npm run build
 ```
 
 מודל ההרשאות, ACL, תצוגת ההרשאות ותהליך ההעברה היבש מתועדים ב־[`docs/security/permissions-model.md`](docs/security/permissions-model.md). אין להריץ migration או לפרוס Functions/Rules ישירות לייצור ללא גיבוי, סביבת staging ואישור מפורש.
+
+## בוגרים, מדדי זכאות, פורום ותמיכה
+
+- הפיכת כיתה לבוגרים, החזרת בוגר, חישובי זכאות ואישור ידני מתבצעים רק ב־Cloud Functions ונרשמים ביומן. ה־Snapshots והתוצאות ההיסטוריות אינם נמחקים או נכתבים מחדש מהדפדפן.
+- פורום בתי הספר נשמר ב־`platformForum` ובאזור Storage ייעודי. חברות בפורום אינה מעניקה חברות במוסד, וגישה של איש צוות מתחילה רק לאחר אישור Platform Admin.
+- ממשק Platform Admin הוא ממשק תמיכה מוגבל. הוא מציג ספריות מוסדות ואנשי צוות ופעולות תמיכה בלבד; כללי האבטחה חוסמים ממנו מידע פדגוגי ומידע אישי גם כאשר מזהה המסמך ידוע.
+- פעולות Platform Admin רגישות דורשות MFA, התחברות אחרונה וסיבה כתובה. תהליך ה־bootstrap מתועד ב־[`docs/security/platform-admin-bootstrap.md`](docs/security/platform-admin-bootstrap.md).

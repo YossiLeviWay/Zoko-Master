@@ -38,6 +38,15 @@ jobs:
       - run: npm run test:unit
       - run: npm run test:emulator
 
+      - name: Verify production App Check configuration
+        env:
+          VITE_FIREBASE_APPCHECK_SITE_KEY: ${{ secrets.VITE_FIREBASE_APPCHECK_SITE_KEY }}
+        run: |
+          if [ -z "$VITE_FIREBASE_APPCHECK_SITE_KEY" ]; then
+            echo "::error::VITE_FIREBASE_APPCHECK_SITE_KEY is required because production Cloud Functions enforce App Check."
+            exit 1
+          fi
+
       - name: Build
         run: npm run build
         env:

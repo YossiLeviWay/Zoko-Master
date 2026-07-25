@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { db } from '../../firebase';
+import { db, isAppCheckConfigured } from '../../firebase';
 import {
   collection, getDocs, query, where
 } from 'firebase/firestore';
@@ -75,6 +75,11 @@ export default function PagePermissionsPanel({ feature, onClose }) {
     const operationKey = `${user.id}_${level}`;
     setSaving(operationKey);
     setPanelError('');
+    if (!isAppCheckConfigured) {
+      setPanelError('App Check אינו מוגדר בגרסה שפורסמה, ולכן השרת חוסם שינוי הרשאות. יש להגדיר VITE_FIREBASE_APPCHECK_SITE_KEY ולפרסם את הממשק מחדש.');
+      setSaving(null);
+      return;
+    }
     try {
       const patch = {
         ...(viewKey ? { [viewKey]: true } : {}),
@@ -93,7 +98,7 @@ export default function PagePermissionsPanel({ feature, onClose }) {
       const reason = callableReason(err);
       setPanelError(reason === 'not-found'
         ? 'שירות שמירת ההרשאות טרם נפרס. יש לפרוס את Cloud Functions לפני שינוי הרשאות.'
-        : reason === 'failed-precondition' || reason === 'app-check-failed'
+        : reason === 'failed-precondition' || reason === 'app-check-failed' || reason === 'unauthenticated'
           ? 'אימות האפליקציה נכשל. יש לוודא ש-App Check מוגדר בגרסה שפורסמה.'
           : reason === 'permission-denied'
             ? 'אין הרשאה לשנות את המשתמש הזה.'

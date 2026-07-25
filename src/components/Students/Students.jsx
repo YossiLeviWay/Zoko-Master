@@ -51,6 +51,9 @@ import StudentLifecycleDialog from './StudentLifecycleDialog';
 import CvBulkDialog from './CvBulkDialog';
 import BulkStudentImportWizard from './BulkStudentImportWizard';
 import BulkStudentEditDialog from './BulkStudentEditDialog';
+import ClassGraduationDialog from './ClassGraduationDialog';
+import OutcomeManagement from './OutcomeManagement';
+import RestoreGraduateDialog from './RestoreGraduateDialog';
 import SegmentedControl from '../Common/SegmentedControl';
 import { academicYearDisplay } from '../../utils/academicYears';
 import '../Gantt/Gantt.css';
@@ -134,6 +137,9 @@ export default function Students() {
   const [showCvBulk, setShowCvBulk] = useState(false);
   const [showBulkImport, setShowBulkImport] = useState(false);
   const [showBulkEdit, setShowBulkEdit] = useState(false);
+  const [graduationClass, setGraduationClass] = useState(null);
+  const [showOutcomes, setShowOutcomes] = useState(false);
+  const [graduateToRestore, setGraduateToRestore] = useState(null);
   const [selectedStudentIds, setSelectedStudentIds] = useState([]);
   const [search, setSearch] = useState('');
   const [filterClass, setFilterClass] = useState('');
@@ -286,8 +292,17 @@ export default function Students() {
   const canTransfer = isAdmin || permissionApplies(['students_transfer_class', 'students.transferClass']);
   const canPromote = isAdmin || permissions['students.promote'] || permissions['classes.promote'];
   const canGraduate = isAdmin || permissions['students.markGraduate'];
+  const canGraduateClass = isAdmin || permissionApplies(['students.graduateClass']);
+  const outcomePermissions = {
+    view: isAdmin || permissionApplies(['outcomes.view']),
+    manageDefinitions: isAdmin || permissionApplies(['outcomes.manageDefinitions']),
+    assignToClass: isAdmin || permissionApplies(['outcomes.assignToClass']),
+    calculate: isAdmin || permissionApplies(['outcomes.calculate']),
+    manualApproval: isAdmin || permissionApplies(['outcomes.manualApproval']),
+  };
   const canExit = isAdmin || permissions['students.markWithdrawn'] || permissions['students.markDropout'];
   const canRestore = isAdmin || permissions['students.restore'];
+  const canRestoreGraduate = isAdmin || permissionApplies(['students.restoreGraduate']);
   const canArchive = isAdmin || permissions.students_archive || permissions['students.archive'];
   const canBulkCv = isAdmin || permissions['cv.bulkGenerate'];
   const personalFileAccessFor = student => ({
@@ -411,6 +426,7 @@ export default function Students() {
     classes_archive: isAdmin || permissions.classes_archive || permissions['classes.archive'],
     classes_assign_teacher: isAdmin || permissions.classes_assign_teacher || permissions['classes.assignTeacher'],
     attendance_create: isAdmin || permissions.attendance_create,
+    students_graduate_class: canGraduateClass,
   };
 
   return (
@@ -419,6 +435,7 @@ export default function Students() {
       {showPermissionsPanel && <PagePermissionsPanel feature="students" onClose={() => setShowPermissionsPanel(false)} />}
       <div className="page-content">
         <AcademicYearToolbar schoolId={schoolId} actor={actor} years={years} selectedYearId={selectedYearId} activeYearId={activeYearId} canManage={canManageYears} onSelect={yearId => { setSelectedYearId(yearId); setFilterClass(''); setSelectedStudentIds([]); }} />
+        {outcomePermissions.view && <div className="students-outcomes-entry"><button className="btn btn-secondary" onClick={() => setShowOutcomes(true)}><GraduationCap size={16} /> תעודות ומדדי זכאות</button></div>}
         <SegmentedControl
           value={activeTab}
           onChange={setActiveTab}
@@ -435,7 +452,7 @@ export default function Students() {
         {error && <div className="students-feedback students-feedback--error" role="alert">{error}</div>}
 
         {activeTab === 'classes' ? (
-          <ClassManagement schoolId={schoolId} actor={actor} classes={classesForYear} students={yearStudents} staff={staff} tracks={tracks} permissions={classPermissions} academicYear={selectedYear} onOpenStudents={openClassStudents} canViewGradesForClass={classId => gradeAccessFor({ classId }).view} canManageGradebookForClass={classId => gradeAccessFor({ classId }).manage} />
+          <ClassManagement schoolId={schoolId} actor={actor} classes={classesForYear} students={yearStudents} staff={staff} tracks={tracks} permissions={classPermissions} academicYear={selectedYear} onOpenStudents={openClassStudents} onGraduateClass={setGraduationClass} canViewGradesForClass={classId => gradeAccessFor({ classId }).view} canManageGradebookForClass={classId => gradeAccessFor({ classId }).manage} />
         ) : (
           <section aria-label={`רשימת תלמידים לשנת ${selectedYear?.label || ''}`}>
             <div className="page-toolbar students-toolbar">
@@ -460,7 +477,7 @@ export default function Students() {
 
             {showFilters && <div className="staff-filters-bar"><div className="staff-filter-group"><label>כיתה</label><select value={filterClass} onChange={event => setFilterClass(event.target.value)}><option value="">כל הכיתות</option>{classesForYear.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div><div className="staff-filter-group"><label>שכבה</label><select value={filterGrade} onChange={event => setFilterGrade(event.target.value)}><option value="">כל השכבות</option>{[...new Set(classesForYear.map(item => item.gradeLevel).filter(Boolean))].map(grade => <option key={grade}>{grade}</option>)}</select></div><div className="staff-filter-group"><label>מגמה</label><select value={filterTrack} onChange={event => setFilterTrack(event.target.value)}><option value="">כל המגמות</option>{tracks.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div><div className="staff-filter-group"><label>תוכנית</label><select value={filterProgram} onChange={event => setFilterProgram(event.target.value)}><option value="">הכול</option>{PROGRAM_TYPES.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></div><div className="staff-filter-group"><label>סטטוס</label><select value={filterStatus} onChange={event => setFilterStatus(event.target.value)}><option value="">לפי הלשונית</option>{Object.entries(STATUS_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></div></div>}
 
-            {filteredStudents.length > 0 && <div className="students-bulk-bar"><label><input type="checkbox" checked={filteredStudents.every(student => selectedStudentIds.includes(student.id))} onChange={event => setSelectedStudentIds(event.target.checked ? filteredStudents.map(student => student.id) : [])} /> בחירת כל המוצגים</label><span>{selectedStudents.length} נבחרו</span>{activeTab === 'active' && (isAdmin || canManagePrograms || canTransfer) && <button className="btn btn-secondary btn-sm" disabled={selectedStudents.length === 0} onClick={() => setShowBulkEdit(true)}><Edit3 size={13} /> עריכה מרוכזת</button>}{activeTab === 'active' && canPromote && <button className="btn btn-secondary btn-sm" disabled={selectedStudents.length === 0} onClick={() => setLifecycle({ mode: 'promote', students: lifecycleStudents('promote') })}>העלאה לשנה חדשה</button>}{activeTab === 'active' && canGraduate && <button className="btn btn-secondary btn-sm" disabled={selectedStudents.length === 0} onClick={() => setLifecycle({ mode: 'graduate', students: lifecycleStudents('graduate') })}>הפיכה לבוגרים</button>}{activeTab === 'active' && canExit && <button className="btn btn-secondary btn-sm" disabled={selectedStudents.length === 0} onClick={() => setLifecycle({ mode: 'exit', students: lifecycleStudents('exit') })}>פורש / נושר</button>}{activeTab === 'active' && canArchive && <button className="btn btn-secondary btn-sm" disabled={selectedStudents.length === 0} onClick={() => setLifecycle({ mode: 'archive', students: lifecycleStudents('archive') })}><Archive size={13} /> העברה לארכיון</button>}{activeTab !== 'active' && canRestore && <button className="btn btn-secondary btn-sm" disabled={selectedStudents.length === 0} onClick={() => setLifecycle({ mode: 'restore', students: lifecycleStudents('restore') })}>החזרה לפעילות</button>}</div>}
+            {filteredStudents.length > 0 && <div className="students-bulk-bar"><label><input type="checkbox" checked={filteredStudents.every(student => selectedStudentIds.includes(student.id))} onChange={event => setSelectedStudentIds(event.target.checked ? filteredStudents.map(student => student.id) : [])} /> בחירת כל המוצגים</label><span>{selectedStudents.length} נבחרו</span>{activeTab === 'active' && (isAdmin || canManagePrograms || canTransfer) && <button className="btn btn-secondary btn-sm" disabled={selectedStudents.length === 0} onClick={() => setShowBulkEdit(true)}><Edit3 size={13} /> עריכה מרוכזת</button>}{activeTab === 'active' && canPromote && <button className="btn btn-secondary btn-sm" disabled={selectedStudents.length === 0} onClick={() => setLifecycle({ mode: 'promote', students: lifecycleStudents('promote') })}>העלאה לשנה חדשה</button>}{activeTab === 'active' && canGraduate && <button className="btn btn-secondary btn-sm" disabled={selectedStudents.length === 0} onClick={() => setLifecycle({ mode: 'graduate', students: lifecycleStudents('graduate') })}>הפיכה לבוגרים</button>}{activeTab === 'active' && canExit && <button className="btn btn-secondary btn-sm" disabled={selectedStudents.length === 0} onClick={() => setLifecycle({ mode: 'exit', students: lifecycleStudents('exit') })}>פורש / נושר</button>}{activeTab === 'active' && canArchive && <button className="btn btn-secondary btn-sm" disabled={selectedStudents.length === 0} onClick={() => setLifecycle({ mode: 'archive', students: lifecycleStudents('archive') })}><Archive size={13} /> העברה לארכיון</button>}{activeTab === 'graduates' && canRestoreGraduate && <button className="btn btn-secondary btn-sm" disabled={selectedStudents.length !== 1} title="יש לבחור בוגר אחד" onClick={() => setGraduateToRestore(selectedStudents[0])}>החזרת בוגר לפעילות</button>}{activeTab === 'leavers' && canRestore && <button className="btn btn-secondary btn-sm" disabled={selectedStudents.length === 0} onClick={() => setLifecycle({ mode: 'restore', students: lifecycleStudents('restore') })}>החזרה לפעילות</button>}</div>}
 
             {viewMode === 'table' ? (
               <div className="data-table-wrap"><table className="data-table"><thead><tr><th aria-label="בחירה" /><th>שם תלמיד</th><th>כיתה</th><th>שנת לימודים</th><th>מגמות</th><th>סטטוס</th><th>פעולות</th></tr></thead><tbody>{filteredStudents.map(student => <tr key={student.id}><td><input type="checkbox" checked={selectedStudentIds.includes(student.id)} onChange={() => toggleSelected(student.id)} aria-label={`בחירת ${student.fullName}`} /></td><td className="td-bold"><div className="td-user"><div className="td-avatar">{student.fullName?.charAt(0) || '?'}</div>{student.fullName}</div></td><td>{student.className || 'לא משויך'}</td><td>{academicYearDisplay(selectedYear)}</td><td>{getTrackNames(student)}</td><td><span className={`student-state student-state--${student.status || 'active'}`}>{STATUS_LABELS[student.status || 'active']}</span></td><td><div className="td-actions"><button className="icon-btn" onClick={() => setProfileStudent(student)} aria-label={`פתיחת תיק ${student.fullName}`}><Eye size={15} /></button>{hasStudentPermission('students_update', student) && <button className="icon-btn" onClick={() => openEdit(student)} aria-label={`עריכת ${student.fullName}`}><Edit3 size={15} /></button>}{activeTab === 'active' && canTransfer && (isAdmin || permissionApplies(['students_transfer_class', 'students.transferClass'], student.classId)) && <button className="icon-btn" onClick={() => { setTransferTarget(student); setTransferForm({ classId: '', effectiveDate: localDateKey(), reason: '' }); }} aria-label={`העברת ${student.fullName} לכיתה אחרת`}><ArrowLeftRight size={15} /></button>}</div></td></tr>)}{filteredStudents.length === 0 && <tr><td colSpan={7} className="td-empty">אין תלמידים התואמים לשנה ולסינון שנבחרו.</td></tr>}</tbody></table></div>
@@ -480,6 +497,9 @@ export default function Students() {
       {showCvBulk && <CvBulkDialog schoolId={schoolId} actorUid={actor.uid} students={yearStudents} classes={activeClasses} academicYearId={selectedYearId} templateAccess={isAdmin || permissions['cvTemplates.view']} onClose={() => setShowCvBulk(false)} onComplete={(created, existing) => { setShowCvBulk(false); showSuccess(`נוצרו ${created} טיוטות${existing ? `; ${existing} כבר היו קיימות בבקשה זו` : ''}.`); }} />}
       {showBulkImport && <BulkStudentImportWizard schoolId={schoolId} classes={activeClasses} academicYear={selectedYear} onClose={() => setShowBulkImport(false)} onComplete={response => showSuccess(`הייבוא הסתיים: ${response.totals.created} נוצרו, ${response.totals.updated} עודכנו.`)} />}
       {showBulkEdit && <BulkStudentEditDialog schoolId={schoolId} actor={actor} students={selectedStudents} enrollments={effectiveEnrollments} classes={activeClasses} tracks={tracks} programs={PROGRAM_TYPES} academicYearId={selectedYearId} onClose={() => setShowBulkEdit(false)} onComplete={count => { setShowBulkEdit(false); setSelectedStudentIds([]); showSuccess(`עודכנו ${count} תלמידים.`); }} />}
+      {graduationClass && <ClassGraduationDialog schoolId={schoolId} classItem={graduationClass} academicYear={selectedYear} onClose={() => setGraduationClass(null)} onComplete={count => { setGraduationClass(null); showSuccess(`${count} תלמידים הועברו לרשימת הבוגרים ונשמר Snapshot היסטורי.`); }} />}
+      {showOutcomes && <OutcomeManagement schoolId={schoolId} academicYear={selectedYear} classes={classesForYear} permissions={outcomePermissions} onClose={() => setShowOutcomes(false)} />}
+      {graduateToRestore && <RestoreGraduateDialog schoolId={schoolId} student={graduateToRestore} years={years} classes={classes} onClose={() => setGraduateToRestore(null)} onComplete={() => { setGraduateToRestore(null); setSelectedStudentIds([]); showSuccess('הבוגר הוחזר לפעילות ונוצר שיוך שנתי חדש.'); }} />}
       {profileStudent && <StudentProfile student={profileStudent} tracks={tracks} schoolId={schoolId} actor={actor} canEdit={hasStudentPermission('students_update', profileStudent) || hasStudentPermission('students_edit', profileStudent)} canAddNotes={isAdmin || permissionApplies(['students.addNotes', 'students_add_notes'], profileStudent.classId)} canViewNotes={isAdmin || canViewAllStudents || permissionApplies(['students.viewSensitiveNotes', 'students_view_notes', 'students.view'], profileStudent.classId)} canViewGrades={gradeAccessFor(profileStudent).view} personalFileAccess={personalFileAccessFor(profileStudent)} cvAccess={cvAccessFor(profileStudent)} onClose={() => setProfileStudent(null)} onEdit={() => { setProfileStudent(null); openEdit(profileStudent); }} />}
     </div>
   );

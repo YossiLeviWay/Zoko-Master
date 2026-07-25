@@ -22,10 +22,8 @@ service cloud.firestore {
 
     function isGlobalAdmin() {
       return signedIn()
-        && (
-          (request.auth.token.keys().hasAny(['platform_admin']) && request.auth.token.platform_admin == true)
-          || (request.auth.token.keys().hasAny(['global_admin']) && request.auth.token.global_admin == true)
-        );
+        && request.auth.token.keys().hasAny(['global_admin'])
+        && request.auth.token.global_admin == true;
     }
 
     function isPlatformAdmin() {
@@ -34,8 +32,46 @@ service cloud.firestore {
         && request.auth.token.platform_admin == true;
     }
 
+    function isAnySchoolPrincipal() {
+      return activeUser()
+        && !isPlatformAdmin()
+        && currentUser().role in ['principal', 'institution_manager']
+        && (
+          (currentUser().schoolId is string && currentUser().schoolId.size() > 0)
+          || (currentUser().schoolIds is list && currentUser().schoolIds.size() > 0)
+        );
+    }
+
+    function hasActiveForumMembership() {
+      return activeUser()
+        && exists(/databases/$(database)/documents/platformForumMemberships/$(request.auth.uid))
+        && get(/databases/$(database)/documents/platformForumMemberships/$(request.auth.uid)).data.status == 'active'
+        && (
+          get(/databases/$(database)/documents/platformForumMemberships/$(request.auth.uid)).data.get('expiresAt', null) == null
+          || get(/databases/$(database)/documents/platformForumMemberships/$(request.auth.uid)).data.expiresAt > request.time
+        );
+    }
+
+    function hasForumPermission(permission) {
+      return isPlatformAdmin()
+        || (
+          isAnySchoolPrincipal()
+          && permission in ['forum.access', 'forum.read']
+        )
+        || (
+          hasActiveForumMembership()
+          && permission in get(/databases/$(database)/documents/platformForumMemberships/$(request.auth.uid)).data.permissions
+        );
+    }
+
+    function canUseForum() {
+      return hasForumPermission('forum.access') && hasForumPermission('forum.read');
+    }
+
     function isSchoolMember(schoolId) {
-      return activeUser() && (
+      // Platform support is intentionally not a school member, even if a
+      // legacy user document still contains schoolId/schoolIds.
+      return activeUser() && !isPlatformAdmin() && (
         isGlobalAdmin()
         || (
           exists(/databases/$(database)/documents/schools/$(schoolId)/memberships/$(request.auth.uid))
@@ -1548,7 +1584,7 @@ service cloud.firestore {
       allow read: if signedIn() && (
         request.auth.uid == userId
         || isGlobalAdmin()
-        || sharesSchool(resource.data)
+        || (!isPlatformAdmin() && sharesSchool(resource.data))
       );
       allow create: if false;
       allow update: if signedIn()
@@ -2039,6 +2075,78 @@ service cloud.firestore {
         allow create, update, delete: if false;
       }
 
+      match /outcomeDefinitions/{definitionId} {
+        allow read: if hasPermission(schoolId, 'outcomes.view')
+          || rolePermission(schoolId, 'outcomes.view')
+          || hasPermission(schoolId, 'outcomes.manageDefinitions');
+        allow create, update, delete: if false;
+
+        match /versions/{versionId} {
+          allow read: if hasPermission(schoolId, 'outcomes.view')
+            || rolePermission(schoolId, 'outcomes.view')
+            || hasPermission(schoolId, 'outcomes.manageDefinitions');
+          allow create, update, delete: if false;
+        }
+      }
+
+      match /classOutcomeTargets/{targetId} {
+        allow read: if hasPermission(schoolId, 'outcomes.view')
+          || rolePermission(schoolId, 'outcomes.view')
+          || hasPermission(schoolId, 'outcomes.assignToClass');
+        allow create, update, delete: if false;
+      }
+
+      match /outcomeSummaries/{summaryId} {
+        allow read: if hasPermission(schoolId, 'outcomes.view')
+          || rolePermission(schoolId, 'outcomes.view');
+        allow create, update, delete: if false;
+      }
+
+      match /studentOutcomeResults/{resultId} {
+        allow read: if hasStudentDataAccess(schoolId)
+          && (
+            hasPermission(schoolId, 'outcomes.viewStudentResults')
+            || rolePermission(schoolId, 'outcomes.viewStudentResults')
+          )
+          && resource.data.studentId is string
+          && exists(/databases/$(database)/documents/schools/$(schoolId)/students/$(resource.data.studentId))
+          && canViewStudent(
+            schoolId,
+            get(/databases/$(database)/documents/schools/$(schoolId)/students/$(resource.data.studentId)).data
+          );
+        allow create, update, delete: if false;
+      }
+
+      match /studentOutcomeApprovals/{approvalId} {
+        allow read: if canViewOutcomeResults(schoolId);
+        allow create, update, delete: if false;
+
+        match /history/{historyId} {
+          allow read: if canViewOutcomeResults(schoolId);
+          allow create, update, delete: if false;
+        }
+      }
+
+      match /graduationSnapshots/{snapshotId} {
+        allow read: if resource.data.studentId is string
+          && exists(/databases/$(database)/documents/schools/$(schoolId)/students/$(resource.data.studentId))
+          && canViewStudent(
+            schoolId,
+            get(/databases/$(database)/documents/schools/$(schoolId)/students/$(resource.data.studentId)).data
+          );
+        allow create, update, delete: if false;
+      }
+
+      match /graduationJobs/{jobId} {
+        allow read: if resource.data.createdBy == request.auth.uid || canManageSchoolUsers(schoolId);
+        allow create, update, delete: if false;
+      }
+
+      match /outcomeCalculationJobs/{jobId} {
+        allow read: if resource.data.createdBy == request.auth.uid || canManageSchoolUsers(schoolId);
+        allow create, update, delete: if false;
+      }
+
       match /auditLogs/{auditId} {
         allow read: if canManageSchoolUsers(schoolId) || hasPermission(schoolId, 'institution.audit.view');
         allow create, update, delete: if false;
@@ -2077,6 +2185,125 @@ service cloud.firestore {
         );
         allow create, update, delete: if hasPermission(schoolId, 'data_mapping_edit');
       }
+    }
+
+    match /platformForum/{rootId} {
+      allow read, write: if false;
+
+      match /folders/{folderId} {
+        allow read: if rootId == 'root' && canUseForum() && resource.data.status != 'deleted';
+        allow create, update, delete: if false;
+      }
+
+      match /threads/{threadId} {
+        allow read: if rootId == 'root' && canUseForum() && resource.data.status != 'deleted';
+        allow create, update, delete: if false;
+
+        match /posts/{postId} {
+          allow read: if rootId == 'root'
+            && canUseForum()
+            && get(/databases/$(database)/documents/platformForum/$(rootId)/threads/$(threadId)).data.status != 'deleted';
+          allow create, update, delete: if false;
+        }
+      }
+
+      match /attachments/{attachmentId} {
+        allow read: if rootId == 'root' && canUseForum() && resource.data.status == 'uploaded';
+        allow create: if rootId == 'root'
+          && hasForumPermission('forum.uploadAttachment')
+          && request.resource.data.keys().hasOnly([
+            'uploadedBy', 'status', 'storagePath', 'mimeType', 'size', 'createdAt'
+          ])
+          && request.resource.data.uploadedBy == request.auth.uid
+          && request.resource.data.status == 'pending'
+          && request.resource.data.size is int
+          && request.resource.data.size > 0
+          && request.resource.data.size <= 10 * 1024 * 1024
+          && request.resource.data.mimeType in ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
+          && request.resource.data.storagePath.matches('^platform-forum/attachments/' + attachmentId + '/[^/]+$');
+        allow update: if hasForumPermission('forum.uploadAttachment')
+          && resource.data.uploadedBy == request.auth.uid
+          && request.resource.data.uploadedBy == resource.data.uploadedBy
+          && request.resource.data.storagePath == resource.data.storagePath
+          && request.resource.data.mimeType == resource.data.mimeType
+          && request.resource.data.size == resource.data.size
+          && request.resource.data.status == 'uploaded'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'uploadedAt']);
+        allow delete: if false;
+      }
+
+      match /reports/{reportId} {
+        allow read: if isPlatformAdmin() || hasForumPermission('forum.moderate');
+        allow create, update, delete: if false;
+      }
+    }
+
+    match /platformForumMemberships/{membershipId} {
+      allow read: if isPlatformAdmin() || (signedIn() && request.auth.uid == membershipId);
+      allow create, update, delete: if false;
+    }
+
+    match /platformForumAccessRequests/{requestId} {
+      allow read: if isPlatformAdmin() || (
+        signedIn()
+        && (resource.data.userId == request.auth.uid || resource.data.requestedBy == request.auth.uid)
+      );
+      allow create, update, delete: if false;
+    }
+
+    match /supportTickets/{ticketId} {
+      allow read: if isPlatformAdmin() || (
+        activeUser()
+        && resource.data.schoolId is string
+        && isSchoolMember(resource.data.schoolId)
+        && (resource.data.createdBy == request.auth.uid || isSchoolPrincipal(resource.data.schoolId))
+      );
+      allow create, update, delete: if false;
+
+      match /responses/{responseId} {
+        allow read: if isPlatformAdmin() || (
+          activeUser()
+          && get(/databases/$(database)/documents/supportTickets/$(ticketId)).data.schoolId is string
+          && isSchoolPrincipal(get(/databases/$(database)/documents/supportTickets/$(ticketId)).data.schoolId)
+        );
+        allow create, update, delete: if false;
+      }
+    }
+
+    match /supportAttachments/{attachmentId} {
+      allow read: if isPlatformAdmin() || (
+        activeUser()
+        && resource.data.schoolId is string
+        && isSchoolPrincipal(resource.data.schoolId)
+      );
+      allow create: if activeUser()
+        && request.resource.data.keys().hasOnly([
+          'schoolId', 'uploadedBy', 'status', 'storagePath', 'mimeType', 'size', 'createdAt'
+        ])
+        && request.resource.data.schoolId is string
+        && isSchoolMember(request.resource.data.schoolId)
+        && request.resource.data.uploadedBy == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.size is int
+        && request.resource.data.size > 0
+        && request.resource.data.size <= 10 * 1024 * 1024
+        && request.resource.data.mimeType in ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
+        && request.resource.data.storagePath.matches('^platform-support/' + request.resource.data.schoolId + '/' + attachmentId + '/[^/]+$');
+      allow update: if activeUser()
+        && resource.data.uploadedBy == request.auth.uid
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.uploadedBy == resource.data.uploadedBy
+        && request.resource.data.storagePath == resource.data.storagePath
+        && request.resource.data.mimeType == resource.data.mimeType
+        && request.resource.data.size == resource.data.size
+        && request.resource.data.status == 'uploaded'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'uploadedAt']);
+      allow delete: if false;
+    }
+
+    match /platformAuditLogs/{auditId} {
+      allow read: if isPlatformAdmin();
+      allow create, update, delete: if false;
     }
 
     match /conversations/{conversationId} {

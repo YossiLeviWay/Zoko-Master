@@ -1136,3 +1136,18 @@
     grid-template-columns: 1fr;
   }
 }
+.students-outcomes-entry { display: flex; justify-content: flex-start; margin: .75rem 0; }
+.graduation-preview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .75rem; }
+.graduation-preview-grid span { display: flex; flex-direction: column; gap: .3rem; padding: .8rem; border: 1px solid #dbe4f0; border-radius: 10px; background: #f8fafc; }
+.students-feedback--warning { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+.modal-content--fullscreen { width: min(1180px, 96vw); max-height: 94vh; overflow: auto; }
+.outcomes-layout { gap: 1rem; }
+.outcome-definition-form, .outcome-target-form { padding: 1rem; }
+.outcome-criteria { display: grid; gap: .55rem; margin: .75rem 0; }
+.outcome-criterion, .outcome-target-form { display: flex; flex-wrap: wrap; gap: .55rem; align-items: center; }
+.outcome-criterion select, .outcome-criterion input, .outcome-target-form select, .outcome-target-form input { min-width: 150px; flex: 1; }
+.outcomes-class-list { display: grid; gap: .75rem; }
+.outcome-class-heading, .outcome-summary-row { display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }
+.outcome-summary-row { padding: .65rem 0; border-top: 1px solid #e2e8f0; }
+.outcome-summary-row em { width: 100%; color: #b45309; font-size: .78rem; }
+.data-table td small { display: block; color: #64748b; margin-top: .25rem; }

@@ -82,9 +82,9 @@ export default function Login() {
               <fieldset className="auth-step">
                 <legend><span>1</span> בחירת מוסד</legend>
                 <div className="auth-school-search"><Search size={15} /><input value={schoolSearch} onChange={event => setSchoolSearch(event.target.value)} placeholder="חיפוש לפי שם מוסד" aria-label="חיפוש מוסד" /></div>
-                <label className="form-group">מוסד<select value={schoolId} onChange={event => setSchoolId(event.target.value)} required disabled={schoolsLoading}><option value="">{schoolsLoading ? 'טוען מוסדות…' : 'בחרו מוסד'}</option>{filteredSchools.map(item => <option key={item.id} value={item.id}>{item.name}{item.code ? ` · ${item.code}` : ''}</option>)}</select></label>
+                <label className="form-group">מוסד<select value={schoolId} onChange={event => setSchoolId(event.target.value)} disabled={schoolsLoading}><option value="">{schoolsLoading ? 'טוען מוסדות…' : 'בחרו מוסד'}</option>{filteredSchools.map(item => <option key={item.id} value={item.id}>{item.name}{item.code ? ` · ${item.code}` : ''}</option>)}</select><span className="form-hint">נדרש למשתמשי מוסד. Platform Admin יכול להשאיר ריק.</span></label>
               </fieldset>
-              <fieldset className="auth-step" disabled={!schoolId}>
+              <fieldset className="auth-step">
                 <legend><span>2</span> פרטי התחברות</legend>
               <div className="form-group">
                 <label>דוא"ל</label>
