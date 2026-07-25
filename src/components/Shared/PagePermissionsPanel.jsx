@@ -4,7 +4,7 @@ import { db } from '../../firebase';
 import {
   collection, getDocs, query, where
 } from 'firebase/firestore';
-import { updateStaffUser } from '../../services/adminUserService';
+import { callableReason, updateStaffUser } from '../../services/adminUserService';
 import { Shield, X, Eye, Edit3, ChevronDown, ChevronUp, Users, Check } from 'lucide-react';
 
 const FEATURE_LABELS = {
@@ -31,6 +31,7 @@ export default function PagePermissionsPanel({ feature, onClose }) {
   const [staff, setStaff] = useState([]);
   const [saving, setSaving] = useState(null);
   const [saved, setSaved] = useState(null);
+  const [panelError, setPanelError] = useState('');
   const [search, setSearch] = useState('');
   const panelRef = useRef(null);
 
@@ -68,34 +69,48 @@ export default function PagePermissionsPanel({ feature, onClose }) {
     loadStaff();
   }, [schoolId, loadStaff]);
 
-  async function togglePerm(user, permKey, currentVal) {
-    setSaving(`${user.id}_${permKey}`);
+  async function setAccessLevel(user, level) {
+    const viewKey = featureMeta.view;
+    const editKey = featureMeta.edit;
+    const operationKey = `${user.id}_${level}`;
+    setSaving(operationKey);
+    setPanelError('');
     try {
-      const aliasKey = permKey === featureMeta.view ? featureMeta.viewAlias : featureMeta.editAlias;
-      const nextPermissions = {
-        ...(user.permissions || {}),
-        [permKey]: !currentVal,
-        ...(aliasKey ? { [aliasKey]: !currentVal } : {}),
+      const patch = {
+        ...(viewKey ? { [viewKey]: true } : {}),
+        ...(featureMeta.viewAlias ? { [featureMeta.viewAlias]: true } : {}),
+        ...(editKey ? { [editKey]: level === 'edit' } : {}),
+        ...(featureMeta.editAlias ? { [featureMeta.editAlias]: level === 'edit' } : {}),
       };
-      await updateStaffUser({ userId: user.id, schoolId, permissions: nextPermissions });
+      await updateStaffUser({ userId: user.id, schoolId, permissions: patch });
       setStaff(prev => prev.map(u => u.id === user.id
-        ? { ...u, permissions: nextPermissions }
+        ? { ...u, permissions: { ...(u.permissions || {}), ...patch } }
         : u
       ));
-      setSaved(`${user.id}_${permKey}`);
+      setSaved(operationKey);
       setTimeout(() => setSaved(null), 1200);
     } catch (err) {
-      console.error('Error toggling permission:');
+      const reason = callableReason(err);
+      setPanelError(reason === 'not-found'
+        ? 'שירות שמירת ההרשאות טרם נפרס. יש לפרוס את Cloud Functions לפני שינוי הרשאות.'
+        : reason === 'failed-precondition' || reason === 'app-check-failed'
+          ? 'אימות האפליקציה נכשל. יש לוודא ש-App Check מוגדר בגרסה שפורסמה.'
+          : reason === 'permission-denied'
+            ? 'אין הרשאה לשנות את המשתמש הזה.'
+            : 'שמירת ההרשאה נכשלה. השינוי לא נשמר.');
     }
     setSaving(null);
   }
 
   function getEffectivePerm(user, permKey) {
     if (!permKey) return true;
-    if (user.role === 'principal') return true;
+    if (['principal', 'institution_manager', 'global_admin', 'platform_admin'].includes(user.role)) return true;
     const aliasKey = permKey === featureMeta.view ? featureMeta.viewAlias : featureMeta.editAlias;
     const override = user.permissions?.[aliasKey] ?? user.permissions?.[permKey];
     if (override !== undefined) return override;
+    const rolePermissions = user.rolePermissionsBySchool?.[schoolId] || {};
+    const roleValue = rolePermissions?.[aliasKey] ?? rolePermissions?.[permKey];
+    if (roleValue !== undefined) return roleValue;
     // Student data is sensitive and therefore has no implicit viewer access.
     if (permKey === 'students_view' || permKey === 'classes_view') return false;
     return permKey.endsWith('_view') || permKey === 'messages_send';
@@ -167,6 +182,7 @@ export default function PagePermissionsPanel({ feature, onClose }) {
               fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box',
             }}
           />
+          {panelError && <div role="alert" style={{ marginTop: '0.55rem', color: '#b91c1c', fontSize: '0.78rem', lineHeight: 1.5 }}>{panelError}</div>}
         </div>
 
         {/* User list */}
@@ -177,7 +193,7 @@ export default function PagePermissionsPanel({ feature, onClose }) {
             </div>
           )}
           {filtered.map(user => {
-            const isPrinc = user.role === 'principal';
+            const isPrinc = ['principal', 'institution_manager', 'global_admin', 'platform_admin'].includes(user.role);
             const viewKey = featureMeta.view;
             const editKey = featureMeta.edit;
             const canView = getEffectivePerm(user, viewKey);
@@ -216,11 +232,11 @@ export default function PagePermissionsPanel({ feature, onClose }) {
                     <PermToggle
                       label="צפייה"
                       icon={<Eye size={13} />}
-                      active={isPrinc || canView}
+                      active={isPrinc || (canView && !canEdit)}
                       disabled={isPrinc}
-                      loading={saving === `${user.id}_${viewKey}`}
-                      justSaved={saved === `${user.id}_${viewKey}`}
-                      onChange={() => !isPrinc && togglePerm(user, viewKey, canView)}
+                      loading={saving === `${user.id}_view`}
+                      justSaved={saved === `${user.id}_view`}
+                      onChange={() => !isPrinc && setAccessLevel(user, 'view')}
                     />
                   )}
                   {editKey && (
@@ -229,9 +245,9 @@ export default function PagePermissionsPanel({ feature, onClose }) {
                       icon={<Edit3 size={13} />}
                       active={isPrinc || canEdit}
                       disabled={isPrinc}
-                      loading={saving === `${user.id}_${editKey}`}
-                      justSaved={saved === `${user.id}_${editKey}`}
-                      onChange={() => !isPrinc && togglePerm(user, editKey, canEdit)}
+                      loading={saving === `${user.id}_edit`}
+                      justSaved={saved === `${user.id}_edit`}
+                      onChange={() => !isPrinc && setAccessLevel(user, 'edit')}
                     />
                   )}
                 </div>
@@ -245,7 +261,7 @@ export default function PagePermissionsPanel({ feature, onClose }) {
           padding: '0.75rem 1.25rem', borderTop: '1px solid #f1f5f9',
           background: '#f8fafc', fontSize: '0.76rem', color: '#94a3b8', textAlign: 'center',
         }}>
-          שינויים נשמרים מיידית וייכנסו לתוקף בכניסה הבאה של המשתמש
+          בחירה ב״עריכה״ כוללת גם הרשאת צפייה. השינוי נשמר בשרת ומתעדכן אצל המשתמש לאחר רענון.
         </div>
       </div>
     </div>

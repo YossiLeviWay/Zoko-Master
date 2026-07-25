@@ -119,7 +119,7 @@ export default function GanttChart() {
     if (!schoolId) return;
     const sets = new Map();
     const emit = () => setCalendarTasks([...sets.values()].flat().filter(task => task.dueDate && task.status !== 'done' && task.status !== 'completed'));
-    const unsubscribers = [collection(db, `tasks_${schoolId}`), schoolCollection(db, schoolId, 'tasks')].map((ref, index) => onSnapshot(ref, snapshot => {
+    const unsubscribers = [collection(db, `tasks_${schoolId}`), schoolCollection(db, schoolId, 'tasks', 'nested')].map((ref, index) => onSnapshot(ref, snapshot => {
       sets.set(index, snapshot.docs.map(item => ({ id: item.id, ...item.data() })));
       emit();
     }, () => { sets.set(index, []); emit(); }));

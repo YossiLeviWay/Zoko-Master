@@ -50,7 +50,7 @@ export async function updateStaffHandler(request) {
   const actor = await requireActor(request);
   const input = updateStaffSchema.parse(request.data);
   requireSchoolManager(actor, input.schoolId);
-  const target = await requireTargetInSchool(actor, input.userId, input.schoolId);
+  const target = await requireTargetInSchool(actor, input.userId, input.schoolId, { requireAuthUser: false });
   await enforceRateLimit({ uid: actor.uid, action: 'updateStaffUser', limit: 30 });
 
   if (input.customRoleIds) {
@@ -60,15 +60,19 @@ export async function updateStaffHandler(request) {
     await assertReferencesBelongToSchool(input.schoolId, 'teams', input.teamIds);
   }
 
+  if (input.email && !target.auth) throw permissionDenied();
   const authUpdate = {};
-  if (input.email && input.email !== target.auth.email) authUpdate.email = input.email;
-  if (input.fullName && input.fullName !== target.auth.displayName) authUpdate.displayName = input.fullName;
+  if (input.email && input.email !== target.auth?.email) authUpdate.email = input.email;
+  if (target.auth && input.fullName && input.fullName !== target.auth.displayName) authUpdate.displayName = input.fullName;
   if (Object.keys(authUpdate).length > 0) await adminAuth.updateUser(input.userId, authUpdate);
 
   const allowedFields = ['fullName', 'email', 'phone', 'jobTitle', 'customRoleIds', 'teamIds', 'permissions'];
   const update = Object.fromEntries(
     allowedFields.filter(field => input[field] !== undefined).map(field => [field, input[field]]),
   );
+  if (input.permissions) {
+    update.permissions = { ...(target.data.permissions || {}), ...input.permissions };
+  }
   update.updatedAt = FieldValue.serverTimestamp();
   await target.ref.update(update);
 
