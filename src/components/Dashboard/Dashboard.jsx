@@ -92,9 +92,9 @@ const HOLIDAY_TYPE_LABELS = {
 const HOLIDAY_BORDER_COLORS = {
   jewish: '#f59e0b',
   muslim: '#10b981',
-  christian: '#3b82f6',
+  christian: '#fc5029',
   druze: '#8b5cf6',
-  national: '#2563eb',
+  national: '#870335',
 };
 
 export default function Dashboard() {
@@ -813,7 +813,7 @@ export default function Dashboard() {
                       <div className="my-task-meta">
                         <span className="my-task-priority" style={{ background: prioBgs[task.priority], color: prioColors[task.priority] }}>{prioLabels[task.priority] || 'בינונית'}</span>
                         <span className="my-task-team">{task.scope === TASK_SCOPES.PERSONAL ? <Lock size={10} /> : <Users size={10} />}{teamName}</span>
-                        <span className="my-task-status" style={{ color: task.status === 'in_progress' ? '#2563eb' : '#64748b' }}>{statusLabels[task.status] || 'לביצוע'}</span>
+                        <span className="my-task-status" style={{ color: task.status === 'in_progress' ? '#870335' : '#765968' }}>{statusLabels[task.status] || 'לביצוע'}</span>
                         {dueDate && <span className={`my-task-due ${overdue ? 'my-task-due--late' : ''}`}>{new Date(`${String(dueDate).slice(0, 10)}T00:00:00`).toLocaleDateString('he-IL')}</span>}
                       </div>
                     </div>
@@ -850,7 +850,7 @@ export default function Dashboard() {
         return (
           <div className="holiday-list">
             {filteredHolidays.map((holiday, idx) => (
-              <div key={idx} className="holiday-card" style={{ borderRightColor: HOLIDAY_BORDER_COLORS[holiday.type] || '#e2e8f0', cursor: 'pointer' }} onClick={() => { const d = new Date(holiday.startDate + 'T00:00:00'); navigate(`/calendar?year=${d.getFullYear()}&month=${d.getMonth()}`); }}>
+              <div key={idx} className="holiday-card" style={{ borderRightColor: HOLIDAY_BORDER_COLORS[holiday.type] || '#eadfe2', cursor: 'pointer' }} onClick={() => { const d = new Date(holiday.startDate + 'T00:00:00'); navigate(`/calendar?year=${d.getFullYear()}&month=${d.getMonth()}`); }}>
                 <div className="holiday-info">
                   <span className="holiday-name">{holiday.name}</span>
                   <span className="holiday-dates">{formatHebrewDate(holiday.startDate)}{holiday.startDate !== holiday.endDate && <> - {formatHebrewDate(holiday.endDate)}</>}</span>
@@ -875,11 +875,11 @@ export default function Dashboard() {
                     <Megaphone size={12} style={{ color: '#6366f1' }} />
                     <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>{ann.senderName}</span>
                   </div>
-                  <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+                  <span style={{ fontSize: '0.7rem', color: '#9b8790' }}>
                     {ann.createdAt ? new Date(ann.createdAt).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' }) : ''}
                   </span>
                 </div>
-                <div style={{ fontSize: '0.88rem', color: '#334155', marginTop: '0.35rem', lineHeight: 1.5 }}>{ann.text}</div>
+                <div style={{ fontSize: '0.88rem', color: '#3f1828', marginTop: '0.35rem', lineHeight: 1.5 }}>{ann.text}</div>
               </div>
             ))}
           </div>
@@ -891,12 +891,12 @@ export default function Dashboard() {
             {teamActivity.map(task => {
               const teamName = getTaskTeamName(task);
               return (
-                <div key={task.id} className="my-task-item" style={{ borderRightColor: '#2563eb', cursor: 'pointer' }} onClick={() => navigate('/tasks')}>
+                <div key={task.id} className="my-task-item" style={{ borderRightColor: '#870335', cursor: 'pointer' }} onClick={() => navigate('/tasks')}>
                   <div className="my-task-main">
                     <span className="my-task-title">{task.title}</span>
                     <div className="my-task-meta">
                       <span className="my-task-team"><Users size={10} style={{ verticalAlign: 'middle', marginLeft: '0.15rem' }} />{teamName}</span>
-                      <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{task.createdBy || ''}</span>
+                      <span style={{ fontSize: '0.7rem', color: '#9b8790' }}>{task.createdBy || ''}</span>
                       {task.dueDate && <span className="my-task-due">{new Date(task.dueDate).toLocaleDateString('he-IL')}</span>}
                     </div>
                   </div>
@@ -917,8 +917,8 @@ export default function Dashboard() {
                     {file.name}
                   </span>
                   <div className="my-task-meta">
-                    {file.lastModifiedBy && <span style={{ fontSize: '0.7rem', color: '#64748b' }}>נערך ע"י: {file.lastModifiedBy}</span>}
-                    {file.lastModified && <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{formatActivityDate(file.lastModified)}</span>}
+                    {file.lastModifiedBy && <span style={{ fontSize: '0.7rem', color: '#765968' }}>נערך ע"י: {file.lastModifiedBy}</span>}
+                    {file.lastModified && <span style={{ fontSize: '0.7rem', color: '#9b8790' }}>{formatActivityDate(file.lastModified)}</span>}
                   </div>
                 </div>
               </div>
@@ -954,8 +954,8 @@ export default function Dashboard() {
                   <span className="my-task-title">{task.title}</span>
                   <div className="my-task-meta">
                     <span className="my-task-priority" style={{ background: prioBgs[task.priority], color: prioColors[task.priority] }}>{prioLabels[task.priority] || 'בינונית'}</span>
-                    <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>יוצר: {task.createdBy || '—'}</span>
-                    {task.createdAt && <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{formatActivityDate(task.createdAt)}</span>}
+                    <span style={{ fontSize: '0.7rem', color: '#9b8790' }}>יוצר: {task.createdBy || '—'}</span>
+                    {task.createdAt && <span style={{ fontSize: '0.7rem', color: '#9b8790' }}>{formatActivityDate(task.createdAt)}</span>}
                   </div>
                 </div>
               </div>
@@ -1174,7 +1174,7 @@ export default function Dashboard() {
           })}
           {widgets.length === 0 && (
             <div className="dashboard-empty" style={{ gridColumn: '1 / -1' }}>
-              <PlusCircle size={32} style={{ color: '#94a3b8' }} />
+              <PlusCircle size={32} style={{ color: '#9b8790' }} />
               <p>לחץ ימני כדי להוסיף תצוגות לדשבורד</p>
             </div>
           )}
@@ -1183,7 +1183,7 @@ export default function Dashboard() {
         {/* Right-click: Add widget menu */}
         {showAddWidget && (
           <div className="context-menu" style={{ position: 'fixed', top: addWidgetPos.y, left: addWidgetPos.x, zIndex: 1000 }} onClick={e => e.stopPropagation()}>
-            <div style={{ padding: '0.4rem 0.6rem', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', borderBottom: '1px solid #f1f5f9' }}>הוסף תצוגה</div>
+            <div style={{ padding: '0.4rem 0.6rem', fontSize: '0.75rem', fontWeight: 700, color: '#765968', borderBottom: '1px solid #f9f1ef' }}>הוסף תצוגה</div>
             {Object.entries(WIDGET_TYPES).map(([type, config]) => {
               const Icon = config.icon;
               const alreadyAdded = widgets.some(w => w.type === type);
@@ -1373,7 +1373,7 @@ export default function Dashboard() {
                     <div
                       key={idx}
                       className="holiday-card"
-                      style={{ borderRightColor: HOLIDAY_BORDER_COLORS[holiday.type] || '#e2e8f0', cursor: 'pointer' }}
+                      style={{ borderRightColor: HOLIDAY_BORDER_COLORS[holiday.type] || '#eadfe2', cursor: 'pointer' }}
                       onClick={() => {
                         const d = new Date(holiday.startDate + 'T00:00:00');
                         navigate(`/calendar?year=${d.getFullYear()}&month=${d.getMonth()}`);
@@ -1471,7 +1471,7 @@ export default function Dashboard() {
                     </div>
                     <div className="event-details">
                       <span className="event-title">{event.title}</span>
-                      <span className="event-category" style={{ background: '#eff6ff', color: '#2563eb' }}>
+                      <span className="event-category" style={{ background: '#fbf6f5', color: '#870335' }}>
                         {event.schoolName}
                       </span>
                       {event.category && (

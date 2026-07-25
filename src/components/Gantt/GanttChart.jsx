@@ -35,7 +35,7 @@ const DEFAULT_CATEGORIES = ['כללי'];
 
 const PASTEL_COLORS = [
   '#fecdd3', '#fed7aa', '#fef08a', '#bbf7d0', '#99f6e4',
-  '#bae6fd', '#c4b5fd', '#e9d5ff', '#e2e8f0', '#ffffff'
+  '#bae6fd', '#c4b5fd', '#e9d5ff', '#eadfe2', '#ffffff'
 ];
 
 function getWeeksInMonth(year, month) {
@@ -492,7 +492,7 @@ export default function GanttChart() {
             <select
               value={filterCategory}
               onChange={e => setFilterCategory(e.target.value)}
-              style={{ padding: '0.35rem 0.5rem', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: '0.78rem', background: '#f8fafc', fontFamily: 'Inter, sans-serif' }}
+              className="gantt-select gantt-filter-select"
             >
               <option value="all">כל הקטגוריות</option>
               {categories.map(cat => (

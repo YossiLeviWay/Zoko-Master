@@ -1,17 +1,19 @@
 .forum-page { display: grid; grid-template-columns: 190px minmax(260px, 1fr) minmax(320px, 1.4fr); gap: 1rem; align-items: start; }
-.forum-folders, .forum-threads, .forum-discussion { border: 1px solid #e2e8f0; border-radius: 12px; padding: .85rem; background: #fff; min-height: 65vh; }
+.forum-folders, .forum-threads, .forum-discussion { border: 1px solid var(--color-border); border-radius: 12px; padding: .85rem; background: #fff; min-height: 65vh; }
 .forum-folders { display: flex; flex-direction: column; gap: .4rem; }
 .forum-folders > button { border: 0; background: transparent; text-align: right; padding: .6rem; border-radius: 8px; cursor: pointer; }
-.forum-folders > button.active, .forum-thread-card.active { background: #eff6ff; color: #1d4ed8; }
+.forum-folders > button.active, .forum-thread-card.active { background: var(--color-primary-soft); color: var(--color-primary-hover); }
 .forum-folders form, .forum-heading, .forum-reply { display: flex; gap: .5rem; align-items: center; justify-content: space-between; }
+.forum-folders form { display: grid; grid-template-columns: 1fr; align-items: stretch; margin-top: .35rem; }
+.forum-folders form .btn { width: 100%; }
 .forum-filters { display: grid; grid-template-columns: 1fr auto auto; gap: .45rem; margin: .6rem 0; }
 .forum-filters input, .forum-filters select { min-width: 0; }
 .forum-folders input { min-width: 0; width: 100%; }
 .forum-new-thread { display: grid; gap: .5rem; padding: .75rem; margin-bottom: .75rem; }
-.forum-thread-card { width: 100%; border: 0; border-bottom: 1px solid #e2e8f0; background: #fff; padding: .8rem; text-align: right; cursor: pointer; display: grid; gap: .35rem; }
-.forum-thread-card small, .forum-post small { color: #64748b; }
-.forum-thread-card p { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; margin: 0; color: #475569; }
-.forum-post { padding: .8rem 0; border-bottom: 1px solid #e2e8f0; }
+.forum-thread-card { width: 100%; border: 0; border-bottom: 1px solid var(--color-border); background: #fff; padding: .8rem; text-align: right; cursor: pointer; display: grid; gap: .35rem; }
+.forum-thread-card small, .forum-post small { color: var(--color-text-subtle); }
+.forum-thread-card p { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; margin: 0; color: var(--color-text-muted); }
+.forum-post { padding: .8rem 0; border-bottom: 1px solid var(--color-border); }
 .forum-post p { white-space: pre-wrap; overflow-wrap: anywhere; }
 .forum-reply { margin-top: 1rem; align-items: stretch; }
 .forum-reply textarea { flex: 1; }

@@ -132,17 +132,17 @@ export default function TrackManager({ schoolId, onClose }) {
                 <select
                   value={filterProgram}
                   onChange={e => setFilterProgram(e.target.value)}
-                  style={{ padding: '0.35rem 0.5rem', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: '0.82rem', background: '#f8fafc' }}
+                  style={{ padding: '0.35rem 0.5rem', border: '1px solid #eadfe2', borderRadius: 8, fontSize: '0.82rem', background: '#fbf6f5' }}
                 >
                   <option value="">כל המסלולים</option>
                   {PROGRAM_TYPES.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
                 </select>
-                <span style={{ marginRight: 'auto', fontSize: '0.8rem', color: '#64748b' }}>{filteredTracks.length} מגמות</span>
+                <span style={{ marginRight: 'auto', fontSize: '0.8rem', color: '#765968' }}>{filteredTracks.length} מגמות</span>
               </div>
 
               <div className="tracks-list">
                 {filteredTracks.length === 0 && (
-                  <div style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>
+                  <div style={{ textAlign: 'center', padding: '2rem', color: '#9b8790' }}>
                     <GraduationCap size={32} style={{ marginBottom: '0.5rem' }} />
                     <p>אין מגמות עדיין. צור מגמה חדשה.</p>
                   </div>
@@ -158,7 +158,7 @@ export default function TrackManager({ schoolId, onClose }) {
                         <span className={`student-program-badge student-program--${track.programType}`} style={{ marginRight: '0.5rem' }}>
                           {PROGRAM_TYPES.find(p => p.id === track.programType)?.label || '—'}
                         </span>
-                        <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                        <span style={{ fontSize: '0.75rem', color: '#9b8790' }}>
                           {(track.requirements || []).length} דרישות
                         </span>
                       </div>
@@ -175,10 +175,10 @@ export default function TrackManager({ schoolId, onClose }) {
                     {expandedTrack === track.id && (
                       <div className="track-requirements-preview">
                         {track.description && (
-                          <p style={{ color: '#64748b', fontSize: '0.82rem', marginBottom: '0.5rem' }}>{track.description}</p>
+                          <p style={{ color: '#765968', fontSize: '0.82rem', marginBottom: '0.5rem' }}>{track.description}</p>
                         )}
                         {(track.requirements || []).length === 0 ? (
-                          <p style={{ color: '#94a3b8', fontSize: '0.8rem' }}>אין דרישות מוגדרות</p>
+                          <p style={{ color: '#9b8790', fontSize: '0.8rem' }}>אין דרישות מוגדרות</p>
                         ) : (
                           <div className="req-preview-list">
                             {track.requirements.map(req => (
@@ -187,7 +187,7 @@ export default function TrackManager({ schoolId, onClose }) {
                                   {REQUIREMENT_TYPES.find(t => t.id === req.type)?.label || req.type}
                                 </span>
                                 <span>{req.name}</span>
-                                {req.units && <span style={{ color: '#94a3b8', fontSize: '0.75rem' }}>{req.units} יח״ל</span>}
+                                {req.units && <span style={{ color: '#9b8790', fontSize: '0.75rem' }}>{req.units} יח״ל</span>}
                                 {!req.required && <span style={{ color: '#f59e0b', fontSize: '0.72rem' }}>אופציונלי</span>}
                               </div>
                             ))}
@@ -315,7 +315,7 @@ export default function TrackManager({ schoolId, onClose }) {
 
                 <div className="req-list">
                   {trackForm.requirements.length === 0 && (
-                    <p style={{ color: '#94a3b8', fontSize: '0.82rem', textAlign: 'center', padding: '1rem' }}>
+                    <p style={{ color: '#9b8790', fontSize: '0.82rem', textAlign: 'center', padding: '1rem' }}>
                       אין דרישות עדיין — הוסף דרישות למגמה
                     </p>
                   )}
@@ -333,7 +333,7 @@ export default function TrackManager({ schoolId, onClose }) {
                             <select
                               value={req.type}
                               onChange={e => updateRequirement(req.id, 'type', e.target.value)}
-                              style={{ fontSize: '0.75rem', padding: '0.15rem 0.3rem', border: '1px solid #e2e8f0', borderRadius: 4 }}
+                              style={{ fontSize: '0.75rem', padding: '0.15rem 0.3rem', border: '1px solid #eadfe2', borderRadius: 4 }}
                             >
                               {REQUIREMENT_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
                             </select>
@@ -342,7 +342,7 @@ export default function TrackManager({ schoolId, onClose }) {
                               onChange={e => updateRequirement(req.id, 'units', e.target.value)}
                               placeholder="יח׳"
                               dir="ltr"
-                              style={{ width: 50, fontSize: '0.75rem', padding: '0.15rem 0.3rem', border: '1px solid #e2e8f0', borderRadius: 4 }}
+                              style={{ width: 50, fontSize: '0.75rem', padding: '0.15rem 0.3rem', border: '1px solid #eadfe2', borderRadius: 4 }}
                             />
                             <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem' }}>
                               <input
@@ -354,7 +354,7 @@ export default function TrackManager({ schoolId, onClose }) {
                             </label>
                           </div>
                           {req.description && (
-                            <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{req.description}</span>
+                            <span style={{ fontSize: '0.72rem', color: '#9b8790' }}>{req.description}</span>
                           )}
                         </div>
                       </div>

@@ -169,7 +169,7 @@ export default function ExcelWriter() {
     { label: 'לבן', value: '#ffffff' },
     { label: 'צהוב', value: '#fef08a' },
     { label: 'ירוק', value: '#86efac' },
-    { label: 'כחול', value: '#93c5fd' },
+    { label: 'כחול', value: '#f6ad99' },
     { label: 'אדום', value: '#fca5a5' },
     { label: 'כתום', value: '#fdba74' },
     { label: 'סגול', value: '#c4b5fd' },
@@ -1027,8 +1027,8 @@ export default function ExcelWriter() {
                   ) : (
                     <span className="sheet-name">{s.name}</span>
                   )}
-                  {s.sharedWith?.length > 0 && <Users size={11} style={{ color: '#94a3b8', flexShrink: 0 }} />}
-                  <button className={`icon-btn ${isPinned ? 'icon-btn--pinned' : ''}`} title={isPinned ? 'הסר נעיצה' : 'נעץ'} onClick={e => { e.stopPropagation(); togglePinSheet(s.id, isPinned); }}><Pin size={12} style={isPinned ? { color: '#2563eb' } : undefined} /></button>
+                  {s.sharedWith?.length > 0 && <Users size={11} style={{ color: '#9b8790', flexShrink: 0 }} />}
+                  <button className={`icon-btn ${isPinned ? 'icon-btn--pinned' : ''}`} title={isPinned ? 'הסר נעיצה' : 'נעץ'} onClick={e => { e.stopPropagation(); togglePinSheet(s.id, isPinned); }}><Pin size={12} style={isPinned ? { color: '#870335' } : undefined} /></button>
                   <button className="sheet-delete" onClick={e => { e.stopPropagation(); deleteSheet(s.id); }}><Trash2 size={12} /></button>
                 </div>
                 );
@@ -1073,7 +1073,7 @@ export default function ExcelWriter() {
                     {editingCell ? cellRef(editingCell.ri, editingCell.ci) : 'נוסחה'}
                   </span>
                   {rangeSelecting && (
-                    <span style={{ background: '#dbeafe', color: '#2563eb', padding: '0.15rem 0.5rem', borderRadius: 8, fontSize: '0.7rem', fontWeight: 600, marginRight: '0.5rem' }}>
+                    <span style={{ background: '#f9dab9', color: '#870335', padding: '0.15rem 0.5rem', borderRadius: 8, fontSize: '0.7rem', fontWeight: 600, marginRight: '0.5rem' }}>
                       בחרו תאים בגרירה
                     </span>
                   )}
@@ -1090,7 +1090,7 @@ export default function ExcelWriter() {
                       position: 'absolute',
                       zIndex: 50,
                       background: '#fff',
-                      border: '1px solid #e2e8f0',
+                      border: '1px solid #eadfe2',
                       borderRadius: 8,
                       boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
                       padding: '0.25rem',
@@ -1120,12 +1120,12 @@ export default function ExcelWriter() {
                             textAlign: 'right',
                             width: '100%'
                           }}
-                          onMouseEnter={e => e.target.style.background = '#f1f5f9'}
+                          onMouseEnter={e => e.target.style.background = '#f9f1ef'}
                           onMouseLeave={e => e.target.style.background = 'transparent'}
                         >
-                          <span style={{ fontWeight: 700, width: 20, color: '#2563eb' }}>{c.icon}</span>
+                          <span style={{ fontWeight: 700, width: 20, color: '#870335' }}>{c.icon}</span>
                           <span>{c.label}</span>
-                          <span style={{ fontSize: '0.7rem', color: '#94a3b8', marginRight: 'auto' }}>{c.id.toUpperCase()}()</span>
+                          <span style={{ fontSize: '0.7rem', color: '#9b8790', marginRight: 'auto' }}>{c.id.toUpperCase()}()</span>
                         </button>
                       ))}
                     </div>
@@ -1330,7 +1330,7 @@ export default function ExcelWriter() {
             style={{ top: colorPickerMenu.y, left: colorPickerMenu.x, minWidth: 140 }}
             onClick={e => e.stopPropagation()}
           >
-            <div style={{ padding: '0.3rem 0.5rem', fontSize: '0.75rem', fontWeight: 600, color: '#64748b' }}>
+            <div style={{ padding: '0.3rem 0.5rem', fontSize: '0.75rem', fontWeight: 600, color: '#765968' }}>
               {colorPickerMenu.type === 'bg' ? 'צבע רקע' : 'צבע טקסט'}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4, padding: '0.3rem 0.5rem' }}>
@@ -1342,7 +1342,7 @@ export default function ExcelWriter() {
                   style={{
                     width: 28, height: 28, borderRadius: 4,
                     backgroundColor: c.value,
-                    border: '1px solid #cbd5e1',
+                    border: '1px solid #d9cbd0',
                     cursor: 'pointer',
                   }}
                 />

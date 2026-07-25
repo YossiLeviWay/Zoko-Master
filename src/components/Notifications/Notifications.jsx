@@ -93,9 +93,9 @@ export default function Notifications() {
         </div>
 
         {loading ? (
-          <div style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8' }}>טוען...</div>
+          <div style={{ textAlign: 'center', padding: '3rem', color: '#9b8790' }}>טוען...</div>
         ) : filtered.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8' }}>
+          <div style={{ textAlign: 'center', padding: '3rem', color: '#9b8790' }}>
             <Bell size={48} style={{ opacity: 0.3, marginBottom: '1rem' }} />
             <p>{filter === 'unread' ? 'אין התראות שלא נקראו' : 'אין התראות'}</p>
           </div>
@@ -111,8 +111,8 @@ export default function Notifications() {
                     alignItems: 'flex-start',
                     gap: '0.75rem',
                     padding: '0.75rem 1rem',
-                    background: notif.read ? '#fff' : '#eff6ff',
-                    border: `1px solid ${notif.read ? '#e2e8f0' : '#bfdbfe'}`,
+                    background: notif.read ? '#fff' : '#fbf6f5',
+                    border: `1px solid ${notif.read ? '#eadfe2' : '#f9dab9'}`,
                     borderRadius: 8,
                     cursor: 'pointer',
                   }}
@@ -120,26 +120,26 @@ export default function Notifications() {
                 >
                   <div style={{
                     width: 36, height: 36, borderRadius: '50%',
-                    background: notif.read ? '#f1f5f9' : '#dbeafe',
+                    background: notif.read ? '#f9f1ef' : '#f9dab9',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     flexShrink: 0,
                   }}>
-                    <IconComp size={16} style={{ color: notif.read ? '#94a3b8' : '#3b82f6' }} />
+                    <IconComp size={16} style={{ color: notif.read ? '#9b8790' : '#fc5029' }} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ margin: 0, fontSize: '0.88rem', fontWeight: notif.read ? 400 : 600, color: '#1e293b' }}>
+                    <p style={{ margin: 0, fontSize: '0.88rem', fontWeight: notif.read ? 400 : 600, color: '#1e000c' }}>
                       {notif.title}
                     </p>
                     {notif.body && (
-                      <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', color: '#64748b' }}>
+                      <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', color: '#765968' }}>
                         {notif.body}
                       </p>
                     )}
-                    <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{formatTime(notif.createdAt)}</span>
+                    <span style={{ fontSize: '0.72rem', color: '#9b8790' }}>{formatTime(notif.createdAt)}</span>
                   </div>
                   <button
                     onClick={(e) => { e.stopPropagation(); deleteNotification(notif.id); }}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#94a3b8' }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#9b8790' }}
                     title="מחק"
                   >
                     <Trash2 size={14} />

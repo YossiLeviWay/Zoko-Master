@@ -16,7 +16,7 @@ import './Gantt.css';
 import './Categories.css';
 
 const CATEGORY_COLORS = [
-  '#e2e8f0', '#dbeafe', '#d1fae5', '#fef3c7', '#fce7f3',
+  '#eadfe2', '#f9dab9', '#d1fae5', '#fef3c7', '#fce7f3',
   '#ede9fe', '#fed7aa', '#ccfbf1', '#e0e7ff', '#fecdd3'
 ];
 

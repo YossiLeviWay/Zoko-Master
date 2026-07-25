@@ -347,7 +347,7 @@ export default function Teams() {
                       );
                     })}
                     {currentMembers.length === 0 && (
-                      <p style={{ color: '#94a3b8', fontSize: '0.82rem', textAlign: 'center', padding: '0.5rem' }}>
+                      <p style={{ color: '#9b8790', fontSize: '0.82rem', textAlign: 'center', padding: '0.5rem' }}>
                         אין חברים עדיין
                       </p>
                     )}
@@ -381,7 +381,7 @@ export default function Teams() {
                       </button>
                     ))}
                     {availableStaff.length === 0 && (
-                      <p style={{ textAlign: 'center', color: '#94a3b8', fontSize: '0.82rem', padding: '1rem' }}>
+                      <p style={{ textAlign: 'center', color: '#9b8790', fontSize: '0.82rem', padding: '1rem' }}>
                         {memberSearch ? 'לא נמצאו תוצאות' : 'כל אנשי הצוות כבר חברים'}
                       </p>
                     )}

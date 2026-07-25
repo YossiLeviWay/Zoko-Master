@@ -169,7 +169,7 @@ export default function EventModal({
             <div className="form-group">
               <label>בחירת צוותים לנראות</label>
               {teams.length === 0 ? (
-                <p style={{ fontSize: '0.8rem', color: '#94a3b8' }}>לא נמצאו צוותים</p>
+                <p style={{ fontSize: '0.8rem', color: '#9b8790' }}>לא נמצאו צוותים</p>
               ) : (
                 <div className="team-checkboxes" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   {teams.map(team => (
@@ -191,7 +191,7 @@ export default function EventModal({
           <div className="form-group">
             <label>הרשאת עריכה לצוותים</label>
             {teams.length === 0 ? (
-              <p style={{ fontSize: '0.8rem', color: '#94a3b8' }}>לא נמצאו צוותים</p>
+              <p style={{ fontSize: '0.8rem', color: '#9b8790' }}>לא נמצאו צוותים</p>
             ) : (
               <div className="team-checkboxes" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 {teams.map(team => (

@@ -3,12 +3,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #e8f0fe 0%, #d4e4fc 50%, #c8d8f8 100%);
+  background:
+    radial-gradient(circle at 15% 15%, rgb(252 80 41 / 12%), transparent 34%),
+    linear-gradient(135deg, var(--color-surface) 0%, var(--color-surface-muted) 58%, var(--color-accent-soft) 100%);
   padding: 1rem;
 }
 
 .auth-container {
-  background: #fff;
+  background: var(--color-surface-raised);
   border-radius: 16px;
   padding: 2.5rem;
   width: 100%;
@@ -28,13 +30,13 @@
 .auth-logo {
   font-size: 2rem;
   font-weight: 800;
-  color: #2563eb;
+  color: var(--color-primary);
   margin: 0;
   letter-spacing: -0.5px;
 }
 
 .auth-subtitle {
-  color: #64748b;
+  color: var(--color-text-subtle);
   margin: 0.25rem 0 0;
   font-size: 0.9rem;
 }
@@ -45,15 +47,15 @@
   margin-bottom: 1.5rem;
   border-radius: 10px;
   overflow: hidden;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--color-border);
 }
 
 .auth-tab {
   flex: 1;
   padding: 0.7rem;
   border: none;
-  background: #f8fafc;
-  color: #64748b;
+  background: var(--color-surface);
+  color: var(--color-text-subtle);
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
@@ -62,7 +64,7 @@
 }
 
 .auth-tab.active {
-  background: #2563eb;
+  background: var(--color-primary);
   color: #fff;
 }
 
@@ -92,13 +94,13 @@
   gap: 0.75rem;
   margin: 0;
   padding: 0.85rem;
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--color-accent-soft);
   border-radius: 10px;
 }
 
 .auth-step legend {
   padding: 0 0.4rem;
-  color: #1e40af;
+  color: var(--color-primary);
   font-size: 0.82rem;
   font-weight: 700;
 }
@@ -110,7 +112,7 @@
   margin-inline-end: 0.3rem;
   place-items: center;
   border-radius: 50%;
-  background: #2563eb;
+  background: var(--color-primary);
   color: #fff;
 }
 
@@ -119,10 +121,10 @@
   align-items: center;
   gap: 0.4rem;
   padding: 0.55rem 0.7rem;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--color-border);
   border-radius: 8px;
-  background: #f8fafc;
-  color: #64748b;
+  background: var(--color-surface);
+  color: var(--color-text-subtle);
 }
 
 .auth-school-search input {
@@ -137,8 +139,8 @@
   margin: 0;
   padding: 0.7rem;
   border-radius: 8px;
-  background: #eff6ff;
-  color: #1e40af;
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
   font-size: 0.8rem;
   line-height: 1.5;
 }
@@ -159,32 +161,32 @@
 .form-group label {
   font-size: 0.8rem;
   font-weight: 600;
-  color: #475569;
+  color: var(--color-text-muted);
 }
 
 .form-group input,
 .form-group select,
 .form-group textarea {
   padding: 0.7rem 0.85rem;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--control-radius-small);
   font-size: 0.9rem;
   font-family: 'Inter', sans-serif;
   transition: border-color 0.2s;
-  background: #f8fafc;
-  color: #1e293b;
+  background: var(--color-surface);
+  color: var(--color-text);
 }
 
 .form-group input:focus,
 .form-group select:focus,
 .form-group textarea:focus {
   outline: none;
-  border-color: #2563eb;
+  border-color: var(--color-primary);
   background: #fff;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  box-shadow: 0 0 0 3px rgba(135, 3, 53, 0.1);
 }
 
-.form-group small { color: #64748b; font-size: 0.74rem; }
+.form-group small { color: var(--color-text-subtle); font-size: 0.74rem; }
 
 .form-row {
   display: flex;
@@ -192,11 +194,12 @@
 }
 
 .auth-btn {
+  min-height: var(--control-height);
   padding: 0.8rem;
-  background: #2563eb;
+  background: var(--color-primary);
   color: #fff;
-  border: none;
-  border-radius: 10px;
+  border: 1px solid var(--color-primary);
+  border-radius: var(--control-radius);
   font-size: 0.95rem;
   font-weight: 700;
   cursor: pointer;
@@ -206,9 +209,9 @@
 }
 
 .auth-btn:hover:not(:disabled) {
-  background: #1d4ed8;
+  background: var(--color-primary-hover);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+  box-shadow: 0 4px 12px rgba(135, 3, 53, 0.3);
 }
 
 .auth-btn:disabled {
@@ -220,11 +223,11 @@
   text-align: center;
   margin-top: 1.25rem;
   font-size: 0.85rem;
-  color: #64748b;
+  color: var(--color-text-subtle);
 }
 
 .auth-link a {
-  color: #2563eb;
+  color: var(--color-primary);
   text-decoration: none;
   font-weight: 600;
 }

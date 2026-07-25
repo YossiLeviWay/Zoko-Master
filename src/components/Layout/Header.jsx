@@ -155,12 +155,12 @@ export default function Header({ title, onPermissions }) {
             style={{
               display: 'flex', alignItems: 'center', gap: '0.35rem',
               padding: '0.4rem 0.75rem', borderRadius: 8,
-              border: '1px solid #e2e8f0', background: '#f8fafc',
+              border: '1px solid #eadfe2', background: '#fbf6f5',
               cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600,
-              color: '#475569', transition: 'all 0.15s',
+              color: '#5f3b49', transition: 'all 0.15s',
             }}
-            onMouseEnter={e => { e.currentTarget.style.background = '#eff6ff'; e.currentTarget.style.color = '#2563eb'; e.currentTarget.style.borderColor = '#bfdbfe'; }}
-            onMouseLeave={e => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.color = '#475569'; e.currentTarget.style.borderColor = '#e2e8f0'; }}
+            onMouseEnter={e => { e.currentTarget.style.background = '#fbf6f5'; e.currentTarget.style.color = '#870335'; e.currentTarget.style.borderColor = '#f9dab9'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = '#fbf6f5'; e.currentTarget.style.color = '#5f3b49'; e.currentTarget.style.borderColor = '#eadfe2'; }}
           >
             <Shield size={15} />
             הרשאות

@@ -44,20 +44,20 @@
 }
 
 .school-selector-icon {
-  color: #2563eb;
+  color: var(--color-primary);
   margin-bottom: 0.5rem;
 }
 
 .school-selector-title {
   font-size: 1.4rem;
   font-weight: 800;
-  color: #1e293b;
+  color: var(--color-text);
   margin: 0 0 0.35rem;
 }
 
 .school-selector-subtitle {
   font-size: 0.85rem;
-  color: #64748b;
+  color: var(--color-text-subtle);
   margin: 0;
 }
 
@@ -73,31 +73,31 @@
   right: 2.25rem;
   top: 50%;
   transform: translateY(-50%);
-  color: #94a3b8;
+  color: var(--color-text-faint);
   pointer-events: none;
 }
 
 .school-selector-search-input {
   width: 100%;
   padding: 0.65rem 2.5rem 0.65rem 1rem;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   font-size: 0.88rem;
   font-family: 'Inter', sans-serif;
-  color: #1e293b;
-  background: #f8fafc;
+  color: var(--color-text);
+  background: var(--color-surface);
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s;
   direction: rtl;
 }
 
 .school-selector-search-input::placeholder {
-  color: #94a3b8;
+  color: var(--color-text-faint);
 }
 
 .school-selector-search-input:focus {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(135, 3, 53, 0.1);
   background: #fff;
 }
 
@@ -114,7 +114,7 @@
 .school-selector-empty {
   text-align: center;
   padding: 2rem 1rem;
-  color: #94a3b8;
+  color: var(--color-text-faint);
   font-size: 0.88rem;
 }
 
@@ -125,7 +125,7 @@
   gap: 0.75rem;
   width: 100%;
   padding: 0.75rem 1rem;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--color-border);
   border-radius: 10px;
   background: #fff;
   cursor: pointer;
@@ -135,22 +135,22 @@
 }
 
 .school-selector-item:hover {
-  border-color: #2563eb;
-  background: #eff6ff;
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
 }
 
 .school-selector-item.selected {
-  border-color: #2563eb;
-  background: #eff6ff;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  box-shadow: 0 0 0 3px rgba(135, 3, 53, 0.12);
 }
 
 .school-selector-item-icon {
   width: 40px;
   height: 40px;
   border-radius: 10px;
-  background: #f1f5f9;
-  color: #64748b;
+  background: var(--color-surface-muted);
+  color: var(--color-text-subtle);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -160,8 +160,8 @@
 
 .school-selector-item:hover .school-selector-item-icon,
 .school-selector-item.selected .school-selector-item-icon {
-  background: #dbeafe;
-  color: #2563eb;
+  background: var(--color-accent-soft);
+  color: var(--color-primary);
 }
 
 .school-selector-item-info {
@@ -174,7 +174,7 @@
 .school-selector-item-name {
   font-size: 0.9rem;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--color-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -182,7 +182,7 @@
 
 .school-selector-item-address {
   font-size: 0.78rem;
-  color: #94a3b8;
+  color: var(--color-text-faint);
   margin-top: 0.15rem;
   white-space: nowrap;
   overflow: hidden;
@@ -190,7 +190,7 @@
 }
 
 .school-selector-item-check {
-  color: #2563eb;
+  color: var(--color-primary);
   flex-shrink: 0;
 }
 
@@ -208,8 +208,8 @@
   align-items: center;
   gap: 0.4rem;
   padding: 0.45rem 0.65rem;
-  border-bottom: 1px solid #f1f5f9;
-  color: #94a3b8;
+  border-bottom: 1px solid var(--color-surface-muted);
+  color: var(--color-text-faint);
 }
 
 .school-selector-inline-search input {
@@ -218,13 +218,13 @@
   outline: none;
   font-size: 0.8rem;
   font-family: 'Inter', sans-serif;
-  color: #1e293b;
+  color: var(--color-text);
   background: transparent;
   direction: rtl;
 }
 
 .school-selector-inline-search input::placeholder {
-  color: #cbd5e1;
+  color: var(--color-border-strong);
 }
 
 .school-selector-inline-list {
@@ -236,7 +236,7 @@
 .school-selector-inline-empty {
   text-align: center;
   padding: 1rem 0.5rem;
-  color: #94a3b8;
+  color: var(--color-text-faint);
   font-size: 0.8rem;
 }
 
@@ -251,19 +251,19 @@
   border-radius: 6px;
   font-size: 0.82rem;
   font-family: 'Inter', sans-serif;
-  color: #475569;
+  color: var(--color-text-muted);
   cursor: pointer;
   text-align: right;
   transition: all 0.15s;
 }
 
 .school-selector-inline-item:hover {
-  background: #f1f5f9;
+  background: var(--color-surface-muted);
 }
 
 .school-selector-inline-item.active {
-  background: #eff6ff;
-  color: #2563eb;
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
   font-weight: 600;
 }
 

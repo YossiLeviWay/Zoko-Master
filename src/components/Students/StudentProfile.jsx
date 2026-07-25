@@ -19,7 +19,7 @@ const PROGRAM_LABELS = {
   professional_cert: 'תעודת מקצוע', completion_cert: 'תעודת גמר',
 };
 const STATUS_OPTIONS = [
-  { id: 'pending', label: 'טרם הושלם', icon: Circle, color: '#94a3b8' },
+  { id: 'pending', label: 'טרם הושלם', icon: Circle, color: '#9b8790' },
   { id: 'in_progress', label: 'בתהליך', icon: AlertCircle, color: '#f59e0b' },
   { id: 'done', label: 'הושלם', icon: CheckCircle2, color: '#22c55e' },
 ];
