@@ -322,19 +322,10 @@ service firebase.storage {
         && hasForumPermission('forum.read')
         && firestore.exists(/databases/(default)/documents/platformForum/root/attachments/$(attachmentId))
         && firestore.get(/databases/(default)/documents/platformForum/root/attachments/$(attachmentId)).data.status == 'uploaded';
-      allow create: if hasForumPermission('forum.uploadAttachment')
-        && firestore.exists(/databases/(default)/documents/platformForum/root/attachments/$(attachmentId))
-        && firestore.get(/databases/(default)/documents/platformForum/root/attachments/$(attachmentId)).data.uploadedBy == request.auth.uid
-        && firestore.get(/databases/(default)/documents/platformForum/root/attachments/$(attachmentId)).data.status == 'pending'
-        && firestore.get(/databases/(default)/documents/platformForum/root/attachments/$(attachmentId)).data.storagePath == 'platform-forum/attachments/' + attachmentId + '/' + filename
-        && request.resource.size <= 10 * 1024 * 1024
-        && request.resource.contentType in ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
-        && !filename.matches('(?i).+\\.(exe|dll|bat|cmd|com|msi|ps1|sh|js|mjs|html|htm|svg|jar|apk)$');
-      allow update: if false;
-      allow delete: if hasForumPermission('forum.moderate') || (
-        firestore.exists(/databases/(default)/documents/platformForum/root/attachments/$(attachmentId))
-        && firestore.get(/databases/(default)/documents/platformForum/root/attachments/$(attachmentId)).data.uploadedBy == request.auth.uid
-      );
+      // Spark demo mode: existing attachments remain readable, but the forum
+      // cannot add, replace or delete Storage objects. This keeps new forum
+      // activity entirely inside the no-cost Firestore text model.
+      allow create, update, delete: if false;
     }
 
     match /platform-support/{schoolId}/{attachmentId}/{filename} {

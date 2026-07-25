@@ -1526,20 +1526,23 @@ test('platform admin directory access never grants internal school data access',
   await assertFails(getDoc(doc(platformDb, `schools/${SCHOOL_A}/events/event_a`)));
 });
 
-test('forum membership approval controls direct URL reads and never crosses into school data', async () => {
+test('Spark forum permits only short schema-validated messages for authorized members', async () => {
   await seedFirestore({
-    'users/principal_a': user({ schoolId: SCHOOL_A, role: 'principal' }),
+    'users/principal_a': { ...user({ schoolId: SCHOOL_A, role: 'principal' }), uid: 'principal_a', fullName: 'Principal A' },
     'users/scoped_manager_a': {
       ...user({ schoolId: SCHOOL_A }),
+      uid: 'scoped_manager_a',
+      fullName: 'Scoped Manager',
       activeSchoolId: SCHOOL_A,
       rolesBySchool: { [SCHOOL_A]: 'institution_manager' },
     },
-    'users/pending_delegate': { ...user({ schoolId: SCHOOL_A }), uid: 'pending_delegate' },
-    'users/approved_delegate': { ...user({ schoolId: SCHOOL_A }), uid: 'approved_delegate' },
+    'users/pending_delegate': { ...user({ schoolId: SCHOOL_A }), uid: 'pending_delegate', fullName: 'Pending' },
+    'users/approved_delegate': { ...user({ schoolId: SCHOOL_A }), uid: 'approved_delegate', fullName: 'Approved Delegate' },
     'platformForumMemberships/pending_delegate': { userId: 'pending_delegate', schoolId: SCHOOL_A, status: 'pending_admin_approval', permissions: [] },
-    'platformForumMemberships/approved_delegate': { userId: 'approved_delegate', schoolId: SCHOOL_A, status: 'active', permissions: ['forum.access', 'forum.read', 'forum.reply'] },
+    'platformForumMemberships/approved_delegate': { userId: 'approved_delegate', schoolId: SCHOOL_A, status: 'active', permissions: ['forum.access', 'forum.read', 'forum.createThread', 'forum.reply', 'forum.deleteOwnPost'] },
+    [`schoolPublicDirectory/${SCHOOL_A}`]: { schoolId: SCHOOL_A, name: 'School A', code: 'A', status: 'active', updatedAt: 'now' },
     'platformForum/root/folders/general': { name: 'General', status: 'active' },
-    'platformForum/root/threads/thread_a': { folderId: 'general', title: 'Shared', body: 'Forum only', status: 'active', authorId: 'principal_a' },
+    'platformForum/root/threads/thread_a': { folderId: 'general', title: 'Shared', body: 'Forum only', status: 'active', authorId: 'principal_a', replyCount: 0, followers: [], locked: false },
     [`schools/${SCHOOL_A}/files/private_a`]: { schoolId: SCHOOL_A, name: 'private.pdf', folderId: '' },
   });
   const folderPath = 'platformForum/root/folders/general';
@@ -1548,12 +1551,54 @@ test('forum membership approval controls direct URL reads and never crosses into
   await assertFails(getDoc(doc(context('pending_delegate').firestore(), folderPath)));
   await assertSucceeds(getDoc(doc(context('approved_delegate').firestore(), folderPath)));
   await assertFails(getDoc(doc(context('approved_delegate').firestore(), `schools/${SCHOOL_A}/files/private_a`)));
-  await assertFails(setDoc(doc(context('approved_delegate').firestore(), 'platformForum/root/threads/spoofed'), {
-    folderId: 'general', title: 'Bypass', body: 'Client write', status: 'active', authorId: 'approved_delegate',
+
+  const managerDb = context('scoped_manager_a').firestore();
+  const newFolderRef = doc(managerDb, 'platformForum/root/folders/educators');
+  await assertSucceeds(setDoc(newFolderRef, {
+    name: 'Educators', description: '', status: 'active', writeMode: 'spark-client', schemaVersion: 1,
+    createdBy: 'scoped_manager_a', updatedBy: 'scoped_manager_a', createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  }));
+
+  const delegateDb = context('approved_delegate').firestore();
+  const threadRef = doc(delegateDb, 'platformForum/root/threads/spark_thread');
+  const identity = {
+    userId: 'approved_delegate', fullName: 'Approved Delegate', publicRole: 'איש צוות',
+    schoolId: SCHOOL_A, schoolName: 'School A', avatarUrl: '',
+  };
+  await assertSucceeds(setDoc(threadRef, {
+    folderId: 'general', title: 'Short question', body: 'A short forum message', attachmentIds: [],
+    authorId: 'approved_delegate', author: identity, status: 'active', pinned: false, locked: false,
+    replyCount: 0, followers: [], writeMode: 'spark-client', schemaVersion: 1,
+    createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  }));
+
+  const postRef = doc(delegateDb, 'platformForum/root/threads/spark_thread/posts/spark_post');
+  await assertSucceeds(setDoc(postRef, {
+    threadId: 'spark_thread', body: 'A short reply', attachmentIds: [], authorId: 'approved_delegate',
+    author: identity, status: 'active', writeMode: 'spark-client', schemaVersion: 1,
+    createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  }));
+  assert.equal((await getDoc(postRef)).data().body, 'A short reply');
+
+  await assertFails(setDoc(doc(delegateDb, 'platformForum/root/threads/too_long'), {
+    folderId: 'general', title: 'Too long', body: 'x'.repeat(501), attachmentIds: [],
+    authorId: 'approved_delegate', author: identity, status: 'active', pinned: false, locked: false,
+    replyCount: 0, followers: [], writeMode: 'spark-client', schemaVersion: 1,
+    createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  }));
+  await assertFails(setDoc(doc(delegateDb, 'platformForum/root/threads/with_attachment'), {
+    folderId: 'general', title: 'Attachment', body: 'Files stay disabled in Spark mode', attachmentIds: ['file_a'],
+    authorId: 'approved_delegate', author: identity, status: 'active', pinned: false, locked: false,
+    replyCount: 0, followers: [], writeMode: 'spark-client', schemaVersion: 1,
+    createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  }));
+
+  await assertFails(setDoc(doc(context('pending_delegate').firestore(), 'platformForum/root/threads/blocked'), {
+    folderId: 'general', title: 'Blocked', body: 'No membership', status: 'active', authorId: 'pending_delegate',
   }));
 });
 
-test('forum and support storage use isolated paths and approved metadata', async () => {
+test('Spark forum blocks new attachments while support storage retains scoped uploads', async () => {
   await seedFirestore({
     'users/forum_uploader': { ...user({ schoolId: SCHOOL_A }), uid: 'forum_uploader' },
     'users/principal_a': user({ schoolId: SCHOOL_A, role: 'principal' }),
@@ -1567,8 +1612,8 @@ test('forum and support storage use isolated paths and approved metadata', async
     'platformForum/root/attachments/attachment_manager': { uploadedBy: 'scoped_manager_a', status: 'pending', storagePath: 'platform-forum/attachments/attachment_manager/share.pdf', mimeType: 'application/pdf', size: 4 },
     'supportAttachments/support_a': { schoolId: SCHOOL_A, uploadedBy: 'principal_a', status: 'pending', storagePath: `platform-support/${SCHOOL_A}/support_a/screenshot.png`, mimeType: 'image/png', size: 4 },
   });
-  await assertSucceeds(uploadBytes(ref(context('forum_uploader').storage(), 'platform-forum/attachments/attachment_a/share.pdf'), new Uint8Array([1, 2, 3, 4]), { contentType: 'application/pdf' }));
-  await assertSucceeds(uploadBytes(ref(context('scoped_manager_a').storage(), 'platform-forum/attachments/attachment_manager/share.pdf'), new Uint8Array([1, 2, 3, 4]), { contentType: 'application/pdf' }));
+  await assertFails(uploadBytes(ref(context('forum_uploader').storage(), 'platform-forum/attachments/attachment_a/share.pdf'), new Uint8Array([1, 2, 3, 4]), { contentType: 'application/pdf' }));
+  await assertFails(uploadBytes(ref(context('scoped_manager_a').storage(), 'platform-forum/attachments/attachment_manager/share.pdf'), new Uint8Array([1, 2, 3, 4]), { contentType: 'application/pdf' }));
   await assertFails(uploadBytes(ref(context('forum_uploader').storage(), 'platform-forum/attachments/unregistered/share.pdf'), new Uint8Array([1]), { contentType: 'application/pdf' }));
   await assertSucceeds(uploadBytes(ref(context('principal_a').storage(), `platform-support/${SCHOOL_A}/support_a/screenshot.png`), new Uint8Array([1, 2, 3, 4]), { contentType: 'image/png' }));
 });

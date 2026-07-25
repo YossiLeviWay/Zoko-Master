@@ -90,6 +90,161 @@ service cloud.firestore {
       return hasForumPermission('forum.access') && hasForumPermission('forum.read');
     }
 
+    function validForumPublicIdentity(author) {
+      return author is map
+        && author.keys().hasOnly(['userId', 'fullName', 'publicRole', 'schoolId', 'schoolName', 'avatarUrl'])
+        && author.userId == request.auth.uid
+        && author.fullName is string
+        && author.fullName.size() > 0
+        && author.fullName.size() <= 120
+        && author.fullName == currentUser().get('fullName', 'משתמש')
+        && author.avatarUrl == ''
+        && (
+          (
+            isPlatformAdmin()
+            && author.publicRole == 'מנהל המערכת'
+            && author.schoolId == ''
+            && author.schoolName == ''
+          )
+          || (
+            !isPlatformAdmin()
+            && author.schoolId is string
+            && author.schoolId.size() > 0
+            && (
+              author.schoolId == currentUser().get('schoolId', '')
+              || author.schoolId in currentUser().get('schoolIds', [])
+            )
+            && author.schoolName is string
+            && author.schoolName.size() <= 120
+            && author.publicRole in ['מנהל מוסד', 'איש צוות']
+          )
+        );
+    }
+
+    function validSparkForumFolderCreate() {
+      let data = request.resource.data;
+      return data.keys().hasOnly([
+          'name', 'description', 'status', 'writeMode', 'schemaVersion',
+          'createdBy', 'updatedBy', 'createdAt', 'updatedAt'
+        ])
+        && data.name is string
+        && data.name.size() > 0
+        && data.name.size() <= 60
+        && data.description is string
+        && data.description.size() <= 160
+        && data.status == 'active'
+        && data.writeMode == 'spark-client'
+        && data.schemaVersion == 1
+        && data.createdBy == request.auth.uid
+        && data.updatedBy == request.auth.uid
+        && data.createdAt == request.time
+        && data.updatedAt == request.time;
+    }
+
+    function validSparkForumThreadCreate(rootId) {
+      let data = request.resource.data;
+      return rootId == 'root'
+        && data.keys().hasOnly([
+          'folderId', 'title', 'body', 'attachmentIds', 'authorId', 'author',
+          'status', 'pinned', 'locked', 'replyCount', 'followers', 'writeMode',
+          'schemaVersion', 'createdAt', 'updatedAt'
+        ])
+        && data.folderId is string
+        && exists(/databases/$(database)/documents/platformForum/$(rootId)/folders/$(data.folderId))
+        && get(/databases/$(database)/documents/platformForum/$(rootId)/folders/$(data.folderId)).data.status == 'active'
+        && data.title is string
+        && data.title.size() > 0
+        && data.title.size() <= 100
+        && data.body is string
+        && data.body.size() > 0
+        && data.body.size() <= 500
+        && data.attachmentIds is list
+        && data.attachmentIds.size() == 0
+        && data.authorId == request.auth.uid
+        && validForumPublicIdentity(data.author)
+        && data.status == 'active'
+        && data.pinned == false
+        && data.locked == false
+        && data.replyCount == 0
+        && data.followers is list
+        && data.followers.size() == 0
+        && data.writeMode == 'spark-client'
+        && data.schemaVersion == 1
+        && data.createdAt == request.time
+        && data.updatedAt == request.time;
+    }
+
+    function validSparkForumPostCreate(rootId, threadId) {
+      let data = request.resource.data;
+      let threadPath = /databases/$(database)/documents/platformForum/$(rootId)/threads/$(threadId);
+      return rootId == 'root'
+        && data.keys().hasOnly([
+          'threadId', 'body', 'attachmentIds', 'authorId', 'author', 'status',
+          'writeMode', 'schemaVersion', 'createdAt', 'updatedAt'
+        ])
+        && exists(threadPath)
+        && get(threadPath).data.status == 'active'
+        && get(threadPath).data.get('locked', false) == false
+        && data.threadId == threadId
+        && data.body is string
+        && data.body.size() > 0
+        && data.body.size() <= 400
+        && data.attachmentIds is list
+        && data.attachmentIds.size() == 0
+        && data.authorId == request.auth.uid
+        && validForumPublicIdentity(data.author)
+        && data.status == 'active'
+        && data.writeMode == 'spark-client'
+        && data.schemaVersion == 1
+        && data.createdAt == request.time
+        && data.updatedAt == request.time;
+    }
+
+    function validForumFollowUpdate() {
+      let oldFollowers = resource.data.get('followers', []);
+      let newFollowers = request.resource.data.followers;
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['followers', 'updatedAt'])
+        && newFollowers is list
+        && newFollowers.size() <= 50
+        && newFollowers.toSet().size() == newFollowers.size()
+        && newFollowers.toSet().difference(oldFollowers.toSet()).hasOnly([request.auth.uid])
+        && oldFollowers.toSet().difference(newFollowers.toSet()).hasOnly([request.auth.uid])
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function validForumContentDelete() {
+      return (
+          (resource.data.authorId == request.auth.uid && hasForumPermission('forum.deleteOwnPost'))
+          || hasForumPermission('forum.moderate')
+        )
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'body', 'attachmentIds', 'deletedBy', 'deletedAt', 'updatedAt'
+        ])
+        && request.resource.data.status == 'deleted'
+        && request.resource.data.body == ''
+        && request.resource.data.attachmentIds is list
+        && request.resource.data.attachmentIds.size() == 0
+        && request.resource.data.deletedBy == request.auth.uid
+        && request.resource.data.deletedAt == request.time
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function validForumModerationUpdate() {
+      return (
+          (
+            hasForumPermission('forum.pinThread')
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pinned', 'updatedAt'])
+            && request.resource.data.pinned == !resource.data.get('pinned', false)
+          )
+          || (
+            hasForumPermission('forum.lockThread')
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['locked', 'updatedAt'])
+            && request.resource.data.locked == !resource.data.get('locked', false)
+          )
+        )
+        && request.resource.data.updatedAt == request.time;
+    }
+
     function isSchoolMember(schoolId) {
       // Platform support is intentionally not a school member, even if a
       // legacy user document still contains schoolId/schoolIds.
@@ -2260,49 +2415,66 @@ service cloud.firestore {
 
       match /folders/{folderId} {
         allow read: if rootId == 'root' && canUseForum() && resource.data.status != 'deleted';
-        allow create, update, delete: if false;
+        allow create: if rootId == 'root'
+          && hasForumPermission('forum.createFolder')
+          && validSparkForumFolderCreate();
+        allow update, delete: if false;
       }
 
       match /threads/{threadId} {
         allow read: if rootId == 'root' && canUseForum() && resource.data.status != 'deleted';
-        allow create, update, delete: if false;
+        allow create: if hasForumPermission('forum.createThread')
+          && validSparkForumThreadCreate(rootId);
+        allow update: if rootId == 'root'
+          && canUseForum()
+          && resource.data.status != 'deleted'
+          && (
+            validForumFollowUpdate()
+            || validForumContentDelete()
+            || validForumModerationUpdate()
+          );
+        allow delete: if false;
 
         match /posts/{postId} {
           allow read: if rootId == 'root'
             && canUseForum()
             && get(/databases/$(database)/documents/platformForum/$(rootId)/threads/$(threadId)).data.status != 'deleted';
-          allow create, update, delete: if false;
+          allow create: if hasForumPermission('forum.reply')
+            && validSparkForumPostCreate(rootId, threadId);
+          allow update: if rootId == 'root'
+            && canUseForum()
+            && resource.data.status != 'deleted'
+            && validForumContentDelete();
+          allow delete: if false;
         }
       }
 
       match /attachments/{attachmentId} {
         allow read: if rootId == 'root' && canUseForum() && resource.data.status == 'uploaded';
-        allow create: if rootId == 'root'
-          && hasForumPermission('forum.uploadAttachment')
-          && request.resource.data.keys().hasOnly([
-            'uploadedBy', 'status', 'storagePath', 'mimeType', 'size', 'createdAt'
-          ])
-          && request.resource.data.uploadedBy == request.auth.uid
-          && request.resource.data.status == 'pending'
-          && request.resource.data.size is int
-          && request.resource.data.size > 0
-          && request.resource.data.size <= 10 * 1024 * 1024
-          && request.resource.data.mimeType in ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
-          && request.resource.data.storagePath.matches('^platform-forum/attachments/' + attachmentId + '/[^/]+$');
-        allow update: if hasForumPermission('forum.uploadAttachment')
-          && resource.data.uploadedBy == request.auth.uid
-          && request.resource.data.uploadedBy == resource.data.uploadedBy
-          && request.resource.data.storagePath == resource.data.storagePath
-          && request.resource.data.mimeType == resource.data.mimeType
-          && request.resource.data.size == resource.data.size
-          && request.resource.data.status == 'uploaded'
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'uploadedAt']);
-        allow delete: if false;
+        allow create, update, delete: if false;
       }
 
       match /reports/{reportId} {
         allow read: if isPlatformAdmin() || hasForumPermission('forum.moderate');
-        allow create, update, delete: if false;
+        allow create: if rootId == 'root'
+          && canUseForum()
+          && request.resource.data.keys().hasOnly([
+            'targetType', 'threadId', 'postId', 'reason', 'reportedBy', 'status',
+            'writeMode', 'schemaVersion', 'createdAt'
+          ])
+          && request.resource.data.targetType in ['thread', 'post']
+          && request.resource.data.threadId is string
+          && request.resource.data.threadId.size() > 0
+          && request.resource.data.postId is string
+          && request.resource.data.reason is string
+          && request.resource.data.reason.size() >= 3
+          && request.resource.data.reason.size() <= 200
+          && request.resource.data.reportedBy == request.auth.uid
+          && request.resource.data.status == 'open'
+          && request.resource.data.writeMode == 'spark-client'
+          && request.resource.data.schemaVersion == 1
+          && request.resource.data.createdAt == request.time;
+        allow update, delete: if false;
       }
     }
 
