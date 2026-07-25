@@ -25,6 +25,11 @@ const DELEGABLE = new Set([
   'forum.lockThread', 'forum.moderate',
 ]);
 const ALL = new Set(['forum.access', 'forum.read', ...DELEGABLE, 'forum.managePermissions', 'forum.approveDelegates', 'forum.viewAuditLog']);
+const MANAGER_DEFAULTS = new Set([
+  'forum.access', 'forum.read', 'forum.createThread', 'forum.reply',
+  'forum.editOwnPost', 'forum.deleteOwnPost', 'forum.uploadAttachment',
+  'forum.createFolder', 'forum.editFolder',
+]);
 
 function activeManagerSchoolIds(actor) {
   return [...actor.schoolIds].filter(schoolId => (
@@ -41,8 +46,7 @@ async function forumAuthority(actor) {
     && (!membership.expiresAt || membership.expiresAt.toMillis() > Date.now());
   const permissions = new Set();
   if (managerSchools.length) {
-    permissions.add('forum.access');
-    permissions.add('forum.read');
+    MANAGER_DEFAULTS.forEach(permission => permissions.add(permission));
   }
   if (activeMembership) (membership.permissions || []).forEach(permission => permissions.add(permission));
   return { permissions, schoolIds: new Set(activeMembership ? [membership.schoolId] : managerSchools), platformAdmin: false, membership };

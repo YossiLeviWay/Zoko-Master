@@ -8,6 +8,7 @@ import {
   onSnapshot,
   query,
   serverTimestamp,
+  setDoc,
   updateDoc,
   where,
   writeBatch,
@@ -122,6 +123,18 @@ function organizationTaskDoc(db, schoolId, task) {
     : schoolDoc(db, schoolId, 'tasks', task.id, 'nested');
 }
 
+function taskChatCollection(db, schoolId, task) {
+  return collection(organizationTaskDoc(db, schoolId, task), 'chat');
+}
+
+export function taskChatReceiptId(schoolId, task) {
+  return `${schoolId}__${task._storageMode || 'nested'}__${task.id}`;
+}
+
+function taskChatReceiptDoc(db, uid, schoolId, task) {
+  return doc(db, 'users', uid, 'taskChatReceipts', taskChatReceiptId(schoolId, task));
+}
+
 function subscribeToQuerySet(queryEntries, normalize, onData, onError) {
   const resultSets = new Map();
   const emit = () => {
@@ -189,6 +202,66 @@ export function subscribeOrganizationTasks({
     })),
   ]);
   return subscribeToQuerySet(queryEntries, normalizeOrganizationTask, onData, onError);
+}
+
+export function subscribeTaskChatReceipts({ db, uid, onData, onError }) {
+  if (!uid) return () => undefined;
+  return onSnapshot(collection(db, 'users', uid, 'taskChatReceipts'), snapshot => {
+    onData(Object.fromEntries(snapshot.docs.map(item => [item.id, item.data()])));
+  }, onError);
+}
+
+export function subscribeTaskChat({ db, schoolId, task, onData, onError }) {
+  return onSnapshot(query(taskChatCollection(db, schoolId, task)), snapshot => {
+    const messages = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
+    messages.sort((left, right) => {
+      const leftMillis = left.createdAt?.toMillis?.() || 0;
+      const rightMillis = right.createdAt?.toMillis?.() || 0;
+      return leftMillis - rightMillis;
+    });
+    onData(messages);
+  }, onError);
+}
+
+export async function markTaskChatRead({ db, schoolId, uid, task }) {
+  if (!uid || !schoolId || !task?.id) return;
+  await setDoc(taskChatReceiptDoc(db, uid, schoolId, task), {
+    userId: uid,
+    schoolId,
+    taskId: task.id,
+    storageMode: task._storageMode || 'nested',
+    readAt: serverTimestamp(),
+  }, { merge: true });
+}
+
+export async function sendTaskChatMessage({ db, schoolId, task, user, text }) {
+  const cleanText = String(text || '').trim();
+  if (!user?.uid || !schoolId || !task?.id || !cleanText) throw new Error('Invalid task message');
+  const taskRef = organizationTaskDoc(db, schoolId, task);
+  const messageRef = doc(taskChatCollection(db, schoolId, task));
+  const receiptRef = taskChatReceiptDoc(db, user.uid, schoolId, task);
+  const batch = writeBatch(db);
+  batch.set(messageRef, {
+    text: cleanText.slice(0, 4000),
+    author: user.fullName || 'משתמש',
+    authorId: user.uid,
+    createdAt: serverTimestamp(),
+  });
+  batch.update(taskRef, {
+    lastChatMessageAt: serverTimestamp(),
+    lastChatMessageBy: user.uid,
+    lastChatPreview: cleanText.slice(0, 120),
+    updatedAt: serverTimestamp(),
+  });
+  batch.set(receiptRef, {
+    userId: user.uid,
+    schoolId,
+    taskId: task.id,
+    storageMode: task._storageMode || 'nested',
+    readAt: serverTimestamp(),
+  }, { merge: true });
+  await batch.commit();
+  return messageRef.id;
 }
 
 function editableFields(input) {

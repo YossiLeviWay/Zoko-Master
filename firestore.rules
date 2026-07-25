@@ -35,10 +35,28 @@ service cloud.firestore {
     function isAnySchoolPrincipal() {
       return activeUser()
         && !isPlatformAdmin()
-        && currentUser().role in ['principal', 'institution_manager']
         && (
-          (currentUser().schoolId is string && currentUser().schoolId.size() > 0)
-          || (currentUser().schoolIds is list && currentUser().schoolIds.size() > 0)
+          (
+            currentUser().role in ['principal', 'institution_manager']
+            && (
+              (currentUser().schoolId is string && currentUser().schoolId.size() > 0)
+              || (currentUser().schoolIds is list && currentUser().schoolIds.size() > 0)
+            )
+          )
+          || (
+            'activeSchoolId' in currentUser()
+            &&
+            currentUser().activeSchoolId is string
+            && currentUser().activeSchoolId.size() > 0
+            && isSchoolPrincipal(currentUser().activeSchoolId)
+          )
+          || (
+            'schoolId' in currentUser()
+            &&
+            currentUser().schoolId is string
+            && currentUser().schoolId.size() > 0
+            && isSchoolPrincipal(currentUser().schoolId)
+          )
         );
     }
 
@@ -56,7 +74,11 @@ service cloud.firestore {
       return isPlatformAdmin()
         || (
           isAnySchoolPrincipal()
-          && permission in ['forum.access', 'forum.read']
+          && permission in [
+            'forum.access', 'forum.read', 'forum.createThread', 'forum.reply',
+            'forum.editOwnPost', 'forum.deleteOwnPost', 'forum.uploadAttachment',
+            'forum.createFolder', 'forum.editFolder'
+          ]
         )
         || (
           hasActiveForumMembership()
@@ -1233,8 +1255,37 @@ service cloud.firestore {
         );
     }
 
+    function safeTaskChatActivityUpdate(schoolId) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'lastChatMessageAt', 'lastChatMessageBy', 'lastChatPreview'
+        ])
+        && activeUser()
+        && isSchoolMember(schoolId)
+        && isOrganizationTask(resource.data)
+        && resource.data.schoolId == schoolId
+        && (
+          resource.data.createdBy == request.auth.uid
+          || (resource.data.participantIds is list && request.auth.uid in resource.data.participantIds)
+          || (resource.data.assigneeIds is list && request.auth.uid in resource.data.assigneeIds)
+          || resource.data.assigneeType == 'all_school'
+          || (
+            resource.data.assigneeType == 'team'
+            && currentUser().teamIds is list
+            && resource.data.assigneeTeamId in currentUser().teamIds
+          )
+        )
+        && request.resource.data.lastChatMessageBy == request.auth.uid
+        && request.resource.data.lastChatMessageAt == request.time
+        && request.resource.data.lastChatPreview is string
+        && request.resource.data.lastChatPreview.size() <= 120
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'lastChatMessageAt', 'lastChatMessageBy', 'lastChatPreview', 'updatedAt'
+        ]);
+    }
+
     function safeOrganizationTaskUpdate(schoolId) {
-      return isOrganizationTask(request.resource.data)
+      return safeTaskChatActivityUpdate(schoolId) || (
+        isOrganizationTask(request.resource.data)
         && request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'schoolId', 'createdBy', 'ownerId'
         ]) == false
@@ -1252,7 +1303,8 @@ service cloud.firestore {
               'status', 'completedAt', 'updatedAt'
             ])
           )
-        );
+        )
+      );
     }
 
     function validPersonalTaskCreate(userId, data) {
@@ -1597,6 +1649,22 @@ service cloud.firestore {
         allow create: if validPersonalTaskCreate(userId, request.resource.data);
         allow update: if safePersonalTaskUpdate(userId);
         allow delete: if personalTaskOwner(userId, resource.data);
+      }
+
+      match /taskChatReceipts/{receiptId} {
+        allow read: if signedIn() && request.auth.uid == userId;
+        allow create, update: if signedIn()
+          && request.auth.uid == userId
+          && request.resource.data.userId == userId
+          && request.resource.data.schoolId is string
+          && isSchoolMember(request.resource.data.schoolId)
+          && request.resource.data.taskId is string
+          && request.resource.data.storageMode in ['nested', 'legacy']
+          && request.resource.data.readAt == request.time
+          && request.resource.data.keys().hasOnly([
+            'userId', 'schoolId', 'taskId', 'storageMode', 'readAt'
+          ]);
+        allow delete: if signedIn() && request.auth.uid == userId;
       }
     }
 
@@ -2498,9 +2566,26 @@ service cloud.firestore {
         && validOrganizationTaskCreate(data.schoolId, data);
     }
 
+    function legacyTaskChatActivityAllowed(collectionName) {
+      return !('schoolId' in resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'lastChatMessageAt', 'lastChatMessageBy', 'lastChatPreview'
+        ])
+        && legacyTaskReadAllowed(collectionName, resource.data)
+        && request.resource.data.lastChatMessageBy == request.auth.uid
+        && request.resource.data.lastChatMessageAt == request.time
+        && request.resource.data.lastChatPreview is string
+        && request.resource.data.lastChatPreview.size() <= 120
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'lastChatMessageAt', 'lastChatMessageBy', 'lastChatPreview', 'updatedAt'
+        ]);
+    }
+
     function legacyTaskUpdateAllowed(collectionName) {
       return collectionName.matches('^tasks_[A-Za-z0-9_-]+$')
         && (
+        legacyTaskChatActivityAllowed(collectionName)
+        ||
         (
           resource.data.schoolId is string
           && collectionName == 'tasks_' + resource.data.schoolId

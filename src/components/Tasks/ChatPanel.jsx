@@ -1,29 +1,32 @@
 import { useState, useEffect, useRef } from 'react';
 import { db } from '../../firebase';
-import {
-  query,
-  orderBy,
-  onSnapshot,
-  addDoc,
-  serverTimestamp
-} from 'firebase/firestore';
 import { X, Send } from 'lucide-react';
 import './Tasks.css';
-import { schoolSubcollection } from '../../services/firestore/paths';
+import {
+  markTaskChatRead,
+  sendTaskChatMessage,
+  subscribeTaskChat,
+} from '../../services/firestore/taskRepository';
 
 export default function ChatPanel({ task, schoolId, currentUser, onClose }) {
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
+  const [error, setError] = useState('');
+  const [sending, setSending] = useState(false);
   const bottomRef = useRef(null);
 
   useEffect(() => {
-    const chatRef = schoolSubcollection(db, schoolId, 'tasks', task.id, 'chat');
-    const q = query(chatRef, orderBy('createdAt', 'asc'));
-    const unsub = onSnapshot(q, (snap) => {
-      setMessages(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    return subscribeTaskChat({
+      db,
+      schoolId,
+      task,
+      onData: items => {
+        setMessages(items);
+        markTaskChatRead({ db, schoolId, uid: currentUser?.uid, task }).catch(() => undefined);
+      },
+      onError: () => setError('לא ניתן לטעון את הודעות המשימה.'),
     });
-    return unsub;
-  }, [schoolId, task.id]);
+  }, [currentUser?.uid, schoolId, task]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -31,14 +34,17 @@ export default function ChatPanel({ task, schoolId, currentUser, onClose }) {
 
   async function handleSend(e) {
     e.preventDefault();
-    if (!text.trim()) return;
-    await addDoc(schoolSubcollection(db, schoolId, 'tasks', task.id, 'chat'), {
-      text: text.trim(),
-      author: currentUser?.fullName || 'משתמש',
-      authorId: currentUser?.uid || '',
-      createdAt: serverTimestamp()
-    });
-    setText('');
+    if (!text.trim() || sending) return;
+    setSending(true);
+    setError('');
+    try {
+      await sendTaskChatMessage({ db, schoolId, task, user: currentUser, text });
+      setText('');
+    } catch {
+      setError('שליחת ההודעה נכשלה.');
+    } finally {
+      setSending(false);
+    }
   }
 
   return (
@@ -54,6 +60,7 @@ export default function ChatPanel({ task, schoolId, currentUser, onClose }) {
       </div>
 
       <div className="chat-messages">
+        {error && <div className="task-feedback task-feedback--error" role="alert">{error}</div>}
         {messages.length === 0 && (
           <div className="chat-empty">אין הודעות עדיין</div>
         )}
@@ -82,7 +89,7 @@ export default function ChatPanel({ task, schoolId, currentUser, onClose }) {
           placeholder="כתבו הודעה..."
           autoFocus
         />
-        <button type="submit" className="chat-send" disabled={!text.trim()} aria-label="שליחת תגובה">
+        <button type="submit" className="chat-send" disabled={!text.trim() || sending} aria-label="שליחת תגובה">
           <Send size={16} />
         </button>
       </form>

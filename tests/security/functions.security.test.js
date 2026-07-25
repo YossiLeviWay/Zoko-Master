@@ -13,6 +13,7 @@ import {
   respondTaskInvitationHandler,
 } from '../../functions/src/callables/tasks.js';
 import { createStaffHandler, setRoleHandler, updateStaffHandler } from '../../functions/src/callables/staff.js';
+import { createForumThreadHandler, upsertForumFolderHandler } from '../../functions/src/callables/forum.js';
 import {
   assignCustomRoleHandler,
   createCustomRoleHandler,
@@ -116,6 +117,43 @@ test('institution manager patches page permissions without erasing existing lega
   assert.equal(updated['calendar.edit'], true);
   assert.equal(updated.tasks_view, true);
   assert.equal(updated.legacy_setting, true);
+});
+
+test('school-scoped institution manager can grant calendar editing to staff', async () => {
+  await seedUser('manager_a', SCHOOL_A, 'viewer', {
+    rolesBySchool: { [SCHOOL_A]: 'institution_manager' },
+  });
+  await seedUser('staff_a', SCHOOL_A, 'viewer');
+  await updateStaffHandler(actorRequest('manager_a', {
+    schoolId: SCHOOL_A,
+    userId: 'staff_a',
+    permissions: { calendar_view: true, calendar_edit: true, 'calendar.view': true, 'calendar.edit': true },
+  }));
+  const permissions = (await adminDb.doc('users/staff_a').get()).data().permissions;
+  assert.equal(permissions.calendar_edit, true);
+  assert.equal(permissions['calendar.edit'], true);
+});
+
+test('school manager can create forum folders and discussions without a delegate membership', async () => {
+  await seedUser('manager_a', SCHOOL_A, 'viewer', {
+    fullName: 'Manager',
+    rolesBySchool: { [SCHOOL_A]: 'principal' },
+    activeSchoolId: SCHOOL_A,
+  });
+  await adminDb.doc(`schools/${SCHOOL_A}`).set({ name: 'School A' });
+  await adminDb.doc(`schoolPublicDirectory/${SCHOOL_A}`).set({ schoolId: SCHOOL_A, name: 'School A', status: 'active' });
+  const folder = await upsertForumFolderHandler(actorRequest('manager_a', {
+    name: 'מנהלים משתפים',
+    description: '',
+  }));
+  const thread = await createForumThreadHandler(actorRequest('manager_a', {
+    folderId: folder.folderId,
+    title: 'עדכון מוסדי',
+    body: 'שיתוף בין מנהלי מוסדות.',
+    attachmentIds: [],
+  }));
+  assert.equal((await adminDb.doc(`platformForum/root/folders/${folder.folderId}`).get()).exists, true);
+  assert.equal((await adminDb.doc(`platformForum/root/threads/${thread.threadId}`).get()).exists, true);
 });
 
 test('file and folder deletion uses a recoverable server-side recycle bin', async () => {
