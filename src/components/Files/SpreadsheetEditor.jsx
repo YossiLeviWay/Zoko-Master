@@ -150,12 +150,12 @@ const CALC_FUNCTIONS = [
 
 const CELL_COLORS = [
   '#ffffff', '#fef2f2', '#fff7ed', '#fefce8', '#f0fdf4', '#ecfdf5',
-  '#f0f9ff', '#eff6ff', '#f5f3ff', '#fdf2f8', '#f1f5f9', '#e2e8f0',
+  '#f0f9ff', '#fbf6f5', '#f5f3ff', '#fdf2f8', '#f9f1ef', '#eadfe2',
 ];
 
 const TEXT_COLORS = [
-  '#1e293b', '#ef4444', '#f59e0b', '#16a34a', '#2563eb', '#8b5cf6',
-  '#ec4899', '#14b8a6', '#64748b', '#a16207',
+  '#1e000c', '#ef4444', '#f59e0b', '#16a34a', '#870335', '#8b5cf6',
+  '#ec4899', '#14b8a6', '#765968', '#a16207',
 ];
 
 export default function SpreadsheetEditor({ data, onChange, readOnly = false, onToggleFullscreen, isFullscreen }) {
@@ -1194,7 +1194,7 @@ export default function SpreadsheetEditor({ data, onChange, readOnly = false, on
                 <button className="ribbon-btn ribbon-btn--color ribbon-btn--labeled" onClick={() => { setShowTextColorPicker(!showTextColorPicker); setShowCalcMenu(false); setShowCellColorPicker(false); }} title="צבע טקסט">
                   <Type size={14} />
                   <span className="ribbon-label">טקסט</span>
-                  <span className="ribbon-color-indicator" style={{ background: curStyle.color || '#1e293b' }} />
+                  <span className="ribbon-color-indicator" style={{ background: curStyle.color || '#1e000c' }} />
                 </button>
                 {showTextColorPicker && (
                   <div className="color-picker-popup">

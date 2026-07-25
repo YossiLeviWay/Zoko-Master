@@ -1246,7 +1246,7 @@ export default function StaffManagement() {
                             ? schoolNames.map((name, i) => (
                               <span key={i} className="school-tag">{name}</span>
                             ))
-                            : <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}>—</span>
+                            : <span style={{ color: '#9b8790', fontSize: '0.78rem' }}>—</span>
                           }
                         </div>
                       </td>
@@ -1275,7 +1275,7 @@ export default function StaffManagement() {
                                 )}
                               </>
                             ) : (
-                              <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>—</span>
+                              <span style={{ fontSize: '0.72rem', color: '#9b8790' }}>—</span>
                             )}
                           </div>
                         </td>
@@ -1421,7 +1421,7 @@ export default function StaffManagement() {
                       </label>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
                         {customRoles.map(role => (
-                          <label key={role.id} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.3rem 0.6rem', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: '0.8rem', cursor: 'pointer', background: editForm.customRoleIds.includes(role.id) ? '#eff6ff' : '#fff' }}>
+                          <label key={role.id} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.3rem 0.6rem', border: '1px solid #eadfe2', borderRadius: 6, fontSize: '0.8rem', cursor: 'pointer', background: editForm.customRoleIds.includes(role.id) ? '#fbf6f5' : '#fff' }}>
                             <input
                               type="checkbox"
                               checked={editForm.customRoleIds.includes(role.id)}
@@ -1445,7 +1445,7 @@ export default function StaffManagement() {
                       <label>צוותים</label>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
                         {teams.map(team => (
-                          <label key={team.id} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.3rem 0.6rem', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: '0.8rem', cursor: 'pointer', background: editForm.teamIds.includes(team.id) ? '#eff6ff' : '#fff' }}>
+                          <label key={team.id} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.3rem 0.6rem', border: '1px solid #eadfe2', borderRadius: 6, fontSize: '0.8rem', cursor: 'pointer', background: editForm.teamIds.includes(team.id) ? '#fbf6f5' : '#fff' }}>
                             <input
                               type="checkbox"
                               checked={editForm.teamIds.includes(team.id)}
@@ -1478,7 +1478,7 @@ export default function StaffManagement() {
                       <RefreshCw size={14} className={resetPasswordLoading ? 'spin' : ''} />
                       {resetPasswordLoading ? 'שולח...' : 'שליחת קישור איפוס'}
                     </button>
-                    <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+                    <span style={{ fontSize: '0.7rem', color: '#9b8790' }}>
                       קישור מאובטח יישלח ישירות לכתובת הדוא"ל של המשתמש. הסיסמה אינה נחשפת למנהל.
                     </span>
                     {resetEmailSent && (
@@ -1534,7 +1534,7 @@ export default function StaffManagement() {
                       required
                     />
                   </div>
-                  <div style={{ fontSize: '0.76rem', color: '#64748b', background: '#f8fafc', padding: '0.65rem', borderRadius: 8 }}>
+                  <div style={{ fontSize: '0.76rem', color: '#765968', background: '#fbf6f5', padding: '0.65rem', borderRadius: 8 }}>
                     החשבון ייווצר רק לאחר קבלת הזמנה חד־פעמית וקביעת סיסמה על ידי המשתמש.
                   </div>
                   <div className="form-group">
@@ -1613,7 +1613,7 @@ export default function StaffManagement() {
               <div className="modal-form" style={{ padding: '0.75rem' }}>
                 {!bulkProgress ? (
                   <>
-                    <p style={{ fontSize: '0.78rem', color: '#64748b', margin: '0 0 0.5rem' }}>
+                    <p style={{ fontSize: '0.78rem', color: '#765968', margin: '0 0 0.5rem' }}>
                       מלאו את הטבלה או הדביקו נתונים מאקסל (שם, אימייל, תפקיד, הרשאה). לכל משתמש יישלח קישור מאובטח לקביעת סיסמה.
                     </p>
                     <div className="bulk-table-wrapper">
@@ -1690,7 +1690,7 @@ export default function StaffManagement() {
                         <Plus size={14} />
                         הוסף שורה
                       </button>
-                      <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                      <span style={{ fontSize: '0.72rem', color: '#9b8790' }}>
                         {bulkRows.filter(r => r.fullName.trim() && r.email.trim()).length} שורות מלאות מתוך {bulkRows.length}
                       </span>
                     </div>
@@ -1715,10 +1715,10 @@ export default function StaffManagement() {
                 ) : (
                   <div className="bulk-progress">
                     <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
-                      <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#1e293b', marginBottom: '0.35rem' }}>
+                      <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#1e000c', marginBottom: '0.35rem' }}>
                         {bulkProgress.current < bulkProgress.total ? 'מוסיף אנשי צוות...' : 'הוספה הושלמה'}
                       </div>
-                      <div style={{ fontSize: '0.82rem', color: '#64748b' }}>
+                      <div style={{ fontSize: '0.82rem', color: '#765968' }}>
                         {bulkProgress.current} / {bulkProgress.total}
                       </div>
                       <div className="bulk-progress-bar">
@@ -1765,7 +1765,7 @@ export default function StaffManagement() {
               </div>
               <div style={{ padding: '0.75rem 1.5rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: '0.8rem', color: '#64748b' }}>תפקיד מערכת:</span>
+                  <span style={{ fontSize: '0.8rem', color: '#765968' }}>תפקיד מערכת:</span>
                   <span className={`role-badge role-${permissionsUser.role}`}>
                     {ROLE_LABELS[permissionsUser.role] || 'צופה'}
                   </span>
@@ -1773,7 +1773,7 @@ export default function StaffManagement() {
                 {/* Custom roles */}
                 {permissionsUser.customRoleIds && permissionsUser.customRoleIds.length > 0 && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '0.8rem', color: '#64748b' }}>תפקידים מותאמים:</span>
+                    <span style={{ fontSize: '0.8rem', color: '#765968' }}>תפקידים מותאמים:</span>
                     {permissionsUser.customRoleIds.map(rid => {
                       const r = customRoles.find(cr => cr.id === rid);
                       return r ? <span key={rid} style={{ fontSize: '0.72rem', background: '#ede9fe', color: '#6d28d9', padding: '0.15rem 0.4rem', borderRadius: 4 }}>{r.name}</span> : null;
@@ -1783,14 +1783,14 @@ export default function StaffManagement() {
                 {/* Teams */}
                 {permissionsUser.teamIds && permissionsUser.teamIds.length > 0 && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '0.8rem', color: '#64748b' }}>צוותים:</span>
+                    <span style={{ fontSize: '0.8rem', color: '#765968' }}>צוותים:</span>
                     {permissionsUser.teamIds.map(tid => {
                       const t = teams.find(tm => tm.id === tid);
                       return t ? <span key={tid} style={{ fontSize: '0.72rem', background: '#ecfdf5', color: '#065f46', padding: '0.15rem 0.4rem', borderRadius: 4 }}>{t.name}</span> : null;
                     })}
                   </div>
                 )}
-                <p style={{ fontSize: '0.75rem', color: '#94a3b8', margin: '0 0 1rem' }}>
+                <p style={{ fontSize: '0.75rem', color: '#9b8790', margin: '0 0 1rem' }}>
                   ניתן להתאים את ההרשאות לכל משתמש בנפרד. הרשאות מתפקידים מותאמים יתווספו אוטומטית.
                 </p>
               </div>

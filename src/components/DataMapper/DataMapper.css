@@ -20,7 +20,7 @@ body.excel-fullscreen .excel-layout {
 .sheets-panel {
   width: 220px;
   background: #fff;
-  border-left: 1px solid #e2e8f0;
+  border-left: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -31,19 +31,19 @@ body.excel-fullscreen .excel-layout {
   align-items: center;
   justify-content: space-between;
   padding: 0.75rem 1rem;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--color-surface-muted);
 }
 
 .sheets-header h3 {
   margin: 0;
   font-size: 0.9rem;
   font-weight: 700;
-  color: #1e293b;
+  color: var(--color-text);
 }
 
 .new-sheet-form {
   padding: 0.6rem;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--color-surface-muted);
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
@@ -51,7 +51,7 @@ body.excel-fullscreen .excel-layout {
 
 .new-sheet-form input {
   padding: 0.4rem 0.6rem;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--color-border);
   border-radius: 6px;
   font-size: 0.8rem;
   font-family: 'Inter', sans-serif;
@@ -69,19 +69,19 @@ body.excel-fullscreen .excel-layout {
   gap: 0.5rem;
   padding: 0.45rem 0.6rem;
   border-radius: 8px;
-  color: #475569;
+  color: var(--color-text-muted);
   cursor: pointer;
   font-size: 0.8rem;
   transition: all 0.15s;
 }
 
 .sheet-item:hover {
-  background: #f1f5f9;
+  background: var(--color-surface-muted);
 }
 
 .sheet-item--active {
-  background: #eff6ff;
-  color: #2563eb;
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
   font-weight: 600;
 }
 
@@ -95,7 +95,7 @@ body.excel-fullscreen .excel-layout {
 .sheet-delete {
   background: none;
   border: none;
-  color: #94a3b8;
+  color: var(--color-text-faint);
   cursor: pointer;
   padding: 2px;
   border-radius: 4px;
@@ -115,7 +115,7 @@ body.excel-fullscreen .excel-layout {
 .sheets-empty {
   text-align: center;
   font-size: 0.78rem;
-  color: #94a3b8;
+  color: var(--color-text-faint);
   padding: 1rem;
 }
 
@@ -133,13 +133,13 @@ body.excel-fullscreen .excel-layout {
   justify-content: space-between;
   padding: 0.6rem 1rem;
   background: #fff;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--color-surface-muted);
 }
 
 .excel-sheet-name {
   font-size: 0.9rem;
   font-weight: 700;
-  color: #1e293b;
+  color: var(--color-text);
 }
 
 .excel-actions {
@@ -167,7 +167,7 @@ body.excel-fullscreen .excel-layout {
 
 .excel-table th,
 .excel-table td {
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--color-border);
   padding: 0;
 }
 
@@ -175,15 +175,15 @@ body.excel-fullscreen .excel-layout {
   width: 40px;
   min-width: 40px;
   text-align: center;
-  background: #f8fafc;
-  color: #94a3b8;
+  background: var(--color-surface);
+  color: var(--color-text-faint);
   font-size: 0.72rem;
   font-weight: 600;
   position: relative;
 }
 
 .excel-col-header {
-  background: #f1f5f9;
+  background: var(--color-surface-muted);
   position: relative;
   min-width: 120px;
 }
@@ -195,14 +195,14 @@ body.excel-fullscreen .excel-layout {
   background: transparent;
   font-size: 0.78rem;
   font-weight: 700;
-  color: #334155;
+  color: var(--color-text-secondary);
   text-align: center;
   font-family: 'Inter', sans-serif;
 }
 
 .excel-col-input:focus {
   outline: none;
-  background: #e2e8f0;
+  background: var(--color-border);
 }
 
 .excel-col-remove,
@@ -212,7 +212,7 @@ body.excel-fullscreen .excel-layout {
   transform: translateY(-50%);
   background: none;
   border: none;
-  color: #94a3b8;
+  color: var(--color-text-faint);
   cursor: pointer;
   padding: 1px;
   border-radius: 3px;
@@ -242,7 +242,7 @@ body.excel-fullscreen .excel-layout {
 
 .excel-col-letter {
   font-size: 0.62rem;
-  color: #94a3b8;
+  color: var(--color-text-faint);
   font-weight: 700;
   text-align: center;
   line-height: 1;
@@ -255,12 +255,12 @@ body.excel-fullscreen .excel-layout {
 }
 
 .excel-cell--selected {
-  background: #dbeafe !important;
+  background: var(--color-accent-soft) !important;
 }
 
 .excel-cell--focused {
-  box-shadow: inset 0 0 0 2px #2563eb;
-  background: #eff6ff;
+  box-shadow: inset 0 0 0 2px var(--color-primary);
+  background: var(--color-primary-soft);
 }
 
 .excel-cell-input {
@@ -269,7 +269,7 @@ body.excel-fullscreen .excel-layout {
   padding: 0.3rem 0.5rem;
   border: none;
   font-size: 0.8rem;
-  color: #1e293b;
+  color: var(--color-text);
   font-family: 'Inter', sans-serif;
   background: transparent;
 }
@@ -297,7 +297,7 @@ body.excel-fullscreen .excel-layout {
 }
 
 .excel-row-resize:hover {
-  background: #2563eb;
+  background: var(--color-primary);
 }
 
 /* Column resize handle */
@@ -314,7 +314,7 @@ body.excel-fullscreen .excel-layout {
 }
 
 .excel-col-resize:hover {
-  background: #2563eb;
+  background: var(--color-primary);
 }
 
 /* Search bar */
@@ -323,9 +323,9 @@ body.excel-fullscreen .excel-layout {
   align-items: center;
   gap: 0.4rem;
   padding: 0.4rem 0.7rem;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--color-border);
   border-radius: 8px;
-  background: #f8fafc;
+  background: var(--color-surface);
   min-width: 180px;
 }
 
@@ -334,13 +334,13 @@ body.excel-fullscreen .excel-layout {
   background: transparent;
   font-size: 0.82rem;
   font-family: 'Inter', sans-serif;
-  color: #1e293b;
+  color: var(--color-text);
   width: 100%;
   outline: none;
 }
 
 .search-bar svg {
-  color: #94a3b8;
+  color: var(--color-text-faint);
   flex-shrink: 0;
 }
 
@@ -350,8 +350,8 @@ body.excel-fullscreen .excel-layout {
   align-items: center;
   gap: 0.5rem;
   padding: 0.4rem 1rem;
-  background: #f8fafc;
-  border-bottom: 1px solid #e2e8f0;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .formula-bar-label {
@@ -360,7 +360,7 @@ body.excel-fullscreen .excel-layout {
   gap: 0.3rem;
   font-size: 0.72rem;
   font-weight: 600;
-  color: #64748b;
+  color: var(--color-text-subtle);
   white-space: nowrap;
   min-width: 60px;
 }
@@ -368,25 +368,25 @@ body.excel-fullscreen .excel-layout {
 .formula-bar-input {
   flex: 1;
   padding: 0.35rem 0.6rem;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--color-border);
   border-radius: 6px;
   font-size: 0.8rem;
   font-family: 'Courier New', monospace;
   background: #fff;
-  color: #1e293b;
+  color: var(--color-text);
   direction: ltr;
   text-align: left;
 }
 
 .formula-bar-input:focus {
   outline: none;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(135, 3, 53, 0.1);
 }
 
 .formula-bar-input:disabled {
-  background: #f1f5f9;
-  color: #94a3b8;
+  background: var(--color-surface-muted);
+  color: var(--color-text-faint);
 }
 
 /* Calculations Toolbar */
@@ -396,7 +396,7 @@ body.excel-fullscreen .excel-layout {
   gap: 0.5rem;
   padding: 0.35rem 1rem;
   background: #fff;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--color-surface-muted);
 }
 
 .calc-toolbar-label {
@@ -405,7 +405,7 @@ body.excel-fullscreen .excel-layout {
   gap: 0.3rem;
   font-size: 0.72rem;
   font-weight: 600;
-  color: #64748b;
+  color: var(--color-text-subtle);
   white-space: nowrap;
 }
 
@@ -420,20 +420,20 @@ body.excel-fullscreen .excel-layout {
   align-items: center;
   gap: 0.25rem;
   padding: 0.2rem 0.55rem;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--color-border);
   border-radius: 6px;
-  background: #f8fafc;
+  background: var(--color-surface);
   font-size: 0.7rem;
   font-family: 'Inter', sans-serif;
-  color: #475569;
+  color: var(--color-text-muted);
   cursor: pointer;
   transition: all 0.15s;
 }
 
 .calc-btn:hover {
-  background: #eff6ff;
-  border-color: #93c5fd;
-  color: #2563eb;
+  background: var(--color-primary-soft);
+  border-color: var(--color-accent-border);
+  color: var(--color-primary);
 }
 
 .calc-btn-icon {
@@ -445,8 +445,8 @@ body.excel-fullscreen .excel-layout {
 
 /* Selected cell styling */
 .excel-cell--selected {
-  background: #dbeafe !important;
-  outline: 2px solid #3b82f6;
+  background: var(--color-accent-soft) !important;
+  outline: 2px solid var(--color-accent);
   outline-offset: -2px;
 }
 
@@ -470,10 +470,10 @@ body.excel-fullscreen .excel-layout {
   align-items: center;
   gap: 1.5rem;
   padding: 0.4rem 1rem;
-  background: #f1f5f9;
-  border-top: 1px solid #e2e8f0;
+  background: var(--color-surface-muted);
+  border-top: 1px solid var(--color-border);
   font-size: 0.72rem;
-  color: #64748b;
+  color: var(--color-text-subtle);
 }
 
 .calc-summary-item {
@@ -483,13 +483,13 @@ body.excel-fullscreen .excel-layout {
 }
 
 .calc-summary-item strong {
-  color: #1e293b;
+  color: var(--color-text);
 }
 
 /* Cut cell */
 .excel-cell--cut {
   opacity: 0.45;
-  border: 2px dashed #94a3b8 !important;
+  border: 2px dashed var(--color-text-faint) !important;
 }
 
 /* ===== Context Menu ===== */
@@ -497,7 +497,7 @@ body.excel-fullscreen .excel-layout {
   position: fixed;
   z-index: 200;
   background: #fff;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--color-border);
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
   padding: 0.3rem;
@@ -517,14 +517,14 @@ body.excel-fullscreen .excel-layout {
   border-radius: 6px;
   font-size: 0.78rem;
   font-family: 'Inter', sans-serif;
-  color: #334155;
+  color: var(--color-text-secondary);
   cursor: pointer;
   text-align: right;
   transition: background 0.12s;
 }
 
 .ctx-item:hover:not(:disabled) {
-  background: #f1f5f9;
+  background: var(--color-surface-muted);
 }
 
 .ctx-item:disabled {
@@ -542,7 +542,7 @@ body.excel-fullscreen .excel-layout {
 
 .ctx-divider {
   height: 1px;
-  background: #f1f5f9;
+  background: var(--color-surface-muted);
   margin: 0.2rem 0;
 }
 
@@ -550,19 +550,19 @@ body.excel-fullscreen .excel-layout {
 .sheet-rename-input {
   flex: 1;
   padding: 0.2rem 0.4rem;
-  border: 1px solid #93c5fd;
+  border: 1px solid var(--color-accent-border);
   border-radius: 4px;
   font-size: 0.8rem;
   font-family: 'Inter', sans-serif;
   background: #fff;
-  color: #1e293b;
+  color: var(--color-text);
   outline: none;
   min-width: 0;
 }
 
 .sheet-rename-input:focus {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(135, 3, 53, 0.15);
 }
 
 /* Sheet context menu */
@@ -597,14 +597,14 @@ body.excel-fullscreen .excel-layout {
   align-items: center;
   justify-content: space-between;
   padding: 0.8rem 1rem;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--color-surface-muted);
 }
 
 .share-modal-header h3 {
   margin: 0;
   font-size: 0.95rem;
   font-weight: 700;
-  color: #1e293b;
+  color: var(--color-text);
 }
 
 .share-modal-body {
@@ -624,7 +624,7 @@ body.excel-fullscreen .excel-layout {
   margin: 0 0 0.4rem 0;
   font-size: 0.8rem;
   font-weight: 600;
-  color: #64748b;
+  color: var(--color-text-subtle);
 }
 
 .share-check-item {
@@ -634,17 +634,17 @@ body.excel-fullscreen .excel-layout {
   padding: 0.35rem 0.4rem;
   border-radius: 6px;
   font-size: 0.8rem;
-  color: #334155;
+  color: var(--color-text-secondary);
   cursor: pointer;
   transition: background 0.12s;
 }
 
 .share-check-item:hover {
-  background: #f1f5f9;
+  background: var(--color-surface-muted);
 }
 
 .share-check-item input[type="checkbox"] {
-  accent-color: #2563eb;
+  accent-color: var(--color-primary);
   width: 15px;
   height: 15px;
 }
@@ -653,7 +653,7 @@ body.excel-fullscreen .excel-layout {
   display: flex;
   gap: 0.5rem;
   padding: 0.6rem 1rem;
-  border-top: 1px solid #f1f5f9;
+  border-top: 1px solid var(--color-surface-muted);
   justify-content: flex-start;
 }
 
@@ -666,7 +666,7 @@ body.excel-fullscreen .excel-layout {
   .sheets-panel {
     width: 100%;
     border-left: none;
-    border-bottom: 1px solid #e2e8f0;
+    border-bottom: 1px solid var(--color-border);
     max-height: 180px;
   }
 

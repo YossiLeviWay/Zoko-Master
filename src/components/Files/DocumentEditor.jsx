@@ -27,15 +27,15 @@ import './Editors.css';
 import { sanitizeDocumentHtml } from '../../services/htmlSanitizer';
 
 const TEXT_COLORS = [
-  { label: 'Black', value: '#1e293b' },
+  { label: 'Black', value: '#1e000c' },
   { label: 'Red', value: '#ef4444' },
-  { label: 'Blue', value: '#2563eb' },
+  { label: 'Blue', value: '#870335' },
   { label: 'Green', value: '#16a34a' },
   { label: 'Orange', value: '#f59e0b' },
   { label: 'Purple', value: '#8b5cf6' },
   { label: 'Pink', value: '#ec4899' },
   { label: 'Teal', value: '#14b8a6' },
-  { label: 'Gray', value: '#64748b' },
+  { label: 'Gray', value: '#765968' },
   { label: 'Brown', value: '#a16207' },
 ];
 

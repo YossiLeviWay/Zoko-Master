@@ -1,0 +1,155 @@
+:root {
+  /* Official Atid network palette, centralized for the entire application. */
+  --atid-orange: #fc5029;
+  --atid-burgundy: #870335;
+  --atid-burgundy-dark: #5c0123;
+  --atid-ink: #1e000c;
+  --atid-cream: #f9f1ef;
+  --atid-peach: #f9dab9;
+  --atid-warm-white: #fbf6f5;
+  --atid-white: #fefefe;
+
+  --color-primary: var(--atid-burgundy);
+  --color-primary-hover: var(--atid-burgundy-dark);
+  --color-primary-soft: var(--atid-warm-white);
+  --color-accent: var(--atid-orange);
+  --color-accent-soft: var(--atid-peach);
+  --color-accent-border: #f6ad99;
+  --color-text-strong: var(--atid-ink);
+  --color-text: var(--atid-ink);
+  --color-text-secondary: #3f1828;
+  --color-text-muted: #5f3b49;
+  --color-text-subtle: #765968;
+  --color-text-faint: #9b8790;
+  --color-surface: var(--atid-warm-white);
+  --color-surface-muted: var(--atid-cream);
+  --color-surface-raised: var(--atid-white);
+  --color-border: #eadfe2;
+  --color-border-strong: #d9cbd0;
+
+  --control-height: 44px;
+  --control-height-small: 36px;
+  --control-radius: 12px;
+  --control-radius-small: 10px;
+  --focus-ring: 0 0 0 3px rgb(252 80 41 / 22%);
+  --control-shadow: 0 1px 2px rgb(30 0 12 / 5%);
+}
+
+:where(button, input, select, textarea) {
+  font-family: inherit;
+}
+
+:where(button) {
+  border-radius: var(--control-radius-small);
+}
+
+:where(input:not([type='checkbox']):not([type='radio']):not([type='color']):not([type='range']):not([type='file']), select) {
+  min-height: var(--control-height);
+}
+
+:where(input:not([type='checkbox']):not([type='radio']):not([type='color']):not([type='range']), select, textarea) {
+  border-color: var(--color-border);
+  border-radius: var(--control-radius-small);
+  color: var(--color-text);
+}
+
+.btn {
+  min-height: var(--control-height);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.62rem 1.15rem;
+  border: 1px solid transparent;
+  border-radius: var(--control-radius);
+  font-size: 0.84rem;
+  font-weight: 700;
+  line-height: 1.2;
+  cursor: pointer;
+  box-shadow: var(--control-shadow);
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+}
+
+.btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.btn:focus-visible,
+.icon-btn:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  box-shadow: var(--focus-ring);
+}
+
+.btn:disabled,
+.icon-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-primary {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--atid-white);
+}
+
+.btn-primary:hover:not(:disabled) {
+  border-color: var(--color-primary-hover);
+  background: var(--color-primary-hover);
+}
+
+.btn-secondary {
+  border-color: var(--color-border);
+  background: var(--color-surface-raised);
+  color: var(--color-primary);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  border-color: var(--color-accent-border);
+  background: var(--color-surface-muted);
+  color: var(--color-primary-hover);
+}
+
+.btn-danger {
+  border-color: #fecaca;
+  background: #fff7f7;
+  color: #b42318;
+}
+
+.btn-danger:hover:not(:disabled) {
+  border-color: #fda4af;
+  background: #fee2e2;
+}
+
+.btn-sm {
+  min-height: var(--control-height-small);
+  border-radius: var(--control-radius-small);
+  padding: 0.45rem 0.8rem;
+  font-size: 0.78rem;
+}
+
+.btn-link {
+  min-height: auto;
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-primary);
+  box-shadow: none;
+}
+
+.icon-btn {
+  width: var(--control-height-small);
+  height: var(--control-height-small);
+  min-width: var(--control-height-small);
+  border: 1px solid var(--color-border);
+  border-radius: var(--control-radius-small);
+  background: var(--color-surface-raised);
+  color: var(--color-text-subtle);
+  box-shadow: var(--control-shadow);
+}
+
+.icon-btn:hover:not(:disabled) {
+  border-color: var(--color-accent-border);
+  background: var(--color-surface-muted);
+  color: var(--color-primary);
+}

@@ -22,7 +22,7 @@ const EMPTY_FORM = Object.freeze({
   delegatedPermissionKeys: [],
   accessScope: { type: 'school', classIds: [] },
   icon: 'shield',
-  color: '#2563eb',
+  color: '#870335',
   delegable: true,
   assignableBy: [],
   defaultForInvites: false,
@@ -46,7 +46,7 @@ function roleForm(role = EMPTY_FORM) {
       ? { type: 'classes', classIds: [...(role.accessScope.classIds || [])] }
       : { type: 'school', classIds: [] },
     icon: role.icon || 'shield',
-    color: role.color || '#2563eb',
+    color: role.color || '#870335',
     delegable: role.delegable !== false,
     assignableBy: [...(role.assignableBy || [])],
     defaultForInvites: role.defaultForInvites === true,

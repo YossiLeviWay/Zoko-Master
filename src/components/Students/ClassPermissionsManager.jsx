@@ -126,14 +126,14 @@ export default function ClassPermissionsManager({ schoolId, classes, onClose }) 
         </div>
 
         {loading ? (
-          <div style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>טוען...</div>
+          <div style={{ padding: '2rem', textAlign: 'center', color: '#9b8790' }}>טוען...</div>
         ) : classes.length === 0 ? (
-          <div style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>
+          <div style={{ padding: '2rem', textAlign: 'center', color: '#9b8790' }}>
             אין כיתות רשומות — הוסף תלמידים עם שיוך כיתה קודם
           </div>
         ) : (
           <div className="modal-form" style={{ padding: '1rem 1.5rem' }}>
-            <p style={{ fontSize: '0.82rem', color: '#64748b', marginBottom: '1rem' }}>
+            <p style={{ fontSize: '0.82rem', color: '#765968', marginBottom: '1rem' }}>
               ניהול מי מורשה לצפות בתלמידי כל כיתה. מנהל מוסד רואה תמיד את כל הכיתות.
               מחנכים ומורים ישויכים לכיתות ספציפיות.
             </p>
@@ -210,7 +210,7 @@ export default function ClassPermissionsManager({ schoolId, classes, onClose }) 
                           </div>
                           <div style={{ flex: 1 }}>
                             <div style={{ fontSize: '0.83rem', fontWeight: 600 }}>{u.fullName}</div>
-                            <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{u.jobTitle || u.role}</div>
+                            <div style={{ fontSize: '0.72rem', color: '#9b8790' }}>{u.jobTitle || u.role}</div>
                           </div>
                           <button
                             className="icon-btn icon-btn--danger"
@@ -238,7 +238,7 @@ export default function ClassPermissionsManager({ schoolId, classes, onClose }) 
                         </div>
                         <div style={{ flex: 1 }}>
                           <div style={{ fontSize: '0.83rem', fontWeight: 600 }}>{u.fullName}</div>
-                          <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{u.jobTitle || u.role}</div>
+                          <div style={{ fontSize: '0.72rem', color: '#9b8790' }}>{u.jobTitle || u.role}</div>
                         </div>
                         <button
                           className="icon-btn"
@@ -251,7 +251,7 @@ export default function ClassPermissionsManager({ schoolId, classes, onClose }) 
                       </div>
                     ))}
                     {availableStaff.length === 0 && assignedStaff.length === 0 && (
-                      <p style={{ fontSize: '0.8rem', color: '#94a3b8', padding: '0.5rem' }}>
+                      <p style={{ fontSize: '0.8rem', color: '#9b8790', padding: '0.5rem' }}>
                         {searchQuery ? 'לא נמצאו תוצאות' : 'אין אנשי צוות בבית הספר'}
                       </p>
                     )}

@@ -14,9 +14,9 @@ import './Holidays.css';
 const HOLIDAY_TYPES = {
   jewish: { label: 'יהודי', color: '#fef3c7', border: '#f59e0b' },
   muslim: { label: 'מוסלמי', color: '#d1fae5', border: '#10b981' },
-  christian: { label: 'נוצרי', color: '#dbeafe', border: '#3b82f6' },
+  christian: { label: 'נוצרי', color: '#f9dab9', border: '#fc5029' },
   druze: { label: 'דרוזי', color: '#e9d5ff', border: '#8b5cf6' },
-  national: { label: 'לאומי', color: '#bfdbfe', border: '#2563eb' }
+  national: { label: 'לאומי', color: '#f9dab9', border: '#870335' }
 };
 
 const EMPTY_FORM = {

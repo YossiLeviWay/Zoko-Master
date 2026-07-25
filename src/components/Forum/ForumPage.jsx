@@ -3,13 +3,34 @@ import { collection, doc, onSnapshot, orderBy, query, setDoc, serverTimestamp } 
 import { ref, uploadBytes } from 'firebase/storage';
 import { Bell, Flag, Lock, MessageSquare, Paperclip, Pin, Plus, Send, Trash2 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { db, storage } from '../../firebase';
-import { createForumPost, createForumThread, forumContentAction, upsertForumFolder } from '../../services/adminUserService';
+import { db, isAppCheckConfigured, storage } from '../../firebase';
+import {
+  callableReason,
+  createForumPost,
+  createForumThread,
+  forumContentAction,
+  upsertForumFolder,
+} from '../../services/adminUserService';
 import Header from '../Layout/Header';
 import '../Gantt/Gantt.css';
 import './Forum.css';
 
 const ROOT = 'platformForum/root';
+
+function forumActionError(action, error) {
+  const reason = callableReason(error);
+  if (!isAppCheckConfigured || reason === 'app-check-failed') {
+    return 'אימות App Check של האפליקציה אינו פעיל. יש לפרסם את הממשק עם מפתח App Check תקין ולרענן את הדף.';
+  }
+  if (reason === 'not-found') {
+    return 'שירות הפורום טרם פורסם ל-Firebase. יש לפרוס את Cloud Functions לפני שניתן ליצור תוכן.';
+  }
+  if (reason === 'unauthenticated') return 'החיבור פג. התחברו מחדש ונסו שוב.';
+  if (reason === 'permission-denied') return 'השרת לא זיהה הרשאת מנהל מוסד פעילה עבור המוסד הנבחר.';
+  if (reason === 'failed-precondition') return 'הפעולה אינה זמינה במצב הנוכחי. רעננו את הדף ונסו שוב.';
+  if (reason === 'unavailable' || reason === 'deadline-exceeded') return 'שירות הפורום אינו זמין כרגע. נסו שוב בעוד מספר רגעים.';
+  return `לא ניתן ${action}. שירות הפורום החזיר שגיאה לא צפויה.`;
+}
 
 export default function ForumPage() {
   const { currentUser, isPrincipal, isPlatformAdmin } = useAuth();
@@ -77,21 +98,21 @@ export default function ForumPage() {
     event.preventDefault(); if (!folderName.trim()) return;
     setSaving(true); setError('');
     try { await upsertForumFolder({ name: folderName.trim(), description: '' }); setFolderName(''); }
-    catch { setError('אין הרשאה ליצור תיקייה או שהפעולה נכשלה.'); }
+    catch (actionError) { setError(forumActionError('ליצור תיקייה', actionError)); }
     finally { setSaving(false); }
   }
 
   async function addThread(event) {
     event.preventDefault(); setSaving(true); setError('');
     try { const attachmentIds = await prepareAttachment(attachment); await createForumThread({ folderId: selectedFolderId, title: threadForm.title.trim(), body: threadForm.body.trim(), attachmentIds }); setThreadForm({ title: '', body: '' }); setAttachment(null); }
-    catch { setError('לא ניתן לפתוח את הדיון. בדקו הרשאה, תוכן וקובץ מצורף.'); }
+    catch (actionError) { setError(forumActionError('לפתוח את הדיון', actionError)); }
     finally { setSaving(false); }
   }
 
   async function addReply(event) {
     event.preventDefault(); setSaving(true); setError('');
     try { await createForumPost({ threadId: selectedThread.id, body: reply.trim(), attachmentIds: [] }); setReply(''); }
-    catch { setError('לא ניתן לשלוח את התגובה. ייתכן שהדיון נעול.'); }
+    catch (actionError) { setError(forumActionError('לשלוח את התגובה', actionError)); }
     finally { setSaving(false); }
   }
 
@@ -107,11 +128,11 @@ export default function ForumPage() {
   async function contentAction(payload) {
     setError('');
     try { await forumContentAction(payload); }
-    catch { setError('לא ניתן להשלים את הפעולה בדיון.'); }
+    catch (actionError) { setError(forumActionError('להשלים את הפעולה בדיון', actionError)); }
   }
   return <div className="page"><Header title="פורום בתי הספר" /><div className="page-content forum-page">
     {error && <div className="students-feedback students-feedback--error">{error}</div>}
-    <aside className="forum-folders"><h3>תיקיות</h3>{folders.map(item => <button key={item.id} className={selectedFolderId === item.id ? 'active' : ''} onClick={() => { setSelectedFolderId(item.id); setSelectedThread(null); }}>{item.name}</button>)}{permissions.has('forum.createFolder') && <form onSubmit={addFolder}><input value={folderName} onChange={event => setFolderName(event.target.value)} placeholder="שם תיקייה" /><button className="icon-btn" disabled={saving}><Plus size={14} /></button></form>}</aside>
+    <aside className="forum-folders"><h3>תיקיות</h3>{folders.map(item => <button key={item.id} className={selectedFolderId === item.id ? 'active' : ''} onClick={() => { setSelectedFolderId(item.id); setSelectedThread(null); }}>{item.name}</button>)}{permissions.has('forum.createFolder') && <form onSubmit={addFolder}><input value={folderName} onChange={event => setFolderName(event.target.value)} placeholder="שם תיקייה" aria-label="שם תיקייה חדשה" /><button className="btn btn-primary btn-sm" disabled={saving || !folderName.trim()}><Plus size={14} /> הוספה</button></form>}</aside>
     <main className="forum-threads"><div className="forum-heading"><h3>דיונים</h3><span>{visibleThreads.length}</span></div><div className="forum-filters"><input value={search} onChange={event => setSearch(event.target.value)} placeholder="חיפוש בדיונים" /><select value={schoolFilter} onChange={event => setSchoolFilter(event.target.value)}><option value="">כל המוסדות</option>{schoolNames.map(name => <option key={name}>{name}</option>)}</select><input type="date" value={dateFilter} onChange={event => setDateFilter(event.target.value)} aria-label="סינון לפי תאריך" /></div>{permissions.has('forum.createThread') && selectedFolderId && <form className="card forum-new-thread" onSubmit={addThread}><input value={threadForm.title} onChange={event => setThreadForm(previous => ({ ...previous, title: event.target.value }))} placeholder="כותרת הדיון" required /><textarea value={threadForm.body} onChange={event => setThreadForm(previous => ({ ...previous, body: event.target.value }))} placeholder="תוכן הדיון" required />{permissions.has('forum.uploadAttachment') && <label className="btn btn-secondary btn-sm"><Paperclip size={14} /> קובץ<input hidden type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={event => setAttachment(event.target.files?.[0] || null)} /></label>}<button className="btn btn-primary btn-sm" disabled={saving}>פתיחת דיון</button></form>}{visibleThreads.map(item => <button className={`forum-thread-card ${selectedThread?.id === item.id ? 'active' : ''}`} key={item.id} onClick={() => setSelectedThread(item)}><span>{item.pinned && <Pin size={13} />}{item.locked && <Lock size={13} />}</span><strong>{item.title}</strong><small>{item.author?.fullName} · {item.author?.publicRole} · {item.author?.schoolName}</small><p>{item.body}</p></button>)}</main>
     <section className="forum-discussion">{selectedThread ? <><div className="forum-heading"><h3>{selectedThread.title}</h3><div><button className="icon-btn" title="מעקב" onClick={() => contentAction({ targetType: 'thread', threadId: selectedThread.id, action: 'follow' })}><Bell size={14} /></button><button className="icon-btn" title="דיווח" onClick={() => { const reason = window.prompt('סיבת הדיווח:'); if (reason) contentAction({ targetType: 'thread', threadId: selectedThread.id, action: 'report', reason }); }}><Flag size={14} /></button>{permissions.has('forum.pinThread') && <button className="icon-btn" onClick={() => contentAction({ targetType: 'thread', threadId: selectedThread.id, action: 'pin' })}><Pin size={14} /></button>}{permissions.has('forum.lockThread') && <button className="icon-btn" onClick={() => contentAction({ targetType: 'thread', threadId: selectedThread.id, action: 'lock' })}><Lock size={14} /></button>}{((selectedThread.authorId === currentUser.uid && permissions.has('forum.deleteOwnPost')) || permissions.has('forum.moderate')) && <button className="icon-btn" title="מחיקה" onClick={() => window.confirm('למחוק את הדיון?') && contentAction({ targetType: 'thread', threadId: selectedThread.id, action: 'delete' })}><Trash2 size={14} /></button>}</div></div><article className="forum-post"><strong>{selectedThread.author?.fullName}</strong><small>{selectedThread.author?.publicRole} · {selectedThread.author?.schoolName}</small><p>{selectedThread.body}</p></article>{posts.filter(item => item.status !== 'deleted').map(item => <article className="forum-post" key={item.id}><strong>{item.author?.fullName}</strong><small>{item.author?.publicRole} · {item.author?.schoolName}</small><p>{item.body}</p>{((item.authorId === currentUser.uid && permissions.has('forum.deleteOwnPost')) || permissions.has('forum.moderate')) && <button className="icon-btn" title="מחיקת תגובה" onClick={() => window.confirm('למחוק את התגובה?') && contentAction({ targetType: 'post', threadId: selectedThread.id, postId: item.id, action: 'delete' })}><Trash2 size={13} /></button>}</article>)}{permissions.has('forum.reply') && !selectedThread.locked && <form className="forum-reply" onSubmit={addReply}><textarea value={reply} onChange={event => setReply(event.target.value)} placeholder="כתיבת תגובה" required /><button className="btn btn-primary" disabled={saving}><Send size={14} /> שליחה</button></form>}</> : <div className="empty-state"><MessageSquare size={36} /><p>בחרו דיון להצגה.</p></div>}</section>
   </div></div>;

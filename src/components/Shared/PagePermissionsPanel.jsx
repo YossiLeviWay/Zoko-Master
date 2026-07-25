@@ -144,46 +144,46 @@ export default function PagePermissionsPanel({ feature, onClose }) {
       }}>
         {/* Header */}
         <div style={{
-          padding: '1rem 1.25rem', borderBottom: '1px solid #f1f5f9',
+          padding: '1rem 1.25rem', borderBottom: '1px solid #f9f1ef',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Shield size={18} color="#3b82f6" />
+            <Shield size={18} color="#fc5029" />
             <span style={{ fontWeight: 700, fontSize: '1rem' }}>
               הרשאות — {featureMeta.label}
             </span>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 6, color: '#64748b' }}>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 6, color: '#765968' }}>
             <X size={18} />
           </button>
         </div>
 
         {/* Legend */}
         <div style={{
-          padding: '0.5rem 1.25rem', background: '#f8fafc',
-          borderBottom: '1px solid #f1f5f9',
-          display: 'flex', gap: '1.5rem', fontSize: '0.78rem', color: '#64748b',
+          padding: '0.5rem 1.25rem', background: '#fbf6f5',
+          borderBottom: '1px solid #f9f1ef',
+          display: 'flex', gap: '1.5rem', fontSize: '0.78rem', color: '#765968',
         }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <Eye size={13} color="#64748b" /> צפייה
+            <Eye size={13} color="#765968" /> צפייה
           </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <Edit3 size={13} color="#64748b" /> עריכה
+            <Edit3 size={13} color="#765968" /> עריכה
           </span>
-          <span style={{ fontSize: '0.72rem', color: '#94a3b8', marginRight: 'auto' }}>
+          <span style={{ fontSize: '0.72rem', color: '#9b8790', marginRight: 'auto' }}>
             מנהל מוסד — גישה מלאה תמיד
           </span>
         </div>
 
         {/* Search */}
-        <div style={{ padding: '0.75rem 1.25rem', borderBottom: '1px solid #f1f5f9' }}>
+        <div style={{ padding: '0.75rem 1.25rem', borderBottom: '1px solid #f9f1ef' }}>
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="חיפוש לפי שם..."
             style={{
               width: '100%', padding: '0.45rem 0.75rem',
-              border: '1px solid #e2e8f0', borderRadius: 8,
+              border: '1px solid #eadfe2', borderRadius: 8,
               fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box',
             }}
           />
@@ -193,7 +193,7 @@ export default function PagePermissionsPanel({ feature, onClose }) {
         {/* User list */}
         <div style={{ overflowY: 'auto', flex: 1 }}>
           {filtered.length === 0 && (
-            <div style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.88rem' }}>
+            <div style={{ padding: '2rem', textAlign: 'center', color: '#9b8790', fontSize: '0.88rem' }}>
               לא נמצאו משתמשים
             </div>
           )}
@@ -207,15 +207,15 @@ export default function PagePermissionsPanel({ feature, onClose }) {
             return (
               <div key={user.id} style={{
                 padding: '0.65rem 1.25rem',
-                borderBottom: '1px solid #f8fafc',
+                borderBottom: '1px solid #fbf6f5',
                 display: 'flex', alignItems: 'center', gap: '0.75rem',
               }}>
                 {/* Avatar */}
                 <div style={{
                   width: 34, height: 34, borderRadius: '50%',
-                  background: isPrinc ? '#dbeafe' : '#f1f5f9',
+                  background: isPrinc ? '#f9dab9' : '#f9f1ef',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: '0.85rem', fontWeight: 700, color: isPrinc ? '#2563eb' : '#475569',
+                  fontSize: '0.85rem', fontWeight: 700, color: isPrinc ? '#870335' : '#5f3b49',
                   flexShrink: 0,
                 }}>
                   {user.fullName?.charAt(0) || '?'}
@@ -223,10 +223,10 @@ export default function PagePermissionsPanel({ feature, onClose }) {
 
                 {/* Name + role */}
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: '0.88rem', color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.88rem', color: '#1e000c', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {user.fullName}
                   </div>
-                  <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                  <div style={{ fontSize: '0.72rem', color: '#9b8790' }}>
                     {user.jobTitle || ROLE_LABELS[user.role] || 'צופה'}
                   </div>
                 </div>
@@ -263,8 +263,8 @@ export default function PagePermissionsPanel({ feature, onClose }) {
 
         {/* Footer */}
         <div style={{
-          padding: '0.75rem 1.25rem', borderTop: '1px solid #f1f5f9',
-          background: '#f8fafc', fontSize: '0.76rem', color: '#94a3b8', textAlign: 'center',
+          padding: '0.75rem 1.25rem', borderTop: '1px solid #f9f1ef',
+          background: '#fbf6f5', fontSize: '0.76rem', color: '#9b8790', textAlign: 'center',
         }}>
           בחירה ב״עריכה״ כוללת גם הרשאת צפייה. השינוי נשמר בשרת ומתעדכן אצל המשתמש לאחר רענון.
         </div>
@@ -284,8 +284,8 @@ function PermToggle({ label, icon, active, disabled, loading, justSaved, onChang
         padding: '0.3rem 0.6rem', borderRadius: 6, border: 'none',
         cursor: disabled ? 'default' : 'pointer',
         fontSize: '0.75rem', fontWeight: 600,
-        background: active ? (justSaved ? '#dcfce7' : '#eff6ff') : '#f1f5f9',
-        color: active ? (justSaved ? '#16a34a' : '#2563eb') : '#94a3b8',
+        background: active ? (justSaved ? '#dcfce7' : '#fbf6f5') : '#f9f1ef',
+        color: active ? (justSaved ? '#16a34a' : '#870335') : '#9b8790',
         transition: 'all 0.15s',
         opacity: loading ? 0.6 : 1,
         minWidth: 60,

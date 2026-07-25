@@ -69,8 +69,8 @@ const PRIORITY_CONFIG = {
 };
 
 const STATUS_CONFIG = {
-  todo: { label: 'לביצוע', color: '#64748b' },
-  in_progress: { label: 'בתהליך', color: '#2563eb' },
+  todo: { label: 'לביצוע', color: '#765968' },
+  in_progress: { label: 'בתהליך', color: '#870335' },
   done: { label: 'הושלם', color: '#22c55e' },
 };
 
@@ -831,7 +831,7 @@ export default function TaskBoard() {
           <button className="icon-btn" onClick={() => changeStatus(task, isTaskComplete(task) ? 'todo' : 'done')} disabled={!canChangeStatus(task)} aria-label={isTaskComplete(task) ? `החזרת ${task.title} לביצוע` : `השלמת ${task.title}`} title={isTaskComplete(task) ? 'החזרה לביצוע' : 'סימון כהושלמה'}>
             {isTaskComplete(task) ? <RotateCcw size={15} /> : <Check size={15} />}
           </button>
-          {canEditDetails(task) && <button className="icon-btn" onClick={() => pinTask(task)} aria-label={`${pinned ? 'ביטול הצמדת' : 'הצמדת'} ${task.title}`} title={pinned ? 'ביטול הצמדה' : 'הצמדה'}><Pin size={15} color={pinned ? '#2563eb' : undefined} /></button>}
+          {canEditDetails(task) && <button className="icon-btn" onClick={() => pinTask(task)} aria-label={`${pinned ? 'ביטול הצמדת' : 'הצמדת'} ${task.title}`} title={pinned ? 'ביטול הצמדה' : 'הצמדה'}><Pin size={15} color={pinned ? '#870335' : undefined} /></button>}
           {canEditDetails(task) && <button className="icon-btn" onClick={() => startEdit(task)} aria-label={`עריכת ${task.title}`} title="עריכה"><Edit3 size={15} /></button>}
           {task._source === 'organization' && <button className={`icon-btn task-chat-button ${unreadChat ? 'task-chat-button--unread' : ''}`} onClick={() => setChatTask(task)} aria-label={`פתיחת צ׳אט עבור ${task.title}${unreadChat ? ' — יש הודעות חדשות' : ''}`} title={unreadChat ? 'הודעות חדשות בצ׳אט' : 'צ׳אט משימה'}><MessageSquare size={16} />{unreadChat && <span className="task-chat-alert" aria-hidden="true">!</span>}</button>}
           {task._source === 'organization' && <button className="icon-btn" onClick={() => createFollowUp(task)} aria-label={`יצירת משימת המשך אישית עבור ${task.title}`} title="צור לי משימת המשך אישית"><CopyPlus size={15} /></button>}

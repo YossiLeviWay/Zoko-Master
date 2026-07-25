@@ -893,7 +893,7 @@ export default function FileManager() {
                 title={isPinnedFolder ? 'הסר נעיצה' : 'נעץ תיקייה'}
                 onClick={() => togglePinFolder(folder, isPinnedFolder)}
               >
-                <Pin size={11} style={isPinnedFolder ? { color: '#2563eb' } : undefined} />
+                <Pin size={11} style={isPinnedFolder ? { color: '#870335' } : undefined} />
               </button>
               {canManage && (
                 <button
@@ -935,7 +935,7 @@ export default function FileManager() {
                           title={isPinned ? 'הסר נעיצה' : 'נעץ'}
                           onClick={() => togglePinFile(f, isPinned)}
                         >
-                          <Pin size={10} style={isPinned ? { color: '#2563eb' } : undefined} />
+                          <Pin size={10} style={isPinned ? { color: '#870335' } : undefined} />
                         </button>
                       )}
                       {f.url && (
@@ -1062,7 +1062,7 @@ export default function FileManager() {
                             title="הסר נעיצה"
                             onClick={() => togglePinFile(f, true)}
                           >
-                            <Pin size={10} style={{ color: '#2563eb' }} />
+                            <Pin size={10} style={{ color: '#870335' }} />
                           </button>
                         </div>
                       </div>
@@ -1135,7 +1135,7 @@ export default function FileManager() {
                         </button>
                       </>
                     )}
-                    {!canUploadFiles && !['attendance', 'gradebook'].includes(editingFile.fileType) && <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>צפייה בלבד</span>}
+                    {!canUploadFiles && !['attendance', 'gradebook'].includes(editingFile.fileType) && <span style={{ fontSize: '0.78rem', color: '#9b8790' }}>צפייה בלבד</span>}
                     {!['attendance', 'gradebook'].includes(editingFile.fileType) && (
                       <>
                         <button
@@ -1344,7 +1344,7 @@ export default function FileManager() {
                               title={isPinned ? 'הסר נעיצה' : 'נעץ'}
                               onClick={() => togglePinFile(f, isPinned)}
                             >
-                              <Pin size={13} style={isPinned ? { color: '#2563eb' } : undefined} />
+                              <Pin size={13} style={isPinned ? { color: '#870335' } : undefined} />
                             </button>
                           )}
                           {f.url && (

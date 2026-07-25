@@ -255,7 +255,7 @@ export default function Sidebar() {
             right: '0.6rem',
             zIndex: 101,
             background: '#fff',
-            border: '1px solid #e2e8f0',
+            border: '1px solid #eadfe2',
             borderRadius: 8,
             width: 36,
             height: 36,

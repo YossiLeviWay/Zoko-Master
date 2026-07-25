@@ -118,7 +118,7 @@ export default function Login() {
             <p className="auth-link" style={{ marginTop: '0.75rem', marginBottom: 0 }}>
               <button
                 onClick={() => { setShowReset(true); setResetEmail(email); setResetStatus(''); }}
-                style={{ background: 'none', border: 'none', color: '#2563eb', fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem', fontFamily: 'Inter, sans-serif' }}
+                style={{ background: 'none', border: 'none', color: '#870335', fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem', fontFamily: 'Inter, sans-serif' }}
               >
                 שכחתי סיסמה
               </button>
@@ -129,10 +129,10 @@ export default function Login() {
           </>
         ) : (
           <>
-            <h2 style={{ textAlign: 'center', fontSize: '1.1rem', fontWeight: 700, color: '#1e293b', margin: '0 0 0.5rem' }}>
+            <h2 style={{ textAlign: 'center', fontSize: '1.1rem', fontWeight: 700, color: '#1e000c', margin: '0 0 0.5rem' }}>
               איפוס סיסמה
             </h2>
-            <p style={{ textAlign: 'center', fontSize: '0.85rem', color: '#64748b', margin: '0 0 1.25rem' }}>
+            <p style={{ textAlign: 'center', fontSize: '0.85rem', color: '#765968', margin: '0 0 1.25rem' }}>
               הזינו את כתובת הדוא"ל שלכם. אם החשבון קיים, יישלח קישור איפוס מאובטח.
             </p>
             {resetStatus === 'sent' && (
@@ -163,7 +163,7 @@ export default function Login() {
             <p className="auth-link" style={{ marginTop: '1rem' }}>
               <button
                 onClick={() => setShowReset(false)}
-                style={{ background: 'none', border: 'none', color: '#2563eb', fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem', fontFamily: 'Inter, sans-serif' }}
+                style={{ background: 'none', border: 'none', color: '#870335', fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem', fontFamily: 'Inter, sans-serif' }}
               >
                 חזרה להתחברות
               </button>

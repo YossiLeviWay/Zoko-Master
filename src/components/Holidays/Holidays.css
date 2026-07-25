@@ -6,9 +6,9 @@
   align-items: center;
   gap: 0.4rem;
   padding: 0.55rem 1.2rem;
-  background: #eff6ff;
-  color: #2563eb;
-  border: 1px solid #bfdbfe;
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  border: 1px solid var(--color-accent-soft);
   border-radius: 8px;
   font-size: 0.82rem;
   font-weight: 600;
@@ -18,8 +18,8 @@
 }
 
 .holidays-broadcast-btn:hover {
-  background: #dbeafe;
-  border-color: #93c5fd;
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent-border);
 }
 
 .holidays-broadcast-btn:disabled {
@@ -30,7 +30,7 @@
 /* Count label */
 .holidays-count {
   font-size: 0.82rem;
-  color: #64748b;
+  color: var(--color-text-subtle);
   font-weight: 500;
   white-space: nowrap;
 }
@@ -43,7 +43,7 @@
   justify-content: center;
   gap: 1rem;
   padding: 4rem 2rem;
-  color: #94a3b8;
+  color: var(--color-text-faint);
 }
 
 .holidays-empty p {
@@ -55,7 +55,7 @@
 /* ===== Sections (grouped by type) ===== */
 .holidays-section {
   background: #fff;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--color-border);
   border-radius: 14px;
   margin-bottom: 1rem;
   overflow: hidden;
@@ -66,8 +66,8 @@
   align-items: center;
   gap: 0.6rem;
   padding: 0.85rem 1.25rem;
-  border-bottom: 1px solid #f1f5f9;
-  background: #fafbfc;
+  border-bottom: 1px solid var(--color-surface-muted);
+  background: var(--color-surface-raised);
 }
 
 .holidays-type-badge {
@@ -81,7 +81,7 @@
 
 .holidays-section-count {
   font-size: 0.75rem;
-  color: #94a3b8;
+  color: var(--color-text-faint);
   font-weight: 500;
 }
 
@@ -98,8 +98,8 @@
   justify-content: space-between;
   gap: 1rem;
   padding: 0.85rem 1.25rem;
-  border-bottom: 1px solid #f1f5f9;
-  border-right: 4px solid #e2e8f0;
+  border-bottom: 1px solid var(--color-surface-muted);
+  border-right: 4px solid var(--color-border);
   transition: background 0.15s;
 }
 
@@ -108,7 +108,7 @@
 }
 
 .holiday-item:hover {
-  background: #f8fafc;
+  background: var(--color-surface);
 }
 
 .holiday-item-main {
@@ -131,7 +131,7 @@
   margin: 0;
   font-size: 0.9rem;
   font-weight: 700;
-  color: #1e293b;
+  color: var(--color-text);
 }
 
 .holiday-item-dates {
@@ -139,22 +139,22 @@
   align-items: center;
   gap: 0.35rem;
   font-size: 0.78rem;
-  color: #64748b;
+  color: var(--color-text-subtle);
 }
 
 .holiday-item-dates svg {
-  color: #94a3b8;
+  color: var(--color-text-faint);
   flex-shrink: 0;
 }
 
 .holiday-date-sep {
-  color: #cbd5e1;
+  color: var(--color-border-strong);
 }
 
 .holiday-item-note {
   margin: 0.2rem 0 0;
   font-size: 0.75rem;
-  color: #94a3b8;
+  color: var(--color-text-faint);
   line-height: 1.4;
 }
 
@@ -215,19 +215,19 @@
 .holiday-form .form-group label {
   font-size: 0.8rem;
   font-weight: 600;
-  color: #475569;
+  color: var(--color-text-muted);
 }
 
 .holiday-form .form-group input,
 .holiday-form .form-group select,
 .holiday-form .form-group textarea {
   padding: 0.6rem 0.75rem;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   font-size: 0.85rem;
   font-family: 'Inter', sans-serif;
-  background: #f8fafc;
-  color: #1e293b;
+  background: var(--color-surface);
+  color: var(--color-text);
   resize: vertical;
 }
 
@@ -235,9 +235,9 @@
 .holiday-form .form-group select:focus,
 .holiday-form .form-group textarea:focus {
   outline: none;
-  border-color: #2563eb;
+  border-color: var(--color-primary);
   background: #fff;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  box-shadow: 0 0 0 3px rgba(135, 3, 53, 0.1);
 }
 
 .holiday-form .form-row {
@@ -255,9 +255,9 @@
   height: 38px;
   padding: 0.25rem !important;
   cursor: pointer;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--color-border);
   border-radius: 8px;
-  background: #f8fafc;
+  background: var(--color-surface);
 }
 
 .holiday-color-input::-webkit-color-swatch-wrapper {
@@ -283,14 +283,14 @@
   gap: 0.4rem;
   cursor: pointer;
   font-size: 0.85rem;
-  color: #475569;
+  color: var(--color-text-muted);
   font-weight: 500;
 }
 
 .holiday-checkbox input[type="checkbox"] {
   width: 16px;
   height: 16px;
-  accent-color: #2563eb;
+  accent-color: var(--color-primary);
   cursor: pointer;
 }
 
@@ -326,8 +326,8 @@
   align-items: center;
   gap: 0.75rem;
   padding: 0.75rem 1rem;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
   margin-bottom: 1rem;
 }
@@ -335,7 +335,7 @@
 .holidays-filter-label {
   font-size: 0.78rem;
   font-weight: 600;
-  color: #475569;
+  color: var(--color-text-muted);
   white-space: nowrap;
 }
 
@@ -350,25 +350,25 @@
   align-items: center;
   gap: 0.35rem;
   padding: 0.35rem 0.75rem;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   background: #fff;
   font-size: 0.78rem;
   font-family: 'Inter', sans-serif;
-  color: #94a3b8;
+  color: var(--color-text-faint);
   cursor: pointer;
   transition: all 0.15s;
   font-weight: 600;
 }
 
 .holidays-filter-toggle:hover {
-  border-color: var(--filter-color, #93c5fd);
+  border-color: var(--filter-color, var(--color-accent-border));
 }
 
 .holidays-filter-toggle--active {
-  background: var(--filter-bg, #eff6ff);
-  color: var(--filter-color, #2563eb);
-  border-color: var(--filter-color, #2563eb);
+  background: var(--filter-bg, var(--color-primary-soft));
+  color: var(--filter-color, var(--color-primary));
+  border-color: var(--filter-color, var(--color-primary));
 }
 
 .holidays-filter-dot {
@@ -394,7 +394,7 @@
 
 .holidays-column {
   background: #fff;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--color-border);
   border-radius: 14px;
   overflow: hidden;
   display: flex;
@@ -426,15 +426,15 @@
   border: 1px solid rgba(0,0,0,0.15);
   border-radius: 6px;
   background: #fff;
-  color: #475569;
+  color: var(--color-text-muted);
   cursor: pointer;
   transition: all 0.15s;
 }
 
 .holidays-sync-btn:hover:not(:disabled) {
-  background: #eff6ff;
-  color: #2563eb;
-  border-color: #2563eb;
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  border-color: var(--color-primary);
 }
 
 .holidays-sync-btn:disabled {
@@ -443,7 +443,7 @@
 
 .holidays-column-empty {
   text-align: center;
-  color: #94a3b8;
+  color: var(--color-text-faint);
   font-size: 0.8rem;
   padding: 2rem 1rem;
   margin: 0;
@@ -510,4 +510,4 @@
     padding: 0.2rem 0.55rem;
   }
 }
-.holiday-academic-year { display: inline-flex; align-items: center; padding: 0.28rem 0.6rem; border-radius: 999px; background: #eff6ff; color: #1d4ed8; font-size: 0.74rem; font-weight: 650; }
+.holiday-academic-year { display: inline-flex; align-items: center; padding: 0.28rem 0.6rem; border-radius: 999px; background: var(--color-primary-soft); color: var(--color-primary-hover); font-size: 0.74rem; font-weight: 650; }

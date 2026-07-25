@@ -570,9 +570,9 @@ export default function Messages() {
                             title={isPinned ? 'הסר נעיצה' : 'נעץ'}
                             onClick={e => { e.stopPropagation(); togglePinConv(conv.id, isPinned); }}
                           >
-                            <Pin size={13} style={isPinned ? { color: '#2563eb' } : undefined} />
+                            <Pin size={13} style={isPinned ? { color: '#870335' } : undefined} />
                           </button>
-                          {isUnread && <Circle size={8} fill="#2563eb" className="conv-unread-dot" />}
+                          {isUnread && <Circle size={8} fill="#870335" className="conv-unread-dot" />}
                           {confirmDeleteConv === conv.id ? (
                             <div className="conv-delete-confirm" onClick={e => e.stopPropagation()}>
                               <button className="msg-delete-yes" onClick={() => deleteConversation(conv)}>מחק</button>

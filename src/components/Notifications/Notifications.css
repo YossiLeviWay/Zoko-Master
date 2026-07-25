@@ -2,7 +2,7 @@
 
 .view-toggle {
   display: flex;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   overflow: hidden;
 }
@@ -10,8 +10,8 @@
 .toggle-btn {
   padding: 0.4rem 0.85rem;
   border: none;
-  background: #f8fafc;
-  color: #64748b;
+  background: var(--color-surface);
+  color: var(--color-text-subtle);
   font-size: 0.8rem;
   font-weight: 500;
   cursor: pointer;
@@ -20,15 +20,15 @@
 }
 
 .toggle-btn.active {
-  background: #2563eb;
+  background: var(--color-primary);
   color: #fff;
 }
 
 .toggle-btn:hover {
-  background: #e2e8f0;
-  color: #334155;
+  background: var(--color-border);
+  color: var(--color-text-secondary);
 }
 
 .toggle-btn.active:hover {
-  background: #1d4ed8;
+  background: var(--color-primary-hover);
 }
