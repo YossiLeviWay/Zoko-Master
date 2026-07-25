@@ -14,7 +14,7 @@ import {
 import { requireActor } from '../services/authorization.js';
 import { writeAuditLog } from '../services/audit.js';
 import { adminDb } from '../services/firebaseAdmin.js';
-import { failedPrecondition, permissionDenied, toPublicError } from '../services/errors.js';
+import { failedPrecondition, permissionDenied, publicError, toPublicError } from '../services/errors.js';
 import { enforceRateLimit } from '../services/rateLimit.js';
 import { requirePlatformAdmin, requireRecentMfa } from '../services/platformSecurity.js';
 
@@ -268,7 +268,9 @@ async function runSafely(handler, request) {
   try { return await handler(request); }
   catch (error) {
     logger.error('Forum operation failed.', { code: error?.code || 'unknown' });
-    throw toPublicError(error);
+    const safeError = toPublicError(error);
+    if (safeError.code === 'internal') throw publicError('internal', 'forum-service-error');
+    throw safeError;
   }
 }
 
