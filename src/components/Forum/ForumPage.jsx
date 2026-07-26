@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { collection, doc, onSnapshot, orderBy, query, setDoc, serverTimestamp } from 'firebase/firestore';
-import { ref, uploadBytes } from 'firebase/storage';
+import { doc, onSnapshot } from 'firebase/firestore';
 import {
   AlertCircle,
   Bell,
   Building2,
   Clock3,
-  FileText,
   Filter,
   Flag,
   FolderOpen,
@@ -14,7 +12,6 @@ import {
   MessageCircle,
   MessageSquare,
   MessagesSquare,
-  Paperclip,
   Pin,
   Plus,
   Search,
@@ -26,29 +23,24 @@ import {
   X,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { db, isAppCheckConfigured, storage } from '../../firebase';
+import { db } from '../../firebase';
 import {
-  callableReason,
-  createForumPost,
-  createForumThread,
-  forumContentAction,
-  upsertForumFolder,
-} from '../../services/adminUserService';
+  createForumFolderSpark,
+  createForumPostSpark,
+  createForumThreadSpark,
+  FORUM_LIMITS,
+  forumContentActionSpark,
+  subscribeForumFolders,
+  subscribeForumPosts,
+  subscribeForumThreads,
+} from '../../services/firestore/forumRepository';
 import Header from '../Layout/Header';
 import './Forum.css';
 
-const ROOT = 'platformForum/root';
-
 function forumActionError(action, error) {
-  const reason = callableReason(error);
-  if (!isAppCheckConfigured || reason === 'app-check-failed') {
-    return 'אימות האפליקציה אינו פעיל. יש לפרסם את האתר עם הגדרת App Check תקינה ולרענן את הדף.';
-  }
-  if (reason === 'not-found' || reason === 'internal' || reason === 'forum-service-error') {
-    return 'שירות הכתיבה של הפורום אינו מעודכן בסביבת Firebase. יש לפרוס את Cloud Functions של הפורום ואז לנסות שוב.';
-  }
+  const reason = String(error?.code || '').replace(/^firestore\//, '');
   if (reason === 'unauthenticated') return 'החיבור פג. התחברו מחדש ונסו שוב.';
-  if (reason === 'permission-denied') return 'השרת לא זיהה הרשאת מנהל מוסד פעילה עבור המוסד הנבחר.';
+  if (reason === 'permission-denied') return 'אין הרשאה לפעולה, הגעתם למגבלת ההדגמה או שניסיתם לפרסם מהר מדי. המתינו מספר שניות ונסו שוב.';
   if (reason === 'invalid-argument') return 'אחד מפרטי הפעולה אינו תקין. בדקו את התוכן ונסו שוב.';
   if (reason === 'failed-precondition') return 'הפעולה אינה זמינה במצב הנוכחי. רעננו את הדף ונסו שוב.';
   if (reason === 'unavailable' || reason === 'deadline-exceeded') return 'שירות הפורום אינו זמין כרגע. נסו שוב בעוד מספר רגעים.';
@@ -73,7 +65,7 @@ function authorLine(author = {}) {
 }
 
 export default function ForumPage() {
-  const { currentUser, isPrincipal, isPlatformAdmin } = useAuth();
+  const { currentUser, userData, selectedSchool, isPrincipal, isPlatformAdmin } = useAuth();
   const [membership, setMembership] = useState(null);
   const [folders, setFolders] = useState([]);
   const [threads, setThreads] = useState([]);
@@ -83,7 +75,6 @@ export default function ForumPage() {
   const [folderName, setFolderName] = useState('');
   const [threadForm, setThreadForm] = useState({ title: '', body: '' });
   const [reply, setReply] = useState('');
-  const [attachment, setAttachment] = useState(null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
@@ -118,20 +109,20 @@ export default function ForumPage() {
 
   useEffect(() => {
     if (!active) return undefined;
-    return onSnapshot(query(collection(db, `${ROOT}/folders`), orderBy('name')), snapshot => {
-      setFolders(snapshot.docs
-        .map(item => ({ id: item.id, ...item.data() }))
-        .filter(item => item.status !== 'deleted'));
-    }, () => setError('לא ניתן לטעון את תיקיות הפורום.'));
+    return subscribeForumFolders({
+      db,
+      onData: setFolders,
+      onError: () => setError('לא ניתן לטעון את קהילות הפורום.'),
+    });
   }, [active]);
 
   useEffect(() => {
     if (!active) return undefined;
-    return onSnapshot(query(collection(db, `${ROOT}/threads`), orderBy('createdAt', 'desc')), snapshot => {
-      setThreads(snapshot.docs
-        .map(item => ({ id: item.id, ...item.data() }))
-        .filter(item => item.status === 'active'));
-    }, () => setError('לא ניתן לטעון את הדיונים.'));
+    return subscribeForumThreads({
+      db,
+      onData: setThreads,
+      onError: () => setError('לא ניתן לטעון את הדיונים.'),
+    });
   }, [active]);
 
   useEffect(() => {
@@ -151,35 +142,13 @@ export default function ForumPage() {
       setPosts([]);
       return undefined;
     }
-    return onSnapshot(
-      query(collection(db, `${ROOT}/threads/${selectedThread.id}/posts`), orderBy('createdAt')),
-      snapshot => setPosts(snapshot.docs.map(item => ({ id: item.id, ...item.data() }))),
-      () => setError('לא ניתן לטעון את התגובות לדיון.'),
-    );
-  }, [active, selectedThread?.id]);
-
-  async function prepareAttachment(file) {
-    if (!file || !permissions.has('forum.uploadAttachment')) return [];
-    if (file.size > 10 * 1024 * 1024) throw Object.assign(new Error('large'), { code: 'invalid-argument' });
-    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
-    if (!allowed.includes(file.type)) throw Object.assign(new Error('type'), { code: 'invalid-argument' });
-    const attachmentId = `${currentUser.uid}_${Date.now()}`;
-    const safeName = file.name.replace(/[^\p{L}\p{N}._-]/gu, '_');
-    const path = `platform-forum/attachments/${attachmentId}/${safeName}`;
-    await setDoc(doc(db, `${ROOT}/attachments`, attachmentId), {
-      uploadedBy: currentUser.uid,
-      status: 'pending',
-      storagePath: path,
-      mimeType: file.type,
-      size: file.size,
-      createdAt: serverTimestamp(),
+    return subscribeForumPosts({
+      db,
+      threadId: selectedThread.id,
+      onData: setPosts,
+      onError: () => setError('לא ניתן לטעון את התגובות לדיון.'),
     });
-    await uploadBytes(ref(storage, path), file, { contentType: file.type });
-    await setDoc(doc(db, `${ROOT}/attachments`, attachmentId), {
-      status: 'uploaded', uploadedAt: serverTimestamp(),
-    }, { merge: true });
-    return [attachmentId];
-  }
+  }, [active, selectedThread?.id]);
 
   async function addFolder(event) {
     event.preventDefault();
@@ -187,7 +156,7 @@ export default function ForumPage() {
     setSaving(true);
     setError('');
     try {
-      const result = await upsertForumFolder({ name: folderName.trim(), description: '' });
+      const result = await createForumFolderSpark({ db, currentUser, name: folderName });
       setFolderName('');
       setSelectedFolderId(result.folderId);
       setShowFolderForm(false);
@@ -213,15 +182,18 @@ export default function ForumPage() {
     setSaving(true);
     setError('');
     try {
-      const attachmentIds = await prepareAttachment(attachment);
-      const result = await createForumThread({
+      const result = await createForumThreadSpark({
+        db,
+        currentUser,
+        userData,
+        selectedSchool,
+        principal: isPrincipal(),
+        platformAdmin: isPlatformAdmin(),
         folderId: selectedFolderId,
-        title: threadForm.title.trim(),
-        body: threadForm.body.trim(),
-        attachmentIds,
+        title: threadForm.title,
+        body: threadForm.body,
       });
       setThreadForm({ title: '', body: '' });
-      setAttachment(null);
       setShowComposer(false);
       setPendingThreadId(result.threadId);
     } catch (actionError) {
@@ -237,7 +209,16 @@ export default function ForumPage() {
     setSaving(true);
     setError('');
     try {
-      await createForumPost({ threadId: selectedThread.id, body: reply.trim(), attachmentIds: [] });
+      await createForumPostSpark({
+        db,
+        currentUser,
+        userData,
+        selectedSchool,
+        principal: isPrincipal(),
+        platformAdmin: isPlatformAdmin(),
+        threadId: selectedThread.id,
+        body: reply,
+      });
       setReply('');
     } catch (actionError) {
       setError(forumActionError('לשלוח את התגובה', actionError));
@@ -249,7 +230,7 @@ export default function ForumPage() {
   async function contentAction(payload) {
     setError('');
     try {
-      await forumContentAction(payload);
+      await forumContentActionSpark({ db, currentUser, payload });
     } catch (actionError) {
       setError(forumActionError('להשלים את הפעולה בדיון', actionError));
     }
@@ -270,7 +251,6 @@ export default function ForumPage() {
 
   const schoolNames = [...new Set(threads.map(item => item.author?.schoolName).filter(Boolean))].sort();
   const activePosts = posts.filter(item => item.status !== 'deleted');
-  const replyTotal = threads.reduce((total, item) => total + Number(item.replyCount || 0), 0);
   const folderCounts = threads.reduce((counts, item) => ({
     ...counts, [item.folderId]: (counts[item.folderId] || 0) + 1,
   }), {});
@@ -300,7 +280,7 @@ export default function ForumPage() {
         </div>
         <div className="forum-stats" aria-label="נתוני פעילות בפורום">
           <div><MessagesSquare size={20} /><strong>{threads.length}</strong><span>דיונים</span></div>
-          <div><MessageCircle size={20} /><strong>{replyTotal}</strong><span>תגובות</span></div>
+          <div><MessageCircle size={20} /><strong>{folders.length}</strong><span>קהילות</span></div>
           <div><Building2 size={20} /><strong>{schoolNames.length}</strong><span>מוסדות משתפים</span></div>
         </div>
       </section>
@@ -319,7 +299,7 @@ export default function ForumPage() {
           </div>
 
           {showFolderForm && <form className="forum-folder-form" onSubmit={addFolder}>
-            <input value={folderName} onChange={event => setFolderName(event.target.value)} placeholder="שם הקהילה" aria-label="שם קהילה חדשה" autoFocus />
+            <input value={folderName} onChange={event => setFolderName(event.target.value)} placeholder="שם הקהילה" aria-label="שם קהילה חדשה" maxLength={FORUM_LIMITS.folderName} autoFocus />
             <div>
               <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowFolderForm(false)}>ביטול</button>
               <button className="btn btn-primary btn-sm" disabled={saving || !folderName.trim()}>יצירה</button>
@@ -380,13 +360,13 @@ export default function ForumPage() {
               <option value="">בחירת קהילה</option>
               {folders.map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
             </select>
-            <input value={threadForm.title} onChange={event => setThreadForm(previous => ({ ...previous, title: event.target.value }))} placeholder="מה נושא הדיון?" maxLength={200} required />
-            <textarea value={threadForm.body} onChange={event => setThreadForm(previous => ({ ...previous, body: event.target.value }))} placeholder="שתפו שאלה, ניסיון, רעיון או חומר מקצועי..." rows={5} maxLength={10000} required />
+            <input value={threadForm.title} onChange={event => setThreadForm(previous => ({ ...previous, title: event.target.value }))} placeholder="מה נושא הדיון?" maxLength={FORUM_LIMITS.title} required />
+            <textarea value={threadForm.body} onChange={event => setThreadForm(previous => ({ ...previous, body: event.target.value }))} placeholder="שתפו שאלה, ניסיון או רעיון קצר..." rows={4} maxLength={FORUM_LIMITS.threadBody} required />
+            <div className="forum-compose-note">
+              <span>מצב הדגמה: הודעות קצרות ללא קבצים מצורפים</span>
+              <b>{threadForm.body.length}/{FORUM_LIMITS.threadBody}</b>
+            </div>
             <div className="forum-composer-actions">
-              {permissions.has('forum.uploadAttachment') && <label className="btn btn-secondary">
-                <Paperclip size={16} /> {attachment ? attachment.name : 'צירוף קובץ'}
-                <input hidden type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={event => setAttachment(event.target.files?.[0] || null)} />
-              </label>}
               <button className="btn btn-primary" disabled={saving || !threadForm.title.trim() || !threadForm.body.trim()}><Send size={16} /> פרסום בקהילה</button>
             </div>
           </form>}
@@ -409,7 +389,6 @@ export default function ForumPage() {
                 <div className="forum-thread-meta">
                   <span><MessageCircle size={15} /> {Number(item.replyCount || 0)} תגובות</span>
                   <span><Bell size={15} /> {(item.followers || []).length} במעקב</span>
-                  {item.attachmentIds?.length > 0 && <span><FileText size={15} /> {item.attachmentIds.length} קבצים</span>}
                 </div>
               </div>
             </button>)}
@@ -459,7 +438,10 @@ export default function ForumPage() {
             {permissions.has('forum.reply') && !selectedThread.locked
               ? <form className="forum-reply" onSubmit={addReply}>
                 <div className="forum-avatar forum-avatar--small">{initials(currentUser.displayName || currentUser.email)}</div>
-                <textarea value={reply} onChange={event => setReply(event.target.value)} placeholder="כתיבת תגובה מקצועית ומכבדת..." rows={2} maxLength={10000} required />
+                <div className="forum-reply-input">
+                  <textarea value={reply} onChange={event => setReply(event.target.value)} placeholder="כתיבת תגובה קצרה ומכבדת..." rows={2} maxLength={FORUM_LIMITS.replyBody} required />
+                  <small>{reply.length}/{FORUM_LIMITS.replyBody}</small>
+                </div>
                 <button className="btn btn-primary" disabled={saving || !reply.trim()}><Send size={16} /> שליחה</button>
               </form>
               : selectedThread.locked && <div className="forum-locked-note"><Lock size={16} /> הדיון נעול לתגובות חדשות.</div>}

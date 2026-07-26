@@ -317,6 +317,15 @@
 .forum-composer-heading strong { color: var(--color-text); font-size: .84rem; }
 .forum-composer-heading small { color: var(--color-text-subtle); font-size: .65rem; }
 .forum-composer textarea { min-height: 116px; resize: vertical; }
+.forum-compose-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  color: var(--color-text-subtle);
+  font-size: .62rem;
+}
+.forum-compose-note b { direction: ltr; color: var(--color-primary); font-variant-numeric: tabular-nums; }
 .forum-composer-actions { display: flex; justify-content: space-between; gap: .6rem; }
 .forum-composer-actions .btn-secondary { min-width: 0; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -516,7 +525,17 @@
   background: var(--color-surface-raised);
 }
 
-.forum-reply textarea { min-height: 58px; resize: none; }
+.forum-reply-input { position: relative; min-width: 0; }
+.forum-reply textarea { width: 100%; min-height: 58px; padding-bottom: 1.25rem; resize: none; }
+.forum-reply-input small {
+  position: absolute;
+  bottom: .38rem;
+  left: .55rem;
+  direction: ltr;
+  color: var(--color-text-faint);
+  font-size: .55rem;
+  font-variant-numeric: tabular-nums;
+}
 
 .forum-discussion-empty {
   display: grid;
