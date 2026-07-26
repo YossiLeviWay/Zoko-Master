@@ -1598,6 +1598,113 @@ test('Spark forum permits only short schema-validated messages for authorized me
   }));
 });
 
+test('Spark forum access requests require a school manager and Platform Admin approval', async () => {
+  await seedFirestore({
+    'users/principal_a': { ...user({ schoolId: SCHOOL_A, role: 'principal' }), uid: 'principal_a' },
+    'users/viewer_a': { ...user({ schoolId: SCHOOL_A }), uid: 'viewer_a' },
+    'users/teacher_a': { ...user({ schoolId: SCHOOL_A }), uid: 'teacher_a' },
+    'users/teacher_b': { ...user({ schoolId: SCHOOL_B }), uid: 'teacher_b' },
+  });
+
+  const requestData = {
+    schoolId: SCHOOL_A,
+    institutionId: SCHOOL_A,
+    userId: 'teacher_a',
+    requestedPermissions: ['forum.createThread', 'forum.reply'],
+    reason: 'Teacher needs access to the shared forum',
+    expiresAt: null,
+    status: 'pending_admin_approval',
+    requestedBy: 'principal_a',
+    writeMode: 'spark-client',
+    schemaVersion: 1,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+  const requestRef = doc(context('principal_a').firestore(), 'platformForumAccessRequests/request_a');
+  await assertSucceeds(setDoc(requestRef, requestData));
+
+  await assertFails(setDoc(doc(context('viewer_a').firestore(), 'platformForumAccessRequests/viewer_request'), {
+    ...requestData,
+    requestedBy: 'viewer_a',
+  }));
+  await assertFails(setDoc(doc(context('principal_a').firestore(), 'platformForumAccessRequests/cross_school'), {
+    ...requestData,
+    userId: 'teacher_b',
+  }));
+  await assertFails(setDoc(doc(context('principal_a').firestore(), 'platformForumAccessRequests/unsafe_permission'), {
+    ...requestData,
+    requestedPermissions: ['forum.managePermissions'],
+  }));
+
+  await assertFails(updateDoc(doc(context('principal_a').firestore(), 'platformForumAccessRequests/request_a'), {
+    status: 'approved',
+    approvedPermissions: requestData.requestedPermissions,
+    reviewedBy: 'principal_a',
+    reviewReason: 'A school manager cannot approve the request',
+    reviewedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  }));
+  await assertFails(setDoc(doc(context('teacher_a').firestore(), 'platformForumMemberships/teacher_a'), {
+    userId: 'teacher_a',
+    schoolId: SCHOOL_A,
+    institutionId: SCHOOL_A,
+    status: 'active',
+    permissions: ['forum.access', 'forum.read', ...requestData.requestedPermissions],
+    approvedRequestId: 'request_a',
+    expiresAt: null,
+    approvedBy: 'teacher_a',
+    approvedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    writeMode: 'spark-client',
+    schemaVersion: 1,
+  }));
+
+  const platformDb = context('platform_admin', { platform_admin: true }).firestore();
+  const approvalBatch = writeBatch(platformDb);
+  approvalBatch.update(doc(platformDb, 'platformForumAccessRequests/request_a'), {
+    status: 'approved',
+    approvedPermissions: requestData.requestedPermissions,
+    reviewedBy: 'platform_admin',
+    reviewReason: 'Approved for school collaboration',
+    reviewedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  approvalBatch.set(doc(platformDb, 'platformForumMemberships/teacher_a'), {
+    userId: 'teacher_a',
+    schoolId: SCHOOL_A,
+    institutionId: SCHOOL_A,
+    status: 'active',
+    permissions: ['forum.access', 'forum.read', ...requestData.requestedPermissions],
+    approvedRequestId: 'request_a',
+    expiresAt: null,
+    approvedBy: 'platform_admin',
+    approvedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    writeMode: 'spark-client',
+    schemaVersion: 1,
+  });
+  await assertSucceeds(approvalBatch.commit());
+  assert.equal((await getDoc(doc(context('teacher_a').firestore(), 'platformForumMemberships/teacher_a'))).data().status, 'active');
+
+  await assertSucceeds(setDoc(doc(context('principal_a').firestore(), 'platformForumAccessRequests/request_b'), requestData));
+  const escalationBatch = writeBatch(platformDb);
+  escalationBatch.update(doc(platformDb, 'platformForumAccessRequests/request_b'), {
+    status: 'approved',
+    approvedPermissions: requestData.requestedPermissions,
+    reviewedBy: 'platform_admin',
+    reviewReason: 'Attempted privilege expansion',
+    reviewedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  escalationBatch.set(doc(platformDb, 'platformForumMemberships/teacher_a'), {
+    userId: 'teacher_a', schoolId: SCHOOL_A, institutionId: SCHOOL_A, status: 'active',
+    permissions: ['forum.access', 'forum.read', ...requestData.requestedPermissions, 'forum.moderate'],
+    approvedRequestId: 'request_b', expiresAt: null, approvedBy: 'platform_admin',
+    approvedAt: serverTimestamp(), updatedAt: serverTimestamp(), writeMode: 'spark-client', schemaVersion: 1,
+  });
+  await assertFails(escalationBatch.commit());
+});
+
 test('Spark forum blocks new attachments while support storage retains scoped uploads', async () => {
   await seedFirestore({
     'users/forum_uploader': { ...user({ schoolId: SCHOOL_A }), uid: 'forum_uploader' },

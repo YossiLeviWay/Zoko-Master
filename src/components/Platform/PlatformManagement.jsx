@@ -3,13 +3,13 @@ import { collection, getDocs, limit, orderBy, query } from 'firebase/firestore';
 import { Link } from 'react-router-dom';
 import { Building2, KeyRound, RefreshCw, ShieldCheck, UserX } from 'lucide-react';
 import { db } from '../../firebase';
+import { useAuth } from '../../contexts/AuthContext';
+import { reviewForumAccessSpark } from '../../services/firestore/forumRepository';
 import {
   createSchool,
   assignInstitutionManager,
-  listPlatformInstitutions,
   listPlatformStaff,
   platformStaffAction,
-  reviewForumAccess,
   updateSupportTicket,
 } from '../../services/adminUserService';
 import Header from '../Layout/Header';
@@ -27,6 +27,7 @@ function mfaMessage() {
 }
 
 export default function PlatformManagement() {
+  const { currentUser } = useAuth();
   const [tab, setTab] = useState('institutions');
   const [institutions, setInstitutions] = useState([]);
   const [staff, setStaff] = useState([]);
@@ -43,14 +44,14 @@ export default function PlatformManagement() {
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const [institutionResult, staffResult, requestSnapshot, ticketSnapshot, auditSnapshot] = await Promise.all([
-        listPlatformInstitutions({ limit: 200 }),
-        listPlatformStaff({ ...(selectedSchoolId ? { schoolId: selectedSchoolId } : {}), limit: 200 }),
+      const [institutionSnapshot, staffResult, requestSnapshot, ticketSnapshot, auditSnapshot] = await Promise.all([
+        getDocs(query(collection(db, 'schools'), limit(200))),
+        listPlatformStaff({ ...(selectedSchoolId ? { schoolId: selectedSchoolId } : {}), limit: 200 }).catch(() => ({ staff: [] })),
         getDocs(query(collection(db, 'platformForumAccessRequests'), orderBy('createdAt', 'desc'), limit(100))),
         getDocs(query(collection(db, 'supportTickets'), orderBy('createdAt', 'desc'), limit(100))),
         getDocs(query(collection(db, 'platformAuditLogs'), orderBy('createdAt', 'desc'), limit(100))),
       ]);
-      setInstitutions(institutionResult.institutions || []); setStaff(staffResult.staff || []);
+      setInstitutions(institutionSnapshot.docs.map(item => ({ id: item.id, ...item.data() }))); setStaff(staffResult.staff || []);
       setRequests(requestSnapshot.docs.map(item => ({ id: item.id, ...item.data() })));
       setTickets(ticketSnapshot.docs.map(item => ({ id: item.id, ...item.data() })));
       setAudit(auditSnapshot.docs.map(item => ({ id: item.id, ...item.data() })));
@@ -78,9 +79,9 @@ export default function PlatformManagement() {
 
   async function reviewAccess(item, approve) {
     const reason = window.prompt(approve ? 'סיבת האישור:' : 'סיבת הדחייה:');
-    if (!reason) return;
-    try { await reviewForumAccess({ requestId: item.id, action: approve ? 'approve' : 'reject', approvedPermissions: approve ? item.requestedPermissions : [], reason }); setMessage('הבקשה טופלה ונרשמה ביומן.'); await load(); }
-    catch { setError(mfaMessage()); }
+    if (!reason || reason.trim().length < 3) return;
+    try { await reviewForumAccessSpark({ db, currentUser, accessRequest: item, approve, reason }); setMessage('בקשת הפורום טופלה בהצלחה.'); await load(); }
+    catch { setError('לא ניתן לטפל בבקשת הפורום. ודאו שהחשבון הוא Platform Admin ושהבקשה עדיין ממתינה.'); }
   }
 
   async function updateTicket(item, status) {

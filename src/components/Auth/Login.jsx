@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Search } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../firebase';
 import { requestPublicPasswordReset } from '../../services/adminUserService';
@@ -11,45 +10,84 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [schoolId, setSchoolId] = useState('');
-  const [schoolSearch, setSchoolSearch] = useState('');
-  const [schools, setSchools] = useState([]);
-  const [schoolsLoading, setSchoolsLoading] = useState(true);
+  const [loginSchools, setLoginSchools] = useState([]);
+  const [loginStep, setLoginStep] = useState('credentials');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showReset, setShowReset] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
+  const [resetSchools, setResetSchools] = useState([]);
   const [resetStatus, setResetStatus] = useState('');
   const [resetLoading, setResetLoading] = useState(false);
-  const { login } = useAuth();
+  const {
+    login,
+    logout,
+    completeSchoolLogin,
+    currentUser,
+    selectedSchool,
+    availableSchools,
+    isGlobalAdmin,
+    isPlatformAdmin,
+  } = useAuth();
   const navigate = useNavigate();
 
-  useEffect(() => subscribePublicSchools({
-    db,
-    onData: items => { setSchools(items); setSchoolsLoading(false); },
-    onError: () => { setSchools([]); setSchoolsLoading(false); },
-  }), []);
+  useEffect(() => {
+    if (!showReset) return undefined;
+    return subscribePublicSchools({ db, onData: setResetSchools, onError: () => setResetSchools([]) });
+  }, [showReset]);
 
-  const filteredSchools = useMemo(() => {
-    const needle = schoolSearch.trim().toLowerCase();
-    return needle ? schools.filter(item => String(item.name || '').toLowerCase().includes(needle)) : schools;
-  }, [schoolSearch, schools]);
+  useEffect(() => {
+    if (currentUser && !selectedSchool && !isGlobalAdmin() && !isPlatformAdmin()) {
+      setLoginSchools(availableSchools);
+      setLoginStep('school');
+    }
+  }, [availableSchools, currentUser, isGlobalAdmin, isPlatformAdmin, selectedSchool]);
 
   async function handleSubmit(event) {
     event.preventDefault();
     setError('');
     setLoading(true);
     try {
-      await login(email, password, schoolId);
-      navigate('/');
+      const result = await login(email, password);
+      if (result.requiresSchoolSelection) {
+        setLoginSchools(result.schools);
+        setSchoolId('');
+        setLoginStep('school');
+      } else {
+        navigate('/');
+      }
     } catch (loginError) {
       setError(loginError?.code === 'school-membership-required'
-        ? 'החשבון אינו חבר פעיל במוסד שנבחר.'
+        ? 'החשבון אינו משויך למוסד פעיל.'
         : String(loginError?.code || '').includes('unauthenticated')
           ? 'אימות האפליקציה נכשל. רעננו את הדף ונסו שוב.'
           : 'פרטי ההתחברות שגויים או שהחשבון אינו פעיל.');
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleSchoolSelection(event) {
+    event.preventDefault();
+    if (!schoolId) return;
+    setError('');
+    setLoading(true);
+    try {
+      await completeSchoolLogin(schoolId);
+      navigate('/');
+    } catch {
+      setError('לא ניתן לבחור את המוסד. ודאו שהשיוך עדיין פעיל.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function restartLogin() {
+    await logout();
+    setSchoolId('');
+    setLoginSchools([]);
+    setLoginStep('credentials');
+    setError('');
   }
 
   async function handleResetPassword(event) {
@@ -78,14 +116,9 @@ export default function Login() {
         {!showReset ? (
           <>
             {error && <div className="auth-error">{error}</div>}
-            <form onSubmit={handleSubmit} className="auth-form">
+            {loginStep === 'credentials' ? <form onSubmit={handleSubmit} className="auth-form">
               <fieldset className="auth-step">
-                <legend><span>1</span> בחירת מוסד</legend>
-                <div className="auth-school-search"><Search size={15} /><input value={schoolSearch} onChange={event => setSchoolSearch(event.target.value)} placeholder="חיפוש לפי שם מוסד" aria-label="חיפוש מוסד" /></div>
-                <label className="form-group">מוסד<select value={schoolId} onChange={event => setSchoolId(event.target.value)} disabled={schoolsLoading}><option value="">{schoolsLoading ? 'טוען מוסדות…' : 'בחרו מוסד'}</option>{filteredSchools.map(item => <option key={item.id} value={item.id}>{item.name}{item.code ? ` · ${item.code}` : ''}</option>)}</select><span className="form-hint">נדרש למשתמשי מוסד. Platform Admin יכול להשאיר ריק.</span></label>
-              </fieldset>
-              <fieldset className="auth-step">
-                <legend><span>2</span> פרטי התחברות</legend>
+                <legend><span>1</span> פרטי התחברות</legend>
               <div className="form-group">
                 <label>דוא"ל</label>
                 <input
@@ -112,9 +145,31 @@ export default function Login() {
               </div>
               </fieldset>
               <button type="submit" className="auth-btn" disabled={loading}>
-                {loading ? 'מתחבר...' : 'כניסה'}
+                {loading ? 'מאמת פרטים...' : 'המשך'}
               </button>
-            </form>
+              <p className="form-hint" style={{ textAlign: 'center', margin: 0 }}>
+                לאחר האימות יוצגו רק המוסדות המשויכים לחשבון. מנהל מערכת מורשה יופנה ישירות לממשק הניהול.
+              </p>
+            </form> : <form onSubmit={handleSchoolSelection} className="auth-form">
+              <fieldset className="auth-step">
+                <legend><span>2</span> בחירת מוסד משויך</legend>
+                <label className="form-group">מוסד
+                  <select value={schoolId} onChange={event => setSchoolId(event.target.value)} required>
+                    <option value="">בחרו מוסד</option>
+                    {loginSchools.map(item => <option key={item.id} value={item.id}>{item.name}{item.code ? ` · ${item.code}` : ''}</option>)}
+                  </select>
+                  <span className="form-hint">מוצגים רק מוסדות שאליהם החשבון משויך.</span>
+                </label>
+              </fieldset>
+              <button type="submit" className="auth-btn" disabled={loading || !schoolId}>
+                {loading ? 'נכנס למוסד...' : 'כניסה למערכת'}
+              </button>
+              <p className="auth-link" style={{ marginTop: '0.75rem', marginBottom: 0 }}>
+                <button type="button" onClick={restartLogin} style={{ background: 'none', border: 'none', color: '#870335', fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem', fontFamily: 'Inter, sans-serif' }}>
+                  חזרה והתחברות בחשבון אחר
+                </button>
+              </p>
+            </form>}
             <p className="auth-link" style={{ marginTop: '0.75rem', marginBottom: 0 }}>
               <button
                 onClick={() => { setShowReset(true); setResetEmail(email); setResetStatus(''); }}
@@ -144,7 +199,7 @@ export default function Login() {
               <div className="auth-error">לא ניתן להשלים את הבקשה כרגע. נסו שוב מאוחר יותר.</div>
             )}
             <form onSubmit={handleResetPassword} className="auth-form">
-              <div className="form-group"><label>מוסד</label><select value={schoolId} onChange={event => setSchoolId(event.target.value)} required><option value="">בחרו מוסד</option>{schools.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
+              <div className="form-group"><label>מוסד</label><select value={schoolId} onChange={event => setSchoolId(event.target.value)} required><option value="">בחרו מוסד</option>{resetSchools.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
               <div className="form-group">
                 <label>דוא"ל</label>
                 <input

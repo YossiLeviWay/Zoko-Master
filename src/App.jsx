@@ -54,8 +54,10 @@ function SchoolRequiredRoute({ children }) {
 }
 
 function HomeRoute() {
-  const { isPlatformAdmin } = useAuth();
-  return isPlatformAdmin() ? <Navigate to="/platform" /> : <Dashboard />;
+  const { isPlatformAdmin, isGlobalAdmin, selectedSchool } = useAuth();
+  if (isPlatformAdmin()) return <Navigate to="/platform" />;
+  if (!isGlobalAdmin() && !selectedSchool) return <Navigate to="/login" />;
+  return <Dashboard />;
 }
 
 function NonPlatformRoute({ children }) {
@@ -69,6 +71,13 @@ function ApprovedRoute({ children }) {
   const { loading, isPending } = useAuth();
   if (loading) return null;
   if (isPending()) return <Navigate to="/" />;
+  return children;
+}
+
+function LoginRoute({ children }) {
+  const { currentUser, loading, selectedSchool, isGlobalAdmin, isPlatformAdmin } = useAuth();
+  if (loading) return null;
+  if (currentUser && (selectedSchool || isGlobalAdmin() || isPlatformAdmin())) return <Navigate to="/" />;
   return children;
 }
 
@@ -90,7 +99,7 @@ export default function App() {
           </div>
         )}>
           <Routes>
-            <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
+            <Route path="/login" element={<LoginRoute><Login /></LoginRoute>} />
             <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
 
             <Route path="/" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
