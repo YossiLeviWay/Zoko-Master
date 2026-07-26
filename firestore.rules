@@ -2489,6 +2489,23 @@ service cloud.firestore {
         allow create, update, delete: if false;
       }
 
+      match /loginActivity/{userId}/entries/{entryId} {
+        allow read: if isSchoolPrincipal(schoolId);
+        allow create: if activeUser()
+          && !isPlatformAdmin()
+          && request.auth.uid == userId
+          && isSchoolMember(schoolId)
+          && request.resource.data.keys().hasOnly([
+            'userId', 'schoolId', 'eventType', 'loggedInAt', 'schemaVersion'
+          ])
+          && request.resource.data.userId == userId
+          && request.resource.data.schoolId == schoolId
+          && request.resource.data.eventType == 'school_login'
+          && request.resource.data.loggedInAt == request.time
+          && request.resource.data.schemaVersion == 1;
+        allow update, delete: if false;
+      }
+
       match /tracks/{trackId} {
         allow read: if hasStudentDataAccess(schoolId) && isSchoolMember(schoolId);
         allow create, update, delete: if canManagePrograms(schoolId);

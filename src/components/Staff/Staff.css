@@ -722,6 +722,82 @@
   font-size: 0.78rem;
 }
 
+.login-activity-modal {
+  width: min(480px, 94vw);
+}
+
+.login-activity-body {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem 1.25rem 1.25rem;
+}
+
+.login-activity-privacy,
+.login-activity-error {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--control-radius-small);
+  background: var(--color-surface-muted);
+  color: var(--color-text-subtle);
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+.login-activity-error {
+  border-color: #fecdd3;
+  background: #fff1f2;
+  color: #be123c;
+}
+
+.login-activity-list {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.login-activity-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--control-radius-small);
+  background: var(--color-surface-raised);
+}
+
+.login-activity-index {
+  display: grid;
+  place-items: center;
+  width: 1.8rem;
+  height: 1.8rem;
+  flex: 0 0 1.8rem;
+  border-radius: 50%;
+  color: var(--atid-white);
+  background: var(--color-primary);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.login-activity-list li > div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.login-activity-list strong {
+  color: var(--color-text);
+  font-size: 0.82rem;
+}
+
+.login-activity-list time {
+  color: var(--color-text-subtle);
+  font-size: 0.76rem;
+}
+
 /* ===== Task Attach Modal ===== */
 .staff-task-attach-modal {
   max-width: 400px;

@@ -29,9 +29,10 @@ import {
   callableReason,
 } from '../../services/adminUserService';
 import { requestForumAccessSpark } from '../../services/firestore/forumRepository';
+import { listRecentSchoolLogins } from '../../services/firestore/loginActivityRepository';
 import Header from '../Layout/Header';
 import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
-import { Edit3, Trash2, Shield, Search, X, UserPlus, CheckCircle, XCircle, ChevronDown, ChevronUp, Save, Filter, Phone, Mail, User, MessageCircle, Briefcase, Eye, Key, RefreshCw, Users, Plus, Trash, Check, AlertCircle, LayoutGrid, Table2, MessagesSquare } from 'lucide-react';
+import { Edit3, Trash2, Shield, Search, X, UserPlus, CheckCircle, XCircle, ChevronDown, ChevronUp, Save, Filter, Phone, Mail, User, MessageCircle, Briefcase, Eye, Key, RefreshCw, Users, Plus, Trash, Check, AlertCircle, LayoutGrid, Table2, MessagesSquare, History } from 'lucide-react';
 import RolesManager from './RolesManager';
 import SegmentedControl from '../Common/SegmentedControl';
 import '../Gantt/Gantt.css';
@@ -319,11 +320,16 @@ export default function StaffManagement() {
   const [profileTasks, setProfileTasks] = useState([]);
   const [profileActivity, setProfileActivity] = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);
+  const [loginActivityUser, setLoginActivityUser] = useState(null);
+  const [loginActivityEntries, setLoginActivityEntries] = useState([]);
+  const [loginActivityLoading, setLoginActivityLoading] = useState(false);
+  const [loginActivityError, setLoginActivityError] = useState('');
 
   const schoolId = selectedSchool || userData?.schoolId;
   const isAdmin = isGlobalAdmin();
   const canEdit = isPrincipal() || isAdmin;
   const canApprove = isPrincipal() || isAdmin;
+  const canViewLoginActivity = isPrincipal();
 
   useEffect(() => {
     loadSchools();
@@ -945,6 +951,23 @@ export default function StaffManagement() {
     setProfileLoading(false);
   }
 
+  async function openLoginActivity(user) {
+    if (!canViewLoginActivity || !schoolId) return;
+    closeContextMenu();
+    setLoginActivityUser(user);
+    setLoginActivityEntries([]);
+    setLoginActivityError('');
+    setLoginActivityLoading(true);
+    try {
+      const entries = await listRecentSchoolLogins({ db, schoolId, userId: user.id });
+      setLoginActivityEntries(entries);
+    } catch {
+      setLoginActivityError('לא ניתן לטעון את היסטוריית ההתחברות.');
+    } finally {
+      setLoginActivityLoading(false);
+    }
+  }
+
   function getUserTeamNames(user) {
     if (!user.teamIds || user.teamIds.length === 0) return [];
     return user.teamIds
@@ -959,6 +982,19 @@ export default function StaffManagement() {
       return d.toLocaleDateString('he-IL');
     } catch {
       return String(dateVal);
+    }
+  }
+
+  function formatLoginDate(dateVal) {
+    if (!dateVal) return 'ממתין לעדכון זמן השרת';
+    try {
+      const date = dateVal.toDate ? dateVal.toDate() : new Date(dateVal);
+      return date.toLocaleString('he-IL', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      });
+    } catch {
+      return 'מועד לא זמין';
     }
   }
 
@@ -1195,21 +1231,24 @@ export default function StaffManagement() {
                     <p className="staff-card-school">{schoolNames.join(' • ')}</p>
                   )}
                   <p className="staff-card-email">{user.email}</p>
-                  {canEditUser(user) && (
+                  {canManage && (
                     <div className="staff-card-actions">
-                      <button className="icon-btn" disabled={previewLoadingId === user.id} onClick={() => openPermissionPreview(user)} title="תצוגה כמשתמש" aria-label={`תצוגה כמשתמש ${user.fullName}`}><Eye size={14} /></button>
-                      {isPrincipal() && <button className="icon-btn" onClick={() => setForumRequestUser(user)} title="בקשת גישה לפורום בתי הספר"><MessagesSquare size={14} /></button>}
-                      <button className="icon-btn" onClick={() => openPermissions(user)} title="הרשאות מפורטות">
-                        <Shield size={14} />
-                      </button>
-                      <button className="icon-btn" onClick={() => openEdit(user)} title="עריכה">
-                        <Edit3 size={14} />
-                      </button>
-                      {canDeleteUser(user) && (
-                        <button className="icon-btn icon-btn--danger" onClick={() => handleDelete(user.id)}>
-                          <Trash2 size={14} />
+                      {canViewLoginActivity && <button className="icon-btn" onClick={() => openLoginActivity(user)} title="10 ההתחברויות האחרונות" aria-label={`היסטוריית התחברות של ${user.fullName}`}><History size={14} /></button>}
+                      {canEditUser(user) && <>
+                        <button className="icon-btn" disabled={previewLoadingId === user.id} onClick={() => openPermissionPreview(user)} title="תצוגה כמשתמש" aria-label={`תצוגה כמשתמש ${user.fullName}`}><Eye size={14} /></button>
+                        {isPrincipal() && <button className="icon-btn" onClick={() => setForumRequestUser(user)} title="בקשת גישה לפורום בתי הספר"><MessagesSquare size={14} /></button>}
+                        <button className="icon-btn" onClick={() => openPermissions(user)} title="הרשאות מפורטות">
+                          <Shield size={14} />
                         </button>
-                      )}
+                        <button className="icon-btn" onClick={() => openEdit(user)} title="עריכה">
+                          <Edit3 size={14} />
+                        </button>
+                        {canDeleteUser(user) && (
+                          <button className="icon-btn icon-btn--danger" onClick={() => handleDelete(user.id)}>
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </>}
                     </div>
                   )}
                 </div>
@@ -1260,8 +1299,8 @@ export default function StaffManagement() {
                       {canEdit && (
                         <td>
                           <div className="td-actions">
-                            {canEditUser(user) ? (
-                              <>
+                            {canViewLoginActivity && <button className="icon-btn" title="10 ההתחברויות האחרונות" aria-label={`היסטוריית התחברות של ${user.fullName}`} onClick={() => openLoginActivity(user)}><History size={15} /></button>}
+                            {canEditUser(user) && <>
                                 <button className="icon-btn" disabled={previewLoadingId === user.id} title="תצוגה כמשתמש" aria-label={`תצוגה כמשתמש ${user.fullName}`} onClick={() => openPermissionPreview(user)}><Eye size={15} /></button>
                                 {isPrincipal() && <button className="icon-btn" title="בקשת גישה לפורום בתי הספר" onClick={() => setForumRequestUser(user)}><MessagesSquare size={15} /></button>}
                                 <button className="icon-btn" title="הרשאות מפורטות" onClick={() => openPermissions(user)}>
@@ -1275,10 +1314,7 @@ export default function StaffManagement() {
                                     <Trash2 size={15} />
                                   </button>
                                 )}
-                              </>
-                            ) : (
-                              <span style={{ fontSize: '0.72rem', color: '#9b8790' }}>—</span>
-                            )}
+                              </>}
                           </div>
                         </td>
                       )}
@@ -1855,6 +1891,10 @@ export default function StaffManagement() {
               <Eye size={15} />
               <span>כרטיס אישי</span>
             </button>
+            {canViewLoginActivity && <button className="staff-context-menu-item" onClick={() => openLoginActivity(contextMenu.user)}>
+              <History size={15} />
+              <span>היסטוריית התחברות</span>
+            </button>}
           </div>
         )}
 
@@ -1889,6 +1929,44 @@ export default function StaffManagement() {
                       );
                     })}
                   </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {loginActivityUser && (
+          <div className="modal-overlay" onClick={() => setLoginActivityUser(null)}>
+            <div className="modal-content login-activity-modal" role="dialog" aria-modal="true" aria-label={`היסטוריית התחברות של ${loginActivityUser.fullName}`} onClick={event => event.stopPropagation()}>
+              <div className="modal-header">
+                <div>
+                  <h3>10 ההתחברויות האחרונות</h3>
+                  <p className="form-hint">{loginActivityUser.fullName} · במוסד הנוכחי בלבד</p>
+                </div>
+                <button className="modal-close" onClick={() => setLoginActivityUser(null)} aria-label="סגירת היסטוריית התחברות"><X size={18} /></button>
+              </div>
+              <div className="login-activity-body">
+                <div className="login-activity-privacy">
+                  <History size={16} /> היומן מציג זמני התחברות בלבד ואינו שומר סיסמה, כתובת IP, מכשיר או מיקום.
+                </div>
+                {loginActivityLoading ? (
+                  <p className="staff-profile-muted">טוען היסטוריית התחברות...</p>
+                ) : loginActivityError ? (
+                  <div className="login-activity-error">{loginActivityError}</div>
+                ) : loginActivityEntries.length === 0 ? (
+                  <p className="staff-profile-muted">עדיין לא נרשמו התחברויות עבור המשתמש במוסד זה.</p>
+                ) : (
+                  <ol className="login-activity-list">
+                    {loginActivityEntries.map((entry, index) => (
+                      <li key={entry.id}>
+                        <span className="login-activity-index">{index + 1}</span>
+                        <div>
+                          <strong>כניסה למערכת</strong>
+                          <time>{formatLoginDate(entry.loggedInAt)}</time>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
                 )}
               </div>
             </div>

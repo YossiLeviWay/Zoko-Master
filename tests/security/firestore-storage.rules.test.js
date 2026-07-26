@@ -13,6 +13,8 @@ import {
   doc,
   getDoc,
   getDocs,
+  limit,
+  orderBy,
   query,
   serverTimestamp,
   setDoc,
@@ -521,6 +523,54 @@ test('users cannot create or retain password fields in Firestore', async () => {
     ...user({ schoolId: SCHOOL_A }),
     _pendingPassword: 'not-a-real-secret',
   }));
+});
+
+test('login activity is append-only, tenant-scoped and visible only to the school manager', async () => {
+  await seedFirestore({
+    'users/principal_a': { ...user({ schoolId: SCHOOL_A, role: 'principal' }), uid: 'principal_a' },
+    'users/principal_b': { ...user({ schoolId: SCHOOL_B, role: 'principal' }), uid: 'principal_b' },
+    'users/viewer_a': { ...user({ schoolId: SCHOOL_A }), uid: 'viewer_a' },
+  });
+
+  const viewerDb = context('viewer_a').firestore();
+  const viewerLoginRef = doc(viewerDb, `schools/${SCHOOL_A}/loginActivity/viewer_a/entries/login_a`);
+  await assertSucceeds(setDoc(viewerLoginRef, {
+    userId: 'viewer_a',
+    schoolId: SCHOOL_A,
+    eventType: 'school_login',
+    loggedInAt: serverTimestamp(),
+    schemaVersion: 1,
+  }));
+
+  await assertFails(getDoc(viewerLoginRef));
+  await assertFails(updateDoc(viewerLoginRef, { eventType: 'edited' }));
+  await assertFails(deleteDoc(viewerLoginRef));
+  await assertFails(setDoc(doc(viewerDb, `schools/${SCHOOL_A}/loginActivity/principal_a/entries/spoofed_user`), {
+    userId: 'principal_a', schoolId: SCHOOL_A, eventType: 'school_login',
+    loggedInAt: serverTimestamp(), schemaVersion: 1,
+  }));
+  await assertFails(setDoc(doc(viewerDb, `schools/${SCHOOL_B}/loginActivity/viewer_a/entries/spoofed_school`), {
+    userId: 'viewer_a', schoolId: SCHOOL_B, eventType: 'school_login',
+    loggedInAt: serverTimestamp(), schemaVersion: 1,
+  }));
+
+  const principalADb = context('principal_a').firestore();
+  await assertSucceeds(getDoc(doc(principalADb, `schools/${SCHOOL_A}/loginActivity/viewer_a/entries/login_a`)));
+  await assertSucceeds(getDocs(query(
+    collection(principalADb, `schools/${SCHOOL_A}/loginActivity/viewer_a/entries`),
+    orderBy('loggedInAt', 'desc'),
+    limit(10),
+  )));
+  const principalLoginRef = doc(principalADb, `schools/${SCHOOL_A}/loginActivity/principal_a/entries/login_manager`);
+  await assertSucceeds(setDoc(principalLoginRef, {
+    userId: 'principal_a',
+    schoolId: SCHOOL_A,
+    eventType: 'school_login',
+    loggedInAt: serverTimestamp(),
+    schemaVersion: 1,
+  }));
+  await assertSucceeds(getDoc(principalLoginRef));
+  await assertFails(getDoc(doc(context('principal_b').firestore(), `schools/${SCHOOL_A}/loginActivity/viewer_a/entries/login_a`)));
 });
 
 test('school A user cannot read school B student data', async () => {
