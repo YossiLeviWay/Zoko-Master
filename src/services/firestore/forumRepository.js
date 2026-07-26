@@ -10,8 +10,10 @@ import {
   query,
   serverTimestamp,
   setDoc,
+  Timestamp,
   updateDoc,
   where,
+  writeBatch,
 } from 'firebase/firestore';
 
 export const FORUM_LIMITS = Object.freeze({
@@ -23,7 +25,83 @@ export const FORUM_LIMITS = Object.freeze({
   queryItems: 100,
 });
 
+export const FORUM_ACCESS_PERMISSIONS = Object.freeze([
+  'forum.createThread',
+  'forum.reply',
+  'forum.editOwnPost',
+  'forum.deleteOwnPost',
+  'forum.createFolder',
+  'forum.editFolder',
+  'forum.pinThread',
+  'forum.lockThread',
+  'forum.moderate',
+]);
+
 const ROOT = 'platformForum/root';
+
+export async function requestForumAccessSpark({
+  db,
+  currentUser,
+  schoolId,
+  userId,
+  requestedPermissions,
+  reason,
+  expiresAt,
+}) {
+  const permissions = [...new Set(requestedPermissions)]
+    .filter(permission => FORUM_ACCESS_PERMISSIONS.includes(permission));
+  const requestRef = doc(collection(db, 'platformForumAccessRequests'));
+  await setDoc(requestRef, {
+    schoolId,
+    institutionId: schoolId,
+    userId,
+    requestedPermissions: permissions,
+    reason: reason.trim(),
+    expiresAt: expiresAt ? Timestamp.fromDate(new Date(expiresAt)) : null,
+    status: 'pending_admin_approval',
+    requestedBy: currentUser.uid,
+    writeMode: 'spark-client',
+    schemaVersion: 1,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return { requestId: requestRef.id, status: 'pending_admin_approval' };
+}
+
+export async function reviewForumAccessSpark({ db, currentUser, accessRequest, approve, reason }) {
+  const approvedPermissions = approve
+    ? [...new Set(accessRequest.requestedPermissions || [])]
+      .filter(permission => FORUM_ACCESS_PERMISSIONS.includes(permission))
+    : [];
+  const requestRef = doc(db, 'platformForumAccessRequests', accessRequest.id);
+  const batch = writeBatch(db);
+  batch.update(requestRef, {
+    status: approve ? 'approved' : 'rejected',
+    approvedPermissions,
+    reviewedBy: currentUser.uid,
+    reviewReason: reason.trim(),
+    reviewedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  if (approve) {
+    batch.set(doc(db, 'platformForumMemberships', accessRequest.userId), {
+      userId: accessRequest.userId,
+      schoolId: accessRequest.schoolId,
+      institutionId: accessRequest.schoolId,
+      status: 'active',
+      permissions: ['forum.access', 'forum.read', ...approvedPermissions],
+      approvedRequestId: accessRequest.id,
+      expiresAt: accessRequest.expiresAt || null,
+      approvedBy: currentUser.uid,
+      approvedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      writeMode: 'spark-client',
+      schemaVersion: 1,
+    });
+  }
+  await batch.commit();
+  return { requestId: accessRequest.id, status: approve ? 'approved' : 'rejected' };
+}
 
 export function subscribeForumFolders({ db, onData, onError }) {
   return onSnapshot(

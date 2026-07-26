@@ -90,6 +90,120 @@ service cloud.firestore {
       return hasForumPermission('forum.access') && hasForumPermission('forum.read');
     }
 
+    function validSparkForumAccessRequestCreate() {
+      let data = request.resource.data;
+      let targetPath = /databases/$(database)/documents/users/$(data.userId);
+      return activeUser()
+        && data.keys().hasOnly([
+          'schoolId', 'institutionId', 'userId', 'requestedPermissions', 'reason',
+          'expiresAt', 'status', 'requestedBy', 'writeMode', 'schemaVersion',
+          'createdAt', 'updatedAt'
+        ])
+        && data.schoolId is string
+        && data.schoolId.size() > 0
+        && data.institutionId == data.schoolId
+        && isSchoolPrincipal(data.schoolId)
+        && data.userId is string
+        && data.userId.size() > 0
+        && exists(targetPath)
+        && get(targetPath).data.get('accountStatus', 'active') == 'active'
+        && (
+          get(targetPath).data.get('schoolId', '') == data.schoolId
+          || data.schoolId in get(targetPath).data.get('schoolIds', [])
+        )
+        && data.requestedPermissions is list
+        && data.requestedPermissions.size() > 0
+        && data.requestedPermissions.size() <= 9
+        && data.requestedPermissions.hasOnly([
+          'forum.createThread', 'forum.reply', 'forum.editOwnPost', 'forum.deleteOwnPost',
+          'forum.createFolder', 'forum.editFolder', 'forum.pinThread',
+          'forum.lockThread', 'forum.moderate'
+        ])
+        && data.reason is string
+        && data.reason.size() >= 5
+        && data.reason.size() <= 1000
+        && (data.expiresAt == null || (data.expiresAt is timestamp && data.expiresAt > request.time))
+        && data.status == 'pending_admin_approval'
+        && data.requestedBy == request.auth.uid
+        && data.writeMode == 'spark-client'
+        && data.schemaVersion == 1
+        && data.createdAt == request.time
+        && data.updatedAt == request.time;
+    }
+
+    function validSparkForumAccessReview() {
+      let next = request.resource.data;
+      return isPlatformAdmin()
+        && resource.data.status == 'pending_admin_approval'
+        && next.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'approvedPermissions', 'reviewedBy', 'reviewReason',
+          'reviewedAt', 'updatedAt'
+        ])
+        && next.status in ['approved', 'rejected']
+        && next.approvedPermissions is list
+        && next.approvedPermissions.hasOnly(resource.data.requestedPermissions)
+        && (
+          (next.status == 'approved' && next.approvedPermissions.size() > 0)
+          || (next.status == 'rejected' && next.approvedPermissions.size() == 0)
+        )
+        && next.reviewedBy == request.auth.uid
+        && next.reviewReason is string
+        && next.reviewReason.size() >= 3
+        && next.reviewReason.size() <= 1000
+        && next.reviewedAt == request.time
+        && next.updatedAt == request.time;
+    }
+
+    function validSparkForumMembershipWrite(membershipId) {
+      let data = request.resource.data;
+      let approvalPath = /databases/$(database)/documents/platformForumAccessRequests/$(data.approvedRequestId);
+      let targetPath = /databases/$(database)/documents/users/$(data.userId);
+      let schoolMembershipPath = /databases/$(database)/documents/schools/$(data.schoolId)/memberships/$(data.userId);
+      return isPlatformAdmin()
+        && data.keys().hasOnly([
+          'userId', 'schoolId', 'institutionId', 'status', 'permissions',
+          'approvedRequestId', 'expiresAt', 'approvedBy', 'approvedAt',
+          'updatedAt', 'writeMode', 'schemaVersion'
+        ])
+        && membershipId == data.userId
+        && data.schoolId is string
+        && data.schoolId.size() > 0
+        && data.institutionId == data.schoolId
+        && data.status == 'active'
+        && data.permissions is list
+        && data.permissions.hasOnly([
+          'forum.access', 'forum.read', 'forum.createThread', 'forum.reply',
+          'forum.editOwnPost', 'forum.deleteOwnPost', 'forum.createFolder',
+          'forum.editFolder', 'forum.pinThread', 'forum.lockThread', 'forum.moderate'
+        ])
+        && data.permissions.hasAll(['forum.access', 'forum.read'])
+        && data.approvedRequestId is string
+        && data.approvedRequestId.size() > 0
+        && existsAfter(approvalPath)
+        && getAfter(approvalPath).data.status == 'approved'
+        && getAfter(approvalPath).data.userId == data.userId
+        && getAfter(approvalPath).data.schoolId == data.schoolId
+        && getAfter(approvalPath).data.reviewedBy == request.auth.uid
+        && data.permissions.hasAll(getAfter(approvalPath).data.approvedPermissions)
+        && data.permissions.size() == getAfter(approvalPath).data.approvedPermissions.size() + 2
+        && data.expiresAt == getAfter(approvalPath).data.expiresAt
+        && exists(targetPath)
+        && get(targetPath).data.get('accountStatus', 'active') == 'active'
+        && (
+          get(targetPath).data.get('schoolId', '') == data.schoolId
+          || data.schoolId in get(targetPath).data.get('schoolIds', [])
+          || (
+            exists(schoolMembershipPath)
+            && get(schoolMembershipPath).data.status == 'active'
+          )
+        )
+        && data.approvedBy == request.auth.uid
+        && data.approvedAt == request.time
+        && data.updatedAt == request.time
+        && data.writeMode == 'spark-client'
+        && data.schemaVersion == 1;
+    }
+
     function validForumPublicIdentity(author) {
       return author is map
         && author.keys().hasOnly(['userId', 'fullName', 'publicRole', 'schoolId', 'schoolName', 'avatarUrl'])
@@ -2480,7 +2594,8 @@ service cloud.firestore {
 
     match /platformForumMemberships/{membershipId} {
       allow read: if isPlatformAdmin() || (signedIn() && request.auth.uid == membershipId);
-      allow create, update, delete: if false;
+      allow create, update: if validSparkForumMembershipWrite(membershipId);
+      allow delete: if false;
     }
 
     match /platformForumAccessRequests/{requestId} {
@@ -2488,7 +2603,9 @@ service cloud.firestore {
         signedIn()
         && (resource.data.userId == request.auth.uid || resource.data.requestedBy == request.auth.uid)
       );
-      allow create, update, delete: if false;
+      allow create: if validSparkForumAccessRequestCreate();
+      allow update: if validSparkForumAccessReview();
+      allow delete: if false;
     }
 
     match /supportTickets/{ticketId} {

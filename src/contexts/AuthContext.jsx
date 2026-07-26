@@ -12,7 +12,6 @@ import { doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import {
   approveSchoolMembership,
   removeSchoolMembership,
-  setActiveSchool as validateActiveSchool,
 } from '../services/adminUserService';
 
 const AuthContext = createContext(null);
@@ -69,6 +68,34 @@ function normalizeUserData(user, data, globalAdminClaim, platformAdminClaim = fa
   };
 }
 
+function schoolMembershipIds(data) {
+  return [...new Set([
+    ...(Array.isArray(data?.schoolIds) ? data.schoolIds : []),
+    ...(typeof data?.schoolId === 'string' && data.schoolId ? [data.schoolId] : []),
+  ])];
+}
+
+async function resolveSchoolOptions(data) {
+  const schoolIds = schoolMembershipIds(data);
+  const options = await Promise.all(schoolIds.map(async schoolId => {
+    try {
+      const snapshot = await getDoc(doc(db, 'schools', schoolId));
+      if (!snapshot.exists() || snapshot.data().status === 'disabled') return null;
+      const school = snapshot.data();
+      return {
+        id: schoolId,
+        name: typeof school.name === 'string' && school.name.trim() ? school.name.trim() : schoolId,
+        code: typeof school.code === 'string' ? school.code : '',
+      };
+    } catch {
+      // The membership is still authoritative. A label fallback keeps old school
+      // records usable while Firestore rules continue to enforce actual access.
+      return { id: schoolId, name: schoolId, code: '' };
+    }
+  }));
+  return options.filter(Boolean).sort((a, b) => a.name.localeCompare(b.name, 'he'));
+}
+
 export function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [userData, setUserData] = useState(null);
@@ -76,8 +103,9 @@ export function AuthProvider({ children }) {
   const [platformAdminClaim, setPlatformAdminClaim] = useState(false);
   const [loading, setLoading] = useState(true);
   const [selectedSchool, setSelectedSchool] = useState(null);
+  const [availableSchools, setAvailableSchools] = useState([]);
 
-  async function login(email, password, schoolId) {
+  async function login(email, password) {
     let credential;
     try {
       credential = await signInWithEmailAndPassword(auth, email.trim(), password);
@@ -97,23 +125,42 @@ export function AuthProvider({ children }) {
       const isLegacyGlobalAdmin = token.claims.global_admin === true;
       const snapshot = await getDoc(doc(db, 'users', credential.user.uid));
       const normalized = normalizeUserData(credential.user, snapshot.data(), isLegacyGlobalAdmin, isPlatformAdminClaim);
-      const memberships = new Set(normalized.schoolIds || []);
-      if (normalized.schoolId) memberships.add(normalized.schoolId);
-      if ((!schoolId && !isPlatformAdminClaim && !isLegacyGlobalAdmin)
-        || (schoolId && !isPlatformAdminClaim && !isLegacyGlobalAdmin && !memberships.has(schoolId))) {
+      if (!normalized.hasValidUserDocument || normalized.accountStatus !== 'active') {
+        throw Object.assign(new Error('ACCOUNT_NOT_ACTIVE'), { code: 'account-not-active' });
+      }
+      const adminLogin = isPlatformAdminClaim || isLegacyGlobalAdmin;
+      const schools = adminLogin ? [] : await resolveSchoolOptions(normalized);
+      if (!adminLogin && schools.length === 0) {
         const error = Object.assign(new Error('SCHOOL_MEMBERSHIP_REQUIRED'), { code: 'school-membership-required' });
         throw error;
       }
-      if (schoolId) await validateActiveSchool({ schoolId });
       setPlatformAdminClaim(isPlatformAdminClaim);
       setGlobalAdminClaim(isLegacyGlobalAdmin);
       setUserData(normalized);
-      setSelectedSchool(schoolId || null);
-      return credential;
+      setAvailableSchools(schools);
+      setSelectedSchool(null);
+      return { credential, requiresSchoolSelection: !adminLogin, schools };
     } catch (error) {
       await signOut(auth).catch(() => undefined);
+      setUserData(null);
+      setAvailableSchools([]);
+      setSelectedSchool(null);
+      setGlobalAdminClaim(false);
+      setPlatformAdminClaim(false);
       throw error;
     }
+  }
+
+  async function completeSchoolLogin(schoolId) {
+    const authenticatedUser = auth.currentUser;
+    if (!authenticatedUser || !schoolMembershipIds(userData).includes(schoolId)) {
+      throw Object.assign(new Error('SCHOOL_MEMBERSHIP_REQUIRED'), { code: 'school-membership-required' });
+    }
+    const school = availableSchools.find(item => item.id === schoolId);
+    if (!school) {
+      throw Object.assign(new Error('SCHOOL_MEMBERSHIP_REQUIRED'), { code: 'school-membership-required' });
+    }
+    setSelectedSchool(schoolId);
   }
 
   async function logout() {
@@ -128,6 +175,7 @@ export function AuthProvider({ children }) {
       }
     }
     setUserData(null);
+    setAvailableSchools([]);
     setSelectedSchool(null);
     setGlobalAdminClaim(false);
     setPlatformAdminClaim(false);
@@ -147,16 +195,15 @@ export function AuthProvider({ children }) {
 
       const normalized = normalizeUserData(user, snapshot.data(), claim, platformClaim);
       setUserData(normalized);
-      const memberships = normalized.schoolIds.length > 0
-        ? normalized.schoolIds
-        : normalized.schoolId ? [normalized.schoolId] : [];
-      setSelectedSchool(previous => memberships.includes(previous)
-        ? previous
-        : memberships.includes(normalized.activeSchoolId) ? normalized.activeSchoolId : memberships[0] || null);
+      const schools = platformClaim || claim ? [] : await resolveSchoolOptions(normalized);
+      setAvailableSchools(schools);
+      const memberships = new Set(schools.map(item => item.id));
+      setSelectedSchool(previous => memberships.has(previous) ? previous : null);
       return normalized;
     } catch {
       const fallback = minimalPendingUser(user);
       setUserData(fallback);
+      setAvailableSchools([]);
       setSelectedSchool(null);
       return fallback;
     }
@@ -175,10 +222,7 @@ export function AuthProvider({ children }) {
   }
 
   async function switchSchool(schoolId) {
-    const memberships = userData?.schoolIds || [];
-    const legacyMembership = userData?.schoolId === schoolId;
-    if (globalAdminClaim || memberships.includes(schoolId) || legacyMembership) {
-      await validateActiveSchool({ schoolId });
+    if (globalAdminClaim || availableSchools.some(school => school.id === schoolId)) {
       setSelectedSchool(schoolId);
     }
   }
@@ -221,6 +265,7 @@ export function AuthProvider({ children }) {
       setCurrentUser(user);
       if (!user) {
         setUserData(null);
+        setAvailableSchools([]);
         setSelectedSchool(null);
         setGlobalAdminClaim(false);
         setPlatformAdminClaim(false);
@@ -265,8 +310,10 @@ export function AuthProvider({ children }) {
     currentUser,
     userData,
     selectedSchool,
+    availableSchools,
     loading,
     login,
+    completeSchoolLogin,
     logout,
     switchSchool,
     isGlobalAdmin,
