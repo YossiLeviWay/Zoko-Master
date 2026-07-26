@@ -1,4 +1,4 @@
-export const APP_VERSION = 'v1.15';
+export const APP_VERSION = 'v1.16';
 
 export const APP_BUILD_INFO = Object.freeze({
   buildDate: import.meta.env.APP_BUILD_DATE || '',

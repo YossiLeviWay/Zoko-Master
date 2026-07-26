@@ -38,7 +38,7 @@ import {
   MessagesSquare,
   ShieldCheck
 } from 'lucide-react';
-import { AVATAR_OPTIONS, AVATAR_ICON_PATHS } from '../../data/avatars';
+import UserAvatar from '../Shared/UserAvatar';
 import NavPermissionsPanel, { PATH_TO_PERMISSION as PATH_TO_PERMISSION_SIDEBAR } from '../Shared/NavPermissionsPanel';
 import { usePermissions } from '../../hooks/usePermissions';
 import './Layout.css';
@@ -233,10 +233,6 @@ export default function Sidebar() {
     navigate('/login');
   }
 
-  const avatarOption = userData?.avatar
-    ? AVATAR_OPTIONS.find(a => a.id === userData.avatar)
-    : null;
-
   return (
     <>
       {/* Mobile overlay */}
@@ -384,21 +380,7 @@ export default function Sidebar() {
       <div className="sidebar-footer">
         {!collapsed && userData && (
           <div className="sidebar-user">
-            <div
-              className="sidebar-avatar"
-              style={avatarOption ? {
-                background: avatarOption.bg,
-                color: avatarOption.textColor
-              } : undefined}
-            >
-              {avatarOption?.icon && AVATAR_ICON_PATHS[avatarOption.icon] ? (
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                  <path d={AVATAR_ICON_PATHS[avatarOption.icon]} />
-                </svg>
-              ) : (
-                userData.fullName?.charAt(0) || '?'
-              )}
-            </div>
+            <UserAvatar user={userData} className="sidebar-avatar" />
             <div className="sidebar-user-info">
               <span className="sidebar-user-name">{userData.fullName}</span>
               <span className="sidebar-user-role">{userData.jobTitle || userData.role}</span>

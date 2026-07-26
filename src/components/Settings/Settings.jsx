@@ -8,6 +8,7 @@ import { AVATAR_OPTIONS, AVATAR_ICON_PATHS } from '../../data/avatars';
 import { usePermissions } from '../../hooks/usePermissions';
 import RolesManager from '../Staff/RolesManager';
 import CvTemplateManager from './CvTemplateManager';
+import UserAvatar from '../Shared/UserAvatar';
 import '../Gantt/Gantt.css';
 import './Settings.css';
 
@@ -49,7 +50,6 @@ export default function Settings() {
     setSaving(false);
   }
 
-  const currentAvatarOption = AVATAR_OPTIONS.find(a => a.id === selectedAvatar);
   const schoolId = selectedSchool || userData?.schoolId;
   const canViewRoles = isPrincipal() || isGlobalAdmin() || permissions['roles.view'];
   const fullAccess = isPrincipal() || isGlobalAdmin();
@@ -68,15 +68,13 @@ export default function Settings() {
         <div className="settings-container">
           <div className="settings-card">
             <div className="settings-avatar-section">
-              <div
+              <UserAvatar
+                user={userData}
+                avatarId={selectedAvatar}
+                name={form.fullName}
                 className="settings-avatar settings-avatar--large"
-                style={currentAvatarOption ? {
-                  background: currentAvatarOption.bg,
-                  color: currentAvatarOption.textColor
-                } : undefined}
-              >
-                {userData?.fullName?.charAt(0) || <User size={28} />}
-              </div>
+                iconSize={28}
+              />
               <div className="settings-user-info">
                 <h3>{userData?.fullName}</h3>
                 <p>{userData?.email}</p>
