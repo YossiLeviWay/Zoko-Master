@@ -13,6 +13,7 @@ import {
   approveSchoolMembership,
   removeSchoolMembership,
 } from '../services/adminUserService';
+import { recordSchoolLogin } from '../services/firestore/loginActivityRepository';
 
 const AuthContext = createContext(null);
 const ALLOWED_ROLES = new Set(['viewer', 'editor', 'principal', 'institution_manager']);
@@ -161,6 +162,11 @@ export function AuthProvider({ children }) {
       throw Object.assign(new Error('SCHOOL_MEMBERSHIP_REQUIRED'), { code: 'school-membership-required' });
     }
     setSelectedSchool(schoolId);
+    await recordSchoolLogin({
+      db,
+      userId: authenticatedUser.uid,
+      schoolId,
+    }).catch(() => undefined);
   }
 
   async function logout() {
