@@ -812,6 +812,34 @@ test('academic-year managers may configure only their school while ordinary view
   }));
 });
 
+test('school principal stores an attributed holiday only in their own school', async () => {
+  await seedFirestore({
+    'users/principal_a': user({ schoolId: SCHOOL_A, role: 'principal' }),
+    'users/viewer_a': user({ schoolId: SCHOOL_A }),
+  });
+  const principalDb = context('principal_a').firestore();
+  const holiday = {
+    schoolId: SCHOOL_A,
+    academicYearId: 'year_2026_2027',
+    officialHolidayId: 'tashpaz_rosh_hashanah',
+    name: 'ראש השנה',
+    startDate: '2026-09-11',
+    endDate: '2026-09-13',
+    returnDate: '2026-09-14',
+    sourceUrl: 'https://meyda.education.gov.il/official.pdf',
+    type: 'jewish',
+    isVacation: true,
+    isSchoolDay: false,
+  };
+
+  await assertSucceeds(setDoc(doc(principalDb, `holidays_${SCHOOL_A}/official_rosh_hashanah`), holiday));
+  await assertSucceeds(getDoc(doc(context('viewer_a').firestore(), `holidays_${SCHOOL_A}/official_rosh_hashanah`)));
+  await assertFails(setDoc(doc(principalDb, `holidays_${SCHOOL_B}/forbidden_holiday`), {
+    ...holiday,
+    schoolId: SCHOOL_B,
+  }));
+});
+
 test('student creation writes one deterministic annual enrollment and preserves tenant ownership', async () => {
   await seedFirestore({
     'users/teacher_a': user({ schoolId: SCHOOL_A }),

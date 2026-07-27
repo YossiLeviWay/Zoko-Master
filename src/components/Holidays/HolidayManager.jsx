@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../firebase';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy, writeBatch } from 'firebase/firestore';
-import { ISRAELI_HOLIDAYS } from '../../data/holidays';
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy, writeBatch, serverTimestamp } from 'firebase/firestore';
+import { holidaysForAcademicYear, mergeHolidayCalendar } from '../../data/holidays';
 import Header from '../Layout/Header';
 import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -50,7 +50,7 @@ export default function HolidayManager() {
   const { userData, selectedSchool, isGlobalAdmin } = useAuth();
   const { permissions } = usePermissions();
   const [showPermissionsPanel, setShowPermissionsPanel] = useState(false);
-  const [holidays, setHolidays] = useState([]);
+  const [storedHolidays, setStoredHolidays] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -68,6 +68,16 @@ export default function HolidayManager() {
   // Admin edits the selected school's holidays, not global. Global is only for broadcasting.
   const collectionName = schoolId ? `holidays_${schoolId}` : (admin ? 'holidays_global' : null);
   const activeAcademicYear = academicYears.find(year => year.id === activeAcademicYearId);
+  const officialTemplate = useMemo(() => holidaysForAcademicYear(activeAcademicYearId), [activeAcademicYearId]);
+  const holidays = useMemo(
+    () => mergeHolidayCalendar(activeAcademicYearId, storedHolidays),
+    [activeAcademicYearId, storedHolidays],
+  );
+  const storedOfficialIds = useMemo(
+    () => new Set(storedHolidays.filter(item => item.academicYearId === activeAcademicYearId).map(item => item.officialHolidayId).filter(Boolean)),
+    [activeAcademicYearId, storedHolidays],
+  );
+  const missingOfficialCount = officialTemplate.filter(item => !storedOfficialIds.has(item.officialHolidayId)).length;
 
   useEffect(() => {
     if (!schoolId) return;
@@ -81,9 +91,9 @@ export default function HolidayManager() {
 
     const q = query(collection(db, collectionName), orderBy('startDate', 'asc'));
     const unsub = onSnapshot(q, (snap) => {
-      setHolidays(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setStoredHolidays(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     }, () => {
-      setHolidays([]);
+      setStoredHolidays([]);
     });
 
     return unsub;
@@ -165,7 +175,7 @@ export default function HolidayManager() {
   }
 
   function openEdit(holiday) {
-    setEditing(holiday.id);
+    setEditing(holiday);
     setForm({
       name: holiday.name || '',
       startDate: holiday.startDate || '',
@@ -198,21 +208,56 @@ export default function HolidayManager() {
       isSchoolDay: form.isSchoolDay,
       note: form.note.trim(),
       color: form.color,
-      updatedAt: new Date().toISOString()
+      schoolId,
+      academicYearId: activeAcademicYearId,
+      updatedAt: serverTimestamp(),
     };
 
     if (editing) {
-      await updateDoc(doc(db, collectionName, editing), data);
+      if (editing._storageId) {
+        await updateDoc(doc(db, collectionName, editing._storageId), data);
+      } else if (editing.officialHolidayId) {
+        const officialData = { ...editing };
+        delete officialData.id;
+        delete officialData._storageId;
+        delete officialData._isOfficialTemplate;
+        await addDoc(collection(db, collectionName), {
+          ...officialData,
+          ...data,
+          isLocalOverride: true,
+          createdAt: serverTimestamp(),
+        });
+      }
     } else {
-      data.createdAt = new Date().toISOString();
+      data.createdAt = serverTimestamp();
       await addDoc(collection(db, collectionName), data);
     }
     closeModal();
   }
 
-  async function handleDelete(id) {
+  async function handleDelete(holiday) {
     if (!confirm('האם למחוק חג זה?')) return;
-    await deleteDoc(doc(db, collectionName, id));
+    if (holiday.officialHolidayId) {
+      const hiddenData = {
+        officialHolidayId: holiday.officialHolidayId,
+        schoolId,
+        academicYearId: activeAcademicYearId,
+        name: holiday.name || '',
+        startDate: holiday.startDate,
+        endDate: holiday.endDate || holiday.startDate,
+        type: holiday.type || 'jewish',
+        isHidden: true,
+        isLocalOverride: true,
+        updatedAt: serverTimestamp(),
+      };
+      if (holiday._storageId) {
+        await updateDoc(doc(db, collectionName, holiday._storageId), hiddenData);
+      } else {
+        await addDoc(collection(db, collectionName), { ...hiddenData, createdAt: serverTimestamp() });
+      }
+      return;
+    }
+    await deleteDoc(doc(db, collectionName, holiday._storageId || holiday.id));
   }
 
   async function handleBroadcast() {
@@ -224,8 +269,8 @@ export default function HolidayManager() {
       const schoolsSnap = await getDocs(collection(db, 'schools'));
       // Broadcast the current holidays (from the selected school or current view)
       const sourceHolidays = holidays.map(h => {
-        const { id: _id, ...data } = h;
-        return data;
+        const { id: _id, _storageId, _isOfficialTemplate, ...data } = h;
+        return { ...data, academicYearId: activeAcademicYearId };
       });
 
       for (const schoolDoc of schoolsSnap.docs) {
@@ -233,25 +278,21 @@ export default function HolidayManager() {
         const targetCollection = `holidays_${schoolDoc.id}`;
         const batch = writeBatch(db);
 
-        const existingSnap = await getDocs(collection(db, targetCollection));
-        existingSnap.docs.forEach(d => {
-          batch.delete(doc(db, targetCollection, d.id));
-        });
-
-        sourceHolidays.forEach(holiday => {
-          const newRef = doc(collection(db, targetCollection));
+        sourceHolidays.forEach((holiday, index) => {
+          const stableId = holiday.officialHolidayId || `broadcast_${activeAcademicYearId}_${index + 1}`;
+          const newRef = doc(db, targetCollection, stableId);
           batch.set(newRef, {
             ...holiday,
-            broadcastedAt: new Date().toISOString()
-          });
+            schoolId: schoolDoc.id,
+            broadcastedAt: serverTimestamp(),
+          }, { merge: true });
         });
 
         await batch.commit();
       }
 
       alert('החגים שוגרו בהצלחה לכל המוסדות!');
-    } catch (err) {
-      console.error('Broadcast error:');
+    } catch {
       alert('שגיאה בשיגור החגים: ');
     } finally {
       setBroadcasting(false);
@@ -259,22 +300,23 @@ export default function HolidayManager() {
   }
 
   async function loadDefaultHolidays() {
+    if (officialTemplate.length === 0 || missingOfficialCount === 0) return;
     if (!confirm(`פעולה זו תטען את חגי וחופשות משרד החינוך לשנת הלימודים ${activeAcademicYear ? academicYearDisplay(activeAcademicYear) : 'הפעילה'}. להמשיך?`)) return;
 
     try {
-      for (const holiday of ISRAELI_HOLIDAYS) {
-        // Check if already exists by name and startDate
-        const exists = holidays.find(h => h.name === holiday.name && h.startDate === holiday.startDate);
-        if (!exists) {
-          await addDoc(collection(db, collectionName), {
-            ...holiday,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          });
-        }
+      const batch = writeBatch(db);
+      for (const holiday of officialTemplate) {
+        if (storedOfficialIds.has(holiday.officialHolidayId)) continue;
+        batch.set(doc(db, collectionName, holiday.id), {
+          ...holiday,
+          schoolId,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
       }
+      await batch.commit();
       alert('החגים נטענו בהצלחה!');
-    } catch (err) {
+    } catch {
       alert('שגיאה בטעינת החגים: ');
     }
   }
@@ -341,10 +383,10 @@ export default function HolidayManager() {
                 חג חדש
               </button>
             )}
-            {canEdit && holidays.length === 0 && (
+            {canEdit && missingOfficialCount > 0 && (
               <button className="btn holidays-load-btn" onClick={loadDefaultHolidays}>
                 <Download size={16} />
-                טען חגי משרד החינוך
+                שמור {missingOfficialCount} מועדים רשמיים במסד
               </button>
             )}
             {admin && (
@@ -379,6 +421,16 @@ export default function HolidayManager() {
           </div>
         </div>
 
+        {officialTemplate.length > 0 && (
+          <div className="holidays-source-panel">
+            <div>
+              <strong>תבנית משרד החינוך לתשפ״ז</strong>
+              <span>המועדים מוצגים אוטומטית ומבודדים משנות לימודים אחרות. שינויים מקומיים נשמרים בנפרד.</span>
+            </div>
+            <a href={officialTemplate[0].sourceUrl} target="_blank" rel="noreferrer">הצגת המקור הרשמי</a>
+          </div>
+        )}
+
         {/* Religion Filter Panel */}
         {showFilterPanel && (
           <div className="holidays-filter-panel">
@@ -412,7 +464,7 @@ export default function HolidayManager() {
             {!searchQuery && canEdit && (
               <button className="btn btn-primary" onClick={loadDefaultHolidays} style={{ marginTop: '0.5rem' }}>
                 <Download size={16} />
-                טען חגי משרד החינוך תשפ"ו
+                טען את התבנית הרשמית לשנה הפעילה
               </button>
             )}
           </div>
@@ -478,6 +530,12 @@ export default function HolidayManager() {
                               {holiday.note && (
                                 <p className="holiday-item-note">{holiday.note}</p>
                               )}
+                              {holiday.hebrewDate && <p className="holiday-item-note">{holiday.hebrewDate}</p>}
+                              {holiday.sourceUrl && (
+                                <a className="holiday-item-source" href={holiday.sourceUrl} target="_blank" rel="noreferrer">
+                                  מקור רשמי
+                                </a>
+                              )}
                             </div>
                             <div className="holiday-item-tags">
                               {holiday.isVacation && (
@@ -496,7 +554,7 @@ export default function HolidayManager() {
                               <button className="icon-btn" title="עריכה" onClick={() => openEdit(holiday)}>
                                 <Edit3 size={15} />
                               </button>
-                              <button className="icon-btn icon-btn--danger" title="מחיקה" onClick={() => handleDelete(holiday.id)}>
+                              <button className="icon-btn icon-btn--danger" title="מחיקה" onClick={() => handleDelete(holiday)}>
                                 <Trash2 size={15} />
                               </button>
                             </div>

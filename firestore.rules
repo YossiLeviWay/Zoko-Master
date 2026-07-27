@@ -2789,6 +2789,16 @@ service cloud.firestore {
         && (isGlobalAdmin() || currentUser().role in ['principal', 'editor']);
     }
 
+    function legacyHolidayWriteAllowed(collectionName, data) {
+      return data.schoolId is string
+        && collectionName == 'holidays_' + data.schoolId
+        && (
+          isGlobalAdmin()
+          || isSchoolPrincipal(data.schoolId)
+          || hasPermission(data.schoolId, 'holidays_edit')
+        );
+    }
+
     function legacyAttendanceFileData(collectionName, fileId) {
       return get(/databases/$(database)/documents/$(collectionName)/$(fileId)).data;
     }
@@ -3067,6 +3077,9 @@ service cloud.firestore {
           collectionName.matches('^classes_[A-Za-z0-9_-]+$')
           && legacyClassCreateAllowed(collectionName, data)
         ) || (
+          collectionName.matches('^holidays_[A-Za-z0-9_-]+$')
+          && legacyHolidayWriteAllowed(collectionName, data)
+        ) || (
           collectionName.matches('^files_[A-Za-z0-9_-]+$')
           && isAttendanceFile(data)
           && legacyAttendanceCreateAllowed(collectionName, data)
@@ -3082,7 +3095,7 @@ service cloud.firestore {
           && documentId != 'academic_years'
           && legacySensitiveWriteAllowed(collectionName, data)
         ) || (
-          !collectionName.matches('^(tasks|academic_years|student_enrollments|students|classes|roles|settings|personal_files|skill_catalog)_[A-Za-z0-9_-]+$')
+          !collectionName.matches('^(tasks|academic_years|student_enrollments|students|classes|roles|settings|holidays|personal_files|skill_catalog)_[A-Za-z0-9_-]+$')
           && !(collectionName.matches('^files_[A-Za-z0-9_-]+$') && isAttendanceFile(data))
           && legacyWriteAllowed(collectionName, data)
         );
@@ -3104,6 +3117,10 @@ service cloud.firestore {
         ) || (
           collectionName.matches('^classes_[A-Za-z0-9_-]+$')
           && legacyClassUpdateAllowed(collectionName, documentId)
+        ) || (
+          collectionName.matches('^holidays_[A-Za-z0-9_-]+$')
+          && legacyHolidayWriteAllowed(collectionName, resource.data)
+          && request.resource.data.schoolId == resource.data.schoolId
         ) || (
           collectionName.matches('^files_[A-Za-z0-9_-]+$')
           && isAttendanceFile(resource.data)
@@ -3131,7 +3148,7 @@ service cloud.firestore {
           && documentId != 'academic_years'
           && legacySensitiveWriteAllowed(collectionName, resource.data)
         ) || (
-          !collectionName.matches('^(tasks|academic_years|student_enrollments|students|classes|roles|settings|personal_files|skill_catalog)_[A-Za-z0-9_-]+$')
+          !collectionName.matches('^(tasks|academic_years|student_enrollments|students|classes|roles|settings|holidays|personal_files|skill_catalog)_[A-Za-z0-9_-]+$')
           && !(collectionName.matches('^files_[A-Za-z0-9_-]+$') && isAttendanceFile(resource.data))
           && legacyWriteAllowed(collectionName, resource.data)
         );
@@ -3142,10 +3159,13 @@ service cloud.firestore {
           collectionName.matches('^tasks_[A-Za-z0-9_-]+$')
           && legacyTaskDeleteAllowed(collectionName, data)
         ) || (
+          collectionName.matches('^holidays_[A-Za-z0-9_-]+$')
+          && legacyHolidayWriteAllowed(collectionName, data)
+        ) || (
           collectionName.matches('^settings_[A-Za-z0-9_-]+$')
           && legacySensitiveWriteAllowed(collectionName, data)
         ) || (
-          !collectionName.matches('^(tasks|academic_years|student_enrollments|roles|settings|personal_files|skill_catalog)_[A-Za-z0-9_-]+$')
+          !collectionName.matches('^(tasks|academic_years|student_enrollments|roles|settings|holidays|personal_files|skill_catalog)_[A-Za-z0-9_-]+$')
           && legacyWriteAllowed(collectionName, data)
         );
     }
