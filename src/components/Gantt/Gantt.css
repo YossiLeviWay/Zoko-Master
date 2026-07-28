@@ -406,6 +406,32 @@
   max-width: 100%;
 }
 
+.gantt-milestone-tag {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  margin-bottom: 1px;
+  padding: 1px 4px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 3px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font: inherit;
+  font-size: 0.62rem;
+  font-weight: 650;
+  text-align: start;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.gantt-milestone-tag--proposed {
+  border: 1px dashed #f59e0b;
+  background: #fffbeb;
+  color: #b45309;
+}
+
 .gantt-row-resize-handle {
   position: absolute;
   bottom: 0;

@@ -3,6 +3,8 @@ import { collection, doc } from 'firebase/firestore';
 const RESOURCE_CONFIG = Object.freeze({
   tasks: { legacy: 'tasks' },
   taskInvitations: { legacy: 'taskInvitations', nested: 'taskInvitations', defaultMode: 'nested' },
+  initiatives: { nested: 'initiatives', defaultMode: 'nested' },
+  initiativeTemplates: { nested: 'initiativeTemplates', defaultMode: 'nested' },
   classes: { legacy: 'classes' },
   students: { legacy: 'students' },
   gradebooks: { legacy: 'gradebooks', nested: 'gradebooks', defaultMode: 'nested' },

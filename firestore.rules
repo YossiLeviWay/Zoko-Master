@@ -1498,6 +1498,80 @@ service cloud.firestore {
         );
     }
 
+    function initiativePermission(schoolId, permission) {
+      return isGlobalAdmin()
+        || (
+          isSchoolMember(schoolId)
+          && currentUser().permissions is map
+          && currentUser().permissions.get(permission, false) == true
+        )
+        || rolePermission(schoolId, permission)
+        || isSchoolPrincipal(schoolId);
+    }
+
+    function currentUserInitiativeTeamIds(schoolId) {
+      let legacyTeams = legacyIdsAllowedForSchool(schoolId) ? currentUser().get('teamIds', []) : [];
+      return currentUser().get('teamIdsBySchool', {}).get(schoolId, legacyTeams);
+    }
+
+    function initiativeVisibleToCurrentUser(schoolId, data) {
+      return isSchoolMember(schoolId)
+        && data.schoolId == schoolId
+        && (
+          data.ownerId == request.auth.uid
+          || request.auth.uid in data.get('memberIds', [])
+          || data.get('teamIds', []).hasAny(currentUserInitiativeTeamIds(schoolId))
+          || initiativePermission(schoolId, 'initiatives.viewAll')
+        );
+    }
+
+    function initiativeByIdVisible(schoolId, initiativeId) {
+      return initiativeId is string
+        && initiativeId.size() > 0
+        && initiativeVisibleToCurrentUser(
+          schoolId,
+          get(/databases/$(database)/documents/schools/$(schoolId)/initiatives/$(initiativeId)).data
+        );
+    }
+
+    function canEditInitiative(schoolId, data) {
+      return initiativeVisibleToCurrentUser(schoolId, data)
+        && (
+          isSchoolPrincipal(schoolId)
+          || initiativePermission(schoolId, 'initiatives.edit')
+          || (data.ownerId == request.auth.uid && initiativePermission(schoolId, 'initiatives.create'))
+        );
+    }
+
+    function canApproveInitiativeMilestone(schoolId, initiativeId, milestoneData) {
+      return initiativeId is string
+        && initiativeId.size() > 0
+        && milestoneData.approverId == request.auth.uid
+        && isSchoolMember(schoolId)
+        && (
+          (
+            currentUser().permissions is map
+            && currentUser().permissions.get('initiatives.approveMilestones', false) == true
+          )
+          || rolePermission(schoolId, 'initiatives.approveMilestones')
+        );
+    }
+
+    function validTaskInitiativeLink(schoolId, data) {
+      let initiativeId = data.get('initiativeId', '');
+      let milestoneId = data.get('milestoneId', '');
+      return (
+          initiativeId == ''
+          && milestoneId == ''
+        ) || (
+          initiativeByIdVisible(schoolId, initiativeId)
+          && (
+            milestoneId == ''
+            || exists(/databases/$(database)/documents/schools/$(schoolId)/initiatives/$(initiativeId)/milestones/$(milestoneId))
+          )
+        );
+    }
+
     function validOrganizationTaskCreate(schoolId, data) {
       return isSchoolMember(schoolId)
         && data.keys().hasAll(['scope', 'schoolId', 'createdBy', 'title', 'status'])
@@ -1505,6 +1579,7 @@ service cloud.firestore {
         && data.createdBy == request.auth.uid
         && data.title is string
         && data.title.size() > 0
+        && validTaskInitiativeLink(schoolId, data)
         && (!('mandatory' in data) || data.mandatory == false)
         && (
           (
@@ -1555,6 +1630,7 @@ service cloud.firestore {
     function safeOrganizationTaskUpdate(schoolId) {
       return safeTaskChatActivityUpdate(schoolId) || (
         isOrganizationTask(request.resource.data)
+        && validTaskInitiativeLink(schoolId, request.resource.data)
         && request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'schoolId', 'createdBy', 'ownerId'
         ]) == false
@@ -1587,6 +1663,7 @@ service cloud.firestore {
         && isSchoolMember(data.schoolId)
         && data.title is string
         && data.title.size() > 0
+        && validTaskInitiativeLink(data.schoolId, data)
         && data.assigneeIds is list
         && data.assigneeIds.size() == 0
         && data.teamId == ''
@@ -1609,7 +1686,7 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'title', 'description', 'priority', 'status', 'dueDate', 'reminderAt',
           'completedAt', 'updatedAt', 'tags', 'attachedFileId', 'attachedFileName',
-          'pinnedBy', 'sourceTaskId'
+          'pinnedBy', 'sourceTaskId', 'initiativeId', 'milestoneId'
         ]);
     }
 
@@ -2008,6 +2085,237 @@ service cloud.firestore {
           allow update: if false;
           allow delete: if request.auth.uid == resource.data.authorId || canManageSchoolUsers(schoolId);
         }
+      }
+
+      match /initiatives/{initiativeId} {
+        allow read: if initiativeVisibleToCurrentUser(schoolId, resource.data);
+        allow create: if (
+            isSchoolPrincipal(schoolId)
+            || initiativePermission(schoolId, 'initiatives.create')
+          )
+          && request.resource.data.keys().hasAll([
+            'schoolId', 'title', 'academicYearId', 'ownerId', 'memberIds',
+            'teamIds', 'classIds', 'status', 'health', 'createdBy', 'updatedBy',
+            'createdAt', 'updatedAt'
+          ])
+          && request.resource.data.schoolId == schoolId
+          && request.resource.data.title is string
+          && request.resource.data.title.size() > 0
+          && request.resource.data.title.size() <= 200
+          && request.resource.data.academicYearId is string
+          && request.resource.data.academicYearId.size() > 0
+          && request.resource.data.ownerId is string
+          && exists(/databases/$(database)/documents/users/$(request.resource.data.ownerId))
+          && userBelongsToSchool(
+            get(/databases/$(database)/documents/users/$(request.resource.data.ownerId)).data,
+            schoolId
+          )
+          && request.resource.data.memberIds is list
+          && request.resource.data.memberIds.size() <= 100
+          && request.resource.data.teamIds is list
+          && request.resource.data.teamIds.size() <= 50
+          && request.resource.data.classIds is list
+          && request.resource.data.classIds.size() <= 100
+          && request.resource.data.status == 'active'
+          && request.resource.data.health == 'on_track'
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.updatedBy == request.auth.uid
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedAt == request.time;
+        allow update: if canEditInitiative(schoolId, resource.data)
+          && request.resource.data.schoolId == resource.data.schoolId
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedBy == request.auth.uid
+          && request.resource.data.updatedAt == request.time
+          && request.resource.data.title is string
+          && request.resource.data.title.size() > 0
+          && request.resource.data.status in ['active', 'completed', 'archived', 'cancelled']
+          && request.resource.data.health in ['on_track', 'attention', 'at_risk', 'completed']
+          && (
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+              'ownerId', 'memberIds', 'teamIds', 'classIds'
+            ])
+            || initiativePermission(schoolId, 'initiatives.manageParticipants')
+          )
+          && (
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+              'healthOverride', 'healthOverrideReason'
+            ])
+            || (
+              initiativePermission(schoolId, 'initiatives.changeHealth')
+              && request.resource.data.get('healthOverrideReason', '') is string
+              && request.resource.data.get('healthOverrideReason', '').size() > 0
+            )
+          )
+          && (
+            request.resource.data.status != 'archived'
+            || resource.data.status == 'archived'
+            || initiativePermission(schoolId, 'initiatives.archive')
+          );
+        allow delete: if false;
+
+        match /milestones/{milestoneId} {
+          allow read: if initiativeByIdVisible(schoolId, initiativeId);
+          allow create: if initiativeByIdVisible(schoolId, initiativeId)
+            && (
+              isSchoolPrincipal(schoolId)
+              || initiativePermission(schoolId, 'initiatives.createMilestones')
+            )
+            && request.resource.data.schoolId == schoolId
+            && request.resource.data.initiativeId == initiativeId
+            && request.resource.data.title is string
+            && request.resource.data.title.size() > 0
+            && request.resource.data.title.size() <= 200
+            && request.resource.data.status in [
+              'not_started', 'in_progress', 'waiting_external', 'blocked', 'completed', 'cancelled'
+            ]
+            && request.resource.data.dateType in ['exact', 'range', 'proposed', 'unset']
+            && request.resource.data.weight is number
+            && request.resource.data.weight > 0
+            && request.resource.data.weight <= 100
+            && request.resource.data.createdBy == request.auth.uid
+            && request.resource.data.updatedBy == request.auth.uid
+            && request.resource.data.createdAt == request.time
+            && request.resource.data.updatedAt == request.time
+            && (
+              request.resource.data.status != 'cancelled'
+              || request.resource.data.cancelReason.size() > 0
+            )
+            && (
+              request.resource.data.status != 'completed'
+              || request.resource.data.requiresEvidence == false
+              || request.resource.data.evidenceIds.size() > 0
+              || request.resource.data.completionSummary.size() > 0
+            );
+          allow update: if (
+              (
+                canApproveInitiativeMilestone(schoolId, initiativeId, resource.data)
+                && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                  'status', 'evidenceIds', 'completionSummary', 'cancelReason', 'updatedBy', 'updatedAt'
+                ])
+              )
+              || canEditInitiative(
+                schoolId,
+                get(/databases/$(database)/documents/schools/$(schoolId)/initiatives/$(initiativeId)).data
+              )
+            )
+            && request.resource.data.schoolId == resource.data.schoolId
+            && request.resource.data.initiativeId == resource.data.initiativeId
+            && request.resource.data.createdBy == resource.data.createdBy
+            && request.resource.data.createdAt == resource.data.createdAt
+            && request.resource.data.updatedBy == request.auth.uid
+            && request.resource.data.updatedAt == request.time
+            && request.resource.data.status in [
+              'not_started', 'in_progress', 'waiting_external', 'blocked', 'completed', 'cancelled'
+            ]
+            && request.resource.data.dateType in ['exact', 'range', 'proposed', 'unset']
+            && (
+              request.resource.data.status != 'cancelled'
+              || request.resource.data.cancelReason.size() > 0
+            )
+            && (
+              request.resource.data.status != 'completed'
+              || request.resource.data.requiresEvidence == false
+              || request.resource.data.evidenceIds.size() > 0
+              || request.resource.data.completionSummary.size() > 0
+            );
+          allow delete: if false;
+        }
+
+        match /updates/{updateId} {
+          allow read: if initiativeByIdVisible(schoolId, initiativeId);
+          allow create: if initiativeByIdVisible(schoolId, initiativeId)
+            && request.resource.data.schoolId == schoolId
+            && request.resource.data.initiativeId == initiativeId
+            && request.resource.data.authorId == request.auth.uid
+            && request.resource.data.type in ['progress', 'decision', 'blocker', 'achievement', 'help', 'meeting']
+            && request.resource.data.text is string
+            && request.resource.data.text.size() > 0
+            && request.resource.data.text.size() <= 4000
+            && request.resource.data.createdAt == request.time
+            && request.resource.data.updatedAt == request.time
+            && (
+              request.resource.data.type != 'blocker'
+              || (
+                request.resource.data.blockerOwnerId is string
+                && request.resource.data.blockerOwnerId.size() > 0
+                && request.resource.data.blockerDueDate is string
+                && request.resource.data.blockerDueDate.size() > 0
+              )
+            );
+          allow update: if resource.data.authorId == request.auth.uid
+            && request.resource.data.schoolId == resource.data.schoolId
+            && request.resource.data.initiativeId == resource.data.initiativeId
+            && request.resource.data.authorId == resource.data.authorId
+            && request.resource.data.createdAt == resource.data.createdAt
+            && request.resource.data.updatedAt == request.time
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'text', 'fileIds', 'link', 'mentionedUserIds', 'blockerOwnerId',
+              'blockerDueDate', 'blockerStatus', 'updatedAt'
+            ]);
+          allow delete: if false;
+        }
+
+        match /comments/{commentId} {
+          allow read: if initiativeByIdVisible(schoolId, initiativeId);
+          allow create: if initiativeByIdVisible(schoolId, initiativeId)
+            && request.resource.data.schoolId == schoolId
+            && request.resource.data.initiativeId == initiativeId
+            && request.resource.data.updateId is string
+            && request.resource.data.updateId.size() > 0
+            && exists(/databases/$(database)/documents/schools/$(schoolId)/initiatives/$(initiativeId)/updates/$(request.resource.data.updateId))
+            && request.resource.data.authorId == request.auth.uid
+            && request.resource.data.text is string
+            && request.resource.data.text.size() > 0
+            && request.resource.data.text.size() <= 1000
+            && request.resource.data.createdAt == request.time;
+          allow update, delete: if false;
+        }
+
+        match /activity/{activityId} {
+          allow read: if initiativeByIdVisible(schoolId, initiativeId);
+          allow create: if existsAfter(/databases/$(database)/documents/schools/$(schoolId)/initiatives/$(initiativeId))
+            && initiativeVisibleToCurrentUser(
+              schoolId,
+              getAfter(/databases/$(database)/documents/schools/$(schoolId)/initiatives/$(initiativeId)).data
+            )
+            && request.resource.data.schoolId == schoolId
+            && request.resource.data.initiativeId == initiativeId
+            && request.resource.data.actorId == request.auth.uid
+            && request.resource.data.action is string
+            && request.resource.data.createdAt == request.time;
+          allow update, delete: if false;
+        }
+
+        match /members/{memberId} {
+          allow read: if initiativeByIdVisible(schoolId, initiativeId);
+          allow create, update: if initiativePermission(schoolId, 'initiatives.manageParticipants')
+            && request.resource.data.schoolId == schoolId
+            && request.resource.data.initiativeId == initiativeId
+            && request.resource.data.userId == memberId
+            && request.resource.data.role in ['lead', 'milestone_owner', 'participant', 'approver', 'viewer'];
+          allow delete: if initiativePermission(schoolId, 'initiatives.manageParticipants');
+        }
+      }
+
+      match /initiativeTemplates/{templateId} {
+        allow read: if isSchoolMember(schoolId)
+          && (
+            initiativePermission(schoolId, 'initiatives.view')
+            || initiativePermission(schoolId, 'initiatives.viewAll')
+          );
+        allow create: if initiativePermission(schoolId, 'initiatives.createTemplate')
+          && request.resource.data.schoolId == schoolId
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedAt == request.time;
+        allow update: if initiativePermission(schoolId, 'initiatives.createTemplate')
+          && request.resource.data.schoolId == resource.data.schoolId
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedAt == request.time;
+        allow delete: if false;
       }
 
       match /taskInvitations/{invitationId} {

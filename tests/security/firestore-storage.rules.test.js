@@ -230,6 +230,79 @@ function gradebookFile({ schoolId = SCHOOL_A, classId = 'class_a', actor = 'prin
   };
 }
 
+function initiativeRecord({
+  schoolId = SCHOOL_A,
+  ownerId = 'principal_a',
+  memberIds = [],
+  teamIds = [],
+} = {}) {
+  return {
+    schoolId,
+    title: 'Long-term initiative',
+    description: 'Safe test initiative',
+    academicYearId: 'year_2026_2027',
+    academicYearLabel: 'תשפ״ז',
+    category: 'education',
+    startDate: '2026-09-01',
+    endDate: '2027-06-30',
+    ownerId,
+    ownerName: 'Principal A',
+    memberIds,
+    teamIds,
+    classIds: [],
+    fileIds: [],
+    goals: [],
+    nextAction: '',
+    status: 'active',
+    health: 'on_track',
+    healthOverride: '',
+    healthOverrideReason: '',
+    archivedAt: null,
+    createdBy: ownerId,
+    updatedBy: ownerId,
+    createdAt: 'created',
+    updatedAt: 'created',
+  };
+}
+
+function milestoneRecord({
+  schoolId = SCHOOL_A,
+  initiativeId = 'initiative_a',
+  actor = 'principal_a',
+  approverId = '',
+  requiresEvidence = false,
+} = {}) {
+  return {
+    schoolId,
+    initiativeId,
+    title: 'Milestone A',
+    description: '',
+    ownerId: actor,
+    participantIds: [],
+    status: 'not_started',
+    priority: 'medium',
+    weight: 25,
+    dateType: 'exact',
+    startDate: '2026-11-01',
+    endDate: '',
+    proposedDate: '',
+    requiredOutput: '',
+    approverId,
+    dependencyId: '',
+    reminderAt: '',
+    fileIds: [],
+    evidenceIds: [],
+    requiresEvidence,
+    completionSummary: '',
+    cancelReason: '',
+    order: 0,
+    createdBy: actor,
+    updatedBy: actor,
+    createdAt: 'created',
+    updatedAt: 'created',
+  };
+}
+
 before(async () => {
   const [firestoreRules, storageRules] = await Promise.all([
     readFile(new URL('../../firestore.rules', import.meta.url), 'utf8'),
@@ -484,6 +557,151 @@ test('legacy tasks without schoolId support chat activity only for task particip
     lastChatMessageBy: 'peer_a',
     lastChatPreview: 'Unauthorized message',
     updatedAt: serverTimestamp(),
+  }));
+});
+
+test('principal creates an initiative while unauthorized and cross-school users remain blocked', async () => {
+  await seedFirestore({
+    'users/principal_a': { ...user({ schoolId: SCHOOL_A, role: 'principal' }), uid: 'principal_a' },
+    'users/member_a': { ...user({ schoolId: SCHOOL_A }), uid: 'member_a' },
+    'users/outsider_a': { ...user({ schoolId: SCHOOL_A }), uid: 'outsider_a' },
+    'users/member_b': { ...user({ schoolId: SCHOOL_B }), uid: 'member_b' },
+  });
+  const principalDb = context('principal_a').firestore();
+  const initiativeRef = doc(principalDb, `schools/${SCHOOL_A}/initiatives/initiative_created`);
+  const payload = {
+    ...initiativeRecord({ ownerId: 'principal_a', memberIds: ['member_a'] }),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+  await assertSucceeds(setDoc(initiativeRef, payload));
+  await assertSucceeds(getDoc(doc(context('member_a').firestore(), initiativeRef.path)));
+  await assertFails(getDoc(doc(context('outsider_a').firestore(), initiativeRef.path)));
+  await assertFails(getDoc(doc(context('member_b').firestore(), initiativeRef.path)));
+  await assertFails(setDoc(
+    doc(context('outsider_a').firestore(), `schools/${SCHOOL_A}/initiatives/initiative_denied`),
+    { ...payload, createdBy: 'outsider_a', updatedBy: 'outsider_a' },
+  ));
+  await assertFails(deleteDoc(initiativeRef));
+});
+
+test('initiative milestone completion enforces evidence and permits only its authorized approver', async () => {
+  await seedFirestore({
+    'users/principal_a': { ...user({ schoolId: SCHOOL_A, role: 'principal' }), uid: 'principal_a' },
+    'users/approver_a': {
+      ...user({ schoolId: SCHOOL_A, permissions: { 'initiatives.approveMilestones': true } }),
+      uid: 'approver_a',
+    },
+    'users/member_a': { ...user({ schoolId: SCHOOL_A }), uid: 'member_a' },
+    [`schools/${SCHOOL_A}/initiatives/initiative_a`]: initiativeRecord({
+      memberIds: ['approver_a', 'member_a'],
+    }),
+    [`schools/${SCHOOL_A}/initiatives/initiative_a/milestones/milestone_a`]: milestoneRecord({
+      approverId: 'approver_a',
+      requiresEvidence: true,
+    }),
+  });
+  const milestonePath = `schools/${SCHOOL_A}/initiatives/initiative_a/milestones/milestone_a`;
+  const approverRef = doc(context('approver_a').firestore(), milestonePath);
+  await assertSucceeds(getDoc(approverRef));
+  await assertFails(updateDoc(approverRef, {
+    status: 'completed',
+    updatedBy: 'approver_a',
+    updatedAt: serverTimestamp(),
+  }));
+  await assertSucceeds(updateDoc(approverRef, {
+    status: 'completed',
+    completionSummary: 'Output reviewed and accepted.',
+    updatedBy: 'approver_a',
+    updatedAt: serverTimestamp(),
+  }));
+  await assertFails(updateDoc(doc(context('member_a').firestore(), milestonePath), {
+    status: 'cancelled',
+    cancelReason: 'Unauthorized',
+    updatedBy: 'member_a',
+    updatedAt: serverTimestamp(),
+  }));
+  await assertFails(deleteDoc(approverRef));
+});
+
+test('initiative update comments are append-only and limited to visible initiative members', async () => {
+  await seedFirestore({
+    'users/owner_a': { ...user({ schoolId: SCHOOL_A }), uid: 'owner_a' },
+    'users/member_a': { ...user({ schoolId: SCHOOL_A }), uid: 'member_a' },
+    'users/outsider_a': { ...user({ schoolId: SCHOOL_A }), uid: 'outsider_a' },
+    [`schools/${SCHOOL_A}/initiatives/initiative_a`]: initiativeRecord({
+      ownerId: 'owner_a',
+      memberIds: ['member_a'],
+    }),
+    [`schools/${SCHOOL_A}/initiatives/initiative_a/updates/update_a`]: {
+      schoolId: SCHOOL_A,
+      initiativeId: 'initiative_a',
+      authorId: 'owner_a',
+      type: 'progress',
+      text: 'Progress update',
+      createdAt: 'created',
+      updatedAt: 'created',
+    },
+  });
+  const commentPath = `schools/${SCHOOL_A}/initiatives/initiative_a/comments/comment_a`;
+  const comment = {
+    schoolId: SCHOOL_A,
+    initiativeId: 'initiative_a',
+    updateId: 'update_a',
+    authorId: 'member_a',
+    authorName: 'Member',
+    text: 'Reviewed',
+    createdAt: serverTimestamp(),
+  };
+  const memberRef = doc(context('member_a').firestore(), commentPath);
+  await assertSucceeds(setDoc(memberRef, comment));
+  await assertSucceeds(getDoc(memberRef));
+  await assertFails(setDoc(doc(context('outsider_a').firestore(), `${commentPath}_denied`), {
+    ...comment,
+    authorId: 'outsider_a',
+  }));
+  await assertFails(updateDoc(memberRef, { text: 'Changed' }));
+  await assertFails(deleteDoc(memberRef));
+});
+
+test('tasks link to an existing visible initiative and milestone without creating a duplicate task', async () => {
+  await seedFirestore({
+    'users/assigner_a': {
+      ...user({ schoolId: SCHOOL_A, permissions: { tasks_assign: true } }),
+      uid: 'assigner_a',
+    },
+    'users/member_a': { ...user({ schoolId: SCHOOL_A }), uid: 'member_a' },
+    [`schools/${SCHOOL_A}/initiatives/initiative_a`]: initiativeRecord({
+      ownerId: 'assigner_a',
+      memberIds: ['member_a'],
+    }),
+    [`schools/${SCHOOL_A}/initiatives/initiative_a/milestones/milestone_a`]: milestoneRecord({
+      actor: 'assigner_a',
+    }),
+  });
+  const assignerDb = context('assigner_a').firestore();
+  const baseTask = {
+    scope: 'assigned',
+    schoolId: SCHOOL_A,
+    createdBy: 'assigner_a',
+    title: 'Linked task',
+    status: 'todo',
+    assigneeType: 'individual',
+    assigneeIds: ['member_a'],
+    teamId: '',
+    assigneeTeamId: '',
+    initiativeId: 'initiative_a',
+    milestoneId: 'milestone_a',
+  };
+  await assertSucceeds(setDoc(doc(assignerDb, `schools/${SCHOOL_A}/tasks/linked_task`), baseTask));
+  await assertFails(setDoc(doc(assignerDb, `schools/${SCHOOL_A}/tasks/missing_initiative`), {
+    ...baseTask,
+    initiativeId: 'missing',
+    milestoneId: '',
+  }));
+  await assertFails(setDoc(doc(assignerDb, `schools/${SCHOOL_A}/tasks/missing_milestone`), {
+    ...baseTask,
+    milestoneId: 'missing',
   }));
 });
 
