@@ -35,3 +35,13 @@ test('personal task normalization keeps private scope and safe defaults', () => 
   assert.equal(task.scope, 'personal');
   assert.deepEqual(task.assigneeIds, []);
 });
+
+test('existing task normalization keeps optional initiative links without creating another task', () => {
+  const task = normalizeOrganizationTask({
+    id: 'linked_1', title: 'Linked', initiativeId: 'initiative_1', milestoneId: 'milestone_1',
+  });
+  assert.equal(task.id, 'linked_1');
+  assert.equal(task.initiativeId, 'initiative_1');
+  assert.equal(task.milestoneId, 'milestone_1');
+  assert.equal(task._key, 'organization:nested:linked_1');
+});

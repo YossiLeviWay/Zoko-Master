@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { db } from '../../firebase';
 import { collection, getDocs, query, where, onSnapshot, updateDoc, doc, orderBy, limit as firestoreLimit } from 'firebase/firestore';
 import { Building2, ChevronDown, Check, Bell, CheckCheck, MessageCircle, CheckSquare, Calendar, Users, FolderOpen, UserPlus, AlertCircle, Shield } from 'lucide-react';
+import UserAvatar from '../Shared/UserAvatar';
 import './Layout.css';
 
 const NOTIF_TYPE_ICONS = {
@@ -128,9 +129,6 @@ export default function Header({ title, onPermissions }) {
     s.name.includes(search) || (s.address || '').includes(search)
   );
 
-  const avatarStyle = userData?.avatarStyle || 'default';
-  const initial = userData?.fullName?.charAt(0) || '?';
-
   const ROLE_LABELS_HEADER = {
     platform_admin: 'מנהל־על פלטפורמה',
     global_admin: 'מנהל על',
@@ -224,9 +222,7 @@ export default function Header({ title, onPermissions }) {
 
         {/* User info */}
         <div className="header-user">
-          <div className={`header-avatar avatar-style--${avatarStyle}`}>
-            {initial}
-          </div>
+          <UserAvatar user={userData} className="header-avatar" />
           <div className="header-user-info">
             <span className="header-user-name">{userData?.fullName || ''}</span>
             <span className="header-user-role">{ROLE_LABELS_HEADER[userData?.role] || ''}</span>

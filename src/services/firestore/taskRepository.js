@@ -76,6 +76,8 @@ export function normalizeOrganizationTask(item, storageMode = 'nested') {
     createdByName: safeString(item.createdByName),
     assignedByName: safeString(item.assignedByName),
     sourceTaskId: safeString(item.sourceTaskId),
+    initiativeId: safeString(item.initiativeId),
+    milestoneId: safeString(item.milestoneId),
     attachedFileId: safeString(item.attachedFileId),
     attachedFileName: safeString(item.attachedFileName),
     _storageMode: storageMode,
@@ -101,6 +103,8 @@ export function normalizePersonalTask(item) {
     attachedFileId: safeString(item.attachedFileId),
     attachedFileName: safeString(item.attachedFileName),
     sourceTaskId: safeString(item.sourceTaskId),
+    initiativeId: safeString(item.initiativeId),
+    milestoneId: safeString(item.milestoneId),
     scope: TASK_SCOPES.PERSONAL,
     assigneeType: 'personal',
     _storageMode: 'personal',
@@ -275,6 +279,8 @@ function editableFields(input) {
     tags: Array.isArray(input.tags) ? input.tags.slice(0, 20) : [],
     attachedFileId: input.attachedFileId || '',
     attachedFileName: input.attachedFileName || '',
+    initiativeId: input.initiativeId || '',
+    milestoneId: input.initiativeId ? input.milestoneId || '' : '',
   };
 }
 
@@ -408,6 +414,19 @@ export async function createPersonalFollowUp({ db, schoolId, user, task }) {
       status: 'todo',
       dueDate: '',
       sourceTaskId: task.id,
+      initiativeId: task.initiativeId || '',
+      milestoneId: task.milestoneId || '',
     },
+  });
+}
+
+export async function linkTaskToInitiative({ db, schoolId, uid, task, initiativeId, milestoneId = '' }) {
+  const taskRef = task._source === 'personal'
+    ? personalTaskDoc(db, uid, task.id)
+    : organizationTaskDoc(db, schoolId, task);
+  return updateDoc(taskRef, {
+    initiativeId: initiativeId || '',
+    milestoneId: initiativeId ? milestoneId || '' : '',
+    updatedAt: serverTimestamp(),
   });
 }

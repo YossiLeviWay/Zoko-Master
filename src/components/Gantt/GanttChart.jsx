@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../firebase';
 import {
@@ -22,6 +22,8 @@ import { usePermissions } from '../../hooks/usePermissions';
 import { CalendarDays, ChevronDown, Eye, Plus, Search, Settings } from 'lucide-react';
 import { academicYearDisplay, academicYearForDate } from '../../utils/academicYears';
 import { schoolCollection } from '../../services/firestore/paths';
+import { subscribeInitiativeTimeline } from '../../services/firestore/initiativeRepository';
+import { milestoneDate } from '../../utils/initiatives';
 import './Gantt.css';
 
 const HEBREW_DAYS = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
@@ -66,6 +68,7 @@ function dateKey(date) {
 export default function GanttChart() {
   const { selectedSchool, userData, isGlobalAdmin, isPrincipal } = useAuth();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const now = new Date();
   const paramYear = searchParams.get('year');
   const paramMonth = searchParams.get('month');
@@ -88,6 +91,7 @@ export default function GanttChart() {
   const [allHolidays, setAllHolidays] = useState([]);
   const [userTeamIds, setUserTeamIds] = useState([]);
   const [calendarTasks, setCalendarTasks] = useState([]);
+  const [initiativeMilestones, setInitiativeMilestones] = useState([]);
   const [activeAcademicYear, setActiveAcademicYear] = useState(null);
   const [pendingTodayNavigation, setPendingTodayNavigation] = useState(false);
   const [todayPulse, setTodayPulse] = useState(false);
@@ -96,6 +100,7 @@ export default function GanttChart() {
   const schoolId = selectedSchool || userData?.schoolId;
   const { permissions } = usePermissions();
   const canEditCalendar = permissions.calendar_edit;
+  const canViewAllInitiatives = permissions['initiatives.viewAll'] || isGlobalAdmin() || isPrincipal();
   const [showPermissionsPanel, setShowPermissionsPanel] = useState(false);
 
   // Load user's team memberships for visibility filtering
@@ -125,6 +130,16 @@ export default function GanttChart() {
     }, () => { sets.set(index, []); emit(); }));
     return () => unsubscribers.forEach(unsubscribe => unsubscribe());
   }, [schoolId]);
+
+  useEffect(() => subscribeInitiativeTimeline({
+    db,
+    schoolId,
+    uid: userData?.uid,
+    teamIds: userTeamIds,
+    canViewAll: canViewAllInitiatives,
+    onData: items => setInitiativeMilestones(items.filter(item => !['completed', 'cancelled'].includes(item.status))),
+    onError: () => setInitiativeMilestones([]),
+  }), [canViewAllInitiatives, schoolId, userData?.uid, userTeamIds]);
 
   useEffect(() => {
     if (!schoolId) return;
@@ -185,6 +200,14 @@ export default function GanttChart() {
   function getTasksForDate(date) {
     const key = dateKey(date);
     return calendarTasks.filter(t => t.dueDate === key && isTaskVisible(t));
+  }
+
+  function getMilestonesForDate(date) {
+    const key = dateKey(date);
+    return initiativeMilestones.filter(item => {
+      if (item.dateType === 'range') return item.startDate <= key && key <= item.endDate;
+      return milestoneDate(item) === key;
+    });
   }
 
   // Load visible days setting from Firestore
@@ -595,6 +618,17 @@ export default function GanttChart() {
                           >
                             ✓ {task.title}
                           </div>
+                        ))}
+                        {getMilestonesForDate(date).map(item => (
+                          <button
+                            key={`${item.initiativeId}_${item.id}`}
+                            type="button"
+                            className={`gantt-milestone-tag ${item.dateType === 'proposed' ? 'gantt-milestone-tag--proposed' : ''}`}
+                            title={`${item.dateType === 'proposed' ? 'תאריך מוצע — ' : ''}${item.initiativeTitle}: ${item.title}`}
+                            onClick={() => navigate(`/tasks?initiative=${item.initiativeId}`)}
+                          >
+                            ◆ {item.title}{item.dateType === 'proposed' ? ' (מוצע)' : ''}
+                          </button>
                         ))}
                         <span className="gantt-date-header-num">{date.getDate()}</span>
                         <span className="gantt-date-header-full">{date.toLocaleDateString('he-IL', { month: '2-digit', year: 'numeric' })}</span>

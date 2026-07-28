@@ -1,5 +1,47 @@
 /* ===== Holidays Manager ===== */
 
+.holidays-source-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0 0 1rem;
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+}
+
+.holidays-source-panel > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.holidays-source-panel strong {
+  color: var(--color-text);
+  font-size: 0.85rem;
+}
+
+.holidays-source-panel a,
+.holiday-item-source {
+  color: var(--color-primary);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.holidays-source-panel a:hover,
+.holiday-item-source:hover {
+  text-decoration: underline;
+}
+
+.holiday-item-source {
+  width: fit-content;
+  font-size: 0.72rem;
+}
+
 /* Broadcast button */
 .holidays-broadcast-btn {
   display: flex;
