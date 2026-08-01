@@ -23,8 +23,21 @@
 .communication-confirmation dt { color: #8b7180; font-size: .78rem; }
 .communication-confirmation dd { margin: 4px 0 0; font-weight: 700; }
 .communication-confirm-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 9px; }
+.communication-contact-picker { margin-top: .4rem; font-size: .76rem; color: var(--color-text-muted); }
+.communication-new-recipients { display: flex; flex-direction: column; gap: .5rem; padding: .7rem; margin-bottom: 14px; border: 1px solid #f5c2a8; border-radius: 10px; background: #fff8f4; }
+.communication-new-recipients > strong { color: var(--color-text); font-size: .76rem; }
+.communication-new-recipients > div { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.communication-new-recipients > div > span { color: var(--color-text-muted); font-size: .74rem; }
+.communication-new-recipients > div > div { display: flex; align-items: center; flex-wrap: wrap; gap: .3rem; }
+.communication-new-recipients button { display: inline-flex; align-items: center; gap: .2rem; border: 1px solid var(--color-border); border-radius: 7px; padding: .3rem .45rem; background: #fff; color: var(--color-primary); cursor: pointer; font-size: .68rem; }
+.communication-new-recipients div div span { color: var(--color-text-faint); font-size: .65rem; }
+.communication-contact-save { display: flex; flex-direction: column; gap: .55rem; padding: .75rem; margin-bottom: 14px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-surface-muted); }
+.communication-contact-save > div:first-child { display: flex; align-items: center; justify-content: space-between; }
+.communication-contact-save > div:first-child button { display: flex; border: 0; background: transparent; color: var(--color-text-muted); cursor: pointer; }
+.communication-contact-save input { width: 100%; box-sizing: border-box; }
 @media (max-width: 640px) {
   .communication-header, .communication-form, .communication-confirmation { padding: 18px; }
   .communication-form .form-row, .communication-confirmation dl { grid-template-columns: 1fr; }
   .communication-confirm-actions .btn { width: 100%; }
+  .communication-new-recipients > div { align-items: flex-start; flex-direction: column; }
 }

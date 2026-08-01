@@ -36,7 +36,8 @@ import {
   GraduationCap,
   LifeBuoy,
   MessagesSquare,
-  ShieldCheck
+  ShieldCheck,
+  ContactRound
 } from 'lucide-react';
 import UserAvatar from '../Shared/UserAvatar';
 import NavPermissionsPanel, { PATH_TO_PERMISSION as PATH_TO_PERMISSION_SIDEBAR } from '../Shared/NavPermissionsPanel';
@@ -51,6 +52,7 @@ const NAV_ITEMS = [
   { path: '/tasks', icon: CheckSquare, label: 'פאנל משימות', requiresSchool: true, permission: 'tasks_view' },
   { path: '/files', icon: FolderOpen, label: 'קבצים', requiresSchool: true, permission: 'files_view' },
   { path: '/teams', icon: Users, label: 'צוותים', requiresSchool: true, permission: 'teams_view' },
+  { path: '/contacts', icon: ContactRound, label: 'אנשי קשר', requiresSchool: true },
   { path: '/students', icon: GraduationCap, label: 'תלמידים', requiresSchool: true, permission: 'students_view' },
   { path: '/messages', icon: MessageCircle, label: 'הודעות', permission: 'messages_send' },
   { path: '/holidays', icon: Sun, label: 'חופשות וחגים', requiresSchool: true, permission: 'holidays_view' },

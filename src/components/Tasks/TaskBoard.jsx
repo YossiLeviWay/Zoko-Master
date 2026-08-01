@@ -198,6 +198,13 @@ export default function TaskBoard() {
   const canManageAssignments = permissions['tasks.manageAssignments'] || canAssignMandatory;
   const canManageTaskPermissions = permissions['tasks.managePermissions'] || canAssignMandatory;
   const canCreateCommunication = permissions['communications.create'] || isInitiativeManager;
+  const contactPermissions = {
+    view: isInitiativeManager || permissions['contacts.view'] === true,
+    create: isInitiativeManager || permissions['contacts.create'] === true,
+    edit: isInitiativeManager || permissions['contacts.edit'] === true,
+    archive: isInitiativeManager || permissions['contacts.archive'] === true,
+    merge: isInitiativeManager || permissions['contacts.merge'] === true,
+  };
   const canViewAllInitiatives = permissions['initiatives.viewAll'] || isInitiativeManager;
   const initiativePermissions = isInitiativeManager ? {
     ...permissions,
@@ -1126,6 +1133,8 @@ export default function TaskBoard() {
       {communicationTask && <CommunicationComposer
         schoolId={schoolId}
         user={{ uid, fullName: userData?.fullName || '' }}
+        staff={staff}
+        contactPermissions={contactPermissions}
         task={communicationTask}
         onClose={() => setCommunicationTask(null)}
         onSuccess={showMessage}

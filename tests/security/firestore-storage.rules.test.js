@@ -543,6 +543,152 @@ test('email follow-up creation is atomic, tenant-scoped and requires explicit se
   assert.equal(savedDraft.data().communicationStatus, 'awaiting_reply');
 });
 
+test('institutional and private contacts enforce permissions, visibility and tenant isolation', async () => {
+  const institutionalContact = ({
+    schoolId = SCHOOL_A,
+    createdBy = 'contact_creator_a',
+    visibility = 'institution',
+    ownerStaffIds = [],
+    archived = false,
+  } = {}) => ({
+    scope: 'institutional', schoolId, fullName: 'External Contact', organization: 'Vendor Ltd',
+    jobTitle: 'Coordinator', primaryEmail: 'contact@example.com', additionalEmails: [],
+    normalizedEmails: ['contact@example.com'], phone: '', category: 'vendor', tags: [], notes: '',
+    ownerStaffIds, visibility, linkedStaffId: '', archived, schemaVersion: 1,
+    createdBy, updatedBy: createdBy, archivedBy: '', archivedAt: null,
+    mergedIntoId: '', mergedFromIds: [], createdAt: 'created', updatedAt: 'created',
+  });
+  const privateContact = {
+    scope: 'private', ownerId: 'private_owner_a', schoolId: SCHOOL_A,
+    fullName: 'Private Contact', organization: '', jobTitle: '',
+    primaryEmail: 'private@example.com', additionalEmails: [],
+    normalizedEmails: ['private@example.com'], phone: '', category: '', tags: [], notes: '',
+    archived: false, schemaVersion: 1, createdBy: 'private_owner_a', updatedBy: 'private_owner_a',
+    archivedBy: '', archivedAt: null, mergedIntoId: '', mergedFromIds: [],
+    createdAt: 'created', updatedAt: 'created',
+  };
+  await seedFirestore({
+    'users/contact_viewer_a': user({ schoolId: SCHOOL_A, permissions: { 'contacts.view': true } }),
+    'users/contact_creator_a': user({ schoolId: SCHOOL_A, permissions: { 'contacts.view': true, 'contacts.create': true } }),
+    'users/contact_editor_a': user({ schoolId: SCHOOL_A, permissions: { 'contacts.view': true, 'contacts.edit': true } }),
+    'users/contact_archiver_a': user({ schoolId: SCHOOL_A, permissions: { 'contacts.view': true, 'contacts.archive': true } }),
+    'users/contact_merger_a': user({ schoolId: SCHOOL_A, permissions: { 'contacts.view': true, 'contacts.merge': true } }),
+    'users/responsible_a': user({ schoolId: SCHOOL_A }),
+    'users/peer_a': user({ schoolId: SCHOOL_A }),
+    'users/principal_a': user({ schoolId: SCHOOL_A, role: 'principal' }),
+    'users/private_owner_a': user({ schoolId: SCHOOL_A }),
+    'users/viewer_b': user({ schoolId: SCHOOL_B, permissions: { 'contacts.view': true } }),
+    'users/platform_admin': user({ schoolId: SCHOOL_A }),
+    [`schools/${SCHOOL_A}/contactDirectory/institutional/items/public_contact`]: institutionalContact(),
+    [`schools/${SCHOOL_A}/contactDirectory/institutional/items/restricted_contact`]: institutionalContact({
+      visibility: 'responsible_staff', ownerStaffIds: ['responsible_a'],
+    }),
+    [`schools/${SCHOOL_A}/contactDirectory/institutional/items/merge_source`]: {
+      ...institutionalContact({ createdBy: 'contact_merger_a' }),
+      primaryEmail: 'source@example.com', normalizedEmails: ['source@example.com'],
+    },
+    [`schools/${SCHOOL_A}/contactDirectory/institutional/items/merge_target`]: {
+      ...institutionalContact({ createdBy: 'contact_merger_a' }),
+      primaryEmail: 'target@example.com', normalizedEmails: ['target@example.com'],
+    },
+    'users/private_owner_a/contactDirectory/private/items/private_contact': privateContact,
+  });
+
+  const publicPath = `schools/${SCHOOL_A}/contactDirectory/institutional/items/public_contact`;
+  const restrictedPath = `schools/${SCHOOL_A}/contactDirectory/institutional/items/restricted_contact`;
+  await assertSucceeds(getDoc(doc(context('contact_viewer_a').firestore(), publicPath)));
+  await assertFails(getDoc(doc(context('contact_viewer_a').firestore(), restrictedPath)));
+  await assertSucceeds(getDoc(doc(context('responsible_a').firestore(), restrictedPath)));
+  await assertSucceeds(getDoc(doc(context('principal_a').firestore(), restrictedPath)));
+  await assertFails(getDoc(doc(context('peer_a').firestore(), publicPath)));
+  await assertFails(getDoc(doc(context('viewer_b').firestore(), publicPath)));
+  await assertFails(getDoc(doc(context('platform_admin', { platform_admin: true }).firestore(), publicPath)));
+  await assertSucceeds(getDocs(query(
+    collection(context('contact_viewer_a').firestore(), `schools/${SCHOOL_A}/contactDirectory/institutional/items`),
+    where('visibility', '==', 'institution'),
+  )));
+
+  const createPayload = {
+    ...institutionalContact(),
+    createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  };
+  await assertSucceeds(setDoc(
+    doc(context('contact_creator_a').firestore(), `schools/${SCHOOL_A}/contactDirectory/institutional/items/new_contact`),
+    createPayload,
+  ));
+  await assertFails(setDoc(
+    doc(context('peer_a').firestore(), `schools/${SCHOOL_A}/contactDirectory/institutional/items/forged_contact`),
+    { ...createPayload, createdBy: 'peer_a', updatedBy: 'peer_a' },
+  ));
+  await assertFails(setDoc(
+    doc(context('contact_creator_a').firestore(), `schools/${SCHOOL_A}/contactDirectory/institutional/items/extra_field`),
+    { ...createPayload, unsafeField: true },
+  ));
+  await assertSucceeds(updateDoc(doc(context('contact_editor_a').firestore(), publicPath), {
+    fullName: 'Updated External Contact',
+    updatedBy: 'contact_editor_a',
+    updatedAt: serverTimestamp(),
+  }));
+  await assertFails(updateDoc(doc(context('contact_editor_a').firestore(), publicPath), {
+    schoolId: SCHOOL_B,
+    updatedBy: 'contact_editor_a',
+    updatedAt: serverTimestamp(),
+  }));
+  const mergerDb = context('contact_merger_a').firestore();
+  const mergeBatch = writeBatch(mergerDb);
+  mergeBatch.update(
+    doc(mergerDb, `schools/${SCHOOL_A}/contactDirectory/institutional/items/merge_target`),
+    {
+      primaryEmail: 'target@example.com',
+      additionalEmails: ['source@example.com'],
+      normalizedEmails: ['target@example.com', 'source@example.com'],
+      mergedFromIds: ['merge_source'],
+      updatedBy: 'contact_merger_a',
+      updatedAt: serverTimestamp(),
+    },
+  );
+  mergeBatch.update(
+    doc(mergerDb, `schools/${SCHOOL_A}/contactDirectory/institutional/items/merge_source`),
+    {
+      archived: true,
+      archivedBy: 'contact_merger_a',
+      archivedAt: serverTimestamp(),
+      mergedIntoId: 'merge_target',
+      updatedBy: 'contact_merger_a',
+      updatedAt: serverTimestamp(),
+    },
+  );
+  await assertSucceeds(mergeBatch.commit());
+  await assertFails(deleteDoc(doc(context('principal_a').firestore(), publicPath)));
+  await assertSucceeds(updateDoc(doc(context('contact_archiver_a').firestore(), publicPath), {
+    archived: true,
+    archivedBy: 'contact_archiver_a',
+    archivedAt: serverTimestamp(),
+    updatedBy: 'contact_archiver_a',
+    updatedAt: serverTimestamp(),
+  }));
+
+  const privatePath = 'users/private_owner_a/contactDirectory/private/items/private_contact';
+  await assertSucceeds(getDoc(doc(context('private_owner_a').firestore(), privatePath)));
+  await assertFails(getDoc(doc(context('peer_a').firestore(), privatePath)));
+  await assertFails(getDoc(doc(context('principal_a').firestore(), privatePath)));
+  await assertFails(getDoc(doc(context('platform_admin', { platform_admin: true }).firestore(), privatePath)));
+  await assertSucceeds(setDoc(
+    doc(context('private_owner_a').firestore(), 'users/private_owner_a/contactDirectory/private/items/new_private'),
+    { ...privateContact, createdAt: serverTimestamp(), updatedAt: serverTimestamp() },
+  ));
+  await assertSucceeds(updateDoc(doc(context('private_owner_a').firestore(), privatePath), {
+    fullName: 'Updated Private Contact',
+    updatedBy: 'private_owner_a',
+    updatedAt: serverTimestamp(),
+  }));
+  await assertFails(setDoc(
+    doc(context('peer_a').firestore(), 'users/private_owner_a/contactDirectory/private/items/forged_private'),
+    { ...privateContact, createdAt: serverTimestamp(), updatedAt: serverTimestamp() },
+  ));
+  await assertFails(deleteDoc(doc(context('private_owner_a').firestore(), privatePath)));
+});
+
 test('mandatory tasks are server-created and cannot be deleted by recipients', async () => {
   await seedFirestore({
     'users/assigner_a': user({ schoolId: SCHOOL_A, permissions: { tasks_edit: true, 'tasks.assignMandatory': true } }),

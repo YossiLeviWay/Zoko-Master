@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Check, Clipboard, ExternalLink, Mail, RotateCcw, X } from 'lucide-react';
+import { BookmarkPlus, Check, Clipboard, ExternalLink, Mail, RotateCcw, X } from 'lucide-react';
 import { db } from '../../firebase';
 import {
   cancelEmailFollowUp,
@@ -14,6 +14,12 @@ import {
   normalizeEmailList,
   prepareMailtoLaunch,
 } from '../../utils/mailto';
+import {
+  CONTACT_SCOPE,
+  createContact,
+  normalizeContactEmail,
+  subscribeContacts,
+} from '../../services/firestore/contactRepository';
 import './CommunicationComposer.css';
 
 function dateAfter(days) {
@@ -26,7 +32,7 @@ function sourceLabel(task) {
   return task._source === 'personal' ? 'משימה אישית' : 'משימת מוסד';
 }
 
-export default function CommunicationComposer({ schoolId, user, task, onClose, onSuccess, onError }) {
+export default function CommunicationComposer({ schoolId, user, task, staff = [], contactPermissions = {}, onClose, onSuccess, onError }) {
   const [form, setForm] = useState({
     to: '',
     cc: '',
@@ -44,6 +50,9 @@ export default function CommunicationComposer({ schoolId, user, task, onClose, o
   const [loading, setLoading] = useState(task.workflowType === 'external_email_followup');
   const [loadFailed, setLoadFailed] = useState(false);
   const [notice, setNotice] = useState('');
+  const [contacts, setContacts] = useState([]);
+  const [linkedContactId, setLinkedContactId] = useState('');
+  const [contactDraft, setContactDraft] = useState(null);
 
   const draft = useMemo(() => ({
     to: normalizeEmailList(form.to),
@@ -52,6 +61,25 @@ export default function CommunicationComposer({ schoolId, user, task, onClose, o
     subject: form.subject.trim(),
     body: form.body.trim(),
   }), [form]);
+
+  useEffect(() => subscribeContacts({
+    db,
+    schoolId,
+    userId: user.uid,
+    includeInstitutional: contactPermissions.view === true,
+    canReadRestricted: contactPermissions.edit === true,
+    onData: setContacts,
+    onError: () => setContacts([]),
+  }), [contactPermissions.edit, contactPermissions.view, schoolId, user.uid]);
+
+  const unknownRecipients = useMemo(() => {
+    const known = new Set([
+      ...contacts.flatMap(contact => contact.normalizedEmails || []),
+      ...staff.map(member => member.email).filter(Boolean).map(normalizeContactEmail),
+    ]);
+    return [...new Set([...draft.to, ...draft.cc, ...draft.bcc].map(normalizeContactEmail))]
+      .filter(email => email && !known.has(email));
+  }, [contacts, draft.bcc, draft.cc, draft.to, staff]);
 
   useEffect(() => {
     if (task.workflowType !== 'external_email_followup' || !task.communicationDraftId) return undefined;
@@ -72,6 +100,7 @@ export default function CommunicationComposer({ schoolId, user, task, onClose, o
           completionCriteria: saved.completionCriteria || '',
           linksText: saved.links?.join('\n') || '',
         }));
+        setLinkedContactId(saved.linkedContactId || '');
         setRecord({
           draftId: saved.id,
           taskId: saved.taskId,
@@ -155,6 +184,7 @@ export default function CommunicationComposer({ schoolId, user, task, onClose, o
           nextFollowUpAt: form.nextFollowUpAt,
           priority: form.priority,
           completionCriteria: form.completionCriteria,
+          linkedContactId,
           links: form.linksText.split('\n').map(item => item.trim()).filter(Boolean),
         },
       });
@@ -162,6 +192,55 @@ export default function CommunicationComposer({ schoolId, user, task, onClose, o
       await openMailto(created);
     } catch {
       onError('לא ניתן לשמור את טיוטת המייל ומשימת המעקב. השינוי לא בוצע.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function addKnownContact(contactKey) {
+    const [scope, contactId] = contactKey.split(':');
+    const contact = contacts.find(item => item.scope === scope && item.id === contactId);
+    if (!contact?.primaryEmail) return;
+    const recipients = normalizeEmailList(form.to);
+    change('to', [...new Set([...recipients, contact.primaryEmail])].join('; '));
+    setLinkedContactId(contact.id);
+  }
+
+  async function saveRecipientContact() {
+    if (!contactDraft?.email || !contactDraft.fullName?.trim()) {
+      setNotice('יש להזין שם עבור איש הקשר.');
+      return;
+    }
+    if (contactDraft.scope === CONTACT_SCOPE.INSTITUTIONAL
+      && !contactDraft.organization?.trim()
+      && !contactDraft.category?.trim()) {
+      setNotice('לאיש קשר מוסדי יש להזין ארגון או קטגוריה.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const saved = await createContact({
+        db,
+        schoolId,
+        actor: { uid: user.uid },
+        scope: contactDraft.scope,
+        input: {
+          fullName: contactDraft.fullName,
+          primaryEmail: contactDraft.email,
+          organization: contactDraft.organization,
+          category: contactDraft.category,
+          visibility: 'institution',
+          ownerStaffIds: [user.uid],
+        },
+        permissions: contactPermissions,
+      });
+      setLinkedContactId(saved.id);
+      setContactDraft(null);
+      setNotice(contactDraft.scope === CONTACT_SCOPE.PRIVATE ? 'הנמען נשמר כאיש קשר פרטי.' : 'הנמען נשמר כאיש קשר מוסדי.');
+    } catch (saveError) {
+      setNotice(saveError.message === 'DUPLICATE_CONTACT'
+        ? `הכתובת כבר שמורה אצל ${saveError.duplicate?.fullName || 'איש קשר קיים'}.`
+        : 'לא ניתן לשמור את הנמען כרגע.');
     } finally {
       setSaving(false);
     }
@@ -204,8 +283,10 @@ export default function CommunicationComposer({ schoolId, user, task, onClose, o
         {loading ? <div className="communication-loading">טוען את טיוטת המייל...</div> : loadFailed ? <div className="communication-loading"><p>הטיוטה לא נטענה, ולכן לא ייווצר מעקב כפול.</p><button className="btn btn-secondary" type="button" onClick={onClose}>סגירה</button></div> : !record ? (
           <form className="communication-form" onSubmit={createAndOpen}>
             <div className="communication-privacy-note">הטיוטה תישמר כפרטית. פתיחת חלון המייל אינה מאשרת שהמייל נשלח.</div>
-            <div className="form-group"><label>אל</label><input value={form.to} onChange={event => change('to', event.target.value)} placeholder="name@example.com; second@example.com" dir="ltr" autoFocus /></div>
+            <div className="form-group"><label>אל</label><input value={form.to} onChange={event => change('to', event.target.value)} placeholder="name@example.com; second@example.com" dir="ltr" autoFocus />{contacts.length > 0 && <select className="communication-contact-picker" value="" onChange={event => addKnownContact(event.target.value)}><option value="">הוספת נמען מאנשי הקשר...</option>{contacts.filter(contact => !contact.archived && contact.primaryEmail).map(contact => <option key={`${contact.scope}:${contact.id}`} value={`${contact.scope}:${contact.id}`}>{contact.fullName} — {contact.primaryEmail}{contact.scope === CONTACT_SCOPE.PRIVATE ? ' (פרטי)' : ''}</option>)}</select>}</div>
             <div className="form-row"><div className="form-group"><label>עותק</label><input value={form.cc} onChange={event => change('cc', event.target.value)} dir="ltr" /></div><div className="form-group"><label>עותק מוסתר</label><input value={form.bcc} onChange={event => change('bcc', event.target.value)} dir="ltr" /></div></div>
+            {unknownRecipients.length > 0 && <div className="communication-new-recipients"><strong>נמענים שאינם שמורים</strong>{unknownRecipients.map(email => <div key={email}><span dir="ltr">{email}</span><div>{contactPermissions.create && <button type="button" onClick={() => setContactDraft({ email, scope: CONTACT_SCOPE.INSTITUTIONAL, fullName: '', organization: '', category: '' })}><BookmarkPlus size={13} /> מוסדי</button>}<button type="button" onClick={() => setContactDraft({ email, scope: CONTACT_SCOPE.PRIVATE, fullName: '', organization: '', category: '' })}><BookmarkPlus size={13} /> פרטי שלי</button><span>או השתמשו הפעם בלבד</span></div></div>)}</div>}
+            {contactDraft && <div className="communication-contact-save"><div><strong>{contactDraft.scope === CONTACT_SCOPE.PRIVATE ? 'שמירה כאיש קשר פרטי' : 'שמירה כאיש קשר מוסדי'}</strong><button type="button" onClick={() => setContactDraft(null)} aria-label="ביטול שמירה"><X size={14} /></button></div><input value={contactDraft.fullName} onChange={event => setContactDraft(previous => ({ ...previous, fullName: event.target.value }))} placeholder="שם מלא" maxLength={160} />{contactDraft.scope === CONTACT_SCOPE.INSTITUTIONAL && <div className="form-row"><input value={contactDraft.organization} onChange={event => setContactDraft(previous => ({ ...previous, organization: event.target.value }))} placeholder="ארגון" maxLength={160} /><input value={contactDraft.category} onChange={event => setContactDraft(previous => ({ ...previous, category: event.target.value }))} placeholder="קטגוריה" maxLength={80} /></div>}<button type="button" className="btn btn-secondary btn-sm" onClick={saveRecipientContact} disabled={saving}>שמירת הנמען</button></div>}
             <div className="form-group"><label>נושא</label><input value={form.subject} onChange={event => change('subject', event.target.value)} maxLength={300} /></div>
             <div className="form-group"><label>הטיוטה שנוצרה במערכת</label><textarea className="communication-body" value={form.body} onChange={event => change('body', event.target.value)} maxLength={10000} placeholder="כתבו את תוכן המייל..." /></div>
             <div className="form-group"><label>תקציר פנימי למעקב</label><textarea value={form.summary} onChange={event => change('summary', event.target.value)} maxLength={1000} /></div>

@@ -113,7 +113,7 @@ export async function createEmailFollowUp({ db, schoolId, user, sourceTask, inpu
     to: recipients,
     cc: normalizeEmailList(input.cc).slice(0, 20),
     bcc: normalizeEmailList(input.bcc).slice(0, 20),
-    linkedContactId: '',
+    linkedContactId: cleanText(input.linkedContactId, 128),
     createdBy: user.uid,
     confirmedSentBy: '',
     confirmedSentAt: null,

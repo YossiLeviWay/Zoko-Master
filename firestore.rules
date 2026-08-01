@@ -547,6 +547,287 @@ service cloud.firestore {
         && (isSchoolPrincipal(schoolId) || communicationPermission(schoolId, 'communications.create'));
     }
 
+    function contactGrant(schoolId, permission) {
+      return isGlobalAdmin()
+        || currentUser().role in ['principal', 'institution_manager']
+        || currentUser().get('rolesBySchool', {}).get(schoolId, '') in ['principal', 'institution_manager']
+        || currentUser().get('permissions', {}).get(permission, false) == true
+        || rolePermission(schoolId, permission);
+    }
+
+    function canReadInstitutionalContact(schoolId, data) {
+      return isSchoolMember(schoolId)
+        && !isPlatformAdmin()
+        && (
+          data.get('createdBy', '') == request.auth.uid
+          || request.auth.uid in data.get('ownerStaffIds', [])
+          || (
+            data.get('visibility', 'responsible_staff') == 'institution'
+            && contactGrant(schoolId, 'contacts.view')
+          )
+          || contactGrant(schoolId, 'contacts.edit')
+        );
+    }
+
+    function validInstitutionalContactValues(schoolId, data) {
+      return data.scope == 'institutional'
+        && data.schoolId == schoolId
+        && data.fullName is string
+        && data.fullName.size() > 0
+        && data.fullName.size() <= 160
+        && data.organization is string
+        && data.organization.size() <= 160
+        && data.jobTitle is string
+        && data.jobTitle.size() <= 120
+        && data.primaryEmail is string
+        && data.primaryEmail.size() > 3
+        && data.primaryEmail.size() <= 320
+        && data.additionalEmails is list
+        && data.additionalEmails.size() <= 9
+        && data.normalizedEmails is list
+        && data.normalizedEmails.size() > 0
+        && data.normalizedEmails.size() <= 10
+        && data.normalizedEmails[0] == data.primaryEmail
+        && data.phone is string
+        && data.phone.size() <= 40
+        && data.category is string
+        && data.category.size() <= 80
+        && (data.organization.size() > 0 || data.category.size() > 0)
+        && data.tags is list
+        && data.tags.size() <= 20
+        && data.notes is string
+        && data.notes.size() <= 2000
+        && data.ownerStaffIds is list
+        && data.ownerStaffIds.size() <= 50
+        && data.visibility in ['institution', 'responsible_staff']
+        && data.linkedStaffId is string
+        && data.archived is bool
+        && data.schemaVersion == 1
+        && data.createdBy is string
+        && data.updatedBy is string
+        && data.archivedBy is string
+        && (data.archivedAt == null || data.archivedAt is timestamp)
+        && data.mergedIntoId is string
+        && data.mergedFromIds is list
+        && data.mergedFromIds.size() <= 50;
+    }
+
+    function validInstitutionalContactCreate(schoolId, data) {
+      return isSchoolMember(schoolId)
+        && contactGrant(schoolId, 'contacts.create')
+        && data.keys().hasOnly([
+          'scope', 'schoolId', 'fullName', 'organization', 'jobTitle', 'primaryEmail',
+          'additionalEmails', 'normalizedEmails', 'phone', 'category', 'tags', 'notes',
+          'ownerStaffIds', 'visibility', 'linkedStaffId', 'archived', 'schemaVersion',
+          'createdBy', 'updatedBy', 'archivedBy', 'archivedAt', 'mergedIntoId',
+          'mergedFromIds', 'createdAt', 'updatedAt'
+        ])
+        && validInstitutionalContactValues(schoolId, data)
+        && data.archived == false
+        && data.createdBy == request.auth.uid
+        && data.updatedBy == request.auth.uid
+        && data.archivedBy == ''
+        && data.archivedAt == null
+        && data.mergedIntoId == ''
+        && data.mergedFromIds.size() == 0
+        && data.createdAt == request.time
+        && data.updatedAt == request.time;
+    }
+
+    function validContactMergeValues(data) {
+      return data.primaryEmail is string
+        && data.primaryEmail.size() > 3
+        && data.primaryEmail.size() <= 320
+        && data.additionalEmails is list
+        && data.additionalEmails.size() <= 9
+        && data.normalizedEmails is list
+        && data.normalizedEmails.size() > 0
+        && data.normalizedEmails.size() <= 10
+        && data.normalizedEmails[0] == data.primaryEmail
+        && data.tags is list
+        && data.tags.size() <= 20
+        && data.mergedIntoId is string
+        && data.mergedFromIds is list
+        && data.mergedFromIds.size() <= 50;
+    }
+
+    function safeInstitutionalContactUpdate(schoolId) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let mergeChange = changed.hasAny(['mergedIntoId', 'mergedFromIds']);
+      let archiveChange = changed.hasAny(['archived', 'archivedBy', 'archivedAt']);
+      return isSchoolMember(schoolId)
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.scope == resource.data.scope
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedAt == request.time
+        && (
+          mergeChange
+          ? (
+            contactGrant(schoolId, 'contacts.merge')
+            && changed.hasOnly([
+              'primaryEmail', 'additionalEmails', 'normalizedEmails', 'tags',
+              'mergedIntoId', 'mergedFromIds', 'archived', 'archivedBy',
+              'archivedAt', 'updatedBy', 'updatedAt'
+            ])
+            && validContactMergeValues(request.resource.data)
+            && (
+              request.resource.data.mergedIntoId == ''
+              || (
+                request.resource.data.archived == true
+                && request.resource.data.archivedBy == request.auth.uid
+                && request.resource.data.archivedAt == request.time
+              )
+            )
+          )
+          : archiveChange
+          ? (
+            contactGrant(schoolId, 'contacts.archive')
+            && changed.hasOnly(['archived', 'archivedBy', 'archivedAt', 'updatedBy', 'updatedAt'])
+            && (
+              (
+                request.resource.data.archived == true
+                && request.resource.data.archivedBy == request.auth.uid
+                && request.resource.data.archivedAt == request.time
+              )
+              || (
+                request.resource.data.archived == false
+                && request.resource.data.archivedBy == ''
+                && request.resource.data.archivedAt == null
+              )
+            )
+          )
+          : (
+            contactGrant(schoolId, 'contacts.edit')
+            && changed.hasOnly([
+              'fullName', 'organization', 'jobTitle', 'primaryEmail', 'additionalEmails',
+              'normalizedEmails', 'phone', 'category', 'tags', 'notes', 'ownerStaffIds',
+              'visibility', 'linkedStaffId', 'updatedBy', 'updatedAt'
+            ])
+            && validInstitutionalContactValues(schoolId, request.resource.data)
+          )
+        );
+    }
+
+    function validPrivateContactValues(userId, data) {
+      return data.scope == 'private'
+        && data.ownerId == userId
+        && data.schoolId is string
+        && isSchoolMember(data.schoolId)
+        && data.fullName is string
+        && data.fullName.size() > 0
+        && data.fullName.size() <= 160
+        && data.organization is string
+        && data.organization.size() <= 160
+        && data.jobTitle is string
+        && data.jobTitle.size() <= 120
+        && data.primaryEmail is string
+        && data.primaryEmail.size() > 3
+        && data.primaryEmail.size() <= 320
+        && data.additionalEmails is list
+        && data.additionalEmails.size() <= 9
+        && data.normalizedEmails is list
+        && data.normalizedEmails.size() > 0
+        && data.normalizedEmails.size() <= 10
+        && data.normalizedEmails[0] == data.primaryEmail
+        && data.phone is string
+        && data.phone.size() <= 40
+        && data.category is string
+        && data.category.size() <= 80
+        && data.tags is list
+        && data.tags.size() <= 20
+        && data.notes is string
+        && data.notes.size() <= 2000
+        && data.archived is bool
+        && data.schemaVersion == 1
+        && data.createdBy == userId
+        && data.updatedBy == userId
+        && data.archivedBy is string
+        && (data.archivedAt == null || data.archivedAt is timestamp)
+        && data.mergedIntoId is string
+        && data.mergedFromIds is list
+        && data.mergedFromIds.size() <= 50;
+    }
+
+    function validPrivateContactCreate(userId, data) {
+      return signedIn()
+        && request.auth.uid == userId
+        && !isPlatformAdmin()
+        && data.keys().hasOnly([
+          'scope', 'ownerId', 'schoolId', 'fullName', 'organization', 'jobTitle',
+          'primaryEmail', 'additionalEmails', 'normalizedEmails', 'phone', 'category',
+          'tags', 'notes', 'archived', 'schemaVersion', 'createdBy', 'updatedBy',
+          'archivedBy', 'archivedAt', 'mergedIntoId', 'mergedFromIds',
+          'createdAt', 'updatedAt'
+        ])
+        && validPrivateContactValues(userId, data)
+        && data.archived == false
+        && data.archivedBy == ''
+        && data.archivedAt == null
+        && data.mergedIntoId == ''
+        && data.mergedFromIds.size() == 0
+        && data.createdAt == request.time
+        && data.updatedAt == request.time;
+    }
+
+    function safePrivateContactUpdate(userId) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let mergeChange = changed.hasAny(['mergedIntoId', 'mergedFromIds']);
+      let archiveChange = changed.hasAny(['archived', 'archivedBy', 'archivedAt']);
+      return signedIn()
+        && request.auth.uid == userId
+        && !isPlatformAdmin()
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedBy == userId
+        && request.resource.data.updatedAt == request.time
+        && (
+          mergeChange
+          ? (
+            changed.hasOnly([
+              'primaryEmail', 'additionalEmails', 'normalizedEmails', 'tags',
+              'mergedIntoId', 'mergedFromIds', 'archived', 'archivedBy',
+              'archivedAt', 'updatedBy', 'updatedAt'
+            ])
+            && validContactMergeValues(request.resource.data)
+            && (
+              request.resource.data.mergedIntoId == ''
+              || (
+                request.resource.data.archived == true
+                && request.resource.data.archivedBy == userId
+                && request.resource.data.archivedAt == request.time
+              )
+            )
+          )
+          : archiveChange
+          ? (
+            changed.hasOnly(['archived', 'archivedBy', 'archivedAt', 'updatedBy', 'updatedAt'])
+            && (
+              (
+                request.resource.data.archived == true
+                && request.resource.data.archivedBy == userId
+                && request.resource.data.archivedAt == request.time
+              )
+              || (
+                request.resource.data.archived == false
+                && request.resource.data.archivedBy == ''
+                && request.resource.data.archivedAt == null
+              )
+            )
+          )
+          : (
+            changed.hasOnly([
+              'fullName', 'organization', 'jobTitle', 'primaryEmail', 'additionalEmails',
+              'normalizedEmails', 'phone', 'category', 'tags', 'notes', 'updatedBy', 'updatedAt'
+            ])
+            && validPrivateContactValues(userId, request.resource.data)
+          )
+        );
+    }
+
     function canReadCommunication(schoolId, data) {
       return isSchoolMember(schoolId)
         && !isPlatformAdmin()
@@ -2231,6 +2512,18 @@ service cloud.firestore {
           ]);
         allow delete: if signedIn() && request.auth.uid == userId;
       }
+
+      match /contactDirectory/{directoryId}/items/{contactId} {
+        allow read: if directoryId == 'private'
+          && signedIn()
+          && request.auth.uid == userId
+          && !isPlatformAdmin();
+        allow create: if directoryId == 'private'
+          && validPrivateContactCreate(userId, request.resource.data);
+        allow update: if directoryId == 'private'
+          && safePrivateContactUpdate(userId);
+        allow delete: if false;
+      }
     }
 
     match /schoolPublicDirectory/{schoolId} {
@@ -2264,10 +2557,14 @@ service cloud.firestore {
         allow create, update, delete: if false;
       }
 
-      // Institutional contacts are introduced in the next delivery. Keeping a
-      // closed path now prevents clients from inventing an unreviewed schema.
-      match /contacts/{contactId} {
-        allow read, create, update, delete: if false;
+      match /contactDirectory/{directoryId}/items/{contactId} {
+        allow read: if directoryId == 'institutional'
+          && canReadInstitutionalContact(schoolId, resource.data);
+        allow create: if directoryId == 'institutional'
+          && validInstitutionalContactCreate(schoolId, request.resource.data);
+        allow update: if directoryId == 'institutional'
+          && safeInstitutionalContactUpdate(schoolId);
+        allow delete: if false;
       }
 
       match /communicationDrafts/{draftId} {
