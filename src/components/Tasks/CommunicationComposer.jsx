@@ -21,6 +21,7 @@ import {
   subscribeContacts,
 } from '../../services/firestore/contactRepository';
 import { communicationContextLabel } from '../../utils/communicationContext';
+import CommunicationFollowUpPanel from './CommunicationFollowUpPanel';
 import './CommunicationComposer.css';
 
 function dateAfter(days) {
@@ -34,7 +35,7 @@ function sourceLabel(task) {
   return task._source === 'personal' ? 'משימה אישית' : 'משימת מוסד';
 }
 
-export default function CommunicationComposer({ schoolId, user, task, staff = [], files = [], contactPermissions = {}, onClose, onSuccess, onError }) {
+export default function CommunicationComposer({ schoolId, user, task, staff = [], files = [], contactPermissions = {}, communicationPermissions = {}, onClose, onSuccess, onError }) {
   const context = task.communicationContext || {};
   const [form, setForm] = useState({
     to: context.recipientEmail || '',
@@ -49,6 +50,7 @@ export default function CommunicationComposer({ schoolId, user, task, staff = []
     linksText: '',
   });
   const [record, setRecord] = useState(null);
+  const [savedDraft, setSavedDraft] = useState(null);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(task.workflowType === 'external_email_followup');
   const [loadFailed, setLoadFailed] = useState(false);
@@ -108,6 +110,7 @@ export default function CommunicationComposer({ schoolId, user, task, staff = []
         setLinkedContactId(saved.linkedContactId || '');
         setLinkedFileIds(saved.linkedFileIds || []);
         setVisibility(saved.visibility || 'private');
+        setSavedDraft(saved);
         setRecord({
           draftId: saved.id,
           taskId: saved.taskId,
@@ -323,6 +326,18 @@ export default function CommunicationComposer({ schoolId, user, task, staff = []
             {notice && <p className="communication-notice" role="status">{notice}</p>}
             <footer className="form-actions"><button className="btn btn-primary" disabled={saving}><ExternalLink size={16} /> {saving ? 'שומר ופותח...' : 'פתיחת טיוטת מייל'}</button><button className="btn btn-secondary" type="button" onClick={onClose}>ביטול</button></footer>
           </form>
+        ) : record.communicationStatus !== 'awaiting_send' && savedDraft ? (
+          <CommunicationFollowUpPanel
+            db={db}
+            schoolId={schoolId}
+            user={user}
+            draft={savedDraft}
+            staff={staff}
+            permissions={communicationPermissions}
+            onClose={onClose}
+            onSuccess={onSuccess}
+            onError={onError}
+          />
         ) : (
           <div className="communication-confirmation">
             <div className="communication-confirmation-icon"><Mail size={30} /></div>

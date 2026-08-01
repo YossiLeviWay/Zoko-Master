@@ -483,7 +483,7 @@ export const notificationSchema = z.object({
   userIds: z.array(id).min(1).max(50).transform(values => [...new Set(values)]),
   title: z.string().trim().min(1).max(120),
   body: z.string().trim().max(500).optional().default(''),
-  type: z.enum(['calendar', 'staff', 'file', 'message', 'permission', 'system', 'task']),
+  type: z.enum(['calendar', 'staff', 'file', 'message', 'permission', 'system', 'task', 'communication']),
   link: z.string().trim().max(200).regex(/^\/[A-Za-z0-9/_?=&.-]*$/).optional().default(''),
 }).strict();
 

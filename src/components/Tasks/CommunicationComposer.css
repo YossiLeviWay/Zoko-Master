@@ -44,10 +44,51 @@
 .communication-contact-save > div:first-child { display: flex; align-items: center; justify-content: space-between; }
 .communication-contact-save > div:first-child button { display: flex; border: 0; background: transparent; color: var(--color-text-muted); cursor: pointer; }
 .communication-contact-save input { width: 100%; box-sizing: border-box; }
+.communication-followup-detail { display: flex; flex-direction: column; gap: 14px; padding: 20px 24px 26px; }
+.communication-followup-summary, .communication-followup-actions, .communication-timeline { padding: 16px; border: 1px solid var(--color-border); border-radius: 14px; background: #fff; }
+.communication-followup-summary { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, .8fr); gap: 18px; background: linear-gradient(135deg, #fff8f3, #fff); }
+.communication-followup-summary h3 { margin: 8px 0 4px; color: var(--color-text); font-size: 1.2rem; }
+.communication-followup-summary p { margin: 0; color: var(--color-text-muted); }
+.communication-followup-summary dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.communication-followup-summary dl div { min-width: 0; padding: 9px; border: 1px solid #f0e4e8; border-radius: 9px; background: rgba(255,255,255,.82); }
+.communication-followup-summary dt { color: var(--color-text-faint); font-size: .7rem; }
+.communication-followup-summary dd { overflow: hidden; margin: 3px 0 0; color: var(--color-text-secondary); font-size: .78rem; font-weight: 700; text-overflow: ellipsis; }
+.communication-status { display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px; border-radius: 999px; background: #eef8f4; color: #14735f; font-size: .75rem; font-weight: 800; }
+.communication-status--action_required, .communication-status--postponed { background: #fff4e9; color: #9a521d; }
+.communication-status--resolved, .communication-status--closed_without_reply { background: #edf8ef; color: #2f7645; }
+.communication-followup-actions > div:first-child h3, .communication-timeline > div:first-child h3 { margin: 0; color: var(--color-text); }
+.communication-followup-actions > div:first-child p { margin: 3px 0 12px; color: var(--color-text-muted); font-size: .8rem; }
+.communication-action-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
+.communication-action-grid button { display: flex; align-items: center; justify-content: center; gap: 5px; min-height: 42px; padding: 8px; border: 1px solid var(--color-border); border-radius: 9px; background: #fff; color: var(--color-text-secondary); cursor: pointer; font: inherit; font-size: .72rem; font-weight: 700; }
+.communication-action-grid button:hover, .communication-action-grid button.active { border-color: var(--color-primary); background: #fff3f0; color: var(--color-primary); }
+.communication-action-grid button:disabled { cursor: not-allowed; opacity: .45; }
+.communication-action-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 12px; padding: 12px; border-radius: 11px; background: var(--color-surface-muted); }
+.communication-action-form label { display: flex; flex-direction: column; gap: 5px; color: var(--color-text-secondary); font-size: .75rem; font-weight: 700; }
+.communication-action-form label:has(textarea) { grid-column: 1 / -1; }
+.communication-action-form textarea { min-height: 70px; resize: vertical; }
+.communication-action-form .btn { justify-self: start; }
+.communication-reminder-drafts { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--color-border); }
+.communication-reminder-drafts strong { display: inline-flex; align-items: center; gap: 5px; color: var(--color-text-secondary); font-size: .78rem; }
+.communication-reminder-drafts span { color: var(--color-text-faint); font-size: .7rem; }
+.communication-reminder-drafts > div { display: flex; gap: 6px; }
+.communication-timeline > div:first-child { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.communication-timeline > div:first-child span { color: var(--color-text-faint); font-size: .72rem; }
+.communication-timeline article { position: relative; display: grid; grid-template-columns: 28px 1fr; gap: 9px; padding: 8px 0; }
+.communication-timeline article:not(:last-of-type)::after { position: absolute; top: 35px; bottom: -8px; right: 13px; width: 1px; background: var(--color-border); content: ''; }
+.communication-timeline-dot { position: relative; z-index: 1; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: #fff0eb; color: var(--color-primary); }
+.communication-timeline article strong { color: var(--color-text-secondary); font-size: .8rem; }
+.communication-timeline article p { margin: 2px 0; color: var(--color-text-muted); font-size: .74rem; }
+.communication-timeline article small { color: var(--color-text-faint); font-size: .68rem; }
+.communication-timeline-empty { color: var(--color-text-faint); text-align: center; }
 @media (max-width: 640px) {
   .communication-header, .communication-form, .communication-confirmation { padding: 18px; }
   .communication-form .form-row, .communication-confirmation dl { grid-template-columns: 1fr; }
   .communication-confirm-actions .btn { width: 100%; }
   .communication-new-recipients > div { align-items: flex-start; flex-direction: column; }
   .communication-files { grid-template-columns: 1fr; }
+  .communication-followup-detail { padding: 14px; }
+  .communication-followup-summary { grid-template-columns: 1fr; }
+  .communication-action-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .communication-action-form { grid-template-columns: 1fr; }
+  .communication-reminder-drafts { grid-template-columns: 1fr; }
 }

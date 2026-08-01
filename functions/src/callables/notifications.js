@@ -23,8 +23,12 @@ function userBelongsToSchool(data, schoolId) {
     || (Array.isArray(data?.schoolIds) && data.schoolIds.includes(schoolId));
 }
 
-function actorMaySend(actor, type) {
+function actorMaySend(actor, type, userIds) {
   if (actor.globalAdmin || actor.data.role === 'principal') return true;
+  if (type === 'communication') {
+    return userIds.every(userId => userId === actor.uid)
+      || actor.data.permissions?.['communications.reassign'] === true;
+  }
   if (type === 'message') return actor.schoolIds.size > 0;
   if (type === 'task') {
     return actor.data.permissions?.tasks_edit === true
@@ -38,7 +42,7 @@ export async function createNotificationsHandler(request) {
   const actor = await requireActor(request);
   const input = notificationSchema.parse(request.data);
   if (!actor.schoolIds.has(input.schoolId) && !actor.globalAdmin) throw permissionDenied();
-  if (!actorMaySend(actor, input.type)) throw permissionDenied();
+  if (!actorMaySend(actor, input.type, input.userIds)) throw permissionDenied();
   await enforceRateLimit({ uid: actor.uid, action: 'createNotifications', limit: 20 });
 
   const recipientRefs = input.userIds.map(userId => adminDb.collection('users').doc(userId));

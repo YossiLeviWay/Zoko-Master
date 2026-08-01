@@ -500,12 +500,14 @@ test('email follow-up creation is atomic, tenant-scoped and requires explicit se
     linkedClassId: '', linkedTeamId: '', linkedInitiativeId: '', linkedMilestoneId: '',
     linkedEventId: '', linkedContextType: 'task', linkedContextId: 'source_task',
     linkedContextLabel: 'משימת מקור', linkedFileIds: [], links: [], actionHistory: [], reminderHistory: [],
-    visibility: 'private', participantIds: ['sender_a'], schemaVersion: 1,
+    visibility: 'private', participantIds: ['sender_a'], lastEventId: 'mail_event_1', reminderNotifiedFor: '', schemaVersion: 1,
     createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
   });
   batch.set(doc(senderDb, eventPath), {
     schoolId: SCHOOL_A, draftId: 'mail_draft_1', taskId: 'mail_task_1',
-    actorId: 'sender_a', type: 'draft_created', schemaVersion: 1, createdAt: serverTimestamp(),
+    actorId: 'sender_a', type: 'draft_created', previousStatus: '', newStatus: 'awaiting_send',
+    metadata: { note: '', previousDate: '', nextDate: '', previousAssigneeId: '', nextAssigneeId: '', reminderTone: '' },
+    schemaVersion: 1, createdAt: serverTimestamp(),
   });
   await assertSucceeds(batch.commit());
 
@@ -531,6 +533,7 @@ test('email follow-up creation is atomic, tenant-scoped and requires explicit se
     communicationStatus: 'awaiting_reply',
     confirmedSentBy: 'sender_a',
     confirmedSentAt: serverTimestamp(),
+    lastEventId: 'mail_event_2',
     updatedAt: serverTimestamp(),
   });
   confirmation.update(doc(senderDb, taskPath), {
@@ -539,11 +542,111 @@ test('email follow-up creation is atomic, tenant-scoped and requires explicit se
   });
   confirmation.set(doc(senderDb, `schools/${SCHOOL_A}/communicationEvents/mail_event_2`), {
     schoolId: SCHOOL_A, draftId: 'mail_draft_1', taskId: 'mail_task_1',
-    actorId: 'sender_a', type: 'send_confirmed', schemaVersion: 1, createdAt: serverTimestamp(),
+    actorId: 'sender_a', type: 'send_confirmed', previousStatus: 'awaiting_send', newStatus: 'awaiting_reply',
+    metadata: { note: '', previousDate: '', nextDate: '', previousAssigneeId: '', nextAssigneeId: '', reminderTone: '' },
+    schemaVersion: 1, createdAt: serverTimestamp(),
   });
   await assertSucceeds(confirmation.commit());
   const savedDraft = await getDoc(doc(senderDb, draftPath));
   assert.equal(savedDraft.data().communicationStatus, 'awaiting_reply');
+});
+
+test('follow-up lifecycle is append-only, assignable inside the school and closable by permission', async () => {
+  const taskPath = 'users/followup_owner/personalTasks/followup_task';
+  const draftPath = `schools/${SCHOOL_A}/communicationDrafts/followup_draft`;
+  await seedFirestore({
+    'users/followup_owner': user({
+      schoolId: SCHOOL_A,
+      permissions: { 'communications.create': true, 'communications.reassign': true },
+    }),
+    'users/followup_assignee': user({ schoolId: SCHOOL_A }),
+    'users/followup_manager': user({ schoolId: SCHOOL_A, permissions: { 'communications.viewAll': true, 'communications.reassign': true, 'communications.close': true } }),
+    'users/followup_outsider': user({ schoolId: SCHOOL_A }),
+    'users/followup_cross_school': user({ schoolId: SCHOOL_B }),
+    [taskPath]: {
+      title: 'מעקב מייל', description: 'מעקב', priority: 'medium', status: 'todo', taskStatus: 'todo',
+      dueDate: '2026-08-04', reminderAt: '', tags: ['מייל'], attachedFileId: '', attachedFileName: '',
+      initiativeId: '', milestoneId: '', scope: 'personal', schoolId: SCHOOL_A, ownerId: 'followup_owner',
+      createdBy: 'followup_owner', assigneeIds: [], participantIds: ['followup_owner'], teamId: '',
+      assigneeTeamId: '', completedAt: null, workflowType: 'external_email_followup',
+      communicationStatus: 'awaiting_reply', communicationDraftId: 'followup_draft',
+      communicationTrackingId: 'MAIL-followup_draft', nextFollowUpAt: '2026-08-04',
+      completionCriteria: 'התקבלה תשובה', sourceTaskId: 'source_task', sourceTaskStorageMode: 'nested',
+    },
+    [draftPath]: {
+      schoolId: SCHOOL_A, trackingId: 'MAIL-followup_draft', taskId: 'followup_task',
+      workflowType: 'external_email_followup', communicationStatus: 'awaiting_reply', subject: 'תיאום',
+      draftBody: 'טיוטה', summary: 'מעקב', to: ['vendor@example.com'], cc: [], bcc: [],
+      linkedContactId: '', createdBy: 'followup_owner', confirmedSentBy: 'followup_owner',
+      confirmedSentAt: 'sent', followUpAssigneeId: 'followup_owner', nextFollowUpAt: '2026-08-04',
+      priority: 'medium', completionCriteria: 'התקבלה תשובה', sourceTaskId: 'source_task',
+      sourceTaskStorageMode: 'nested', sourceTaskOwnerId: '', linkedStudentId: '', linkedClassId: '',
+      linkedTeamId: '', linkedInitiativeId: '', linkedMilestoneId: '', linkedEventId: '',
+      linkedContextType: 'task', linkedContextId: 'source_task', linkedContextLabel: 'משימת מקור',
+      linkedFileIds: [], links: [], actionHistory: [], reminderHistory: [], visibility: 'private',
+      participantIds: ['followup_owner'], lastEventId: 'initial_event', reminderNotifiedFor: '', schemaVersion: 1,
+      createdAt: 'created', updatedAt: 'created',
+    },
+  });
+
+  const metadata = (overrides = {}) => ({
+    note: '', previousDate: '', nextDate: '', previousAssigneeId: '',
+    nextAssigneeId: '', reminderTone: '', ...overrides,
+  });
+  const event = (actorId, type, previousStatus, newStatus, overrides = {}) => ({
+    schoolId: SCHOOL_A, draftId: 'followup_draft', taskId: 'followup_task', actorId, type,
+    previousStatus, newStatus, metadata: metadata(overrides), schemaVersion: 1, createdAt: serverTimestamp(),
+  });
+
+  const ownerDb = context('followup_owner').firestore();
+  const reassign = writeBatch(ownerDb);
+  reassign.update(doc(ownerDb, draftPath), {
+    followUpAssigneeId: 'followup_assignee', participantIds: ['followup_owner', 'followup_assignee'],
+    lastEventId: 'reassign_event', updatedAt: serverTimestamp(),
+  });
+  reassign.set(doc(ownerDb, `schools/${SCHOOL_A}/communicationEvents/reassign_event`),
+    event('followup_owner', 'responsibility_reassigned', 'awaiting_reply', 'awaiting_reply', {
+      previousAssigneeId: 'followup_owner', nextAssigneeId: 'followup_assignee',
+    }));
+  await assertSucceeds(reassign.commit());
+  await assertSucceeds(getDoc(doc(context('followup_assignee').firestore(), draftPath)));
+
+  const outsiderDb = context('followup_outsider').firestore();
+  await assertFails(updateDoc(doc(outsiderDb, draftPath), { nextFollowUpAt: '2026-08-10' }));
+
+  const assigneeDb = context('followup_assignee').firestore();
+  const postpone = writeBatch(assigneeDb);
+  postpone.update(doc(assigneeDb, draftPath), {
+    communicationStatus: 'postponed', nextFollowUpAt: '2026-08-10', reminderNotifiedFor: '',
+    lastEventId: 'postpone_event', updatedAt: serverTimestamp(),
+  });
+  postpone.set(doc(assigneeDb, `schools/${SCHOOL_A}/communicationEvents/postpone_event`),
+    event('followup_assignee', 'no_reply_reported', 'awaiting_reply', 'postponed', {
+      previousDate: '2026-08-04', nextDate: '2026-08-10',
+    }));
+  await assertSucceeds(postpone.commit());
+
+  const managerDb = context('followup_manager').firestore();
+  const crossSchoolReassign = writeBatch(managerDb);
+  crossSchoolReassign.update(doc(managerDb, draftPath), {
+    followUpAssigneeId: 'followup_cross_school',
+    participantIds: ['followup_owner', 'followup_assignee', 'followup_cross_school'],
+    lastEventId: 'cross_school_event', updatedAt: serverTimestamp(),
+  });
+  crossSchoolReassign.set(doc(managerDb, `schools/${SCHOOL_A}/communicationEvents/cross_school_event`),
+    event('followup_manager', 'responsibility_reassigned', 'postponed', 'postponed', {
+      previousAssigneeId: 'followup_assignee', nextAssigneeId: 'followup_cross_school',
+    }));
+  await assertFails(crossSchoolReassign.commit());
+
+  const close = writeBatch(managerDb);
+  close.update(doc(managerDb, draftPath), {
+    communicationStatus: 'closed_without_reply', lastEventId: 'close_event', updatedAt: serverTimestamp(),
+  });
+  close.set(doc(managerDb, `schools/${SCHOOL_A}/communicationEvents/close_event`),
+    event('followup_manager', 'closed_without_reply', 'postponed', 'closed_without_reply'));
+  await assertSucceeds(close.commit());
+  await assertFails(updateDoc(doc(assigneeDb, draftPath), { nextFollowUpAt: '2026-08-12' }));
 });
 
 test('student-linked communication requires student access and always remains private', async () => {
@@ -581,10 +684,13 @@ test('student-linked communication requires student access and always remains pr
       linkedClassId: 'class_1', linkedTeamId: '', linkedInitiativeId: '', linkedMilestoneId: '', linkedEventId: '',
       linkedContextType: 'student', linkedContextId: 'student_1', linkedContextLabel: 'Student',
       linkedFileIds: [], links: [], actionHistory: [], reminderHistory: [], visibility, participantIds,
+      lastEventId: `student_mail_event_${suffix}`, reminderNotifiedFor: '',
       schemaVersion: 1, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
     });
     batch.set(doc(client, `schools/${SCHOOL_A}/communicationEvents/student_mail_event_${suffix}`), {
       schoolId: SCHOOL_A, draftId, taskId, actorId: uid, type: 'draft_created', schemaVersion: 1,
+      previousStatus: '', newStatus: 'awaiting_send',
+      metadata: { note: '', previousDate: '', nextDate: '', previousAssigneeId: '', nextAssigneeId: '', reminderTone: '' },
       createdAt: serverTimestamp(),
     });
     return batch;

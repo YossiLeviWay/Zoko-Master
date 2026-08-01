@@ -29,13 +29,20 @@ function dueLabel(value) {
   return Number.isNaN(date.getTime()) ? 'לא נקבע' : date.toLocaleDateString('he-IL');
 }
 
-export default function CommunicationDashboard({ tasks, onOpen, onCreate }) {
+export default function CommunicationDashboard({ tasks, staff = [], onOpen, onCreate }) {
   const [search, setSearch] = useState('');
   const [group, setGroup] = useState('all');
   const today = new Date().toISOString().slice(0, 10);
-  const followUps = useMemo(() => tasks
-    .filter(task => task.workflowType === 'external_email_followup')
-    .sort((left, right) => dateMillis(right.createdAt) - dateMillis(left.createdAt)), [tasks]);
+  const staffById = useMemo(() => new Map(staff.map(member => [member.uid || member.id, member.fullName || member.email || 'איש צוות'])), [staff]);
+  const followUps = useMemo(() => {
+    const byDraft = new Map();
+    tasks.filter(task => task.workflowType === 'external_email_followup').forEach(task => {
+      const key = task.communicationDraftId || task.id;
+      const current = byDraft.get(key);
+      if (!current || task._source === 'communication') byDraft.set(key, task);
+    });
+    return [...byDraft.values()].sort((left, right) => dateMillis(right.createdAt) - dateMillis(left.createdAt));
+  }, [tasks]);
   const counts = useMemo(() => ({
     send: followUps.filter(task => (STATUS[task.communicationStatus]?.group || 'send') === 'send').length,
     reply: followUps.filter(task => (STATUS[task.communicationStatus]?.group || 'send') === 'reply').length,
@@ -63,9 +70,9 @@ export default function CommunicationDashboard({ tasks, onOpen, onCreate }) {
       const Icon = config.icon;
       return <article key={task._key || task.id} className={`communication-followup-card communication-followup-card--${config.group}`}>
         <div className="communication-followup-status"><Icon size={16} /><span>{config.label}</span></div>
-        <div className="communication-followup-main"><h3>{task.communicationSubject || task.title}</h3><p><UserRound size={13} /> {task.externalRecipientLabel || 'נמען חיצוני'}</p><div><span>נוצר לפני {daysSince(task.createdAt)} ימים</span><span>מעקב הבא: {dueLabel(task.nextFollowUpAt)}</span><span>אחראי: אני</span></div></div>
+        <div className="communication-followup-main"><h3>{task.communicationSubject || task.title}</h3><p><UserRound size={13} /> {task.externalRecipientLabel || 'נמען חיצוני'}</p><div><span>נוצר לפני {daysSince(task.createdAt)} ימים</span><span>מעקב הבא: {dueLabel(task.nextFollowUpAt)}</span><span>אחראי: {staffById.get(task.followUpAssigneeId) || 'אני'}</span></div></div>
         <div className="communication-followup-context"><small>מקושר אל</small><strong>{task.linkedContextLabel || 'משימת מקור'}</strong><span>{task.completionCriteria || 'התקבלה תשובה וטופלה הפעולה הנדרשת'}</span></div>
-        <button className="btn btn-secondary btn-sm" onClick={() => onOpen(task)} disabled={task.communicationStatus !== 'awaiting_send'}>{task.communicationStatus === 'awaiting_send' ? 'פתיחת הטיוטה' : 'צפייה במעקב'}</button>
+        <button className="btn btn-secondary btn-sm" onClick={() => onOpen(task)}>{task.communicationStatus === 'awaiting_send' ? 'פתיחת הטיוטה' : 'פתיחת המעקב'}</button>
       </article>;
     })}{displayed.length === 0 && <div className="empty-state"><MailPlus size={32} /><p>אין מעקבים שמתאימים לתצוגה.</p></div>}</div>
   </section>;

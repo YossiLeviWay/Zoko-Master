@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { collection, getDocs, onSnapshot, query, where } from 'firebase/firestore';
 import {
@@ -51,7 +51,7 @@ import {
 import { schoolCollection } from '../../services/firestore/paths';
 import { subscribeAcademicYears } from '../../services/firestore/academicYearRepository';
 import { subscribeInitiatives } from '../../services/firestore/initiativeRepository';
-import { createNotifications } from '../../utils/notifications';
+import { createNotification, createNotifications } from '../../utils/notifications';
 import {
   createMandatoryTask,
   inviteTaskCollaborators,
@@ -67,6 +67,10 @@ import ChatPanel from './ChatPanel';
 import InitiativePanel from './InitiativePanel';
 import CommunicationComposer from './CommunicationComposer';
 import CommunicationDashboard from './CommunicationDashboard';
+import {
+  markCommunicationReminderNotified,
+  subscribeCommunicationDrafts,
+} from '../../services/firestore/communicationRepository';
 import { communicationSourceFromContext, normalizeCommunicationContext } from '../../utils/communicationContext';
 import '../Gantt/Gantt.css';
 import './Tasks.css';
@@ -202,6 +206,11 @@ export default function TaskBoard() {
   const canManageAssignments = permissions['tasks.manageAssignments'] || canAssignMandatory;
   const canManageTaskPermissions = permissions['tasks.managePermissions'] || canAssignMandatory;
   const canCreateCommunication = permissions['communications.create'] || isInitiativeManager;
+  const communicationPermissions = {
+    reassign: permissions['communications.reassign'] === true,
+    close: permissions['communications.close'] === true,
+    viewAll: permissions['communications.viewAll'] === true,
+  };
   const contactPermissions = {
     view: isInitiativeManager || permissions['contacts.view'] === true,
     create: isInitiativeManager || permissions['contacts.create'] === true,
@@ -227,6 +236,7 @@ export default function TaskBoard() {
 
   const [personalTasks, setPersonalTasks] = useState([]);
   const [organizationTasks, setOrganizationTasks] = useState([]);
+  const [communicationDrafts, setCommunicationDrafts] = useState([]);
   const [taskInvitations, setTaskInvitations] = useState([]);
   const [staff, setStaff] = useState([]);
   const [teams, setTeams] = useState([]);
@@ -236,7 +246,8 @@ export default function TaskBoard() {
   const [holidays, setHolidays] = useState([]);
   const [academicYears, setAcademicYears] = useState([]);
   const [initiatives, setInitiatives] = useState([]);
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState(() => searchParams.get('view') === 'communications' ? 'communications' : 'dashboard');
+  const communicationReminderInFlight = useRef(new Set());
   const [scopeFilter, setScopeFilter] = useState('all');
   const [searchText, setSearchText] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
@@ -354,6 +365,45 @@ export default function TaskBoard() {
       unsubscribeOrganization();
     };
   }, [canEditOrganizationTasks, schoolId, teamIds, uid]);
+
+  useEffect(() => {
+    if (!schoolId || !uid) return undefined;
+    return subscribeCommunicationDrafts({
+      db,
+      schoolId,
+      uid,
+      canViewAll: communicationPermissions.viewAll,
+      onData: setCommunicationDrafts,
+      onError: () => setError('לא ניתן לטעון את המיילים והמעקבים כרגע.'),
+    });
+  }, [communicationPermissions.viewAll, schoolId, uid]);
+
+  useEffect(() => {
+    if (!schoolId || !uid) return;
+    const today = localDateKey();
+    communicationDrafts
+      .filter(draft => draft.followUpAssigneeId === uid
+        && !['awaiting_send', 'resolved', 'closed_without_reply', 'cancelled'].includes(draft.communicationStatus)
+        && draft.nextFollowUpAt?.slice(0, 10) <= today
+        && draft.reminderNotifiedFor !== draft.nextFollowUpAt?.slice(0, 10))
+      .forEach(draft => {
+        const key = `${draft.communicationDraftId}:${draft.nextFollowUpAt?.slice(0, 10)}`;
+        if (communicationReminderInFlight.current.has(key)) return;
+        communicationReminderInFlight.current.add(key);
+        createNotification(uid, {
+          schoolId,
+          title: `הגיע מועד מעקב: ${draft.communicationSubject}`,
+          body: `האם התקבלה תשובה מ־${draft.externalRecipientLabel || 'הנמען'}?`,
+          type: 'communication',
+          link: '/tasks?view=communications',
+        }).then(created => created && markCommunicationReminderNotified({
+          db,
+          schoolId,
+          actorId: uid,
+          draft: { ...draft, id: draft.communicationDraftId, taskId: draft.id },
+        })).catch(() => undefined).finally(() => communicationReminderInFlight.current.delete(key));
+      });
+  }, [communicationDrafts, schoolId, uid]);
 
   useEffect(() => {
     if (!schoolId) return;
@@ -1081,7 +1131,8 @@ export default function TaskBoard() {
         {activeTab === 'dashboard' && !initiativeDetailOpen && actionItems.length > 0 && <section className="task-action-required"><div><h2>דורש ממני פעולה</h2><p>רק פריטים שממתינים לפעולה שלך</p></div><div>{actionItems.map(item => <button key={item.id} onClick={() => item.type === 'invitation' ? setActiveTab('invitations') : setSearchText(item.title)}><span>{item.title}</span><small>{item.detail}</small></button>)}</div></section>}
 
         {activeTab === 'communications' ? <CommunicationDashboard
-          tasks={[...personalTasks, ...organizationTasks]}
+          tasks={[...personalTasks, ...organizationTasks, ...communicationDrafts]}
+          staff={staff}
           onOpen={setCommunicationTask}
           onCreate={() => openCommunicationContext({ type: 'general', id: 'task_panel', label: 'פאנל המשימות' })}
         /> : activeTab === 'invitations' ? (
@@ -1170,6 +1221,7 @@ export default function TaskBoard() {
         staff={staff}
         files={allFiles}
         contactPermissions={contactPermissions}
+        communicationPermissions={communicationPermissions}
         task={communicationTask}
         onClose={closeCommunication}
         onSuccess={showMessage}

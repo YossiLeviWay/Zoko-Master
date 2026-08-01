@@ -317,6 +317,42 @@ test('authorized server notification validates school and records audit metadata
   assert.deepEqual(audit.docs[0].data().metadata, { recipientCount: 1, type: 'system' });
 });
 
+test('communication reminders may notify self while reassignment requires explicit permission', async () => {
+  await seedUser('staff_a', SCHOOL_A);
+  await seedUser('staff_b', SCHOOL_A);
+  const selfResult = await createNotificationsHandler(actorRequest('staff_a', {
+    schoolId: SCHOOL_A,
+    userIds: ['staff_a'],
+    title: 'Follow-up reminder',
+    body: 'The follow-up is due.',
+    type: 'communication',
+    link: '/tasks?view=communications',
+  }));
+  assert.equal(selfResult.createdCount, 1);
+
+  await assert.rejects(createNotificationsHandler(actorRequest('staff_a', {
+    schoolId: SCHOOL_A,
+    userIds: ['staff_b'],
+    title: 'Reassigned follow-up',
+    body: '',
+    type: 'communication',
+    link: '/tasks?view=communications',
+  })));
+
+  await seedUser('reassigner_a', SCHOOL_A, 'viewer', {
+    permissions: { 'communications.reassign': true },
+  });
+  const reassigned = await createNotificationsHandler(actorRequest('reassigner_a', {
+    schoolId: SCHOOL_A,
+    userIds: ['staff_b'],
+    title: 'Reassigned follow-up',
+    body: '',
+    type: 'communication',
+    link: '/tasks?view=communications',
+  }));
+  assert.equal(reassigned.createdCount, 1);
+});
+
 test('task assign permission may notify only a recipient in the same school', async () => {
   await seedUser('assigner_a', SCHOOL_A, 'viewer', { permissions: { tasks_assign: true } });
   await seedUser('recipient_a', SCHOOL_A);
