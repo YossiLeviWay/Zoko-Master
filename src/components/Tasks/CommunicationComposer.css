@@ -1,0 +1,30 @@
+.communication-overlay { z-index: 1200; }
+.communication-modal { width: min(760px, calc(100vw - 28px)); max-height: min(880px, calc(100vh - 28px)); overflow: auto; background: var(--bg-card, #fff); border: 1px solid #ead9df; border-radius: 22px; box-shadow: 0 24px 70px rgba(59, 19, 34, .2); }
+.communication-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 24px 26px 18px; border-bottom: 1px solid #f0e4e8; }
+.communication-header h2 { margin: 6px 0; color: #32101d; font-size: 1.35rem; }
+.communication-header p { margin: 0; color: #765968; }
+.communication-eyebrow { display: inline-flex; align-items: center; gap: 6px; color: #97003f; font-size: .82rem; font-weight: 700; }
+.communication-form, .communication-confirmation { padding: 22px 26px 26px; }
+.communication-loading { padding: 48px 24px; color: #765968; text-align: center; }
+.communication-form .form-group { margin-bottom: 14px; }
+.communication-form input, .communication-form select, .communication-form textarea { width: 100%; }
+.communication-body { min-height: 180px; resize: vertical; }
+.communication-privacy-note, .communication-attachment-note { padding: 12px 14px; border-radius: 12px; background: #fff5ef; color: #6f3f31; font-size: .9rem; margin-bottom: 16px; }
+.communication-attachment-note { background: #f6f3fb; color: #564472; }
+.communication-copy-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 14px; }
+.communication-copy-actions--center { justify-content: center; }
+.communication-notice { margin: 8px 0; padding: 10px 12px; border-radius: 10px; background: #edf9f5; color: #137a67; font-size: .88rem; }
+.communication-confirmation { text-align: center; }
+.communication-confirmation-icon { width: 64px; height: 64px; border-radius: 20px; margin: 0 auto 14px; display: grid; place-items: center; background: #fff1e8; color: #97003f; }
+.communication-confirmation h3 { margin: 0 0 8px; font-size: 1.45rem; color: #32101d; }
+.communication-confirmation > p { max-width: 560px; margin: 0 auto 18px; color: #765968; line-height: 1.7; }
+.communication-confirmation dl { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 0 auto 20px; }
+.communication-confirmation dl div { padding: 12px; border: 1px solid #ead9df; border-radius: 12px; }
+.communication-confirmation dt { color: #8b7180; font-size: .78rem; }
+.communication-confirmation dd { margin: 4px 0 0; font-weight: 700; }
+.communication-confirm-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 9px; }
+@media (max-width: 640px) {
+  .communication-header, .communication-form, .communication-confirmation { padding: 18px; }
+  .communication-form .form-row, .communication-confirmation dl { grid-template-columns: 1fr; }
+  .communication-confirm-actions .btn { width: 100%; }
+}

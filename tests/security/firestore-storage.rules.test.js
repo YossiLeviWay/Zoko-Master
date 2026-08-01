@@ -453,6 +453,96 @@ test('only an authorized same-school user can assign a task to one person', asyn
   ));
 });
 
+test('email follow-up creation is atomic, tenant-scoped and requires explicit send confirmation', async () => {
+  await seedFirestore({
+    'users/sender_a': user({
+      schoolId: SCHOOL_A,
+      permissions: { 'communications.create': true, 'communications.viewOwn': true },
+    }),
+    'users/view_all_a': user({
+      schoolId: SCHOOL_A,
+      permissions: { 'communications.viewAll': true },
+    }),
+    'users/unauthorized_a': user({ schoolId: SCHOOL_A }),
+    'users/principal_a': user({ schoolId: SCHOOL_A, role: 'principal' }),
+    'users/viewer_b': user({ schoolId: SCHOOL_B }),
+    'users/platform_admin': user({ schoolId: SCHOOL_A }),
+  });
+
+  const senderDb = context('sender_a').firestore();
+  const taskPath = 'users/sender_a/personalTasks/mail_task_1';
+  const draftPath = `schools/${SCHOOL_A}/communicationDrafts/mail_draft_1`;
+  const eventPath = `schools/${SCHOOL_A}/communicationEvents/mail_event_1`;
+  const batch = writeBatch(senderDb);
+  batch.set(doc(senderDb, taskPath), {
+    title: 'מעקב מייל: עדכון', description: 'מעקב', priority: 'medium', status: 'todo',
+    taskStatus: 'todo', dueDate: '2026-08-04', reminderAt: '', tags: ['מייל'],
+    attachedFileId: '', attachedFileName: '', initiativeId: '', milestoneId: '',
+    scope: 'personal', schoolId: SCHOOL_A, ownerId: 'sender_a', createdBy: 'sender_a',
+    createdByName: 'Sender', assigneeIds: [], participantIds: ['sender_a'], teamId: '',
+    assigneeTeamId: '', completedAt: null, workflowType: 'external_email_followup',
+    communicationStatus: 'awaiting_send', communicationDraftId: 'mail_draft_1',
+    communicationTrackingId: 'MAIL-mail_draft_1', nextFollowUpAt: '2026-08-04',
+    completionCriteria: 'התקבלה תשובה', sourceTaskId: 'source_task',
+    sourceTaskStorageMode: 'nested', createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  });
+  batch.set(doc(senderDb, draftPath), {
+    schoolId: SCHOOL_A, trackingId: 'MAIL-mail_draft_1', taskId: 'mail_task_1',
+    workflowType: 'external_email_followup', communicationStatus: 'awaiting_send',
+    subject: 'עדכון', draftBody: 'שלום, זהו נוסח הטיוטה.', summary: 'מעקב',
+    to: ['recipient@example.com'], cc: [], bcc: [], linkedContactId: '',
+    createdBy: 'sender_a', confirmedSentBy: '', confirmedSentAt: null,
+    followUpAssigneeId: 'sender_a', nextFollowUpAt: '2026-08-04', priority: 'medium',
+    completionCriteria: 'התקבלה תשובה', sourceTaskId: 'source_task',
+    sourceTaskStorageMode: 'nested', sourceTaskOwnerId: '', linkedStudentId: '',
+    linkedClassId: '', linkedTeamId: '', linkedInitiativeId: '', linkedMilestoneId: '',
+    linkedEventId: '', linkedFileIds: [], links: [], actionHistory: [], reminderHistory: [],
+    visibility: 'private', participantIds: ['sender_a'], schemaVersion: 1,
+    createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  });
+  batch.set(doc(senderDb, eventPath), {
+    schoolId: SCHOOL_A, draftId: 'mail_draft_1', taskId: 'mail_task_1',
+    actorId: 'sender_a', type: 'draft_created', schemaVersion: 1, createdAt: serverTimestamp(),
+  });
+  await assertSucceeds(batch.commit());
+
+  await assertSucceeds(getDoc(doc(senderDb, draftPath)));
+  await assertSucceeds(getDoc(doc(context('view_all_a').firestore(), draftPath)));
+  await assertFails(getDoc(doc(context('principal_a').firestore(), draftPath)));
+  await assertFails(getDoc(doc(context('viewer_b').firestore(), draftPath)));
+  await assertFails(getDoc(doc(context('platform_admin', { platform_admin: true }).firestore(), draftPath)));
+
+  await assertFails(setDoc(
+    doc(context('unauthorized_a').firestore(), `schools/${SCHOOL_A}/communicationDrafts/forged`),
+    { schoolId: SCHOOL_A, createdBy: 'unauthorized_a' },
+  ));
+  await assertFails(updateDoc(doc(senderDb, draftPath), {
+    communicationStatus: 'awaiting_reply',
+    confirmedSentBy: 'sender_a',
+    confirmedSentAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  }));
+
+  const confirmation = writeBatch(senderDb);
+  confirmation.update(doc(senderDb, draftPath), {
+    communicationStatus: 'awaiting_reply',
+    confirmedSentBy: 'sender_a',
+    confirmedSentAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  confirmation.update(doc(senderDb, taskPath), {
+    communicationStatus: 'awaiting_reply',
+    updatedAt: serverTimestamp(),
+  });
+  confirmation.set(doc(senderDb, `schools/${SCHOOL_A}/communicationEvents/mail_event_2`), {
+    schoolId: SCHOOL_A, draftId: 'mail_draft_1', taskId: 'mail_task_1',
+    actorId: 'sender_a', type: 'send_confirmed', schemaVersion: 1, createdAt: serverTimestamp(),
+  });
+  await assertSucceeds(confirmation.commit());
+  const savedDraft = await getDoc(doc(senderDb, draftPath));
+  assert.equal(savedDraft.data().communicationStatus, 'awaiting_reply');
+});
+
 test('mandatory tasks are server-created and cannot be deleted by recipients', async () => {
   await seedFirestore({
     'users/assigner_a': user({ schoolId: SCHOOL_A, permissions: { tasks_edit: true, 'tasks.assignMandatory': true } }),
@@ -619,6 +709,22 @@ test('initiative milestone completion enforces evidence and permits only its aut
     status: 'cancelled',
     cancelReason: 'Unauthorized',
     updatedBy: 'member_a',
+    updatedAt: serverTimestamp(),
+  }));
+  await assertFails(updateDoc(doc(context('member_a').firestore(), milestonePath), {
+    archived: true,
+    archivedBy: 'member_a',
+    archivedAt: serverTimestamp(),
+    archiveReason: '',
+    updatedBy: 'member_a',
+    updatedAt: serverTimestamp(),
+  }));
+  await assertSucceeds(updateDoc(doc(context('principal_a').firestore(), milestonePath), {
+    archived: true,
+    archivedBy: 'principal_a',
+    archivedAt: serverTimestamp(),
+    archiveReason: 'Removed from the active plan without deleting history.',
+    updatedBy: 'principal_a',
     updatedAt: serverTimestamp(),
   }));
   await assertFails(deleteDoc(approverRef));

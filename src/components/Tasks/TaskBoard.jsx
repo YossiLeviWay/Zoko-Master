@@ -15,6 +15,7 @@ import {
   Flag,
   Link2,
   Lock,
+  MailPlus,
   MessageSquare,
   Paperclip,
   Pin,
@@ -37,7 +38,6 @@ import {
   createPersonalTask,
   deleteTask,
   isTaskComplete,
-  linkTaskToInitiative,
   subscribeOrganizationTasks,
   subscribePersonalTasks,
   subscribeTaskChatReceipts,
@@ -65,6 +65,7 @@ import DocumentEditor from '../Files/DocumentEditor';
 import SpreadsheetEditor from '../Files/SpreadsheetEditor';
 import ChatPanel from './ChatPanel';
 import InitiativePanel from './InitiativePanel';
+import CommunicationComposer from './CommunicationComposer';
 import '../Gantt/Gantt.css';
 import './Tasks.css';
 
@@ -196,6 +197,7 @@ export default function TaskBoard() {
   const canCreateInitiative = permissions['initiatives.create'] || isInitiativeManager;
   const canManageAssignments = permissions['tasks.manageAssignments'] || canAssignMandatory;
   const canManageTaskPermissions = permissions['tasks.managePermissions'] || canAssignMandatory;
+  const canCreateCommunication = permissions['communications.create'] || isInitiativeManager;
   const canViewAllInitiatives = permissions['initiatives.viewAll'] || isInitiativeManager;
   const initiativePermissions = isInitiativeManager ? {
     ...permissions,
@@ -258,6 +260,7 @@ export default function TaskBoard() {
   const [initiativeCreateRequest, setInitiativeCreateRequest] = useState(0);
   const [initiativeAttentionOnly, setInitiativeAttentionOnly] = useState(false);
   const [initiativeDetailOpen, setInitiativeDetailOpen] = useState(false);
+  const [communicationTask, setCommunicationTask] = useState(null);
 
   const teamIds = useMemo(() => {
     const ids = new Set(Array.isArray(userData?.teamIds) ? userData.teamIds : []);
@@ -527,16 +530,6 @@ export default function TaskBoard() {
     setShowForm(true);
   }
 
-  async function handleLinkTask(task, initiativeId, milestoneId = '') {
-    try {
-      await linkTaskToInitiative({ db, schoolId, uid, task, initiativeId, milestoneId });
-      showMessage('המשימה קושרה לתכנית בלי ליצור עותק.');
-    } catch {
-      setError('לא ניתן לקשר את המשימה לתכנית.');
-      throw new Error('TASK_LINK_FAILED');
-    }
-  }
-
   function validateAssignment(value) {
     if (value.scope === TASK_SCOPES.ASSIGNED && value.assigneeIds.length !== 1) return false;
     if (value.scope === TASK_SCOPES.TEAM && !value.teamId) return false;
@@ -774,18 +767,21 @@ export default function TaskBoard() {
   }
 
   function canChangeStatus(task) {
+    if (task.workflowType === 'external_email_followup') return false;
     return task._source === 'personal'
       || canEditOrganizationTasks
       || (task.scope === TASK_SCOPES.ASSIGNED && task.assigneeIds?.includes(uid));
   }
 
   function canEditDetails(task) {
+    if (task.workflowType === 'external_email_followup') return false;
     if (task._source === 'personal') return true;
     if (task.mandatory) return task.createdBy === uid || canManageAssignments;
     return canEditOrganizationTasks || (task.scope === 'shared' && task.createdBy === uid);
   }
 
   function canDeleteTask(task) {
+    if (task.workflowType === 'external_email_followup') return false;
     if (task._source === 'personal') return true;
     if (task.mandatory) return task.createdBy === uid || canManageAssignments;
     return canEditDetails(task);
@@ -929,6 +925,7 @@ export default function TaskBoard() {
             <span className="task-assignee">{task.scope === TASK_SCOPES.PERSONAL ? <Lock size={11} /> : <Users size={11} />}{getAssigneeDisplay(task)}</span>
             {taskDueDate(task) && <span className={`task-due ${overdue ? 'task-due--late' : ''}`}>{new Date(`${String(taskDueDate(task)).slice(0, 10)}T00:00:00`).toLocaleDateString('he-IL')}</span>}
             {task.sourceTaskId && <span className="task-source"><Link2 size={11} /> משימת המשך</span>}
+            {task.workflowType === 'external_email_followup' && <span className="task-source"><MailPlus size={11} /> {task.communicationStatus === 'awaiting_reply' ? 'ממתין לתשובה' : task.communicationStatus === 'cancelled' ? 'מעקב בוטל' : 'ממתין לשליחה'}</span>}
             {task.initiativeId && <span className="task-source"><Flag size={11} /> {initiatives.find(item => item.id === task.initiativeId)?.title || 'תכנית ארוכת טווח'}</span>}
             {task.mandatory && <span className="task-source">הוקצתה על ידי: {task.assignedByName || 'בעל הרשאה'}</span>}
           </div>
@@ -948,6 +945,8 @@ export default function TaskBoard() {
           {canEditDetails(task) && <button className="icon-btn" onClick={() => startEdit(task)} aria-label={`עריכת ${task.title}`} title="עריכה"><Edit3 size={15} /></button>}
           {task._source === 'organization' && <button className={`icon-btn task-chat-button ${unreadChat ? 'task-chat-button--unread' : ''}`} onClick={() => setChatTask(task)} aria-label={`פתיחת צ׳אט עבור ${task.title}${unreadChat ? ' — יש הודעות חדשות' : ''}`} title={unreadChat ? 'הודעות חדשות בצ׳אט' : 'צ׳אט משימה'}><MessageSquare size={16} />{unreadChat && <span className="task-chat-alert" aria-hidden="true">!</span>}</button>}
           {task._source === 'organization' && <button className="icon-btn" onClick={() => createFollowUp(task)} aria-label={`יצירת משימת המשך אישית עבור ${task.title}`} title="צור לי משימת המשך אישית"><CopyPlus size={15} /></button>}
+          {canCreateCommunication && task.workflowType !== 'external_email_followup' && <button className="icon-btn task-email-button" onClick={() => setCommunicationTask(task)} aria-label={`יצירת טיוטת מייל ומעקב מתוך ${task.title}`} title="יצירת מייל ומעקב"><MailPlus size={16} /></button>}
+          {task.workflowType === 'external_email_followup' && task.communicationStatus === 'awaiting_send' && <button className="icon-btn task-email-button" onClick={() => setCommunicationTask(task)} aria-label={`פתיחת טיוטת המייל של ${task.title}`} title="פתיחת טיוטת המייל מחדש"><MailPlus size={16} /></button>}
           {task._source === 'personal' && <button className="icon-btn" onClick={() => { setCollaborationTask(task); setCollaborationRecipients([]); setCollaborationMessage(''); }} aria-label={`הזמנת שותפים אל ${task.title}`} title="הזמנת שותפים"><User size={15} /></button>}
           {task._source === 'personal' && canAssignTasks && <button className="icon-btn" onClick={() => { setConversionTask(task); setConversion({ scope: TASK_SCOPES.ASSIGNED, assigneeId: '', teamId: '' }); }} aria-label={`הפיכת ${task.title} למשימה ארגונית`} title="הפוך למשימה ארגונית"><Users size={15} /></button>}
           {task.attachedFileId && <button className="icon-btn" onClick={() => setPreviewFile(task)} aria-label={`פתיחת הקובץ של ${task.title}`} title="קובץ מצורף"><Paperclip size={15} /></button>}
@@ -1037,8 +1036,6 @@ export default function TaskBoard() {
           initialInitiativeId={searchParams.get('initiative') || ''}
           attentionOnly={initiativeAttentionOnly}
           onClearAttention={() => setInitiativeAttentionOnly(false)}
-          onAddTask={context => openTaskForm(TASK_SCOPES.PERSONAL, context)}
-          onLinkTask={handleLinkTask}
           onDetailChange={setInitiativeDetailOpen}
           onMessage={showMessage}
           onError={setError}
@@ -1125,6 +1122,15 @@ export default function TaskBoard() {
       )}
 
       {chatTask && <ChatPanel task={chatTask} schoolId={schoolId} currentUser={userData} onClose={() => setChatTask(null)} />}
+
+      {communicationTask && <CommunicationComposer
+        schoolId={schoolId}
+        user={{ uid, fullName: userData?.fullName || '' }}
+        task={communicationTask}
+        onClose={() => setCommunicationTask(null)}
+        onSuccess={showMessage}
+        onError={setError}
+      />}
 
       {permissionTask && <PermissionsMenu
         resourceType="task"

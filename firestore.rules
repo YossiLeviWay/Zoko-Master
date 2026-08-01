@@ -527,6 +527,214 @@ service cloud.firestore {
         && currentUser().rolePermissionsBySchool[schoolId][permission] == true;
     }
 
+    // Communication content is intentionally excluded from implicit manager or
+    // platform-wide access. A manager may create their own draft, but reading
+    // somebody else's private content requires an explicit permission grant.
+    function communicationPermission(schoolId, permission) {
+      return isSchoolMember(schoolId)
+        && !isPlatformAdmin()
+        && (
+          (
+            currentUser().permissions is map
+            && currentUser().permissions.get(permission, false) == true
+          )
+          || rolePermission(schoolId, permission)
+        );
+    }
+
+    function canCreateCommunication(schoolId) {
+      return !isPlatformAdmin()
+        && (isSchoolPrincipal(schoolId) || communicationPermission(schoolId, 'communications.create'));
+    }
+
+    function canReadCommunication(schoolId, data) {
+      return isSchoolMember(schoolId)
+        && !isPlatformAdmin()
+        && data.schoolId == schoolId
+        && (
+          data.createdBy == request.auth.uid
+          || data.get('followUpAssigneeId', '') == request.auth.uid
+          || request.auth.uid in data.get('participantIds', [])
+          || communicationPermission(schoolId, 'communications.viewAll')
+          || (
+            data.get('visibility', 'private') == 'team'
+            && communicationPermission(schoolId, 'communications.viewTeam')
+          )
+        );
+    }
+
+    function validCommunicationTaskCreate(userId, taskId, data) {
+      let draftPath = /databases/$(database)/documents/schools/$(data.schoolId)/communicationDrafts/$(data.communicationDraftId);
+      return data.workflowType == 'external_email_followup'
+        && data.communicationStatus == 'awaiting_send'
+        && data.taskStatus == 'todo'
+        && data.communicationDraftId is string
+        && data.communicationDraftId.size() > 0
+        && data.communicationTrackingId is string
+        && data.nextFollowUpAt is string
+        && data.completionCriteria is string
+        && data.sourceTaskId is string
+        && data.sourceTaskId.size() > 0
+        && data.sourceTaskStorageMode in ['personal', 'nested', 'legacy']
+        && existsAfter(draftPath)
+        && getAfter(draftPath).data.taskId == taskId
+        && getAfter(draftPath).data.createdBy == userId
+        && getAfter(draftPath).data.trackingId == data.communicationTrackingId;
+    }
+
+    function safeCommunicationTaskStatusUpdate(userId) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let draftPath = /databases/$(database)/documents/schools/$(resource.data.schoolId)/communicationDrafts/$(resource.data.communicationDraftId);
+      let nextStatus = request.resource.data.communicationStatus;
+      return personalTaskOwner(userId, resource.data)
+        && personalTaskOwner(userId, request.resource.data)
+        && resource.data.workflowType == 'external_email_followup'
+        && request.resource.data.workflowType == resource.data.workflowType
+        && request.resource.data.communicationDraftId == resource.data.communicationDraftId
+        && request.resource.data.communicationTrackingId == resource.data.communicationTrackingId
+        && changed.hasOnly([
+          'communicationStatus', 'taskStatus', 'status', 'completedAt', 'updatedAt'
+        ])
+        && resource.data.communicationStatus == 'awaiting_send'
+        && nextStatus in ['awaiting_reply', 'cancelled']
+        && existsAfter(draftPath)
+        && getAfter(draftPath).data.communicationStatus == nextStatus
+        && (
+          (
+            nextStatus == 'awaiting_reply'
+            && changed.hasOnly(['communicationStatus', 'updatedAt'])
+          )
+          || (
+            nextStatus == 'cancelled'
+            && request.resource.data.taskStatus == 'done'
+            && request.resource.data.status == 'done'
+            && request.resource.data.completedAt == request.time
+          )
+        );
+    }
+
+    function validCommunicationDraftCreate(schoolId, draftId, data) {
+      let taskPath = /databases/$(database)/documents/users/$(request.auth.uid)/personalTasks/$(data.taskId);
+      return canCreateCommunication(schoolId)
+        && data.keys().hasOnly([
+          'schoolId', 'trackingId', 'taskId', 'workflowType', 'communicationStatus',
+          'subject', 'draftBody', 'summary', 'to', 'cc', 'bcc', 'linkedContactId',
+          'createdBy', 'confirmedSentBy', 'confirmedSentAt', 'followUpAssigneeId',
+          'nextFollowUpAt', 'priority', 'completionCriteria', 'sourceTaskId',
+          'sourceTaskStorageMode', 'sourceTaskOwnerId', 'linkedStudentId',
+          'linkedClassId', 'linkedTeamId', 'linkedInitiativeId', 'linkedMilestoneId',
+          'linkedEventId', 'linkedFileIds', 'links', 'actionHistory', 'reminderHistory',
+          'visibility', 'participantIds', 'schemaVersion', 'createdAt', 'updatedAt'
+        ])
+        && data.schoolId == schoolId
+        && data.trackingId == 'MAIL-' + draftId
+        && data.taskId is string
+        && data.workflowType == 'external_email_followup'
+        && data.communicationStatus == 'awaiting_send'
+        && data.subject is string
+        && data.subject.size() > 0
+        && data.subject.size() <= 300
+        && data.draftBody is string
+        && data.draftBody.size() > 0
+        && data.draftBody.size() <= 10000
+        && data.summary is string
+        && data.summary.size() <= 1000
+        && data.to is list
+        && data.to.size() > 0
+        && data.to.size() <= 20
+        && data.to[0] is string
+        && data.to[0].size() > 3
+        && data.to[0].size() <= 320
+        && data.cc is list
+        && data.cc.size() <= 20
+        && data.bcc is list
+        && data.bcc.size() <= 20
+        && data.createdBy == request.auth.uid
+        && data.confirmedSentBy == ''
+        && data.confirmedSentAt == null
+        && data.followUpAssigneeId == request.auth.uid
+        && data.nextFollowUpAt is string
+        && data.priority in ['low', 'medium', 'high']
+        && data.completionCriteria is string
+        && data.completionCriteria.size() <= 1000
+        && data.linkedFileIds is list
+        && data.linkedFileIds.size() <= 20
+        && data.links is list
+        && data.links.size() <= 20
+        && data.actionHistory is list
+        && data.actionHistory.size() == 0
+        && data.reminderHistory is list
+        && data.reminderHistory.size() == 0
+        && data.visibility == 'private'
+        && data.participantIds is list
+        && data.participantIds.size() == 1
+        && data.participantIds.hasOnly([request.auth.uid])
+        && data.schemaVersion == 1
+        && data.createdAt == request.time
+        && data.updatedAt == request.time
+        && existsAfter(taskPath)
+        && getAfter(taskPath).data.communicationDraftId == draftId
+        && getAfter(taskPath).data.communicationTrackingId == data.trackingId;
+    }
+
+    function safeCommunicationDraftUpdate(schoolId) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let taskPath = /databases/$(database)/documents/users/$(request.auth.uid)/personalTasks/$(resource.data.taskId);
+      return resource.data.schoolId == schoolId
+        && resource.data.createdBy == request.auth.uid
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.taskId == resource.data.taskId
+        && request.resource.data.trackingId == resource.data.trackingId
+        && request.resource.data.updatedAt == request.time
+        && (
+          (
+            resource.data.communicationStatus == 'awaiting_send'
+            && request.resource.data.communicationStatus == 'awaiting_send'
+            && changed.hasOnly(['lastOpenedBy', 'lastOpenedAt', 'updatedAt'])
+            && request.resource.data.lastOpenedBy == request.auth.uid
+            && request.resource.data.lastOpenedAt == request.time
+          )
+          || (
+            resource.data.communicationStatus == 'awaiting_send'
+            && request.resource.data.communicationStatus == 'awaiting_reply'
+            && changed.hasOnly([
+              'communicationStatus', 'confirmedSentBy', 'confirmedSentAt', 'updatedAt'
+            ])
+            && request.resource.data.confirmedSentBy == request.auth.uid
+            && request.resource.data.confirmedSentAt == request.time
+            && existsAfter(taskPath)
+            && getAfter(taskPath).data.communicationStatus == 'awaiting_reply'
+          )
+          || (
+            resource.data.communicationStatus == 'awaiting_send'
+            && request.resource.data.communicationStatus == 'cancelled'
+            && changed.hasOnly([
+              'communicationStatus', 'cancelledBy', 'cancelledAt', 'updatedAt'
+            ])
+            && request.resource.data.cancelledBy == request.auth.uid
+            && request.resource.data.cancelledAt == request.time
+            && existsAfter(taskPath)
+            && getAfter(taskPath).data.communicationStatus == 'cancelled'
+          )
+        );
+    }
+
+    function validCommunicationEventCreate(schoolId, data) {
+      let draftPath = /databases/$(database)/documents/schools/$(schoolId)/communicationDrafts/$(data.draftId);
+      return data.keys().hasOnly([
+          'schoolId', 'draftId', 'taskId', 'actorId', 'type', 'schemaVersion', 'createdAt'
+        ])
+        && data.schoolId == schoolId
+        && data.actorId == request.auth.uid
+        && data.type in ['draft_created', 'mailto_opened', 'send_confirmed', 'cancelled']
+        && data.schemaVersion == 1
+        && data.createdAt == request.time
+        && existsAfter(draftPath)
+        && getAfter(draftPath).data.createdBy == request.auth.uid
+        && getAfter(draftPath).data.taskId == data.taskId;
+    }
+
     function classRolePermission(schoolId, permission, classId) {
       return classId is string
         && 'classRolePermissionsBySchool' in currentUser()
@@ -1652,7 +1860,7 @@ service cloud.firestore {
       );
     }
 
-    function validPersonalTaskCreate(userId, data) {
+    function validPersonalTaskCreate(userId, taskId, data) {
       return activeUser()
         && request.auth.uid == userId
         && data.keys().hasAll(['scope', 'schoolId', 'ownerId', 'createdBy', 'title', 'status'])
@@ -1667,7 +1875,15 @@ service cloud.firestore {
         && data.assigneeIds is list
         && data.assigneeIds.size() == 0
         && data.teamId == ''
-        && data.assigneeTeamId == '';
+        && data.assigneeTeamId == ''
+        && (
+          !data.keys().hasAny([
+            'workflowType', 'communicationStatus', 'communicationDraftId',
+            'communicationTrackingId', 'taskStatus', 'nextFollowUpAt',
+            'completionCriteria', 'sourceTaskStorageMode'
+          ])
+          || validCommunicationTaskCreate(userId, taskId, data)
+        );
     }
 
     function personalTaskOwner(userId, data) {
@@ -1681,13 +1897,16 @@ service cloud.firestore {
     }
 
     function safePersonalTaskUpdate(userId) {
-      return personalTaskOwner(userId, resource.data)
+      return resource.data.get('workflowType', '') == 'external_email_followup'
+        ? safeCommunicationTaskStatusUpdate(userId)
+        : (
+        personalTaskOwner(userId, resource.data)
         && personalTaskOwner(userId, request.resource.data)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'title', 'description', 'priority', 'status', 'dueDate', 'reminderAt',
           'completedAt', 'updatedAt', 'tags', 'attachedFileId', 'attachedFileName',
           'pinnedBy', 'sourceTaskId', 'initiativeId', 'milestoneId'
-        ]);
+        ]));
     }
 
     function validClassCreate(schoolId, data) {
@@ -1992,7 +2211,7 @@ service cloud.firestore {
 
       match /personalTasks/{taskId} {
         allow read: if personalTaskOwner(userId, resource.data);
-        allow create: if validPersonalTaskCreate(userId, request.resource.data);
+        allow create: if validPersonalTaskCreate(userId, taskId, request.resource.data);
         allow update: if safePersonalTaskUpdate(userId);
         allow delete: if personalTaskOwner(userId, resource.data);
       }
@@ -2043,6 +2262,29 @@ service cloud.firestore {
           || hasPermission(schoolId, 'staff.viewJoinRequests')
           || hasPermission(schoolId, 'staff.reviewJoinRequests');
         allow create, update, delete: if false;
+      }
+
+      // Institutional contacts are introduced in the next delivery. Keeping a
+      // closed path now prevents clients from inventing an unreviewed schema.
+      match /contacts/{contactId} {
+        allow read, create, update, delete: if false;
+      }
+
+      match /communicationDrafts/{draftId} {
+        allow read: if canReadCommunication(schoolId, resource.data);
+        allow create: if validCommunicationDraftCreate(schoolId, draftId, request.resource.data);
+        allow update: if canReadCommunication(schoolId, resource.data)
+          && safeCommunicationDraftUpdate(schoolId);
+        allow delete: if false;
+      }
+
+      match /communicationEvents/{eventId} {
+        allow read: if canReadCommunication(
+          schoolId,
+          get(/databases/$(database)/documents/schools/$(schoolId)/communicationDrafts/$(resource.data.draftId)).data
+        );
+        allow create: if validCommunicationEventCreate(schoolId, request.resource.data);
+        allow update, delete: if false;
       }
 
       match /tasks/{taskId} {
@@ -2210,6 +2452,18 @@ service cloud.firestore {
               'not_started', 'in_progress', 'waiting_external', 'blocked', 'completed', 'cancelled'
             ]
             && request.resource.data.dateType in ['exact', 'range', 'proposed', 'unset']
+            && (
+              !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+                'archived', 'archivedBy', 'archivedAt', 'archiveReason'
+              ])
+              || (
+                request.resource.data.archived == true
+                && request.resource.data.archivedBy == request.auth.uid
+                && request.resource.data.archivedAt == request.time
+                && request.resource.data.archiveReason is string
+                && request.resource.data.archiveReason.size() <= 500
+              )
+            )
             && (
               request.resource.data.status != 'cancelled'
               || request.resource.data.cancelReason.size() > 0

@@ -97,7 +97,9 @@ export function subscribeInitiativeDetails({ db, schoolId, initiativeId, onData,
   if (!schoolId || !initiativeId) return () => undefined;
   const state = { milestones: [], updates: [], comments: [], activity: [] };
   const emit = () => onData({
-    milestones: [...state.milestones].sort((a, b) => Number(a.order || 0) - Number(b.order || 0)),
+    milestones: [...state.milestones]
+      .filter(item => item.archived !== true)
+      .sort((a, b) => Number(a.order || 0) - Number(b.order || 0)),
     updates: [...state.updates].sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0)),
     comments: [...state.comments].sort((a, b) => (a.createdAt?.toMillis?.() || 0) - (b.createdAt?.toMillis?.() || 0)),
     activity: [...state.activity].sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0)),
@@ -128,12 +130,14 @@ export function subscribeInitiativeTimeline({ db, schoolId, uid, teamIds = [], c
         detailListeners.push(onSnapshot(
           initiativeSubcollection(db, schoolId, initiative.id, 'milestones'),
           snapshot => {
-            milestonesByInitiative.set(initiative.id, snapshot.docs.map(item => ({
-              id: item.id,
-              initiativeId: initiative.id,
-              initiativeTitle: initiative.title,
-              ...item.data(),
-            })));
+            milestonesByInitiative.set(initiative.id, snapshot.docs
+              .map(item => ({
+                id: item.id,
+                initiativeId: initiative.id,
+                initiativeTitle: initiative.title,
+                ...item.data(),
+              }))
+              .filter(item => item.archived !== true));
             emit();
           },
           onError,
@@ -319,6 +323,40 @@ export async function updateMilestone({ db, schoolId, initiativeId, milestoneId,
   batch.update(ref, milestonePayload(input, schoolId, initiativeId, actor));
   batch.set(doc(initiativeSubcollection(db, schoolId, initiativeId, 'activity')), activityEntry({
     schoolId, initiativeId, actor, action: 'milestone.updated', details: input.title,
+  }));
+  return batch.commit();
+}
+
+export async function archiveMilestone({ db, schoolId, initiativeId, milestone, actor, reason = '' }) {
+  if (!milestone?.id) throw new Error('INVALID_MILESTONE');
+  const ref = doc(initiativeSubcollection(db, schoolId, initiativeId, 'milestones'), milestone.id);
+  const batch = writeBatch(db);
+  batch.update(ref, {
+    archived: true,
+    archivedBy: actor.uid,
+    archivedAt: serverTimestamp(),
+    archiveReason: cleanText(reason, 500),
+    updatedBy: actor.uid,
+    updatedAt: serverTimestamp(),
+  });
+  batch.set(doc(initiativeSubcollection(db, schoolId, initiativeId, 'activity')), activityEntry({
+    schoolId, initiativeId, actor, action: 'milestone.archived', details: milestone.title,
+  }));
+  return batch.commit();
+}
+
+export async function reorderMilestones({ db, schoolId, initiativeId, milestones, actor }) {
+  if (!Array.isArray(milestones) || milestones.length > 100) throw new Error('INVALID_MILESTONE_ORDER');
+  const batch = writeBatch(db);
+  milestones.forEach((milestone, order) => {
+    batch.update(doc(initiativeSubcollection(db, schoolId, initiativeId, 'milestones'), milestone.id), {
+      order,
+      updatedBy: actor.uid,
+      updatedAt: serverTimestamp(),
+    });
+  });
+  batch.set(doc(initiativeSubcollection(db, schoolId, initiativeId, 'activity')), activityEntry({
+    schoolId, initiativeId, actor, action: 'milestones.reordered', details: `${milestones.length}`,
   }));
   return batch.commit();
 }

@@ -11,6 +11,29 @@ function roleCollection(schoolId) {
   return adminDb.collection(`roles_${schoolId}`);
 }
 
+const SCHOOL_MANAGER_ROLES = new Set(['principal', 'institution_manager']);
+
+async function resolveVerifiedSchoolMembership(actor, schoolId) {
+  const directRole = actor.data.rolesBySchool?.[schoolId] || actor.data.role;
+  const directMember = actor.schoolIds.has(schoolId);
+  if (directMember && SCHOOL_MANAGER_ROLES.has(directRole)) {
+    return { active: true, manager: true };
+  }
+
+  const snapshot = await adminDb.doc(`schools/${schoolId}/memberships/${actor.uid}`).get();
+  if (!snapshot.exists) return { active: directMember, manager: false };
+  const membership = snapshot.data();
+  const identityMatches = (!membership.userId || membership.userId === actor.uid)
+    && (!membership.schoolId || membership.schoolId === schoolId);
+  if (!identityMatches || membership.status !== 'active') {
+    return { active: directMember, manager: false };
+  }
+  return {
+    active: true,
+    manager: SCHOOL_MANAGER_ROLES.has(membership.role),
+  };
+}
+
 export async function getRole(roleId, schoolId) {
   const [nested, legacy] = await adminDb.getAll(
     adminDb.doc(`schools/${schoolId}/roleDefinitions/${roleId}`),
@@ -24,13 +47,21 @@ export async function getRole(roleId, schoolId) {
 }
 
 export async function resolveActorRoleAuthority(actor, schoolId) {
-  if (actor.globalAdmin || (
-    ['principal', 'institution_manager'].includes(actor.data.rolesBySchool?.[schoolId] || actor.data.role)
-    && actor.schoolIds.has(schoolId)
-  )) {
+  if (actor.globalAdmin) {
     return { unrestricted: true, permissions: new Set(), delegable: new Set(), scopes: new Map(), assignableRoleIds: new Set() };
   }
-  if (!actor.schoolIds.has(schoolId)) throw permissionDenied();
+  const membership = await resolveVerifiedSchoolMembership(actor, schoolId);
+  if (membership.manager) {
+    return {
+      unrestricted: true,
+      verifiedSchoolMember: true,
+      permissions: new Set(),
+      delegable: new Set(),
+      scopes: new Map(),
+      assignableRoleIds: new Set(),
+    };
+  }
+  if (!membership.active) throw permissionDenied();
 
   const permissions = truePermissionKeys(actor.data.permissions);
   const delegable = new Set(Array.isArray(actor.data.delegatedPermissionKeys)
@@ -87,7 +118,14 @@ export async function resolveActorRoleAuthority(actor, schoolId) {
       if (!scopes.has(key)) scopes.set(key, { type: 'school', classIds: [] });
     });
   });
-  return { unrestricted: false, permissions, delegable, scopes, assignableRoleIds };
+  return {
+    unrestricted: false,
+    verifiedSchoolMember: true,
+    permissions,
+    delegable,
+    scopes,
+    assignableRoleIds,
+  };
 }
 
 export function requireRoleAction(authority, permission) {
@@ -120,7 +158,7 @@ export function assertRoleCanBeGranted(authority, roleInput) {
 }
 
 export function canGrantRole({ authority, actor, target, role }) {
-  if (!actor.schoolIds.has(role.schoolId) && !actor.globalAdmin) return false;
+  if (!actor.schoolIds.has(role.schoolId) && !actor.globalAdmin && !authority.verifiedSchoolMember) return false;
   if (!target.schoolIds.has(role.schoolId)) return false;
   if (['principal', 'institution_manager'].includes(target.data.role)) return false;
   if (role.protected === true || role.status === 'archived') return false;
