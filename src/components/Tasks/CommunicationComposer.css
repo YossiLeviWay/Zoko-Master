@@ -11,6 +11,15 @@
 .communication-body { min-height: 180px; resize: vertical; }
 .communication-privacy-note, .communication-attachment-note { padding: 12px 14px; border-radius: 12px; background: #fff5ef; color: #6f3f31; font-size: .9rem; margin-bottom: 16px; }
 .communication-attachment-note { background: #f6f3fb; color: #564472; }
+.communication-context-note { margin-bottom: 10px; padding: 11px 13px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-surface-muted); color: var(--color-text-secondary); font-size: .86rem; }
+.communication-student-warning { display: flex; align-items: flex-start; gap: 9px; margin-bottom: 12px; padding: 12px 14px; border: 1px solid #f6c66e; border-radius: 12px; background: #fff9e8; color: #78510a; line-height: 1.55; font-size: .86rem; }
+.communication-student-warning svg { flex: 0 0 auto; margin-top: 2px; }
+.communication-files { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; max-height: 170px; overflow: auto; margin: 0 0 14px; padding: 12px; border: 1px solid var(--color-border); border-radius: 12px; }
+.communication-files legend { padding: 0 6px; color: var(--color-text-secondary); font-size: .82rem; font-weight: 700; }
+.communication-files label { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 6px; border-radius: 7px; color: var(--color-text-secondary); font-size: .78rem; }
+.communication-files label:hover { background: var(--color-surface-muted); }
+.communication-files input { width: auto; }
+.communication-visibility small { display: block; margin-top: 5px; color: var(--color-text-faint); }
 .communication-copy-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 14px; }
 .communication-copy-actions--center { justify-content: center; }
 .communication-notice { margin: 8px 0; padding: 10px 12px; border-radius: 10px; background: #edf9f5; color: #137a67; font-size: .88rem; }
@@ -40,4 +49,5 @@
   .communication-form .form-row, .communication-confirmation dl { grid-template-columns: 1fr; }
   .communication-confirm-actions .btn { width: 100%; }
   .communication-new-recipients > div { align-items: flex-start; flex-direction: column; }
+  .communication-files { grid-template-columns: 1fr; }
 }

@@ -39,6 +39,7 @@
 .contact-card header p { margin: .16rem 0 0; color: var(--color-text-muted); font-size: .75rem; }
 .contact-private-badge { padding: .2rem .45rem; border-radius: 999px; background: #ecfdf5; color: #047857; font-size: .65rem; font-weight: 700; }
 .contact-details { display: flex; flex-direction: column; gap: .3rem; color: var(--color-text-muted); font-size: .78rem; }
+.contact-details > span { align-self: flex-start; display: inline-flex; align-items: center; gap: .35rem; }
 .contact-details button { align-self: flex-start; display: inline-flex; align-items: center; gap: .35rem; border: 0; padding: 0; background: transparent; color: var(--color-primary); cursor: pointer; }
 .contact-tags { display: flex; align-items: center; flex-wrap: wrap; gap: .3rem; color: var(--color-text-faint); }
 .contact-tags span { padding: .18rem .42rem; border-radius: 999px; background: var(--color-surface-muted); color: var(--color-text-muted); font-size: .65rem; }

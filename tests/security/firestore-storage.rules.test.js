@@ -484,7 +484,9 @@ test('email follow-up creation is atomic, tenant-scoped and requires explicit se
     communicationStatus: 'awaiting_send', communicationDraftId: 'mail_draft_1',
     communicationTrackingId: 'MAIL-mail_draft_1', nextFollowUpAt: '2026-08-04',
     completionCriteria: 'התקבלה תשובה', sourceTaskId: 'source_task',
-    sourceTaskStorageMode: 'nested', createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    sourceTaskStorageMode: 'nested', linkedContextType: 'task', linkedContextId: 'source_task',
+    linkedContextLabel: 'משימת מקור', communicationSubject: 'עדכון',
+    externalRecipientLabel: 'recipient@example.com', createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
   });
   batch.set(doc(senderDb, draftPath), {
     schoolId: SCHOOL_A, trackingId: 'MAIL-mail_draft_1', taskId: 'mail_task_1',
@@ -496,7 +498,8 @@ test('email follow-up creation is atomic, tenant-scoped and requires explicit se
     completionCriteria: 'התקבלה תשובה', sourceTaskId: 'source_task',
     sourceTaskStorageMode: 'nested', sourceTaskOwnerId: '', linkedStudentId: '',
     linkedClassId: '', linkedTeamId: '', linkedInitiativeId: '', linkedMilestoneId: '',
-    linkedEventId: '', linkedFileIds: [], links: [], actionHistory: [], reminderHistory: [],
+    linkedEventId: '', linkedContextType: 'task', linkedContextId: 'source_task',
+    linkedContextLabel: 'משימת מקור', linkedFileIds: [], links: [], actionHistory: [], reminderHistory: [],
     visibility: 'private', participantIds: ['sender_a'], schemaVersion: 1,
     createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
   });
@@ -541,6 +544,55 @@ test('email follow-up creation is atomic, tenant-scoped and requires explicit se
   await assertSucceeds(confirmation.commit());
   const savedDraft = await getDoc(doc(senderDb, draftPath));
   assert.equal(savedDraft.data().communicationStatus, 'awaiting_reply');
+});
+
+test('student-linked communication requires student access and always remains private', async () => {
+  await seedFirestore({
+    'users/principal_a': user({ schoolId: SCHOOL_A, role: 'principal' }),
+    'users/sender_a': user({ schoolId: SCHOOL_A, permissions: { 'communications.create': true } }),
+    [`schools/${SCHOOL_A}/students/student_1`]: { schoolId: SCHOOL_A, classId: 'class_1', fullName: 'Student' },
+  });
+
+  function studentCommunicationBatch(uid, suffix, visibility = 'private', participantIds = [uid]) {
+    const client = context(uid).firestore();
+    const taskId = `student_mail_task_${suffix}`;
+    const draftId = `student_mail_draft_${suffix}`;
+    const trackingId = `MAIL-${draftId}`;
+    const batch = writeBatch(client);
+    batch.set(doc(client, `users/${uid}/personalTasks/${taskId}`), {
+      title: 'מעקב מייל: תלמיד', description: 'מעקב', priority: 'medium', status: 'todo', taskStatus: 'todo',
+      dueDate: '2026-08-04', reminderAt: '', tags: ['מייל'], attachedFileId: '', attachedFileName: '',
+      initiativeId: '', milestoneId: '', scope: 'personal', schoolId: SCHOOL_A, ownerId: uid, createdBy: uid,
+      createdByName: 'Sender', assigneeIds: [], participantIds: [uid], teamId: '', assigneeTeamId: '',
+      completedAt: null, workflowType: 'external_email_followup', communicationStatus: 'awaiting_send',
+      communicationDraftId: draftId, communicationTrackingId: trackingId, nextFollowUpAt: '2026-08-04',
+      completionCriteria: 'התקבלה תשובה', sourceTaskId: 'student_1', sourceTaskStorageMode: 'context',
+      linkedContextType: 'student', linkedContextId: 'student_1', linkedContextLabel: 'Student',
+      communicationSubject: 'עדכון', externalRecipientLabel: 'parent@example.com',
+      createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    });
+    batch.set(doc(client, `schools/${SCHOOL_A}/communicationDrafts/${draftId}`), {
+      schoolId: SCHOOL_A, trackingId, taskId, workflowType: 'external_email_followup',
+      communicationStatus: 'awaiting_send', subject: 'עדכון', draftBody: 'נוסח שאינו מכיל מידע רגיש.',
+      summary: 'מעקב', to: ['parent@example.com'], cc: [], bcc: [], linkedContactId: '', createdBy: uid,
+      confirmedSentBy: '', confirmedSentAt: null, followUpAssigneeId: uid, nextFollowUpAt: '2026-08-04',
+      priority: 'medium', completionCriteria: 'התקבלה תשובה', sourceTaskId: 'student_1',
+      sourceTaskStorageMode: 'context', sourceTaskOwnerId: '', linkedStudentId: 'student_1',
+      linkedClassId: 'class_1', linkedTeamId: '', linkedInitiativeId: '', linkedMilestoneId: '', linkedEventId: '',
+      linkedContextType: 'student', linkedContextId: 'student_1', linkedContextLabel: 'Student',
+      linkedFileIds: [], links: [], actionHistory: [], reminderHistory: [], visibility, participantIds,
+      schemaVersion: 1, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    });
+    batch.set(doc(client, `schools/${SCHOOL_A}/communicationEvents/student_mail_event_${suffix}`), {
+      schoolId: SCHOOL_A, draftId, taskId, actorId: uid, type: 'draft_created', schemaVersion: 1,
+      createdAt: serverTimestamp(),
+    });
+    return batch;
+  }
+
+  await assertSucceeds(studentCommunicationBatch('principal_a', 'private').commit());
+  await assertFails(studentCommunicationBatch('principal_a', 'shared', 'participants', ['principal_a', 'sender_a']).commit());
+  await assertFails(studentCommunicationBatch('sender_a', 'no_student_access').commit());
 });
 
 test('institutional and private contacts enforce permissions, visibility and tenant isolation', async () => {

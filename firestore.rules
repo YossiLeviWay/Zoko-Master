@@ -840,6 +840,9 @@ service cloud.firestore {
           || (
             data.get('visibility', 'private') == 'team'
             && communicationPermission(schoolId, 'communications.viewTeam')
+            && data.get('linkedTeamId', '') is string
+            && data.get('linkedTeamId', '').size() > 0
+            && data.get('linkedTeamId', '') in currentUserInitiativeTeamIds(schoolId)
           )
         );
     }
@@ -856,7 +859,19 @@ service cloud.firestore {
         && data.completionCriteria is string
         && data.sourceTaskId is string
         && data.sourceTaskId.size() > 0
-        && data.sourceTaskStorageMode in ['personal', 'nested', 'legacy']
+        && data.sourceTaskStorageMode in ['personal', 'nested', 'legacy', 'context']
+        && data.linkedContextType in ['general', 'task', 'student', 'team', 'initiative', 'milestone', 'event', 'contact']
+        && data.linkedContextId is string
+        && data.linkedContextId.size() > 0
+        && data.linkedContextLabel is string
+        && data.linkedContextLabel.size() > 0
+        && data.linkedContextLabel.size() <= 300
+        && data.communicationSubject is string
+        && data.communicationSubject.size() > 0
+        && data.communicationSubject.size() <= 300
+        && data.externalRecipientLabel is string
+        && data.externalRecipientLabel.size() > 0
+        && data.externalRecipientLabel.size() <= 320
         && existsAfter(draftPath)
         && getAfter(draftPath).data.taskId == taskId
         && getAfter(draftPath).data.createdBy == userId
@@ -904,7 +919,8 @@ service cloud.firestore {
           'nextFollowUpAt', 'priority', 'completionCriteria', 'sourceTaskId',
           'sourceTaskStorageMode', 'sourceTaskOwnerId', 'linkedStudentId',
           'linkedClassId', 'linkedTeamId', 'linkedInitiativeId', 'linkedMilestoneId',
-          'linkedEventId', 'linkedFileIds', 'links', 'actionHistory', 'reminderHistory',
+          'linkedEventId', 'linkedContextType', 'linkedContextId', 'linkedContextLabel',
+          'linkedFileIds', 'links', 'actionHistory', 'reminderHistory',
           'visibility', 'participantIds', 'schemaVersion', 'createdAt', 'updatedAt'
         ])
         && data.schoolId == schoolId
@@ -938,6 +954,12 @@ service cloud.firestore {
         && data.priority in ['low', 'medium', 'high']
         && data.completionCriteria is string
         && data.completionCriteria.size() <= 1000
+        && data.linkedContextType in ['general', 'task', 'student', 'team', 'initiative', 'milestone', 'event', 'contact']
+        && data.linkedContextId is string
+        && data.linkedContextId.size() > 0
+        && data.linkedContextLabel is string
+        && data.linkedContextLabel.size() > 0
+        && data.linkedContextLabel.size() <= 300
         && data.linkedFileIds is list
         && data.linkedFileIds.size() <= 20
         && data.links is list
@@ -946,10 +968,39 @@ service cloud.firestore {
         && data.actionHistory.size() == 0
         && data.reminderHistory is list
         && data.reminderHistory.size() == 0
-        && data.visibility == 'private'
         && data.participantIds is list
-        && data.participantIds.size() == 1
-        && data.participantIds.hasOnly([request.auth.uid])
+        && data.participantIds.size() > 0
+        && data.participantIds.size() <= 100
+        && request.auth.uid in data.participantIds
+        && (
+          (
+            data.visibility == 'private'
+            && data.participantIds.size() == 1
+            && data.participantIds.hasOnly([request.auth.uid])
+          )
+          || (
+            data.visibility == 'participants'
+            && data.participantIds.size() > 1
+          )
+          || (
+            data.visibility == 'team'
+            && data.linkedTeamId is string
+            && data.linkedTeamId.size() > 0
+            && data.participantIds.size() > 1
+          )
+        )
+        && (
+          data.linkedStudentId == ''
+          || (
+            data.linkedContextType == 'student'
+            && data.visibility == 'private'
+            && exists(/databases/$(database)/documents/schools/$(schoolId)/students/$(data.linkedStudentId))
+            && canViewStudent(
+              schoolId,
+              get(/databases/$(database)/documents/schools/$(schoolId)/students/$(data.linkedStudentId)).data
+            )
+          )
+        )
         && data.schemaVersion == 1
         && data.createdAt == request.time
         && data.updatedAt == request.time

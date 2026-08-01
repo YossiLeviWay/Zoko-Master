@@ -33,8 +33,23 @@ function cleanText(value, maxLength) {
 function safeLinks(value) {
   return (Array.isArray(value) ? value : [])
     .map(item => cleanText(item, 1000))
-    .filter(Boolean)
+    .filter(item => {
+      try {
+        const url = new URL(item);
+        return ['http:', 'https:'].includes(url.protocol)
+          && !/(^|\.)firebaseio\.com$|(^|\.)firebasestorage\.googleapis\.com$/i.test(url.hostname)
+          && !(url.hostname === 'yossileviway.github.io' && url.pathname.startsWith('/Zoko-Master'));
+      } catch {
+        return false;
+      }
+    })
     .slice(0, 20);
+}
+
+function safeIds(value, max = 100) {
+  return [...new Set((Array.isArray(value) ? value : [])
+    .map(item => cleanText(item, 128))
+    .filter(Boolean))].slice(0, max);
 }
 
 function communicationEvent(batch, db, schoolId, draftId, taskId, userId, type) {
@@ -65,6 +80,20 @@ export async function createEmailFollowUp({ db, schoolId, user, sourceTask, inpu
   const subject = cleanText(input.subject, 300);
   const summary = cleanText(input.summary, 1000);
   const sourceStorageMode = cleanText(sourceTask._storageMode || 'nested', 20);
+  const context = sourceTask.communicationContext || {};
+  const contextType = cleanText(context.type || (sourceStorageMode === 'context' ? 'general' : 'task'), 30);
+  const contextId = cleanText(context.id || sourceTask.id, 128);
+  const contextLabel = cleanText(context.label || sourceTask.title || 'פריט במערכת', 300);
+  const linkedFileIds = safeIds(input.linkedFileIds || context.fileIds || (sourceTask.attachedFileId ? [sourceTask.attachedFileId] : []), 20);
+  const requestedParticipants = safeIds(input.participantIds || context.participantIds, 100).filter(id => id !== user.uid);
+  const participantIds = [user.uid, ...requestedParticipants];
+  const visibility = contextType === 'student'
+    ? 'private'
+    : (input.visibility === 'team' && cleanText(context.teamId || sourceTask.teamId || sourceTask.assigneeTeamId, 128)
+      ? 'team'
+      : input.visibility === 'participants' && participantIds.length > 1 ? 'participants' : 'private');
+  const visibleParticipantIds = visibility === 'private' ? [user.uid] : participantIds;
+  const recipientLabel = cleanText(input.recipientLabel || recipients[0], 320);
 
   batch.set(taskRef, {
     title: `מעקב מייל: ${subject}`.slice(0, 300),
@@ -97,6 +126,11 @@ export async function createEmailFollowUp({ db, schoolId, user, sourceTask, inpu
     completionCriteria: cleanText(input.completionCriteria, 1000),
     sourceTaskId: sourceTask.id,
     sourceTaskStorageMode: sourceStorageMode,
+    linkedContextType: contextType,
+    linkedContextId: contextId,
+    linkedContextLabel: contextLabel,
+    communicationSubject: subject,
+    externalRecipientLabel: recipientLabel,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
@@ -113,7 +147,7 @@ export async function createEmailFollowUp({ db, schoolId, user, sourceTask, inpu
     to: recipients,
     cc: normalizeEmailList(input.cc).slice(0, 20),
     bcc: normalizeEmailList(input.bcc).slice(0, 20),
-    linkedContactId: cleanText(input.linkedContactId, 128),
+    linkedContactId: cleanText(input.linkedContactId || context.contactId, 128),
     createdBy: user.uid,
     confirmedSentBy: '',
     confirmedSentAt: null,
@@ -124,18 +158,21 @@ export async function createEmailFollowUp({ db, schoolId, user, sourceTask, inpu
     sourceTaskId: sourceTask.id,
     sourceTaskStorageMode: sourceStorageMode,
     sourceTaskOwnerId: sourceTask._source === 'personal' ? user.uid : '',
-    linkedStudentId: '',
-    linkedClassId: '',
-    linkedTeamId: sourceTask.teamId || sourceTask.assigneeTeamId || '',
-    linkedInitiativeId: sourceTask.initiativeId || '',
-    linkedMilestoneId: sourceTask.milestoneId || '',
-    linkedEventId: '',
-    linkedFileIds: sourceTask.attachedFileId ? [sourceTask.attachedFileId] : [],
+    linkedStudentId: cleanText(context.studentId, 128),
+    linkedClassId: cleanText(context.classId, 128),
+    linkedTeamId: cleanText(context.teamId || sourceTask.teamId || sourceTask.assigneeTeamId, 128),
+    linkedInitiativeId: cleanText(context.initiativeId || sourceTask.initiativeId, 128),
+    linkedMilestoneId: cleanText(context.milestoneId || sourceTask.milestoneId, 128),
+    linkedEventId: cleanText(context.eventId, 128),
+    linkedContextType: contextType,
+    linkedContextId: contextId,
+    linkedContextLabel: contextLabel,
+    linkedFileIds,
     links: safeLinks(input.links),
     actionHistory: [],
     reminderHistory: [],
-    visibility: 'private',
-    participantIds: [user.uid],
+    visibility,
+    participantIds: visibleParticipantIds,
     schemaVersion: 1,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),

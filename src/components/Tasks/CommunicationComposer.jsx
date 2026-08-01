@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BookmarkPlus, Check, Clipboard, ExternalLink, Mail, RotateCcw, X } from 'lucide-react';
+import { BookmarkPlus, Check, Clipboard, ExternalLink, FileText, Mail, RotateCcw, ShieldCheck, X } from 'lucide-react';
 import { db } from '../../firebase';
 import {
   cancelEmailFollowUp,
@@ -20,6 +20,7 @@ import {
   normalizeContactEmail,
   subscribeContacts,
 } from '../../services/firestore/contactRepository';
+import { communicationContextLabel } from '../../utils/communicationContext';
 import './CommunicationComposer.css';
 
 function dateAfter(days) {
@@ -29,12 +30,14 @@ function dateAfter(days) {
 }
 
 function sourceLabel(task) {
+  if (task.communicationContext?.type) return communicationContextLabel(task.communicationContext.type);
   return task._source === 'personal' ? 'משימה אישית' : 'משימת מוסד';
 }
 
-export default function CommunicationComposer({ schoolId, user, task, staff = [], contactPermissions = {}, onClose, onSuccess, onError }) {
+export default function CommunicationComposer({ schoolId, user, task, staff = [], files = [], contactPermissions = {}, onClose, onSuccess, onError }) {
+  const context = task.communicationContext || {};
   const [form, setForm] = useState({
-    to: '',
+    to: context.recipientEmail || '',
     cc: '',
     bcc: '',
     subject: task.title ? `בנושא: ${task.title}` : '',
@@ -53,6 +56,8 @@ export default function CommunicationComposer({ schoolId, user, task, staff = []
   const [contacts, setContacts] = useState([]);
   const [linkedContactId, setLinkedContactId] = useState('');
   const [contactDraft, setContactDraft] = useState(null);
+  const [linkedFileIds, setLinkedFileIds] = useState(() => context.fileIds || (task.attachedFileId ? [task.attachedFileId] : []));
+  const [visibility, setVisibility] = useState(() => context.type === 'team' && context.participantIds?.length ? 'team' : context.participantIds?.length ? 'participants' : 'private');
 
   const draft = useMemo(() => ({
     to: normalizeEmailList(form.to),
@@ -101,6 +106,8 @@ export default function CommunicationComposer({ schoolId, user, task, staff = []
           linksText: saved.links?.join('\n') || '',
         }));
         setLinkedContactId(saved.linkedContactId || '');
+        setLinkedFileIds(saved.linkedFileIds || []);
+        setVisibility(saved.visibility || 'private');
         setRecord({
           draftId: saved.id,
           taskId: saved.taskId,
@@ -130,6 +137,16 @@ export default function CommunicationComposer({ schoolId, user, task, staff = []
     if (invalid.length) return `כתובת המייל אינה תקינה: ${invalid[0]}`;
     if (!draft.subject) return 'יש להזין נושא.';
     if (!draft.body) return 'יש להזין תוכן לטיוטה.';
+    const links = form.linksText.split('\n').map(item => item.trim()).filter(Boolean);
+    const invalidLink = links.find(item => {
+      try {
+        const url = new URL(item);
+        return !['http:', 'https:'].includes(url.protocol)
+          || /(^|\.)firebaseio\.com$|(^|\.)firebasestorage\.googleapis\.com$/i.test(url.hostname)
+          || (url.hostname === 'yossileviway.github.io' && url.pathname.startsWith('/Zoko-Master'));
+      } catch { return true; }
+    });
+    if (invalidLink) return 'יש להזין רק קישורי web חיצוניים תקינים. קישור פנימי של Firebase או Zoko אינו נשלח במייל.';
     return '';
   }
 
@@ -185,6 +202,10 @@ export default function CommunicationComposer({ schoolId, user, task, staff = []
           priority: form.priority,
           completionCriteria: form.completionCriteria,
           linkedContactId,
+          linkedFileIds,
+          visibility,
+          participantIds: context.participantIds || [],
+          recipientLabel: draft.to[0],
           links: form.linksText.split('\n').map(item => item.trim()).filter(Boolean),
         },
       });
@@ -276,13 +297,15 @@ export default function CommunicationComposer({ schoolId, user, task, staff = []
     <div className="task-edit-overlay communication-overlay" onClick={onClose}>
       <section className="communication-modal" onClick={event => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="יצירת מייל ומעקב" dir="rtl">
         <header className="communication-header">
-          <div><span className="communication-eyebrow"><Mail size={15} /> מייל ומעקב</span><h2>טיוטת מייל מתוך משימה</h2><p>{sourceLabel(task)}: {task.title}</p></div>
+          <div><span className="communication-eyebrow"><Mail size={15} /> מייל ומעקב</span><h2>טיוטת מייל ומעקב</h2><p>{sourceLabel(task)}: {task.title}</p></div>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="סגירה"><X size={18} /></button>
         </header>
 
         {loading ? <div className="communication-loading">טוען את טיוטת המייל...</div> : loadFailed ? <div className="communication-loading"><p>הטיוטה לא נטענה, ולכן לא ייווצר מעקב כפול.</p><button className="btn btn-secondary" type="button" onClick={onClose}>סגירה</button></div> : !record ? (
           <form className="communication-form" onSubmit={createAndOpen}>
-            <div className="communication-privacy-note">הטיוטה תישמר כפרטית. פתיחת חלון המייל אינה מאשרת שהמייל נשלח.</div>
+            <div className="communication-context-note"><strong>מקושר אל:</strong> {sourceLabel(task)} — {task.title}</div>
+            {context.type === 'student' && <div className="communication-student-warning"><ShieldCheck size={17} /><span><strong>הטיוטה קשורה לתלמיד.</strong> אין להעתיק אליה מספר זהות, ציונים, מסמכים, מידע רפואי או הערות אישיות. המערכת לא מוסיפה מידע כזה אוטומטית.</span></div>}
+            <div className="communication-privacy-note">פתיחת חלון המייל אינה מאשרת שהמייל נשלח. לפני השמירה מוצג למי תהיה גישה למעקב בתוך Zoko.</div>
             <div className="form-group"><label>אל</label><input value={form.to} onChange={event => change('to', event.target.value)} placeholder="name@example.com; second@example.com" dir="ltr" autoFocus />{contacts.length > 0 && <select className="communication-contact-picker" value="" onChange={event => addKnownContact(event.target.value)}><option value="">הוספת נמען מאנשי הקשר...</option>{contacts.filter(contact => !contact.archived && contact.primaryEmail).map(contact => <option key={`${contact.scope}:${contact.id}`} value={`${contact.scope}:${contact.id}`}>{contact.fullName} — {contact.primaryEmail}{contact.scope === CONTACT_SCOPE.PRIVATE ? ' (פרטי)' : ''}</option>)}</select>}</div>
             <div className="form-row"><div className="form-group"><label>עותק</label><input value={form.cc} onChange={event => change('cc', event.target.value)} dir="ltr" /></div><div className="form-group"><label>עותק מוסתר</label><input value={form.bcc} onChange={event => change('bcc', event.target.value)} dir="ltr" /></div></div>
             {unknownRecipients.length > 0 && <div className="communication-new-recipients"><strong>נמענים שאינם שמורים</strong>{unknownRecipients.map(email => <div key={email}><span dir="ltr">{email}</span><div>{contactPermissions.create && <button type="button" onClick={() => setContactDraft({ email, scope: CONTACT_SCOPE.INSTITUTIONAL, fullName: '', organization: '', category: '' })}><BookmarkPlus size={13} /> מוסדי</button>}<button type="button" onClick={() => setContactDraft({ email, scope: CONTACT_SCOPE.PRIVATE, fullName: '', organization: '', category: '' })}><BookmarkPlus size={13} /> פרטי שלי</button><span>או השתמשו הפעם בלבד</span></div></div>)}</div>}
@@ -293,7 +316,9 @@ export default function CommunicationComposer({ schoolId, user, task, staff = []
             <div className="form-row"><div className="form-group"><label>מועד מעקב הבא</label><input type="date" value={form.nextFollowUpAt} onChange={event => change('nextFollowUpAt', event.target.value)} /></div><div className="form-group"><label>עדיפות</label><select value={form.priority} onChange={event => change('priority', event.target.value)}><option value="low">נמוכה</option><option value="medium">בינונית</option><option value="high">גבוהה</option></select></div></div>
             <div className="form-group"><label>תנאי השלמה</label><input value={form.completionCriteria} onChange={event => change('completionCriteria', event.target.value)} maxLength={1000} /></div>
             <div className="form-group"><label>קישורים נלווים (קישור בכל שורה)</label><textarea value={form.linksText} onChange={event => change('linksText', event.target.value)} dir="ltr" /></div>
-            {task.attachedFileId && <div className="communication-attachment-note">הקובץ המקושר למשימה יישמר כהפניה במעקב. `mailto` אינו מצרף קבצים אוטומטית.</div>}
+            {files.length > 0 && <fieldset className="communication-files"><legend>קבצים קיימים ב־Zoko — עד 20</legend>{files.filter(file => !file.trashedAt && !file.deletedAt).slice(0, 100).map(file => <label key={file.id}><input type="checkbox" checked={linkedFileIds.includes(file.id)} onChange={event => setLinkedFileIds(previous => event.target.checked ? [...new Set([...previous, file.id])].slice(0, 20) : previous.filter(id => id !== file.id))} /><FileText size={13} /> {file.name || 'קובץ'}</label>)}</fieldset>}
+            {linkedFileIds.length > 0 && <div className="communication-attachment-note"><strong>רשימת צירוף ידנית:</strong> `mailto` אינו מצרף קבצים. יש לצרף ידנית {linkedFileIds.length} קבצים בחלון המייל; במעקב נשמרים רק מזהי הקבצים המורשים.</div>}
+            <div className="form-group communication-visibility"><label>מי יוכל לראות את המעקב בתוך Zoko?</label><select value={visibility} onChange={event => setVisibility(event.target.value)} disabled={context.type === 'student'}><option value="private">רק אני</option>{context.participantIds?.length > 0 && <option value="participants">אני והמשתתפים המקושרים ({context.participantIds.length})</option>}{context.type === 'team' && context.teamId && <option value="team">חברי הצוות המקושר</option>}</select><small>{context.type === 'student' ? 'מעקב הקשור לתלמיד נשמר פרטי כברירת אבטחה מחייבת.' : visibility === 'private' ? 'רק יוצר המעקב.' : 'רק חברי המוסד שנכללו בהקשר המקורי.'}</small></div>
             <div className="communication-copy-actions"><button type="button" className="btn btn-secondary btn-sm" onClick={() => copy(draft.body, 'תוכן הטיוטה')}><Clipboard size={14} /> העתקת תוכן</button><button type="button" className="btn btn-secondary btn-sm" onClick={() => copy(draft.subject, 'הנושא')}><Clipboard size={14} /> העתקת נושא</button><button type="button" className="btn btn-secondary btn-sm" onClick={() => copy([...draft.to, ...draft.cc, ...draft.bcc].join('; '), 'הנמענים')}><Clipboard size={14} /> העתקת נמענים</button></div>
             {notice && <p className="communication-notice" role="status">{notice}</p>}
             <footer className="form-actions"><button className="btn btn-primary" disabled={saving}><ExternalLink size={16} /> {saving ? 'שומר ופותח...' : 'פתיחת טיוטת מייל'}</button><button className="btn btn-secondary" type="button" onClick={onClose}>ביטול</button></footer>

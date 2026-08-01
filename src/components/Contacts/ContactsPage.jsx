@@ -18,9 +18,9 @@ import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePermissions } from '../../hooks/usePermissions';
-import { buildMailtoUrl } from '../../utils/mailto';
 import Header from '../Layout/Header';
 import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
+import CommunicationLauncherButton from '../Shared/CommunicationLauncherButton';
 import {
   archiveContact,
   CONTACT_SCOPE,
@@ -240,11 +240,6 @@ export default function ContactsPage() {
     }
   }
 
-  function openEmail(contact) {
-    const email = contactEmail(contact);
-    if (email) window.location.href = buildMailtoUrl({ to: [email], subject: '', body: '' });
-  }
-
   return (
     <div className="page contacts-page" dir="rtl">
       <Header title="אנשי קשר" onPermissions={manager ? () => setShowPermissions(true) : undefined} />
@@ -280,10 +275,10 @@ export default function ContactsPage() {
           <div className="contacts-grid">
             {filtered.map(contact => <article className={`contact-card ${contact.archived ? 'contact-card--archived' : ''}`} key={`${contact.scope}:${contact.id}`}>
               <header><div className="contact-avatar">{contact.fullName?.charAt(0) || '?'}</div><div><h2>{contact.fullName || 'ללא שם'}</h2><p>{contact.jobTitle || (contact.scope === CONTACT_SCOPE.INTERNAL ? 'איש צוות' : 'איש קשר')} {contact.organization ? `· ${contact.organization}` : ''}</p></div>{contact.scope === CONTACT_SCOPE.PRIVATE && <span className="contact-private-badge">פרטי</span>}</header>
-              <div className="contact-details">{contactEmail(contact) && <button onClick={() => openEmail(contact)} dir="ltr"><Mail size={14} /> {contactEmail(contact)}</button>}{contact.phone && <span dir="ltr">{contact.phone}</span>}</div>
+              <div className="contact-details">{contactEmail(contact) && <span dir="ltr"><Mail size={14} /> {contactEmail(contact)}</span>}{contact.phone && <span dir="ltr">{contact.phone}</span>}</div>
               {(contact.category || contact.tags?.length > 0) && <div className="contact-tags"><Tags size={13} />{contact.category && <span>{contact.category}</span>}{(contact.tags || []).map(tag => <span key={tag}>{tag}</span>)}</div>}
               {contact.notes && <p className="contact-notes">{contact.notes}</p>}
-              <footer><button className="btn btn-secondary btn-sm" onClick={() => openEmail(contact)} disabled={!contactEmail(contact)}><Mail size={14} /> מייל</button>{contact.scope !== CONTACT_SCOPE.INTERNAL && canEditContact(contact) && <button className="icon-btn" onClick={() => startEdit(contact)} title="עריכה"><Edit3 size={15} /></button>}{contact.scope !== CONTACT_SCOPE.INTERNAL && canArchiveContact(contact) && <button className="icon-btn" onClick={() => toggleArchive(contact)} title={contact.archived ? 'שחזור' : 'ארכוב'}>{contact.archived ? <ArchiveRestore size={15} /> : <Archive size={15} />}</button>}{!contact.archived && contact.scope !== CONTACT_SCOPE.INTERNAL && (contact.scope === CONTACT_SCOPE.PRIVATE || institutionalPermissions.merge) && <button className="icon-btn" onClick={() => { setMergeSource(contact); setMergeTargetId(''); }} title="מיזוג"><Merge size={15} /></button>}</footer>
+              <footer>{contactEmail(contact) && <CommunicationLauncherButton context={{ type: 'contact', id: contact.id, label: contact.fullName, recipientEmail: contactEmail(contact), contactId: contact.scope === CONTACT_SCOPE.INTERNAL ? '' : contact.id }} className="btn btn-secondary btn-sm">מייל ומעקב</CommunicationLauncherButton>}{contact.scope !== CONTACT_SCOPE.INTERNAL && canEditContact(contact) && <button className="icon-btn" onClick={() => startEdit(contact)} title="עריכה"><Edit3 size={15} /></button>}{contact.scope !== CONTACT_SCOPE.INTERNAL && canArchiveContact(contact) && <button className="icon-btn" onClick={() => toggleArchive(contact)} title={contact.archived ? 'שחזור' : 'ארכוב'}>{contact.archived ? <ArchiveRestore size={15} /> : <Archive size={15} />}</button>}{!contact.archived && contact.scope !== CONTACT_SCOPE.INTERNAL && (contact.scope === CONTACT_SCOPE.PRIVATE || institutionalPermissions.merge) && <button className="icon-btn" onClick={() => { setMergeSource(contact); setMergeTargetId(''); }} title="מיזוג"><Merge size={15} /></button>}</footer>
             </article>)}
           </div>
         )}

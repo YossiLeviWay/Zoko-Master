@@ -7,6 +7,36 @@
   font-weight: 500;
 }
 
+.communication-dashboard { display: flex; flex-direction: column; gap: 14px; }
+.communication-dashboard > header { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 22px; border: 1px solid var(--color-border); border-radius: 18px; background: linear-gradient(135deg, #fff8f3, #fff); }
+.communication-dashboard > header span { display: inline-flex; align-items: center; gap: 6px; color: var(--color-primary); font-size: .82rem; font-weight: 700; }
+.communication-dashboard > header h2 { margin: 6px 0; color: var(--color-text); }
+.communication-dashboard > header p { margin: 0; color: var(--color-text-muted); }
+.communication-dashboard-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.communication-dashboard-stats button { display: flex; flex-direction: column; gap: 3px; padding: 13px; border: 1px solid var(--color-border); border-radius: 12px; background: #fff; color: var(--color-text-muted); cursor: pointer; }
+.communication-dashboard-stats button.active { border-color: var(--color-primary); background: #fff5f1; color: var(--color-primary); }
+.communication-dashboard-stats strong { font-size: 1.25rem; color: var(--color-text); }
+.communication-dashboard-search { display: flex; align-items: center; gap: 8px; max-width: 460px; padding: 9px 12px; border: 1px solid var(--color-border); border-radius: 10px; background: #fff; }
+.communication-dashboard-search input { flex: 1; border: 0; outline: 0; background: transparent; font: inherit; }
+.communication-dashboard-list { display: flex; flex-direction: column; gap: 9px; }
+.communication-followup-card { display: grid; grid-template-columns: 140px minmax(220px, 1fr) minmax(180px, .7fr) auto; align-items: center; gap: 16px; padding: 15px; border: 1px solid var(--color-border); border-inline-start: 4px solid #e0a15b; border-radius: 13px; background: #fff; }
+.communication-followup-card--reply { border-inline-start-color: #0f9d8d; }
+.communication-followup-card--action { border-inline-start-color: #e05a47; }
+.communication-followup-card--resolved { border-inline-start-color: #57a773; opacity: .82; }
+.communication-followup-status { display: flex; align-items: center; gap: 6px; color: var(--color-primary); font-size: .8rem; font-weight: 700; }
+.communication-followup-main h3 { margin: 0 0 5px; font-size: .98rem; }
+.communication-followup-main p { display: flex; align-items: center; gap: 5px; margin: 0 0 7px; color: var(--color-text-secondary); font-size: .8rem; }
+.communication-followup-main > div { display: flex; flex-wrap: wrap; gap: 10px; color: var(--color-text-faint); font-size: .72rem; }
+.communication-followup-context { display: flex; flex-direction: column; gap: 3px; }
+.communication-followup-context small, .communication-followup-context span { color: var(--color-text-faint); font-size: .72rem; }
+.communication-followup-context strong { color: var(--color-text-secondary); font-size: .82rem; }
+
+@media (max-width: 900px) {
+  .communication-dashboard-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .communication-followup-card { grid-template-columns: 1fr; }
+  .communication-dashboard > header { align-items: flex-start; flex-direction: column; }
+}
+
 .task-tabs {
   display: flex;
   gap: 0.35rem;

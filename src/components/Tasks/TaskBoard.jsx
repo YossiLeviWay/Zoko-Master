@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { collection, getDocs, onSnapshot, query, where } from 'firebase/firestore';
 import {
   AlertCircle,
@@ -66,6 +66,8 @@ import SpreadsheetEditor from '../Files/SpreadsheetEditor';
 import ChatPanel from './ChatPanel';
 import InitiativePanel from './InitiativePanel';
 import CommunicationComposer from './CommunicationComposer';
+import CommunicationDashboard from './CommunicationDashboard';
+import { communicationSourceFromContext, normalizeCommunicationContext } from '../../utils/communicationContext';
 import '../Gantt/Gantt.css';
 import './Tasks.css';
 
@@ -83,6 +85,7 @@ const STATUS_CONFIG = {
 
 const TAB_LABELS = {
   dashboard: 'כל המשימות',
+  communications: 'מיילים ומעקבים',
   invitations: 'הזמנות ושיתופים',
 };
 
@@ -186,6 +189,7 @@ export default function TaskBoard() {
   const { userData, selectedSchool, currentUser } = useAuth();
   const { permissions } = usePermissions();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const uid = currentUser?.uid;
   const schoolId = selectedSchool || userData?.schoolId;
@@ -268,6 +272,29 @@ export default function TaskBoard() {
   const [initiativeAttentionOnly, setInitiativeAttentionOnly] = useState(false);
   const [initiativeDetailOpen, setInitiativeDetailOpen] = useState(false);
   const [communicationTask, setCommunicationTask] = useState(null);
+  const [communicationReturnTo, setCommunicationReturnTo] = useState('');
+
+  function openCommunicationContext(context, returnTo = '') {
+    setCommunicationTask(communicationSourceFromContext(normalizeCommunicationContext(context)));
+    setCommunicationReturnTo(returnTo);
+    setActiveTab('communications');
+    setCreateMenuOpen(false);
+  }
+
+  function closeCommunication() {
+    setCommunicationTask(null);
+    if (communicationReturnTo) {
+      const target = communicationReturnTo;
+      setCommunicationReturnTo('');
+      navigate(target);
+    }
+  }
+
+  useEffect(() => {
+    if (!location.state?.communicationContext) return;
+    openCommunicationContext(location.state.communicationContext, location.state.communicationReturnTo || '');
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+  }, [location.pathname, location.search, location.state, navigate]);
 
   const teamIds = useMemo(() => {
     const ids = new Set(Array.isArray(userData?.teamIds) ? userData.teamIds : []);
@@ -434,7 +461,9 @@ export default function TaskBoard() {
 
   const tabTasks = useMemo(() => {
     if (activeTab === 'invitations') return [];
-    return [...personalTasks, ...organizationTasks];
+    const tasks = [...personalTasks, ...organizationTasks];
+    if (activeTab === 'communications') return tasks.filter(task => task.workflowType === 'external_email_followup');
+    return tasks.filter(task => task.workflowType !== 'external_email_followup');
   }, [activeTab, organizationTasks, personalTasks]);
 
   const filteredTasks = useMemo(() => tabTasks.filter(task => {
@@ -1000,9 +1029,9 @@ export default function TaskBoard() {
           </form>
         )}
 
-        {!initiativeDetailOpen && <div className="page-toolbar task-toolbar">
+        {activeTab === 'dashboard' && !initiativeDetailOpen && <div className="page-toolbar task-toolbar">
           <div className="task-toolbar-actions">
-            <div className="task-create-menu-wrap"><button className="btn btn-primary" onClick={() => setCreateMenuOpen(value => !value)}><Plus size={16} /> יצירה חדשה <ChevronDown size={14} /></button>{createMenuOpen && <div className="task-create-menu"><button onClick={() => openTaskForm(TASK_SCOPES.PERSONAL)}><Lock size={15} /> משימה אישית</button><button onClick={() => openTaskForm(TASK_SCOPES.TEAM)} disabled={!canAssignTasks}><Users size={15} /> משימת צוות</button><button onClick={() => { setInitiativeCreateRequest(value => value + 1); setCreateMenuOpen(false); }} disabled={!canCreateInitiative}><Flag size={15} /> תכנית ארוכת טווח</button></div>}</div>
+            <div className="task-create-menu-wrap"><button className="btn btn-primary" onClick={() => setCreateMenuOpen(value => !value)}><Plus size={16} /> יצירה חדשה <ChevronDown size={14} /></button>{createMenuOpen && <div className="task-create-menu"><button onClick={() => openTaskForm(TASK_SCOPES.PERSONAL)}><Lock size={15} /> משימה אישית</button><button onClick={() => openTaskForm(TASK_SCOPES.TEAM)} disabled={!canAssignTasks}><Users size={15} /> משימת צוות</button><button onClick={() => { setInitiativeCreateRequest(value => value + 1); setCreateMenuOpen(false); }} disabled={!canCreateInitiative}><Flag size={15} /> תכנית ארוכת טווח</button>{canCreateCommunication && <button onClick={() => openCommunicationContext({ type: 'general', id: 'task_panel', label: 'פאנל המשימות' })}><MailPlus size={15} /> מייל ומעקב</button>}</div>}</div>
             {canAssignMandatory && <button className="btn btn-secondary" onClick={() => setShowMandatoryForm(true)}><AlertCircle size={15} /> משימה מחייבת</button>}
           </div>
           <div className="task-filters">
@@ -1046,11 +1075,16 @@ export default function TaskBoard() {
           onDetailChange={setInitiativeDetailOpen}
           onMessage={showMessage}
           onError={setError}
+          onCreateCommunication={canCreateCommunication ? openCommunicationContext : undefined}
         />}
 
         {activeTab === 'dashboard' && !initiativeDetailOpen && actionItems.length > 0 && <section className="task-action-required"><div><h2>דורש ממני פעולה</h2><p>רק פריטים שממתינים לפעולה שלך</p></div><div>{actionItems.map(item => <button key={item.id} onClick={() => item.type === 'invitation' ? setActiveTab('invitations') : setSearchText(item.title)}><span>{item.title}</span><small>{item.detail}</small></button>)}</div></section>}
 
-        {activeTab === 'invitations' ? (
+        {activeTab === 'communications' ? <CommunicationDashboard
+          tasks={[...personalTasks, ...organizationTasks]}
+          onOpen={setCommunicationTask}
+          onCreate={() => openCommunicationContext({ type: 'general', id: 'task_panel', label: 'פאנל המשימות' })}
+        /> : activeTab === 'invitations' ? (
           <div className="task-invitations-list">
             {[...taskInvitations].sort((a, b) => timestampMillis(b.createdAt) - timestampMillis(a.createdAt)).map(invitation => (
               <article className="card task-invitation-card" key={invitation.id}>
@@ -1134,9 +1168,10 @@ export default function TaskBoard() {
         schoolId={schoolId}
         user={{ uid, fullName: userData?.fullName || '' }}
         staff={staff}
+        files={allFiles}
         contactPermissions={contactPermissions}
         task={communicationTask}
-        onClose={() => setCommunicationTask(null)}
+        onClose={closeCommunication}
         onSuccess={showMessage}
         onError={setError}
       />}

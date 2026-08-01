@@ -16,6 +16,7 @@ import {
 import { updateTeamMembership } from '../../services/adminUserService';
 import Header from '../Layout/Header';
 import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
+import CommunicationLauncherButton from '../Shared/CommunicationLauncherButton';
 import { usePermissions } from '../../hooks/usePermissions';
 import { Plus, Trash2, Edit3, Users, X, Search, UserPlus, UserMinus, Shield } from 'lucide-react';
 import '../Gantt/Gantt.css';
@@ -253,8 +254,9 @@ export default function Teams() {
                   <h3 className="team-card-name">{team.name}</h3>
                   {team.description && <p className="team-card-desc">{team.description}</p>}
                 </div>
-                {canManageTeam(team) && (
-                  <div className="team-card-actions">
+                <div className="team-card-actions">
+                  <CommunicationLauncherButton context={{ type: 'team', id: team.id, label: team.name, description: team.description, teamId: team.id, participantIds: team.memberIds || [] }} className="icon-btn" title={`יצירת מייל ומעקב עבור ${team.name}`}>מייל</CommunicationLauncherButton>
+                  {canManageTeam(team) && <>
                     <button className="icon-btn" title="ניהול חברים" onClick={() => { setManageTeam(team.id); setMemberSearch(''); }}>
                       <UserPlus size={15} />
                     </button>
@@ -268,8 +270,8 @@ export default function Teams() {
                         </button>
                       </>
                     )}
-                  </div>
-                )}
+                  </>}
+                </div>
               </div>
               <div className="team-members">
                 <span className="team-member-count">{(team.memberIds || []).length} חברים</span>

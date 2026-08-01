@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import { db } from '../../firebase';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { useAuth } from '../../contexts/AuthContext';
+import CommunicationLauncherButton from '../Shared/CommunicationLauncherButton';
 import './Gantt.css';
 
 function dateKey(date) {
@@ -209,6 +210,7 @@ export default function EventModal({
           </div>
 
           <div className="modal-actions">
+            {event?.id && <CommunicationLauncherButton context={{ type: 'event', id: event.id, label: form.title, description: `${form.date}${form.time ? ` ${form.time}` : ''}`, eventId: event.id, participantIds: teams.filter(team => selectedTeams.includes(team.id) || editableBy.includes(team.id)).flatMap(team => team.memberIds || []) }} className="btn btn-secondary">מייל ומעקב</CommunicationLauncherButton>}
             <button type="submit" className="btn btn-primary">
               {event ? 'עדכון' : 'הוספה'}
             </button>
