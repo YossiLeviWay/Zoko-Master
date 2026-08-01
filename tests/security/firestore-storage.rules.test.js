@@ -847,6 +847,70 @@ test('institutional and private contacts enforce permissions, visibility and ten
   await assertFails(deleteDoc(doc(context('private_owner_a').firestore(), privatePath)));
 });
 
+test('communication templates remain owner-scoped, tenant-scoped and archive-only', async () => {
+  await seedFirestore({
+    'users/template_owner_a': user({ schoolId: SCHOOL_A, permissions: { 'communications.create': true } }),
+    'users/template_peer_a': user({ schoolId: SCHOOL_A, permissions: { 'communications.create': true } }),
+    'users/template_reader_a': user({ schoolId: SCHOOL_A, permissions: { 'communications.useAgent': true } }),
+    'users/template_manager_a': user({ schoolId: SCHOOL_A, permissions: { 'communications.manageTemplates': true } }),
+    'users/template_viewer_a': user({ schoolId: SCHOOL_A }),
+    'users/template_manager_b': user({ schoolId: SCHOOL_B, permissions: { 'communications.manageTemplates': true } }),
+  });
+  const payload = ({ scope, schoolId, ownerId, actor }) => ({
+    scope,
+    schoolId,
+    ownerId,
+    name: 'תזכורת מוסדית',
+    category: 'מעקב',
+    subjectTemplate: 'תזכורת: {{subject}}',
+    bodyTemplate: 'שלום, נשמח לקבל עדכון.',
+    tone: 'respectful',
+    archived: false,
+    archivedBy: '',
+    archivedAt: null,
+    createdBy: actor,
+    updatedBy: actor,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    schemaVersion: 1,
+  });
+
+  const privatePath = 'users/template_owner_a/communicationTemplates/private_a';
+  const institutionalPath = `schools/${SCHOOL_A}/communicationTemplates/institutional_a`;
+  await assertSucceeds(setDoc(
+    doc(context('template_owner_a').firestore(), privatePath),
+    payload({ scope: 'private', schoolId: SCHOOL_A, ownerId: 'template_owner_a', actor: 'template_owner_a' }),
+  ));
+  await assertSucceeds(getDoc(doc(context('template_owner_a').firestore(), privatePath)));
+  await assertFails(getDoc(doc(context('template_peer_a').firestore(), privatePath)));
+  await assertFails(updateDoc(doc(context('template_owner_a').firestore(), privatePath), {
+    ownerId: 'template_peer_a',
+    updatedBy: 'template_owner_a',
+    updatedAt: serverTimestamp(),
+  }));
+  await assertSucceeds(updateDoc(doc(context('template_owner_a').firestore(), privatePath), {
+    archived: true,
+    archivedBy: 'template_owner_a',
+    archivedAt: serverTimestamp(),
+    updatedBy: 'template_owner_a',
+    updatedAt: serverTimestamp(),
+  }));
+  await assertFails(deleteDoc(doc(context('template_owner_a').firestore(), privatePath)));
+
+  await assertSucceeds(setDoc(
+    doc(context('template_manager_a').firestore(), institutionalPath),
+    payload({ scope: 'institutional', schoolId: SCHOOL_A, ownerId: '', actor: 'template_manager_a' }),
+  ));
+  await assertSucceeds(getDoc(doc(context('template_reader_a').firestore(), institutionalPath)));
+  await assertFails(getDoc(doc(context('template_viewer_a').firestore(), institutionalPath)));
+  await assertFails(getDoc(doc(context('template_manager_b').firestore(), institutionalPath)));
+  await assertFails(setDoc(
+    doc(context('template_owner_a').firestore(), `schools/${SCHOOL_A}/communicationTemplates/forged`),
+    payload({ scope: 'institutional', schoolId: SCHOOL_A, ownerId: '', actor: 'template_owner_a' }),
+  ));
+  await assertFails(deleteDoc(doc(context('template_manager_a').firestore(), institutionalPath)));
+});
+
 test('mandatory tasks are server-created and cannot be deleted by recipients', async () => {
   await seedFirestore({
     'users/assigner_a': user({ schoolId: SCHOOL_A, permissions: { tasks_edit: true, 'tasks.assignMandatory': true } }),

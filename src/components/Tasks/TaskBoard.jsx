@@ -210,6 +210,8 @@ export default function TaskBoard() {
     reassign: permissions['communications.reassign'] === true,
     close: permissions['communications.close'] === true,
     viewAll: permissions['communications.viewAll'] === true,
+    useAgent: isInitiativeManager || permissions['communications.useAgent'] === true,
+    manageTemplates: isInitiativeManager || permissions['communications.manageTemplates'] === true,
   };
   const contactPermissions = {
     view: isInitiativeManager || permissions['contacts.view'] === true,

@@ -5,6 +5,7 @@ import {
   approveMembershipHandler,
 } from '../../functions/src/callables/memberships.js';
 import { createNotificationsHandler } from '../../functions/src/callables/notifications.js';
+import { draftCommunicationWithAgentHandler } from '../../functions/src/callables/communicationAgent.js';
 import { createSchoolHandler, updateSchoolHandler } from '../../functions/src/callables/schools.js';
 import { setActiveSchoolHandler } from '../../functions/src/callables/auth.js';
 import {
@@ -89,6 +90,79 @@ test('privileged functions reject unauthenticated and cross-school actors', asyn
     role: 'viewer',
     schoolId: SCHOOL_B,
   })), error => error.code === 'permission-denied');
+});
+
+test('communication agent is server-authorized, tenant-scoped and audit-only until confirmation', async () => {
+  await seedUser('agent_user_a', SCHOOL_A, 'viewer', {
+    permissions: { 'communications.useAgent': true },
+  });
+  await seedUser('no_agent_a', SCHOOL_A, 'viewer');
+  await seedUser('assignee_a', SCHOOL_A, 'viewer', { fullName: 'Assignee A' });
+  await seedUser('assignee_b', SCHOOL_B, 'viewer', { fullName: 'Assignee B' });
+  await adminDb.doc(`users/agent_user_a/contactDirectory/private/items/contact_a`).set({
+    ownerId: 'agent_user_a',
+    schoolId: SCHOOL_A,
+    fullName: 'Recipient A',
+    primaryEmail: 'recipient@example.test',
+    organization: '',
+    category: '',
+    archived: false,
+  });
+  await adminDb.doc(`users/agent_user_a/contactDirectory/private/items/contact_b`).set({
+    ownerId: 'agent_user_a',
+    schoolId: SCHOOL_B,
+    fullName: 'Wrong School Contact',
+    primaryEmail: 'wrong-school@example.test',
+    archived: false,
+  });
+  const generated = {
+    recipients: ['recipient@example.test'], cc: [], bcc: [], subject: 'עדכון',
+    body: 'שלום, נשמח לקבל עדכון.', summary: 'מעקב', priority: 'normal',
+    followUpAt: '2026-08-04', completionCriteria: 'התקבלה תשובה',
+    suggestedAssigneeId: 'assignee_a',
+    linkedEntities: [{ type: 'task', id: 'task_a', label: 'משימה א' }],
+    missingFields: [], suggestedNextAction: 'בדיקת הטיוטה',
+  };
+  let providerPayload;
+  const data = {
+    schoolId: SCHOOL_A,
+    request: 'נסח מייל קצר לאיש הקשר',
+    operation: 'compose',
+    language: 'he',
+    style: 'respectful',
+    context: { type: 'task', id: 'task_a', label: 'משימה א' },
+    contactRefs: [{ id: 'contact_a', scope: 'private' }, { id: 'contact_b', scope: 'private' }],
+    assigneeIds: ['assignee_a', 'assignee_b'],
+    currentDraft: {
+      recipients: [], cc: [], bcc: [], subject: '', body: '', summary: '',
+      priority: 'normal', followUpAt: null, completionCriteria: '',
+    },
+  };
+  const result = await draftCommunicationWithAgentHandler(actorRequest('agent_user_a', data), {
+    apiKey: 'server-test-key',
+    model: 'test-model',
+    fetchImpl: async (_url, options) => {
+      providerPayload = JSON.parse(options.body);
+      return { ok: true, json: async () => ({ id: 'response_agent_a', output_text: JSON.stringify(generated) }) };
+    },
+  });
+  assert.deepEqual(result.proposal, generated);
+  const serialized = JSON.stringify(providerPayload);
+  assert.equal(serialized.includes('Recipient A'), true);
+  assert.equal(serialized.includes('Wrong School Contact'), false);
+  assert.equal(serialized.includes('Assignee A'), true);
+  assert.equal(serialized.includes('Assignee B'), false);
+  assert.equal((await adminDb.collection('auditLogs').where('action', '==', 'communication.agent.propose').get()).size, 1);
+  assert.equal((await adminDb.collection(`schools/${SCHOOL_A}/communicationDrafts`).get()).size, 0);
+
+  await assert.rejects(draftCommunicationWithAgentHandler(actorRequest('no_agent_a', data), {
+    apiKey: 'server-test-key', model: 'test-model', fetchImpl: async () => { throw new Error('must not run'); },
+  }), error => error.code === 'permission-denied');
+  await assert.rejects(draftCommunicationWithAgentHandler(actorRequest('agent_user_a', {
+    ...data, schoolId: SCHOOL_B,
+  }), {
+    apiKey: 'server-test-key', model: 'test-model', fetchImpl: async () => { throw new Error('must not run'); },
+  }), error => error.code === 'permission-denied');
 });
 
 test('permission preview supports legacy staff documents without an Auth account', async () => {

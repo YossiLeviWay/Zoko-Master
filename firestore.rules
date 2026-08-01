@@ -547,6 +547,89 @@ service cloud.firestore {
         && (isSchoolPrincipal(schoolId) || communicationPermission(schoolId, 'communications.create'));
     }
 
+    function canReadCommunicationTemplates(schoolId) {
+      return canCreateCommunication(schoolId)
+        || communicationPermission(schoolId, 'communications.useAgent')
+        || communicationPermission(schoolId, 'communications.manageTemplates');
+    }
+
+    function canManageCommunicationTemplates(schoolId) {
+      return !isPlatformAdmin()
+        && (isSchoolPrincipal(schoolId) || communicationPermission(schoolId, 'communications.manageTemplates'));
+    }
+
+    function validCommunicationTemplate(data, schoolId, ownerId, scope) {
+      return data.keys().hasOnly([
+          'scope', 'name', 'category', 'subjectTemplate', 'bodyTemplate', 'tone',
+          'schoolId', 'ownerId', 'archived', 'archivedBy', 'archivedAt',
+          'createdBy', 'updatedBy', 'createdAt', 'updatedAt', 'schemaVersion'
+        ])
+        && data.scope == scope
+        && data.schoolId == schoolId
+        && data.ownerId == ownerId
+        && data.name is string
+        && data.name.size() > 0
+        && data.name.size() <= 120
+        && data.category is string
+        && data.category.size() <= 80
+        && data.subjectTemplate is string
+        && data.subjectTemplate.size() <= 300
+        && data.bodyTemplate is string
+        && data.bodyTemplate.size() > 0
+        && data.bodyTemplate.size() <= 10000
+        && data.tone in ['respectful', 'direct', 'friendly', 'formal']
+        && data.archived is bool
+        && data.archivedBy is string
+        && (data.archivedAt == null || data.archivedAt is timestamp)
+        && data.createdBy is string
+        && data.updatedBy is string
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && data.schemaVersion == 1;
+    }
+
+    function validCommunicationTemplateCreate(data, schoolId, ownerId, scope) {
+      return validCommunicationTemplate(data, schoolId, ownerId, scope)
+        && data.archived == false
+        && data.archivedBy == ''
+        && data.archivedAt == null
+        && data.createdBy == request.auth.uid
+        && data.updatedBy == request.auth.uid
+        && data.createdAt == request.time
+        && data.updatedAt == request.time;
+    }
+
+    function safeCommunicationTemplateUpdate(schoolId, ownerId, scope) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return resource.data.archived == false
+        && validCommunicationTemplate(request.resource.data, schoolId, ownerId, scope)
+        && request.resource.data.scope == resource.data.scope
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.schemaVersion == resource.data.schemaVersion
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedAt == request.time
+        && (
+          (
+            changed.hasOnly([
+              'name', 'category', 'subjectTemplate', 'bodyTemplate', 'tone',
+              'updatedBy', 'updatedAt'
+            ])
+            && request.resource.data.archived == false
+            && request.resource.data.archivedBy == ''
+            && request.resource.data.archivedAt == null
+          )
+          || (
+            changed.hasOnly(['archived', 'archivedBy', 'archivedAt', 'updatedBy', 'updatedAt'])
+            && request.resource.data.archived == true
+            && request.resource.data.archivedBy == request.auth.uid
+            && request.resource.data.archivedAt == request.time
+          )
+        );
+    }
+
     function contactGrant(schoolId, permission) {
       return isGlobalAdmin()
         || currentUser().role in ['principal', 'institution_manager']
@@ -2721,6 +2804,27 @@ service cloud.firestore {
           && safePrivateContactUpdate(userId);
         allow delete: if false;
       }
+
+      match /communicationTemplates/{templateId} {
+        allow read: if signedIn()
+          && request.auth.uid == userId
+          && !isPlatformAdmin()
+          && isSchoolMember(resource.data.schoolId);
+        allow create: if signedIn()
+          && request.auth.uid == userId
+          && canCreateCommunication(request.resource.data.schoolId)
+          && validCommunicationTemplateCreate(
+            request.resource.data,
+            request.resource.data.schoolId,
+            userId,
+            'private'
+          );
+        allow update: if signedIn()
+          && request.auth.uid == userId
+          && canCreateCommunication(resource.data.schoolId)
+          && safeCommunicationTemplateUpdate(resource.data.schoolId, userId, 'private');
+        allow delete: if false;
+      }
     }
 
     match /schoolPublicDirectory/{schoolId} {
@@ -2761,6 +2865,17 @@ service cloud.firestore {
           && validInstitutionalContactCreate(schoolId, request.resource.data);
         allow update: if directoryId == 'institutional'
           && safeInstitutionalContactUpdate(schoolId);
+        allow delete: if false;
+      }
+
+      match /communicationTemplates/{templateId} {
+        allow read: if canReadCommunicationTemplates(schoolId)
+          && resource.data.schoolId == schoolId
+          && resource.data.scope == 'institutional';
+        allow create: if canManageCommunicationTemplates(schoolId)
+          && validCommunicationTemplateCreate(request.resource.data, schoolId, '', 'institutional');
+        allow update: if canManageCommunicationTemplates(schoolId)
+          && safeCommunicationTemplateUpdate(schoolId, '', 'institutional');
         allow delete: if false;
       }
 

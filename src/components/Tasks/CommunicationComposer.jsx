@@ -21,7 +21,9 @@ import {
   subscribeContacts,
 } from '../../services/firestore/contactRepository';
 import { communicationContextLabel } from '../../utils/communicationContext';
+import CommunicationAgentPanel from './CommunicationAgentPanel';
 import CommunicationFollowUpPanel from './CommunicationFollowUpPanel';
+import CommunicationTemplatesPanel from './CommunicationTemplatesPanel';
 import './CommunicationComposer.css';
 
 function dateAfter(days) {
@@ -128,6 +130,31 @@ export default function CommunicationComposer({ schoolId, user, task, staff = []
 
   function change(field, value) {
     setForm(previous => ({ ...previous, [field]: value }));
+  }
+
+  function applyAgentProposal(proposal) {
+    setForm(previous => ({
+      ...previous,
+      to: proposal.recipients?.join('; ') || previous.to,
+      cc: proposal.cc?.join('; ') || '',
+      bcc: proposal.bcc?.join('; ') || '',
+      subject: proposal.subject || previous.subject,
+      body: proposal.body || previous.body,
+      summary: proposal.summary || previous.summary,
+      nextFollowUpAt: proposal.followUpAt || previous.nextFollowUpAt,
+      priority: proposal.priority === 'normal' ? 'medium' : (proposal.priority || previous.priority),
+      completionCriteria: proposal.completionCriteria || previous.completionCriteria,
+    }));
+    setNotice('הצעת הסוכן הוחלה על הטיוטה. היא עדיין לא נשמרה ולא נשלחה.');
+  }
+
+  function applyTemplate(template) {
+    setForm(previous => ({
+      ...previous,
+      subject: template.subject || previous.subject,
+      body: template.body || previous.body,
+    }));
+    setNotice('התבנית הוחלה על הטיוטה. ניתן לערוך אותה לפני השמירה.');
   }
 
   function validate() {
@@ -309,6 +336,10 @@ export default function CommunicationComposer({ schoolId, user, task, staff = []
             <div className="communication-context-note"><strong>מקושר אל:</strong> {sourceLabel(task)} — {task.title}</div>
             {context.type === 'student' && <div className="communication-student-warning"><ShieldCheck size={17} /><span><strong>הטיוטה קשורה לתלמיד.</strong> אין להעתיק אליה מספר זהות, ציונים, מסמכים, מידע רפואי או הערות אישיות. המערכת לא מוסיפה מידע כזה אוטומטית.</span></div>}
             <div className="communication-privacy-note">פתיחת חלון המייל אינה מאשרת שהמייל נשלח. לפני השמירה מוצג למי תהיה גישה למעקב בתוך Zoko.</div>
+            <div className={`communication-compose-workspace${communicationPermissions.useAgent ? ' communication-compose-workspace--agent' : ''}`}>
+            {communicationPermissions.useAgent && <CommunicationAgentPanel schoolId={schoolId} task={task} form={form} contacts={contacts} staff={staff} onApply={applyAgentProposal} />}
+            <div className="communication-structured-fields">
+            <CommunicationTemplatesPanel db={db} schoolId={schoolId} userId={user.uid} currentForm={form} canManageInstitutional={communicationPermissions.manageTemplates === true} onApply={applyTemplate} onSuccess={setNotice} onError={onError} />
             <div className="form-group"><label>אל</label><input value={form.to} onChange={event => change('to', event.target.value)} placeholder="name@example.com; second@example.com" dir="ltr" autoFocus />{contacts.length > 0 && <select className="communication-contact-picker" value="" onChange={event => addKnownContact(event.target.value)}><option value="">הוספת נמען מאנשי הקשר...</option>{contacts.filter(contact => !contact.archived && contact.primaryEmail).map(contact => <option key={`${contact.scope}:${contact.id}`} value={`${contact.scope}:${contact.id}`}>{contact.fullName} — {contact.primaryEmail}{contact.scope === CONTACT_SCOPE.PRIVATE ? ' (פרטי)' : ''}</option>)}</select>}</div>
             <div className="form-row"><div className="form-group"><label>עותק</label><input value={form.cc} onChange={event => change('cc', event.target.value)} dir="ltr" /></div><div className="form-group"><label>עותק מוסתר</label><input value={form.bcc} onChange={event => change('bcc', event.target.value)} dir="ltr" /></div></div>
             {unknownRecipients.length > 0 && <div className="communication-new-recipients"><strong>נמענים שאינם שמורים</strong>{unknownRecipients.map(email => <div key={email}><span dir="ltr">{email}</span><div>{contactPermissions.create && <button type="button" onClick={() => setContactDraft({ email, scope: CONTACT_SCOPE.INSTITUTIONAL, fullName: '', organization: '', category: '' })}><BookmarkPlus size={13} /> מוסדי</button>}<button type="button" onClick={() => setContactDraft({ email, scope: CONTACT_SCOPE.PRIVATE, fullName: '', organization: '', category: '' })}><BookmarkPlus size={13} /> פרטי שלי</button><span>או השתמשו הפעם בלבד</span></div></div>)}</div>}
@@ -322,6 +353,8 @@ export default function CommunicationComposer({ schoolId, user, task, staff = []
             {files.length > 0 && <fieldset className="communication-files"><legend>קבצים קיימים ב־Zoko — עד 20</legend>{files.filter(file => !file.trashedAt && !file.deletedAt).slice(0, 100).map(file => <label key={file.id}><input type="checkbox" checked={linkedFileIds.includes(file.id)} onChange={event => setLinkedFileIds(previous => event.target.checked ? [...new Set([...previous, file.id])].slice(0, 20) : previous.filter(id => id !== file.id))} /><FileText size={13} /> {file.name || 'קובץ'}</label>)}</fieldset>}
             {linkedFileIds.length > 0 && <div className="communication-attachment-note"><strong>רשימת צירוף ידנית:</strong> `mailto` אינו מצרף קבצים. יש לצרף ידנית {linkedFileIds.length} קבצים בחלון המייל; במעקב נשמרים רק מזהי הקבצים המורשים.</div>}
             <div className="form-group communication-visibility"><label>מי יוכל לראות את המעקב בתוך Zoko?</label><select value={visibility} onChange={event => setVisibility(event.target.value)} disabled={context.type === 'student'}><option value="private">רק אני</option>{context.participantIds?.length > 0 && <option value="participants">אני והמשתתפים המקושרים ({context.participantIds.length})</option>}{context.type === 'team' && context.teamId && <option value="team">חברי הצוות המקושר</option>}</select><small>{context.type === 'student' ? 'מעקב הקשור לתלמיד נשמר פרטי כברירת אבטחה מחייבת.' : visibility === 'private' ? 'רק יוצר המעקב.' : 'רק חברי המוסד שנכללו בהקשר המקורי.'}</small></div>
+            </div>
+            </div>
             <div className="communication-copy-actions"><button type="button" className="btn btn-secondary btn-sm" onClick={() => copy(draft.body, 'תוכן הטיוטה')}><Clipboard size={14} /> העתקת תוכן</button><button type="button" className="btn btn-secondary btn-sm" onClick={() => copy(draft.subject, 'הנושא')}><Clipboard size={14} /> העתקת נושא</button><button type="button" className="btn btn-secondary btn-sm" onClick={() => copy([...draft.to, ...draft.cc, ...draft.bcc].join('; '), 'הנמענים')}><Clipboard size={14} /> העתקת נמענים</button></div>
             {notice && <p className="communication-notice" role="status">{notice}</p>}
             <footer className="form-actions"><button className="btn btn-primary" disabled={saving}><ExternalLink size={16} /> {saving ? 'שומר ופותח...' : 'פתיחת טיוטת מייל'}</button><button className="btn btn-secondary" type="button" onClick={onClose}>ביטול</button></footer>

@@ -11,6 +11,7 @@ import {
   forumAccessRequestSchema,
   outcomeDefinitionSchema,
   manualOutcomeApprovalSchema,
+  communicationAgentRequestSchema,
 } from '../src/validation/schemas.js';
 
 test('regular staff creation cannot request global_admin', () => {
@@ -138,5 +139,29 @@ test('CV snapshot validation is strict and keeps tenant ownership outside the sn
   assert.throws(() => createCvDocumentSchema.parse({
     schoolId: 'school_a', studentId: 'student_a', title: 'קורות חיים',
     snapshot: { ...snapshot, schoolId: 'school_b' },
+  }));
+});
+
+test('communication agent input is bounded and rejects client-supplied authority', () => {
+  const valid = {
+    schoolId: 'school_a',
+    request: 'נסח מייל קצר לספק',
+    operation: 'compose',
+    language: 'he',
+    style: 'respectful',
+    context: { type: 'task', id: 'task_a', label: 'משימה א' },
+    contactRefs: [],
+    assigneeIds: [],
+    currentDraft: {
+      recipients: [], cc: [], bcc: [], subject: '', body: '', summary: '',
+      priority: 'normal', followUpAt: null, completionCriteria: '',
+    },
+  };
+  assert.equal(communicationAgentRequestSchema.parse(valid).schoolId, 'school_a');
+  assert.throws(() => communicationAgentRequestSchema.parse({ ...valid, role: 'global_admin' }));
+  assert.throws(() => communicationAgentRequestSchema.parse({ ...valid, request: 'x'.repeat(4001) }));
+  assert.throws(() => communicationAgentRequestSchema.parse({
+    ...valid,
+    contactRefs: [{ id: '../other-school', scope: 'institutional' }],
   }));
 });

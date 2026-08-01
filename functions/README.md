@@ -22,6 +22,12 @@ npm test
 
 Use the Firebase Emulator Suite for integration tests. Do not run Admin scripts or deploy Functions merely to test local code.
 
+## Communication drafting agent
+
+`draftCommunicationWithAgent` is an optional server-only callable. It requires Firebase Auth, App Check, an active school membership and the `communications.useAgent` permission. The model receives only the bounded context, approved contact fields and same-school assignee labels selected by the server. It cannot send mail, create a follow-up or write a draft; the user must explicitly apply the proposal and then use the existing manual confirmation flow.
+
+Configure `OPENAI_API_KEY` only as a Functions secret and optionally set `OPENAI_COMMUNICATION_MODEL` as a server parameter. Never expose either value through a `VITE_` variable or commit it. If the secret or callable is unavailable, the client fails closed and manual drafting remains usable. Enabling this callable requires an intentionally deployed backend and the applicable Firebase/OpenAI billing; a GitHub Pages deployment alone does not activate it.
+
 ## Deployment
 
 Deployment is intentionally not automated from a developer workstation. Follow `docs/security/operations.md` and deploy to the approved staging project first. Production deployment requires an explicit approval after backups, emulator tests, staging verification, and a migration dry run.

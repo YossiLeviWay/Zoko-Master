@@ -52,6 +52,8 @@ VITE_FIREBASE_APPCHECK_SITE_KEY=...
 
 App Check נאכף ב־Cloud Functions. לפני שימוש בסביבת staging או production יש לרשום אפליקציית Web עם reCAPTCHA Enterprise ב־Firebase Console ולהגדיר את ה־site key כמשתנה סביבה; אין לשמור מפתחות שרת או debug tokens בריפו.
 
+סוכן ניסוח המייל הוא יכולת שרת אופציונלית: הוא מחזיר הצעה מובנית בלבד ואינו שולח מייל, שומר טיוטה או יוצר מעקב ללא אישור מפורש של המשתמש. מפתח ספק ה־AI נשמר רק כ־Functions secret; בהיעדר Backend/secret מתאים הממשק נשאר במצב ידני בטוח. הוראות ההפעלה נמצאות ב־[`functions/README.md`](functions/README.md).
+
 ## בדיקות מקומיות
 
 ```bash

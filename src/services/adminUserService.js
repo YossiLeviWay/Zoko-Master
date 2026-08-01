@@ -18,6 +18,7 @@ export const removeSchoolMembership = callable('removeSchoolMembership');
 export const requestStaffPasswordReset = callable('requestStaffPasswordReset');
 export const updateTeamMembership = callable('updateTeamMembership');
 export const createServerNotifications = callable('createNotifications');
+export const draftCommunicationWithAgent = callable('draftCommunicationWithAgent');
 export const createSchool = callable('createSchool');
 export const updateSchool = callable('updateSchool');
 export const deleteSchool = callable('deleteSchool');
