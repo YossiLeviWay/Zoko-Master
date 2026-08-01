@@ -36,6 +36,22 @@ test('personal task normalization keeps private scope and safe defaults', () => 
   assert.deepEqual(task.assigneeIds, []);
 });
 
+test('email follow-up fields survive personal task normalization', () => {
+  const task = normalizePersonalTask({
+    id: 'mail_follow_up',
+    title: 'מעקב מייל',
+    workflowType: 'external_email_followup',
+    communicationStatus: 'awaiting_send',
+    communicationDraftId: 'draft_1',
+    communicationTrackingId: 'MAIL-draft_1',
+    nextFollowUpAt: '2026-08-04',
+  });
+  assert.equal(task.workflowType, 'external_email_followup');
+  assert.equal(task.communicationStatus, 'awaiting_send');
+  assert.equal(task.communicationDraftId, 'draft_1');
+  assert.equal(task.nextFollowUpAt, '2026-08-04');
+});
+
 test('existing task normalization keeps optional initiative links without creating another task', () => {
   const task = normalizeOrganizationTask({
     id: 'linked_1', title: 'Linked', initiativeId: 'initiative_1', milestoneId: 'milestone_1',

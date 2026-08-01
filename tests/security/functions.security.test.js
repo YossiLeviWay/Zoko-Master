@@ -17,6 +17,7 @@ import { createForumThreadHandler, upsertForumFolderHandler } from '../../functi
 import {
   assignCustomRoleHandler,
   createCustomRoleHandler,
+  updateCustomRoleHandler,
 } from '../../functions/src/callables/roles.js';
 import {
   archivePersonalFileItemHandler,
@@ -132,6 +133,82 @@ test('school-scoped institution manager can grant calendar editing to staff', as
   const permissions = (await adminDb.doc('users/staff_a').get()).data().permissions;
   assert.equal(permissions.calendar_edit, true);
   assert.equal(permissions['calendar.edit'], true);
+});
+
+test('active institution-manager membership authorizes role management only in its school', async () => {
+  await seedUser('membership_manager', '', 'viewer', { schoolId: '', schoolIds: [] });
+  await seedUser('staff_a', SCHOOL_A, 'viewer');
+  await adminAuth.createUser({ uid: 'staff_a', email: 'membership-role-target@example.test' });
+  createdAuthUsers.add('staff_a');
+  await adminDb.doc(`schools/${SCHOOL_A}/memberships/membership_manager`).set({
+    schoolId: SCHOOL_A,
+    userId: 'membership_manager',
+    role: 'institution_manager',
+    status: 'active',
+  });
+
+  const created = await createCustomRoleHandler(actorRequest('membership_manager', {
+    schoolId: SCHOOL_A,
+    name: 'רכז מוסדי',
+    description: 'תפקיד שנוצר על ידי מנהל המוסד',
+    permissions: { 'students.view': true, 'students.update': true },
+    delegatedPermissionKeys: ['students.view'],
+    accessScope: { type: 'school', classIds: [] },
+  }));
+  assert.ok(created.roleId);
+
+  await updateCustomRoleHandler(actorRequest('membership_manager', {
+    schoolId: SCHOOL_A,
+    roleId: created.roleId,
+    name: 'רכז מוסדי מעודכן',
+    description: '',
+    permissions: { 'students.view': true },
+    delegatedPermissionKeys: [],
+    accessScope: { type: 'school', classIds: [] },
+  }));
+  assert.equal(
+    (await adminDb.doc(`schools/${SCHOOL_A}/roleDefinitions/${created.roleId}`).get()).data().name,
+    'רכז מוסדי מעודכן',
+  );
+
+  await assignCustomRoleHandler(actorRequest('membership_manager', {
+    schoolId: SCHOOL_A,
+    roleId: created.roleId,
+    userId: 'staff_a',
+    action: 'assign',
+    confirmSensitiveChange: true,
+  }));
+  assert.deepEqual(
+    (await adminDb.doc('users/staff_a').get()).data().customRoleAssignments[SCHOOL_A],
+    [created.roleId],
+  );
+
+  await assert.rejects(createCustomRoleHandler(actorRequest('membership_manager', {
+    schoolId: SCHOOL_B,
+    name: 'אסור',
+    description: '',
+    permissions: { 'students.view': true },
+    delegatedPermissionKeys: [],
+    accessScope: { type: 'school', classIds: [] },
+  })), error => error.code === 'permission-denied');
+});
+
+test('ordinary active membership does not grant unrestricted role management', async () => {
+  await seedUser('membership_viewer', '', 'viewer', { schoolId: '', schoolIds: [] });
+  await adminDb.doc(`schools/${SCHOOL_A}/memberships/membership_viewer`).set({
+    schoolId: SCHOOL_A,
+    userId: 'membership_viewer',
+    role: 'viewer',
+    status: 'active',
+  });
+  await assert.rejects(createCustomRoleHandler(actorRequest('membership_viewer', {
+    schoolId: SCHOOL_A,
+    name: 'אסור',
+    description: '',
+    permissions: { 'students.view': true },
+    delegatedPermissionKeys: [],
+    accessScope: { type: 'school', classIds: [] },
+  })), error => error.code === 'permission-denied');
 });
 
 test('school manager can create forum folders and discussions without a delegate membership', async () => {

@@ -1,20 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Archive,
+  ArrowDown,
   ArrowRight,
+  ArrowUp,
   CalendarRange,
   CheckCircle2,
   CircleAlert,
   Copy,
   FileText,
   Flag,
-  Link2,
   MessageSquarePlus,
   MoreHorizontal,
   Pencil,
   Plus,
   Save,
   Target,
+  Trash2,
   Users,
   X,
 } from 'lucide-react';
@@ -23,11 +25,13 @@ import { createNotifications } from '../../utils/notifications';
 import {
   addInitiativeUpdate,
   addInitiativeUpdateComment,
+  archiveMilestone,
   archiveInitiative,
   createInitiative,
   createMilestone,
   duplicateInitiative,
   recomputeInitiativeSummary,
+  reorderMilestones,
   saveInitiativeTemplate,
   setInitiativeHealthOverride,
   subscribeInitiativeDetails,
@@ -115,8 +119,6 @@ export default function InitiativePanel({
   initialInitiativeId,
   attentionOnly,
   onClearAttention,
-  onAddTask,
-  onLinkTask,
   onDetailChange,
   onMessage,
   onError,
@@ -128,11 +130,11 @@ export default function InitiativePanel({
   const [showMilestone, setShowMilestone] = useState(false);
   const [editingMilestoneId, setEditingMilestoneId] = useState('');
   const [showUpdate, setShowUpdate] = useState(false);
-  const [showLinkTask, setShowLinkTask] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [showMore, setShowMore] = useState(false);
+  const [milestoneSort, setMilestoneSort] = useState('date');
   const [initiativeForm, setInitiativeForm] = useState(() => emptyInitiativeForm(academicYears[0]));
   const [milestoneForm, setMilestoneForm] = useState(emptyMilestone);
   const [updateForm, setUpdateForm] = useState(emptyUpdate);
@@ -142,6 +144,7 @@ export default function InitiativePanel({
   const activeInitiative = initiatives.find(item => item.id === activeId) || null;
   const canCreate = permissions['initiatives.create'];
   const canEdit = permissions['initiatives.edit'] || (activeInitiative?.ownerId === actor.uid && canCreate);
+  const canManageParticipants = permissions['initiatives.manageParticipants'];
   const canCreateMilestones = permissions['initiatives.createMilestones'] || canEdit;
   const canApproveMilestones = permissions['initiatives.approveMilestones'];
   const canChangeHealth = permissions['initiatives.changeHealth'];
@@ -185,11 +188,29 @@ export default function InitiativePanel({
     : 'on_track', [activeInitiative, details.milestones, details.updates]);
   const nextMilestone = useMemo(() => nextInitiativeMilestone(details.milestones), [details.milestones]);
   const linkedTasks = useMemo(() => tasks.filter(task => task.initiativeId === activeId), [activeId, tasks]);
+  const sortedMilestones = useMemo(() => {
+    const priorityRank = { high: 0, medium: 1, low: 2 };
+    return [...details.milestones].sort((left, right) => {
+      if (milestoneSort === 'priority') {
+        const rank = (priorityRank[left.priority] ?? 1) - (priorityRank[right.priority] ?? 1);
+        if (rank) return rank;
+      }
+      if (milestoneSort === 'date' || milestoneSort === 'priority') {
+        const leftDate = milestoneDate(left) || '9999-12-31';
+        const rightDate = milestoneDate(right) || '9999-12-31';
+        if (leftDate !== rightDate) return leftDate.localeCompare(rightDate);
+      }
+      return Number(left.order || 0) - Number(right.order || 0);
+    });
+  }, [details.milestones, milestoneSort]);
   const initiativeStaff = useMemo(() => {
     if (!activeInitiative) return [];
-    const allowed = new Set([activeInitiative.ownerId, ...(activeInitiative.memberIds || [])]);
+    const teamMembers = teams
+      .filter(team => (activeInitiative.teamIds || []).includes(team.id))
+      .flatMap(team => Array.isArray(team.memberIds) ? team.memberIds : []);
+    const allowed = new Set([activeInitiative.ownerId, ...(activeInitiative.memberIds || []), ...teamMembers]);
     return staff.filter(item => allowed.has(item.uid || item.id));
-  }, [activeInitiative, staff]);
+  }, [activeInitiative, staff, teams]);
 
   const displayedInitiatives = useMemo(() => initiatives.filter(item => {
     if (showArchived) return item.status === 'archived';
@@ -208,6 +229,21 @@ export default function InitiativePanel({
       type: 'task',
       link: `/tasks?initiative=${initiativeId}`,
     });
+  }
+
+  function membersFromTeams(teamIds = []) {
+    return teams
+      .filter(team => teamIds.includes(team.id))
+      .flatMap(team => Array.isArray(team.memberIds) ? team.memberIds : []);
+  }
+
+  function initiativeRecipients(initiative = activeInitiative) {
+    if (!initiative) return [];
+    return [...new Set([
+      initiative.ownerId,
+      ...(initiative.memberIds || []),
+      ...membersFromTeams(initiative.teamIds || []),
+    ].filter(Boolean))];
   }
 
   function selectTemplate(templateId) {
@@ -276,9 +312,14 @@ export default function InitiativePanel({
       }
       const recipients = [milestoneForm.ownerId, milestoneForm.approverId, ...milestoneForm.participantIds];
       if (!editingMilestoneId) {
-        await notifyPeople(recipients, `אבן דרך חדשה: ${milestoneForm.title}`, activeInitiative.title);
-      } else if (milestoneDate(previous) !== milestoneDate(milestoneForm)) {
-        await notifyPeople(recipients, `מועד אבן הדרך השתנה: ${milestoneForm.title}`, dateLabel(milestoneDate(milestoneForm)));
+        await notifyPeople([...initiativeRecipients(), ...recipients], `אבן דרך חדשה: ${milestoneForm.title}`, activeInitiative.title);
+      } else {
+        const dateChanged = milestoneDate(previous) !== milestoneDate(milestoneForm);
+        await notifyPeople(
+          [...initiativeRecipients(), ...recipients, ...(previous?.participantIds || []), previous?.ownerId, previous?.approverId],
+          dateChanged ? `מועד אבן הדרך השתנה: ${milestoneForm.title}` : `אבן הדרך עודכנה: ${milestoneForm.title}`,
+          dateChanged ? dateLabel(milestoneDate(milestoneForm)) : activeInitiative.title,
+        );
       }
       setShowMilestone(false);
       setEditingMilestoneId('');
@@ -310,9 +351,11 @@ export default function InitiativePanel({
       if (canEdit) {
         await recomputeInitiativeSummary({ db, schoolId, initiative: activeInitiative, milestones: nextMilestones, updates: details.updates, actor });
       }
-      if (status === 'completed') {
-        await notifyPeople([item.approverId], `אבן הדרך הושלמה: ${item.title}`, activeInitiative.title);
-      }
+      await notifyPeople(
+        [...initiativeRecipients(), item.ownerId, item.approverId, ...(item.participantIds || [])],
+        `סטטוס אבן הדרך השתנה: ${item.title}`,
+        MILESTONE_STATUSES[status],
+      );
       onMessage('אבן הדרך עודכנה.');
     } catch (error) {
       onError(error?.message === 'EVIDENCE_REQUIRED' ? 'אי אפשר להשלים ללא ראיית ביצוע או טקסט מסכם.' : 'לא ניתן לעדכן את אבן הדרך.');
@@ -327,10 +370,8 @@ export default function InitiativePanel({
     try {
       await addInitiativeUpdate({ db, schoolId, initiativeId: activeId, actor, input: updateForm });
       await notifyPeople(
-        updateForm.type === 'blocker'
-          ? [updateForm.blockerOwnerId, ...updateForm.mentionedUserIds]
-          : updateForm.mentionedUserIds,
-        updateForm.type === 'blocker' ? `חסם חדש: ${activeInitiative.title}` : `אזכור חדש: ${activeInitiative.title}`,
+        [...initiativeRecipients(), updateForm.blockerOwnerId, ...updateForm.mentionedUserIds],
+        updateForm.type === 'blocker' ? `חסם חדש: ${activeInitiative.title}` : `עדכון חדש: ${activeInitiative.title}`,
         updateForm.text.slice(0, 120),
       );
       setUpdateForm(emptyUpdate());
@@ -348,7 +389,9 @@ export default function InitiativePanel({
     if (!closingForm.summary.trim()) return;
     setSaving(true);
     try {
+      const recipients = initiativeRecipients();
       await archiveInitiative({ db, schoolId, initiativeId: activeId, actor, closing: closingForm });
+      await notifyPeople(recipients, `התכנית נסגרה: ${activeInitiative.title}`, closingForm.summary.trim().slice(0, 120));
       setShowArchive(false);
       setClosingForm(emptyClosing());
       setActiveId('');
@@ -365,6 +408,12 @@ export default function InitiativePanel({
     if (!text?.trim()) return;
     try {
       await addInitiativeUpdateComment({ db, schoolId, initiativeId: activeId, updateId, actor, text });
+      const update = details.updates.find(item => item.id === updateId);
+      await notifyPeople(
+        [update?.authorId, ...(update?.mentionedUserIds || [])],
+        `תגובה חדשה: ${activeInitiative.title}`,
+        text.trim().slice(0, 120),
+      );
       onMessage('התגובה נוספה לעדכון.');
     } catch {
       onError('לא ניתן להוסיף תגובה לעדכון.');
@@ -385,6 +434,14 @@ export default function InitiativePanel({
     const formData = new FormData(event.currentTarget);
     const ownerId = String(formData.get('ownerId') || activeInitiative.ownerId || actor.uid);
     const owner = staff.find(item => (item.uid || item.id) === ownerId);
+    const memberIds = canManageParticipants
+      ? formData.getAll('memberIds').map(String)
+      : (activeInitiative.memberIds || []);
+    const teamIds = canManageParticipants
+      ? formData.getAll('teamIds').map(String)
+      : (activeInitiative.teamIds || []);
+    const previousRecipients = initiativeRecipients();
+    const nextRecipients = [...new Set([ownerId, ...memberIds, ...membersFromTeams(teamIds)].filter(Boolean))];
     setSaving(true);
     try {
       await updateInitiative({
@@ -401,9 +458,17 @@ export default function InitiativePanel({
           nextAction: String(formData.get('nextAction') || ''),
           ownerId,
           ownerName: owner?.fullName || activeInitiative.ownerName || actor.fullName,
+          memberIds,
+          teamIds,
         },
         activityDetails: 'פרטי התכנית עודכנו',
       });
+      const added = nextRecipients.filter(id => !previousRecipients.includes(id));
+      const removed = previousRecipients.filter(id => !nextRecipients.includes(id));
+      const retained = nextRecipients.filter(id => previousRecipients.includes(id));
+      await notifyPeople(added, `צורפת לתכנית: ${String(formData.get('title') || activeInitiative.title)}`, 'התכנית זמינה בפאנל המשימות.');
+      await notifyPeople(removed, `השתתפותך בתכנית הסתיימה: ${activeInitiative.title}`, 'התכנית לא תופיע עוד ברשימת התכניות שלך.');
+      await notifyPeople(retained, `פרטי התכנית עודכנו: ${activeInitiative.title}`, 'עודכנו פרטים, תאריכים או משתתפים בתכנית.');
       setShowEdit(false);
       onMessage('פרטי התכנית עודכנו.');
     } catch {
@@ -421,6 +486,7 @@ export default function InitiativePanel({
     if (!reason?.trim()) return;
     try {
       await setInitiativeHealthOverride({ db, schoolId, initiativeId: activeId, actor, health: choice, reason });
+      await notifyPeople(initiativeRecipients(), `מצב התכנית השתנה: ${activeInitiative.title}`, `${INITIATIVE_HEALTH[choice]} — ${reason.trim().slice(0, 100)}`);
       onMessage('מצב התכנית עודכן עם נימוק ונרשם ביומן הפעילות.');
     } catch {
       onError('לא ניתן לשנות את מצב התכנית.');
@@ -442,9 +508,40 @@ export default function InitiativePanel({
     }
   }
 
-  function requestTask(context) {
-    setActiveId('');
-    onAddTask(context);
+  async function handleArchiveMilestone(item) {
+    if (!window.confirm(`להסיר את אבן הדרך "${item.title}" מהתכנית? המידע יישמר ביומן ולא יוצג עוד.`)) return;
+    setSaving(true);
+    try {
+      await archiveMilestone({ db, schoolId, initiativeId: activeId, milestone: item, actor });
+      await notifyPeople(
+        [...initiativeRecipients(), item.ownerId, item.approverId, ...(item.participantIds || [])],
+        `אבן דרך הוסרה: ${item.title}`,
+        activeInitiative.title,
+      );
+      onMessage('אבן הדרך הוסרה מהתצוגה ונשמרה ביומן הפעילות.');
+    } catch {
+      onError('לא ניתן להסיר את אבן הדרך.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function moveMilestone(item, direction) {
+    const ordered = [...details.milestones].sort((left, right) => Number(left.order || 0) - Number(right.order || 0));
+    const index = ordered.findIndex(value => value.id === item.id);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= ordered.length) return;
+    [ordered[index], ordered[target]] = [ordered[target], ordered[index]];
+    setSaving(true);
+    try {
+      await reorderMilestones({ db, schoolId, initiativeId: activeId, milestones: ordered, actor });
+      await notifyPeople(initiativeRecipients(), `סדר אבני הדרך עודכן: ${activeInitiative.title}`, 'סדר הביצוע הידני בתכנית השתנה.');
+      onMessage('סדר אבני הדרך עודכן.');
+    } catch {
+      onError('לא ניתן לשנות את סדר אבני הדרך.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   if (activeInitiative) {
@@ -470,49 +567,49 @@ export default function InitiativePanel({
       </div>
 
       <header className="initiative-hero">
-        <div><span className={`initiative-health initiative-health--${health}`}>{INITIATIVE_HEALTH[health]}</span><h2>{activeInitiative.title}</h2><p>{activeInitiative.description || 'לא נוסף תיאור.'}</p></div>
+        <div><span className="initiative-identity"><Flag size={14} /> תכנית ארוכת טווח · {activeInitiative.academicYearLabel}</span><span className={`initiative-health initiative-health--${health}`}>{INITIATIVE_HEALTH[health]}</span><h2>{activeInitiative.title}</h2><p>{activeInitiative.description || 'לא נוסף תיאור.'}</p></div>
         <div className="initiative-hero-actions">
-          {canCreateMilestones && <button className="btn btn-secondary" onClick={() => { setEditingMilestoneId(''); setMilestoneForm(emptyMilestone(details.milestones.length)); setShowMilestone(true); }}><Flag size={15} /> הוספת אבן דרך</button>}
-          {canEdit && <button className="btn btn-secondary" onClick={() => requestTask({ initiativeId: activeId, milestoneId: '' })}><Plus size={15} /> הוספת משימה</button>}
-          <button className="btn btn-primary" onClick={() => setShowUpdate(true)}><MessageSquarePlus size={15} /> הוספת עדכון</button>
+          {canCreateMilestones && <button className="btn btn-primary" onClick={() => { setEditingMilestoneId(''); setMilestoneForm(emptyMilestone(details.milestones.length)); setShowMilestone(true); }}><Flag size={15} /> אבן דרך חדשה</button>}
+          <button className="btn btn-secondary" onClick={() => setShowUpdate(true)}><MessageSquarePlus size={15} /> פרסום עדכון</button>
         </div>
       </header>
 
       <div className="initiative-overview-grid">
         <article><Target size={18} /><span>התקדמות</span><strong>{calculated.percent === null ? '—' : `${calculated.percent}%`}</strong><small>{calculated.label}</small></article>
         <article><CalendarRange size={18} /><span>טווח</span><strong>{dateLabel(activeInitiative.startDate)} — {dateLabel(activeInitiative.endDate)}</strong><small>{activeInitiative.academicYearLabel}</small></article>
-        <article><Users size={18} /><span>מוביל</span><strong>{activeInitiative.ownerName || staff.find(item => (item.uid || item.id) === activeInitiative.ownerId)?.fullName || 'לא הוגדר'}</strong><small>{activeInitiative.memberIds?.length || 0} משתתפים</small></article>
+        <article><Users size={18} /><span>מוביל</span><strong>{activeInitiative.ownerName || staff.find(item => (item.uid || item.id) === activeInitiative.ownerId)?.fullName || 'לא הוגדר'}</strong><small>{initiativeRecipients().filter(id => id !== activeInitiative.ownerId).length} משתתפים</small></article>
         <article><Flag size={18} /><span>הפעולה הבאה</span><strong>{activeInitiative.nextAction || nextMilestone?.title || 'לא הוגדרה'}</strong><small>{nextMilestone ? dateLabel(milestoneDate(nextMilestone)) : ''}</small></article>
       </div>
 
       {openBlockers.length > 0 && <div className="initiative-blocker-banner"><CircleAlert size={18} /><strong>{openBlockers.length} חסמים פתוחים</strong><span>{openBlockers[0].text}</span></div>}
 
       <section className="initiative-section">
-        <div className="initiative-section-title"><div><h3>אבני דרך</h3><p>תחנות מרכזיות לאורך התכנית</p></div></div>
+        <div className="initiative-section-title"><div><h3>אבני דרך</h3><p>תחנות מרכזיות לאורך התכנית — ניתן למיין לפי מועד, חשיבות או סדר ידני</p></div><label className="initiative-sort-control">סידור <select value={milestoneSort} onChange={event => setMilestoneSort(event.target.value)}><option value="date">לפי תאריך</option><option value="priority">לפי חשיבות</option><option value="manual">סדר ידני</option></select></label></div>
         <div className="milestone-timeline">
-          {details.milestones.map((item, index) => {
+          {sortedMilestones.map((item, index) => {
             const date = milestoneDate(item);
             const conflict = findHolidayConflict(date, holidays);
             const suggestedDate = conflict ? nextAvailableSchoolDate(date, holidays) : '';
             const taskCount = linkedTasks.filter(task => task.milestoneId === item.id);
-            return <article className={`milestone-card milestone-card--${item.status}`} key={item.id}>
+            const manualIndex = [...details.milestones].sort((left, right) => Number(left.order || 0) - Number(right.order || 0)).findIndex(value => value.id === item.id);
+            return <article className={`milestone-card milestone-card--${item.status} milestone-card--priority-${item.priority || 'medium'}`} key={item.id}>
               <div className="milestone-index">{index + 1}</div>
               <div className="milestone-content"><div className="milestone-title-line"><h4>{item.title}</h4>{item.dateType === 'proposed' && <span className="milestone-proposed">מוצע</span>}</div>
                 <p>{item.description || item.requiredOutput || 'ללא תיאור'}</p>
-                <div className="milestone-meta"><span>{MILESTONE_DATE_TYPES[item.dateType] || 'תאריך'}: {dateLabel(date)}</span><span>משקל: {item.weight || 1}</span><span>{taskCount.filter(task => task.status === 'done' || task.status === 'completed').length} מתוך {taskCount.length} משימות הושלמו</span></div>
+                <div className="milestone-meta"><span>{MILESTONE_DATE_TYPES[item.dateType] || 'תאריך'}: {dateLabel(date)}</span><span>חשיבות: {item.priority === 'high' ? 'קריטית' : item.priority === 'low' ? 'רגילה' : 'חשובה'}</span><span>משקל: {item.weight || 1}</span>{taskCount.length > 0 && <span>{taskCount.filter(task => task.status === 'done' || task.status === 'completed').length} מתוך {taskCount.length} משימות קיימות הושלמו</span>}</div>
                 {conflict && <div className="milestone-warning"><CircleAlert size={14} /> התאריך חל ב־{conflict.name}. היום הזמין הקרוב לפי לוח החופשות: {dateLabel(suggestedDate)}. התאריך לא ישתנה ללא אישור.</div>}
               </div>
-              <div className="milestone-actions"><select value={item.status} disabled={!(canEdit || (canApproveMilestones && item.approverId === actor.uid)) || saving} onChange={event => changeMilestoneStatus(item, event.target.value)}>{Object.entries(MILESTONE_STATUSES).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select>{canEdit && <button className="icon-btn" onClick={() => { setEditingMilestoneId(item.id); setMilestoneForm({ ...emptyMilestone(item.order), ...item }); setShowMilestone(true); }} aria-label={`עריכת ${item.title}`}><Pencil size={14} /></button>}<button className="btn btn-secondary btn-sm" onClick={() => requestTask({ initiativeId: activeId, milestoneId: item.id })}><Plus size={13} /> משימה</button></div>
+              <div className="milestone-actions"><select value={item.status} disabled={!(canEdit || (canApproveMilestones && item.approverId === actor.uid)) || saving} onChange={event => changeMilestoneStatus(item, event.target.value)}>{Object.entries(MILESTONE_STATUSES).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select>{canEdit && <div className="milestone-action-buttons">{milestoneSort === 'manual' && <><button className="icon-btn" disabled={manualIndex <= 0 || saving} onClick={() => moveMilestone(item, -1)} aria-label={`העלאת ${item.title} בסדר`}><ArrowUp size={14} /></button><button className="icon-btn" disabled={manualIndex >= details.milestones.length - 1 || saving} onClick={() => moveMilestone(item, 1)} aria-label={`הורדת ${item.title} בסדר`}><ArrowDown size={14} /></button></>}<button className="icon-btn" onClick={() => { setEditingMilestoneId(item.id); setMilestoneForm({ ...emptyMilestone(item.order), ...item }); setShowMilestone(true); }} aria-label={`עריכת ${item.title}`}><Pencil size={14} /></button><button className="icon-btn icon-btn--danger" disabled={saving} onClick={() => handleArchiveMilestone(item)} aria-label={`הסרת ${item.title}`}><Trash2 size={14} /></button></div>}</div>
             </article>;
           })}
           {details.milestones.length === 0 && <div className="initiative-empty"><Flag size={28} /><p>עדיין לא הוגדרו אבני דרך.</p>{canCreateMilestones && <button className="btn btn-primary btn-sm" onClick={() => { setEditingMilestoneId(''); setMilestoneForm(emptyMilestone()); setShowMilestone(true); }}>הוספת אבן דרך ראשונה</button>}</div>}
         </div>
       </section>
 
-      <section className="initiative-section">
-        <div className="initiative-section-title"><div><h3>משימות פתוחות</h3><p>אותן משימות שמופיעות גם ברשימת המשימות הרגילה</p></div>{canEdit && <button className="btn btn-secondary btn-sm" onClick={() => setShowLinkTask(true)}><Link2 size={14} /> קישור משימה קיימת</button>}</div>
-        <div className="initiative-task-list">{linkedTasks.filter(task => !['done', 'completed'].includes(task.status)).map(task => <article key={task._key}><span>{task.title}</span><small>{task.milestoneId ? details.milestones.find(item => item.id === task.milestoneId)?.title || 'אבן דרך' : 'כלל התכנית'}</small><strong>{dateLabel(task.dueDate)}</strong></article>)}{linkedTasks.length === 0 && <p>אין עדיין משימות מקושרות.</p>}</div>
-      </section>
+      {linkedTasks.length > 0 && <section className="initiative-section initiative-section--compact">
+        <div className="initiative-section-title"><div><h3>משימות שכבר קושרו</h3><p>מידע קיים שנשמר; ניהול התכנית עצמה מתבצע באמצעות אבני הדרך</p></div></div>
+        <div className="initiative-task-list">{linkedTasks.filter(task => !['done', 'completed'].includes(task.status)).map(task => <article key={task._key}><span>{task.title}</span><small>{task.milestoneId ? details.milestones.find(item => item.id === task.milestoneId)?.title || 'אבן דרך שהוסרה' : 'כלל התכנית'}</small><strong>{dateLabel(task.dueDate)}</strong></article>)}</div>
+      </section>}
 
       <section className="initiative-split">
         <div className="initiative-section"><div className="initiative-section-title"><div><h3>קבצים וקישורים</h3><p>קישורים לקבצים הקיימים במערכת</p></div></div><div className="initiative-files">{files.filter(file => linkedFileIds.has(file.id)).map(file => <span key={file.id}><FileText size={14} /> {file.name}</span>)}{linkedFileIds.size === 0 && <p>לא קושרו קבצים.</p>}</div></div>
@@ -547,12 +644,12 @@ export default function InitiativePanel({
         <div className="form-actions"><button className="btn btn-primary" disabled={saving}>פרסום</button><button type="button" className="btn btn-secondary" onClick={() => setShowUpdate(false)}>ביטול</button></div>
       </form></Modal>}
 
-      {showLinkTask && <Modal title="קישור משימה קיימת" onClose={() => setShowLinkTask(false)}><div className="initiative-link-list">{tasks.filter(task => !task.initiativeId || task.initiativeId === activeId).map(task => <button key={task._key} onClick={async () => { await onLinkTask(task, activeId, ''); setShowLinkTask(false); }}><span>{task.title}</span><small>{task.scope === 'personal' ? 'אישית' : 'ארגונית'}</small></button>)}{tasks.length === 0 && <p>אין משימות זמינות לקישור.</p>}</div></Modal>}
       {showEdit && <Modal title="עריכת תכנית ארוכת טווח" onClose={() => setShowEdit(false)}><form className="task-form" onSubmit={handleEditInitiative}>
         <div className="form-group"><label>שם התכנית</label><input name="title" defaultValue={activeInitiative.title} maxLength={200} required autoFocus /></div>
         <div className="form-group"><label>תיאור ומטרה</label><textarea name="description" defaultValue={activeInitiative.description || ''} maxLength={4000} /></div>
         <div className="form-row"><div className="form-group"><label>תאריך התחלה</label><input name="startDate" type="date" defaultValue={activeInitiative.startDate || ''} /></div><div className="form-group"><label>תאריך סיום</label><input name="endDate" type="date" defaultValue={activeInitiative.endDate || ''} /></div></div>
         <div className="form-row"><div className="form-group"><label>מוביל התכנית</label><select name="ownerId" defaultValue={activeInitiative.ownerId || actor.uid}>{staff.map(item => <option key={item.uid || item.id} value={item.uid || item.id}>{item.fullName}</option>)}</select></div><div className="form-group"><label>הפעולה הבאה</label><input name="nextAction" defaultValue={activeInitiative.nextAction || ''} maxLength={300} /></div></div>
+        {canManageParticipants && <div className="initiative-selection-grid initiative-selection-grid--edit"><fieldset><legend>אנשי צוות משתתפים</legend>{staff.filter(item => (item.uid || item.id) !== (activeInitiative.ownerId || actor.uid)).map(item => { const id = item.uid || item.id; return <label key={id}><input name="memberIds" value={id} type="checkbox" defaultChecked={(activeInitiative.memberIds || []).includes(id)} /> {item.fullName}</label>; })}</fieldset><fieldset><legend>צוותים משתתפים</legend>{teams.map(item => <label key={item.id}><input name="teamIds" value={item.id} type="checkbox" defaultChecked={(activeInitiative.teamIds || []).includes(item.id)} /> {item.name}</label>)}</fieldset></div>}
         <div className="form-actions"><button className="btn btn-primary" disabled={saving}>שמירת שינויים</button><button type="button" className="btn btn-secondary" onClick={() => setShowEdit(false)}>ביטול</button></div>
       </form></Modal>}
       {showArchive && <Modal title="סגירת תכנית והעברתה לארכיון" onClose={() => setShowArchive(false)}><form className="task-form" onSubmit={handleArchive}>

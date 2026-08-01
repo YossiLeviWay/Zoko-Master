@@ -9,6 +9,7 @@ import { schoolCollection } from '../../services/firestore/paths';
 import {
   archiveCustomRole,
   assignCustomRole,
+  callableReason,
   cloneCustomRole,
   createCustomRole,
   setPermissionDelegation,
@@ -51,6 +52,20 @@ function roleForm(role = EMPTY_FORM) {
     assignableBy: [...(role.assignableBy || [])],
     defaultForInvites: role.defaultForInvites === true,
   };
+}
+
+function roleOperationErrorMessage(error) {
+  const reason = callableReason(error);
+  const messages = {
+    unauthenticated: 'החיבור פג. התחברו מחדש ונסו שוב.',
+    'permission-denied': 'השרת לא זיהה הרשאת ניהול תפקידים במוסד הנבחר. ודאו שנבחר המוסד הנכון ורעננו את הדף.',
+    'invalid-argument': 'אחד מפרטי התפקיד אינו תקין. בדקו את השם, ההיקף וההרשאות שנבחרו.',
+    'failed-precondition': 'לא ניתן להשלים את הפעולה משום שאחד מהפריטים המשויכים אינו קיים במוסד.',
+    'not-found': 'שירות ניהול התפקידים עדיין אינו זמין בשרת.',
+    unavailable: 'שירות ניהול התפקידים אינו זמין כרגע. נסו שוב בעוד רגע.',
+    internal: 'שירות ניהול התפקידים החזיר שגיאה. לא נשמרו שינויים.',
+  };
+  return messages[reason] || 'לא ניתן לשמור את התפקיד כרגע. לא נשמרו שינויים.';
 }
 
 export default function RolesManager({ schoolId, onClose }) {
@@ -110,7 +125,7 @@ export default function RolesManager({ schoolId, onClose }) {
   function openForm(role = null) {
     setEditingRole(role);
     setEditForm(roleForm(role || EMPTY_FORM));
-    setExpandedGroups(Object.fromEntries(PERMISSION_GROUPS.map(group => [group.id, true])));
+    setExpandedGroups(PERMISSION_GROUPS[0] ? { [PERMISSION_GROUPS[0].id]: true } : {});
     setError('');
     setShowForm(true);
   }
@@ -184,8 +199,8 @@ export default function RolesManager({ schoolId, onClose }) {
       else await createCustomRole(payload);
       setMessage(editingRole ? 'התפקיד עודכן וההרשאות חושבו מחדש.' : 'התפקיד נוצר בהצלחה.');
       setShowForm(false); setEditingRole(null); await loadData();
-    } catch {
-      setError('הפעולה נדחתה. ניתן להעניק רק הרשאות שבבעלותך ושמותר לך להאציל.');
+    } catch (saveError) {
+      setError(roleOperationErrorMessage(saveError));
     } finally { setSaving(false); }
   }
 
@@ -280,13 +295,64 @@ export default function RolesManager({ schoolId, onClose }) {
               {roles.filter(role => role.status !== 'archived').length === 0 && <div className="empty-state"><Shield size={36} /><p>עדיין לא נוצרו תפקידים מותאמים.</p></div>}
             </div>
           </> : <div className="role-form">
-            {!editingRole && <div className="role-presets"><span>התחלה מתפקיד מוצע:</span>{ROLE_PRESETS.map(preset => <button key={preset.name} className="btn btn-secondary btn-sm" onClick={() => applyPreset(preset)}>{preset.name}</button>)}</div>}
-            <div className="student-form-grid"><label className="form-group">שם התפקיד<input value={editForm.name} onChange={event => setEditForm(previous => ({ ...previous, name: event.target.value }))} maxLength={120} /></label><label className="form-group">תיאור<input value={editForm.description} onChange={event => setEditForm(previous => ({ ...previous, description: event.target.value }))} maxLength={500} /></label></div>
-            <div className="student-form-grid"><label className="form-group">צבע תפקיד<input type="color" value={editForm.color} onChange={event => setEditForm(previous => ({ ...previous, color: event.target.value }))} /></label><label className="form-group">אייקון מערכת<select value={editForm.icon} onChange={event => setEditForm(previous => ({ ...previous, icon: event.target.value }))}><option value="shield">מגן</option><option value="user">אדם</option><option value="book">ספר</option><option value="briefcase">תיק</option></select></label></div>
-            <fieldset className="students-choice-group"><legend>הקצאה וברירת מחדל</legend><div className="students-check-row"><label><input type="checkbox" checked={editForm.delegable} onChange={event => setEditForm(previous => ({ ...previous, delegable: event.target.checked, assignableBy: event.target.checked ? previous.assignableBy : [] }))} /> ניתן להקצאה על ידי מנהלי הרשאות מורשים</label><label><input type="checkbox" checked={editForm.defaultForInvites} onChange={event => setEditForm(previous => ({ ...previous, defaultForInvites: event.target.checked }))} /> תפקיד ברירת מחדל למוזמנים</label></div>{editForm.delegable && <div className="students-check-grid"><label><input type="checkbox" checked={editForm.assignableBy.length === 0} onChange={() => setEditForm(previous => ({ ...previous, assignableBy: [] }))} /> כל מנהל הרשאות מורשה</label>{staff.filter(user => !['principal', 'institution_manager', 'global_admin', 'platform_admin'].includes(user.role)).map(user => <label key={user.id}><input type="checkbox" checked={editForm.assignableBy.includes(user.id)} onChange={event => setEditForm(previous => ({ ...previous, assignableBy: event.target.checked ? [...new Set([...previous.assignableBy, user.id])] : previous.assignableBy.filter(id => id !== user.id) }))} /> {user.fullName || user.email}</label>)}</div>}</fieldset>
-            <fieldset className="students-choice-group"><legend>היקף ההרשאה</legend><div className="students-check-row"><label><input type="radio" checked={editForm.accessScope.type === 'school'} onChange={() => setEditForm(previous => ({ ...previous, accessScope: { type: 'school', classIds: [] } }))} /> כל המוסד</label><label><input type="radio" checked={editForm.accessScope.type === 'classes'} onChange={() => setEditForm(previous => ({ ...previous, accessScope: { type: 'classes', classIds: [] } }))} /> כיתות מסוימות</label></div>{editForm.accessScope.type === 'classes' && <div className="students-check-grid">{classes.map(item => <label key={item.id}><input type="checkbox" checked={editForm.accessScope.classIds.includes(item.id)} onChange={() => toggleScopeClass(item.id)} /> {item.name}</label>)}</div>}</fieldset>
-            <div className="permissions-list">{PERMISSION_GROUPS.map(group => { const enabledCount = group.permissions.filter(([key]) => editForm.permissions[key]).length; return <section key={group.id} className="permissions-group"><div className="permissions-group-header"><button type="button" className="permissions-group-toggle" onClick={() => setExpandedGroups(previous => ({ ...previous, [group.id]: !previous[group.id] }))}><span className="permissions-group-title">{group.label}</span><span className="permissions-group-summary">{enabledCount}/{group.permissions.length}</span>{expandedGroups[group.id] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button><div className="permissions-group-bulk"><button type="button" className="btn btn-secondary btn-sm" onClick={() => setGroupPermissions(group, true)}>הכול</button><button type="button" className="btn btn-secondary btn-sm" disabled={enabledCount === 0} onClick={() => setGroupPermissions(group, false)}>ניקוי</button></div></div>{expandedGroups[group.id] && <div className="permissions-group-items">{group.permissions.map(([key, label]) => <div key={key} className="permission-delegation-row"><label className="permissions-item"><input type="checkbox" checked={Boolean(editForm.permissions[key])} onChange={() => togglePermission(key)} /><span>{label}</span></label><label className="permission-delegable"><input type="checkbox" disabled={!editForm.permissions[key]} checked={editForm.delegatedPermissionKeys.includes(key)} onChange={() => toggleDelegable(key)} /> ניתן להאצלה</label></div>)}</div>}</section>; })}</div>
-            <div className="modal-actions"><button className="btn btn-primary" disabled={saving} onClick={saveRole}><Save size={15} /> {editingRole ? 'שמירת שינויים' : 'יצירת תפקיד'}</button><button className="btn btn-secondary" onClick={() => setShowForm(false)}>ביטול</button></div>
+            <div className="role-form-intro">
+              <div>
+                <span className="role-form-eyebrow">{editingRole ? 'עריכת תפקיד קיים' : 'תפקיד חדש'}</span>
+                <h4>{editingRole ? editingRole.name : 'הגדרת תפקיד והרשאות'}</h4>
+                <p>מנהל המוסד רשאי לנהל תפקידים והרשאות בתוך המוסד הנבחר בלבד.</p>
+              </div>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowForm(false)}>חזרה לרשימה</button>
+            </div>
+
+            {!editingRole && <section className="role-form-section role-presets-section">
+              <div className="role-section-heading"><strong>התחלה מהירה</strong><span>אפשר לבחור תבנית ולשנות אותה</span></div>
+              <div className="role-presets">{ROLE_PRESETS.map(preset => <button key={preset.name} type="button" className="role-preset-button" onClick={() => applyPreset(preset)}>{preset.name}</button>)}</div>
+            </section>}
+
+            <section className="role-form-section">
+              <div className="role-section-heading"><strong>פרטי התפקיד</strong><span>שם ברור יעזור לצוות להבין את תחום האחריות</span></div>
+              <div className="role-form-grid">
+                <label className="form-group">שם התפקיד<input value={editForm.name} onChange={event => setEditForm(previous => ({ ...previous, name: event.target.value }))} maxLength={120} /></label>
+                <label className="form-group role-description-field">תיאור<input value={editForm.description} onChange={event => setEditForm(previous => ({ ...previous, description: event.target.value }))} maxLength={500} /></label>
+                <label className="form-group">אייקון מערכת<select value={editForm.icon} onChange={event => setEditForm(previous => ({ ...previous, icon: event.target.value }))}><option value="shield">מגן</option><option value="user">אדם</option><option value="book">ספר</option><option value="briefcase">תיק</option></select></label>
+                <label className="form-group role-color-field">צבע תפקיד<span className="role-color-control"><input type="color" value={editForm.color} onChange={event => setEditForm(previous => ({ ...previous, color: event.target.value }))} /><span>{editForm.color.toUpperCase()}</span></span></label>
+              </div>
+            </section>
+
+            <fieldset className="role-form-section role-scope-section">
+              <legend>היקף ההרשאה</legend>
+              <p>בחרו אם התפקיד תקף לכל המוסד או רק לכיתות מסוימות.</p>
+              <div className="role-scope-options">
+                <label className={editForm.accessScope.type === 'school' ? 'selected' : ''}><input type="radio" checked={editForm.accessScope.type === 'school'} onChange={() => setEditForm(previous => ({ ...previous, accessScope: { type: 'school', classIds: [] } }))} /><span><strong>כל המוסד</strong><small>גישה לפי ההרשאות שייבחרו בכל המוסד</small></span></label>
+                <label className={editForm.accessScope.type === 'classes' ? 'selected' : ''}><input type="radio" checked={editForm.accessScope.type === 'classes'} onChange={() => setEditForm(previous => ({ ...previous, accessScope: { type: 'classes', classIds: [] } }))} /><span><strong>כיתות מסוימות</strong><small>הגבלת ההרשאות לכיתות שנבחרו</small></span></label>
+              </div>
+              {editForm.accessScope.type === 'classes' && <div className="role-class-grid">{classes.map(item => <label key={item.id}><input type="checkbox" checked={editForm.accessScope.classIds.includes(item.id)} onChange={() => toggleScopeClass(item.id)} /> {item.name}</label>)}</div>}
+            </fieldset>
+
+            <section className="role-form-section role-permissions-section">
+              <div className="role-section-heading"><strong>הרשאות לפי קטגוריות</strong><span>{Object.values(editForm.permissions).filter(Boolean).length} הרשאות נבחרו</span></div>
+              <div className="permissions-list">{PERMISSION_GROUPS.map(group => {
+                const enabledCount = group.permissions.filter(([key]) => editForm.permissions[key]).length;
+                return <section key={group.id} className={`permissions-group${expandedGroups[group.id] ? ' expanded' : ''}`}>
+                  <div className="permissions-group-header">
+                    <button type="button" className="permissions-group-toggle" onClick={() => setExpandedGroups(previous => ({ ...previous, [group.id]: !previous[group.id] }))}><span className="permissions-group-title">{group.label}</span><span className="permissions-group-summary">{enabledCount}/{group.permissions.length}</span>{expandedGroups[group.id] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</button>
+                    <div className="permissions-group-bulk"><button type="button" className="btn btn-secondary btn-sm" onClick={() => setGroupPermissions(group, true)}>בחירת הכול</button><button type="button" className="btn btn-secondary btn-sm" disabled={enabledCount === 0} onClick={() => setGroupPermissions(group, false)}>ניקוי</button></div>
+                  </div>
+                  {expandedGroups[group.id] && <div className="permissions-group-items">{group.permissions.map(([key, label]) => <div key={key} className="permission-delegation-row"><label className="permissions-item"><input type="checkbox" checked={Boolean(editForm.permissions[key])} onChange={() => togglePermission(key)} /><span>{label}</span></label><label className="permission-delegable"><input type="checkbox" disabled={!editForm.permissions[key]} checked={editForm.delegatedPermissionKeys.includes(key)} onChange={() => toggleDelegable(key)} /> ניתן להאצלה</label></div>)}</div>}
+                </section>;
+              })}</div>
+            </section>
+
+            <details className="role-advanced-settings">
+              <summary>הגדרות הקצאה מתקדמות</summary>
+              <div className="role-advanced-content">
+                <label><input type="checkbox" checked={editForm.delegable} onChange={event => setEditForm(previous => ({ ...previous, delegable: event.target.checked, assignableBy: event.target.checked ? previous.assignableBy : [] }))} /> ניתן להקצאה על ידי מנהלי הרשאות מורשים</label>
+                <label><input type="checkbox" checked={editForm.defaultForInvites} onChange={event => setEditForm(previous => ({ ...previous, defaultForInvites: event.target.checked }))} /> תפקיד ברירת מחדל למוזמנים</label>
+                {editForm.delegable && <div className="role-assignee-grid"><label><input type="checkbox" checked={editForm.assignableBy.length === 0} onChange={() => setEditForm(previous => ({ ...previous, assignableBy: [] }))} /> כל מנהל הרשאות מורשה</label>{staff.filter(user => !['principal', 'institution_manager', 'global_admin', 'platform_admin'].includes(user.role)).map(user => <label key={user.id}><input type="checkbox" checked={editForm.assignableBy.includes(user.id)} onChange={event => setEditForm(previous => ({ ...previous, assignableBy: event.target.checked ? [...new Set([...previous.assignableBy, user.id])] : previous.assignableBy.filter(id => id !== user.id) }))} /> {user.fullName || user.email}</label>)}</div>}
+              </div>
+            </details>
+
+            <div className="modal-actions role-form-actions"><button className="btn btn-primary" disabled={saving} onClick={saveRole}><Save size={15} /> {saving ? 'שומר…' : editingRole ? 'שמירת שינויים' : 'יצירת תפקיד'}</button><button className="btn btn-secondary" onClick={() => setShowForm(false)}>ביטול</button></div>
           </div>}
         </div>
       </div>
