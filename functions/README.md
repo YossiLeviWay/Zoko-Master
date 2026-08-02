@@ -28,6 +28,8 @@ Use the Firebase Emulator Suite for integration tests. Do not run Admin scripts 
 
 Configure `OPENAI_API_KEY` only as a Functions secret and optionally set `OPENAI_COMMUNICATION_MODEL` as a server parameter. Never expose either value through a `VITE_` variable or commit it. If the secret or callable is unavailable, the client fails closed and manual drafting remains usable. Enabling this callable requires an intentionally deployed backend and the applicable Firebase/OpenAI billing; a GitHub Pages deployment alone does not activate it.
 
+The current Spark-plan demo client does not call this function. It uses Firebase AI Logic with the Gemini Developer API and sends only the text explicitly entered in the agent panel. This server callable remains available for a future paid deployment that needs server-enforced role checks, approved contacts, assignee resolution and audit logging.
+
 ## Deployment
 
 Deployment is intentionally not automated from a developer workstation. Follow `docs/security/operations.md` and deploy to the approved staging project first. Production deployment requires an explicit approval after backups, emulator tests, staging verification, and a migration dry run.
