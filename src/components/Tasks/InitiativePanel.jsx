@@ -124,6 +124,7 @@ export default function InitiativePanel({
   onMessage,
   onError,
   onCreateCommunication,
+  onRequestCreate,
 }) {
   const [activeId, setActiveId] = useState('');
   const [details, setDetails] = useState({ milestones: [], updates: [], comments: [], activity: [] });
@@ -667,7 +668,7 @@ export default function InitiativePanel({
   }
 
   return <section className="initiative-dashboard" aria-label="תכניות ארוכות טווח">
-    <div className="initiative-section-title"><div><h2>{showArchived ? 'ארכיון תכניות' : 'תכניות ארוכות טווח'}</h2><p>{showArchived ? 'תכניות סגורות שנשמרו לצורך עיון ושכפול בטוח' : 'מהלכים, אבני דרך וביצוע לאורך שנת הלימודים'}</p></div><div className="initiative-title-actions">{attentionOnly && <button className="btn btn-secondary btn-sm" onClick={onClearAttention}>הצגת כל התכניות</button>}<button className="btn btn-secondary btn-sm" onClick={() => setShowArchived(value => !value)}><Archive size={14} /> {showArchived ? 'חזרה לפעילות' : 'ארכיון'}</button>{canCreate && !showArchived && <button className="btn btn-primary btn-sm" onClick={() => setShowCreate(true)}><Plus size={14} /> תכנית חדשה</button>}</div></div>
+    <div className="initiative-section-title"><div><h2>{showArchived ? 'ארכיון תכניות' : 'תכניות ארוכות טווח'}</h2><p>{showArchived ? 'תכניות סגורות שנשמרו לצורך עיון ושכפול בטוח' : 'מהלכים, אבני דרך וביצוע לאורך שנת הלימודים'}</p></div><div className="initiative-title-actions">{attentionOnly && <button className="btn btn-secondary btn-sm" onClick={onClearAttention}>הצגת כל התכניות</button>}<button className="btn btn-secondary btn-sm" onClick={() => setShowArchived(value => !value)}><Archive size={14} /> {showArchived ? 'חזרה לפעילות' : 'ארכיון'}</button>{canCreate && !showArchived && <button className="btn btn-primary btn-sm" onClick={() => onRequestCreate ? onRequestCreate() : setShowCreate(true)}><Plus size={14} /> תכנית חדשה</button>}</div></div>
     <div className="initiative-card-grid">
       {displayedInitiatives.map(item => <button className="initiative-card" key={item.id} onClick={() => setActiveId(item.id)}>
         <div className="initiative-card-head"><span className={`initiative-health initiative-health--${item.health}`}>{INITIATIVE_HEALTH[item.health] || INITIATIVE_STATUSES[item.status]}</span><span>{item.academicYearLabel}</span></div>

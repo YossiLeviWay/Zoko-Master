@@ -34,6 +34,8 @@ VITE_FIREBASE_APP_ID=...
 VITE_FIREBASE_FUNCTIONS_REGION=europe-west1
 VITE_FIREBASE_APPCHECK_SITE_KEY=...
 VITE_FIREBASE_AI_MODEL=gemini-3.5-flash-lite
+VITE_TASK_ASSISTANT_ENABLED=true
+VITE_TASK_ASSISTANT_DAILY_LIMIT=20
 ```
 
 ## פריסה ל-GitHub Pages
@@ -54,6 +56,8 @@ VITE_FIREBASE_AI_MODEL=gemini-3.5-flash-lite
 App Check נאכף ב־Cloud Functions. לפני שימוש בסביבת staging או production יש לרשום אפליקציית Web עם reCAPTCHA Enterprise ב־Firebase Console ולהגדיר את ה־site key כמשתנה סביבה; אין לשמור מפתחות שרת או debug tokens בריפו.
 
 סוכן ניסוח המייל במצב ההדגמה משתמש ב־Firebase AI Logic עם Gemini Developer API, ללא Cloud Functions וללא מפתח Gemini בקוד. הוא מחזיר הצעה בלבד ואינו שולח מייל, שומר טיוטה או יוצר מעקב ללא אישור המשתמש. כדי לשמור על פרטיות במסלול החינמי, הסוכן מקבל רק את הבקשה שהמשתמש הקליד ואינו מקבל אנשי קשר, כתובות מייל, מזהי משתמשים, נתוני מוסד או מידע מהמשימה. יש להפעיל Firebase AI Logic עם Gemini Developer API ולאכוף App Check במסוף Firebase לפני השימוש. יכולת השרת המוקשחת נשמרת כאפשרות עתידית ומתועדת ב־[`functions/README.md`](functions/README.md).
+
+סוכן יצירת המשימות פועל באותו מסלול Spark: הוא מחזיר JSON מוגבל, והשמות שמופיעים בו מותאמים מקומית רק לרשומות שהמשתמש כבר מורשה לראות. הוא אינו כותב למסד; הטופס המאוחד נשמר רק לאחר אישור מפורש ובאמצעות שירות המשימות הקיים. אפשר לכבות אותו או לשנות את המודל ללא שינוי קוד באמצעות Remote Config: `zoko_task_assistant_enabled`, `zoko_ai_model`, `zoko_task_assistant_daily_limit`, `zoko_task_assistant_timeout_ms`. אם Remote Config אינו זמין, נעשה שימוש בערכי הסביבה המוגבלים לעיל והיצירה הידנית ממשיכה לעבוד.
 
 ## בדיקות מקומיות
 

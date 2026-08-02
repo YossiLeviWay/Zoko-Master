@@ -1,11 +1,11 @@
 import { getAI, getGenerativeModel, GoogleAIBackend, Schema } from 'firebase/ai';
 import firebaseApp, { isAppCheckConfigured, isFirebaseConfigured } from '../firebase';
+import { FIREBASE_AI_CONFIG } from '../config/firebaseAi';
 import {
   buildSparkAgentInput,
   normalizeSparkAgentProposal,
 } from '../utils/communicationAgent';
 
-const MODEL_NAME = import.meta.env.VITE_FIREBASE_AI_MODEL || 'gemini-3.5-flash-lite';
 const RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000;
 const RATE_LIMIT_COUNT = 8;
 const requestTimes = [];
@@ -63,7 +63,7 @@ export async function draftCommunicationWithFirebaseAI(input) {
   try {
     const ai = getAI(firebaseApp, { backend: new GoogleAIBackend() });
     const model = getGenerativeModel(ai, {
-      model: MODEL_NAME,
+      model: FIREBASE_AI_CONFIG.model,
       systemInstruction: SYSTEM_INSTRUCTION,
       generationConfig: {
         maxOutputTokens: 1800,

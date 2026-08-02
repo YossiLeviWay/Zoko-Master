@@ -21,6 +21,7 @@ export const PERMISSION_GROUPS = Object.freeze([
     ['tasks.inviteCollaborators', 'הזמנת שותפים למשימה אישית'],
     ['tasks.assignMandatory', 'הקצאת משימה מחייבת'],
     ['tasks.manageAssignments', 'ביטול ושינוי הקצאות משימה'],
+    ['tasks.useAssistant', 'שימוש בסוכן יצירת משימות'],
   ] }),
   Object.freeze({ id: 'communications', label: 'מיילים ומעקבים', permissions: [
     ['communications.create', 'יצירת טיוטת מייל ומשימת מעקב'],
