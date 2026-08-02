@@ -33,6 +33,7 @@ VITE_FIREBASE_MESSAGING_SENDER_ID=...
 VITE_FIREBASE_APP_ID=...
 VITE_FIREBASE_FUNCTIONS_REGION=europe-west1
 VITE_FIREBASE_APPCHECK_SITE_KEY=...
+VITE_FIREBASE_AI_MODEL=gemini-3.5-flash-lite
 ```
 
 ## פריסה ל-GitHub Pages
@@ -52,7 +53,7 @@ VITE_FIREBASE_APPCHECK_SITE_KEY=...
 
 App Check נאכף ב־Cloud Functions. לפני שימוש בסביבת staging או production יש לרשום אפליקציית Web עם reCAPTCHA Enterprise ב־Firebase Console ולהגדיר את ה־site key כמשתנה סביבה; אין לשמור מפתחות שרת או debug tokens בריפו.
 
-סוכן ניסוח המייל הוא יכולת שרת אופציונלית: הוא מחזיר הצעה מובנית בלבד ואינו שולח מייל, שומר טיוטה או יוצר מעקב ללא אישור מפורש של המשתמש. מפתח ספק ה־AI נשמר רק כ־Functions secret; בהיעדר Backend/secret מתאים הממשק נשאר במצב ידני בטוח. הוראות ההפעלה נמצאות ב־[`functions/README.md`](functions/README.md).
+סוכן ניסוח המייל במצב ההדגמה משתמש ב־Firebase AI Logic עם Gemini Developer API, ללא Cloud Functions וללא מפתח Gemini בקוד. הוא מחזיר הצעה בלבד ואינו שולח מייל, שומר טיוטה או יוצר מעקב ללא אישור המשתמש. כדי לשמור על פרטיות במסלול החינמי, הסוכן מקבל רק את הבקשה שהמשתמש הקליד ואינו מקבל אנשי קשר, כתובות מייל, מזהי משתמשים, נתוני מוסד או מידע מהמשימה. יש להפעיל Firebase AI Logic עם Gemini Developer API ולאכוף App Check במסוף Firebase לפני השימוש. יכולת השרת המוקשחת נשמרת כאפשרות עתידית ומתועדת ב־[`functions/README.md`](functions/README.md).
 
 ## בדיקות מקומיות
 

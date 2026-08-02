@@ -136,8 +136,8 @@ export default function CommunicationComposer({ schoolId, user, task, staff = []
     setForm(previous => ({
       ...previous,
       to: proposal.recipients?.join('; ') || previous.to,
-      cc: proposal.cc?.join('; ') || '',
-      bcc: proposal.bcc?.join('; ') || '',
+      cc: proposal.cc?.join('; ') || previous.cc,
+      bcc: proposal.bcc?.join('; ') || previous.bcc,
       subject: proposal.subject || previous.subject,
       body: proposal.body || previous.body,
       summary: proposal.summary || previous.summary,
@@ -337,7 +337,7 @@ export default function CommunicationComposer({ schoolId, user, task, staff = []
             {context.type === 'student' && <div className="communication-student-warning"><ShieldCheck size={17} /><span><strong>הטיוטה קשורה לתלמיד.</strong> אין להעתיק אליה מספר זהות, ציונים, מסמכים, מידע רפואי או הערות אישיות. המערכת לא מוסיפה מידע כזה אוטומטית.</span></div>}
             <div className="communication-privacy-note">פתיחת חלון המייל אינה מאשרת שהמייל נשלח. לפני השמירה מוצג למי תהיה גישה למעקב בתוך Zoko.</div>
             <div className={`communication-compose-workspace${communicationPermissions.useAgent ? ' communication-compose-workspace--agent' : ''}`}>
-            {communicationPermissions.useAgent && <CommunicationAgentPanel schoolId={schoolId} task={task} form={form} contacts={contacts} staff={staff} onApply={applyAgentProposal} />}
+            {communicationPermissions.useAgent && <CommunicationAgentPanel onApply={applyAgentProposal} />}
             <div className="communication-structured-fields">
             <CommunicationTemplatesPanel db={db} schoolId={schoolId} userId={user.uid} currentForm={form} canManageInstitutional={communicationPermissions.manageTemplates === true} onApply={applyTemplate} onSuccess={setNotice} onError={onError} />
             <div className="form-group"><label>אל</label><input value={form.to} onChange={event => change('to', event.target.value)} placeholder="name@example.com; second@example.com" dir="ltr" autoFocus />{contacts.length > 0 && <select className="communication-contact-picker" value="" onChange={event => addKnownContact(event.target.value)}><option value="">הוספת נמען מאנשי הקשר...</option>{contacts.filter(contact => !contact.archived && contact.primaryEmail).map(contact => <option key={`${contact.scope}:${contact.id}`} value={`${contact.scope}:${contact.id}`}>{contact.fullName} — {contact.primaryEmail}{contact.scope === CONTACT_SCOPE.PRIVATE ? ' (פרטי)' : ''}</option>)}</select>}</div>
