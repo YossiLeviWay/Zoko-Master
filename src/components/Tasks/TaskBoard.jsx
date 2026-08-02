@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { collection, getDocs, onSnapshot, query, where } from 'firebase/firestore';
 import {
   AlertCircle,
@@ -51,7 +51,7 @@ import {
 import { schoolCollection } from '../../services/firestore/paths';
 import { subscribeAcademicYears } from '../../services/firestore/academicYearRepository';
 import { subscribeInitiatives } from '../../services/firestore/initiativeRepository';
-import { createNotifications } from '../../utils/notifications';
+import { createNotification, createNotifications } from '../../utils/notifications';
 import {
   createMandatoryTask,
   inviteTaskCollaborators,
@@ -66,6 +66,12 @@ import SpreadsheetEditor from '../Files/SpreadsheetEditor';
 import ChatPanel from './ChatPanel';
 import InitiativePanel from './InitiativePanel';
 import CommunicationComposer from './CommunicationComposer';
+import CommunicationDashboard from './CommunicationDashboard';
+import {
+  markCommunicationReminderNotified,
+  subscribeCommunicationDrafts,
+} from '../../services/firestore/communicationRepository';
+import { communicationSourceFromContext, normalizeCommunicationContext } from '../../utils/communicationContext';
 import '../Gantt/Gantt.css';
 import './Tasks.css';
 
@@ -83,6 +89,7 @@ const STATUS_CONFIG = {
 
 const TAB_LABELS = {
   dashboard: 'כל המשימות',
+  communications: 'מיילים ומעקבים',
   invitations: 'הזמנות ושיתופים',
 };
 
@@ -186,6 +193,7 @@ export default function TaskBoard() {
   const { userData, selectedSchool, currentUser } = useAuth();
   const { permissions } = usePermissions();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const uid = currentUser?.uid;
   const schoolId = selectedSchool || userData?.schoolId;
@@ -198,6 +206,20 @@ export default function TaskBoard() {
   const canManageAssignments = permissions['tasks.manageAssignments'] || canAssignMandatory;
   const canManageTaskPermissions = permissions['tasks.managePermissions'] || canAssignMandatory;
   const canCreateCommunication = permissions['communications.create'] || isInitiativeManager;
+  const communicationPermissions = {
+    reassign: permissions['communications.reassign'] === true,
+    close: permissions['communications.close'] === true,
+    viewAll: permissions['communications.viewAll'] === true,
+    useAgent: isInitiativeManager || permissions['communications.useAgent'] === true,
+    manageTemplates: isInitiativeManager || permissions['communications.manageTemplates'] === true,
+  };
+  const contactPermissions = {
+    view: isInitiativeManager || permissions['contacts.view'] === true,
+    create: isInitiativeManager || permissions['contacts.create'] === true,
+    edit: isInitiativeManager || permissions['contacts.edit'] === true,
+    archive: isInitiativeManager || permissions['contacts.archive'] === true,
+    merge: isInitiativeManager || permissions['contacts.merge'] === true,
+  };
   const canViewAllInitiatives = permissions['initiatives.viewAll'] || isInitiativeManager;
   const initiativePermissions = isInitiativeManager ? {
     ...permissions,
@@ -216,6 +238,7 @@ export default function TaskBoard() {
 
   const [personalTasks, setPersonalTasks] = useState([]);
   const [organizationTasks, setOrganizationTasks] = useState([]);
+  const [communicationDrafts, setCommunicationDrafts] = useState([]);
   const [taskInvitations, setTaskInvitations] = useState([]);
   const [staff, setStaff] = useState([]);
   const [teams, setTeams] = useState([]);
@@ -225,7 +248,8 @@ export default function TaskBoard() {
   const [holidays, setHolidays] = useState([]);
   const [academicYears, setAcademicYears] = useState([]);
   const [initiatives, setInitiatives] = useState([]);
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState(() => searchParams.get('view') === 'communications' ? 'communications' : 'dashboard');
+  const communicationReminderInFlight = useRef(new Set());
   const [scopeFilter, setScopeFilter] = useState('all');
   const [searchText, setSearchText] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
@@ -261,6 +285,29 @@ export default function TaskBoard() {
   const [initiativeAttentionOnly, setInitiativeAttentionOnly] = useState(false);
   const [initiativeDetailOpen, setInitiativeDetailOpen] = useState(false);
   const [communicationTask, setCommunicationTask] = useState(null);
+  const [communicationReturnTo, setCommunicationReturnTo] = useState('');
+
+  function openCommunicationContext(context, returnTo = '') {
+    setCommunicationTask(communicationSourceFromContext(normalizeCommunicationContext(context)));
+    setCommunicationReturnTo(returnTo);
+    setActiveTab('communications');
+    setCreateMenuOpen(false);
+  }
+
+  function closeCommunication() {
+    setCommunicationTask(null);
+    if (communicationReturnTo) {
+      const target = communicationReturnTo;
+      setCommunicationReturnTo('');
+      navigate(target);
+    }
+  }
+
+  useEffect(() => {
+    if (!location.state?.communicationContext) return;
+    openCommunicationContext(location.state.communicationContext, location.state.communicationReturnTo || '');
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+  }, [location.pathname, location.search, location.state, navigate]);
 
   const teamIds = useMemo(() => {
     const ids = new Set(Array.isArray(userData?.teamIds) ? userData.teamIds : []);
@@ -320,6 +367,45 @@ export default function TaskBoard() {
       unsubscribeOrganization();
     };
   }, [canEditOrganizationTasks, schoolId, teamIds, uid]);
+
+  useEffect(() => {
+    if (!schoolId || !uid) return undefined;
+    return subscribeCommunicationDrafts({
+      db,
+      schoolId,
+      uid,
+      canViewAll: communicationPermissions.viewAll,
+      onData: setCommunicationDrafts,
+      onError: () => setError('לא ניתן לטעון את המיילים והמעקבים כרגע.'),
+    });
+  }, [communicationPermissions.viewAll, schoolId, uid]);
+
+  useEffect(() => {
+    if (!schoolId || !uid) return;
+    const today = localDateKey();
+    communicationDrafts
+      .filter(draft => draft.followUpAssigneeId === uid
+        && !['awaiting_send', 'resolved', 'closed_without_reply', 'cancelled'].includes(draft.communicationStatus)
+        && draft.nextFollowUpAt?.slice(0, 10) <= today
+        && draft.reminderNotifiedFor !== draft.nextFollowUpAt?.slice(0, 10))
+      .forEach(draft => {
+        const key = `${draft.communicationDraftId}:${draft.nextFollowUpAt?.slice(0, 10)}`;
+        if (communicationReminderInFlight.current.has(key)) return;
+        communicationReminderInFlight.current.add(key);
+        createNotification(uid, {
+          schoolId,
+          title: `הגיע מועד מעקב: ${draft.communicationSubject}`,
+          body: `האם התקבלה תשובה מ־${draft.externalRecipientLabel || 'הנמען'}?`,
+          type: 'communication',
+          link: '/tasks?view=communications',
+        }).then(created => created && markCommunicationReminderNotified({
+          db,
+          schoolId,
+          actorId: uid,
+          draft: { ...draft, id: draft.communicationDraftId, taskId: draft.id },
+        })).catch(() => undefined).finally(() => communicationReminderInFlight.current.delete(key));
+      });
+  }, [communicationDrafts, schoolId, uid]);
 
   useEffect(() => {
     if (!schoolId) return;
@@ -427,7 +513,9 @@ export default function TaskBoard() {
 
   const tabTasks = useMemo(() => {
     if (activeTab === 'invitations') return [];
-    return [...personalTasks, ...organizationTasks];
+    const tasks = [...personalTasks, ...organizationTasks];
+    if (activeTab === 'communications') return tasks.filter(task => task.workflowType === 'external_email_followup');
+    return tasks.filter(task => task.workflowType !== 'external_email_followup');
   }, [activeTab, organizationTasks, personalTasks]);
 
   const filteredTasks = useMemo(() => tabTasks.filter(task => {
@@ -993,9 +1081,9 @@ export default function TaskBoard() {
           </form>
         )}
 
-        {!initiativeDetailOpen && <div className="page-toolbar task-toolbar">
+        {activeTab === 'dashboard' && !initiativeDetailOpen && <div className="page-toolbar task-toolbar">
           <div className="task-toolbar-actions">
-            <div className="task-create-menu-wrap"><button className="btn btn-primary" onClick={() => setCreateMenuOpen(value => !value)}><Plus size={16} /> יצירה חדשה <ChevronDown size={14} /></button>{createMenuOpen && <div className="task-create-menu"><button onClick={() => openTaskForm(TASK_SCOPES.PERSONAL)}><Lock size={15} /> משימה אישית</button><button onClick={() => openTaskForm(TASK_SCOPES.TEAM)} disabled={!canAssignTasks}><Users size={15} /> משימת צוות</button><button onClick={() => { setInitiativeCreateRequest(value => value + 1); setCreateMenuOpen(false); }} disabled={!canCreateInitiative}><Flag size={15} /> תכנית ארוכת טווח</button></div>}</div>
+            <div className="task-create-menu-wrap"><button className="btn btn-primary" onClick={() => setCreateMenuOpen(value => !value)}><Plus size={16} /> יצירה חדשה <ChevronDown size={14} /></button>{createMenuOpen && <div className="task-create-menu"><button onClick={() => openTaskForm(TASK_SCOPES.PERSONAL)}><Lock size={15} /> משימה אישית</button><button onClick={() => openTaskForm(TASK_SCOPES.TEAM)} disabled={!canAssignTasks}><Users size={15} /> משימת צוות</button><button onClick={() => { setInitiativeCreateRequest(value => value + 1); setCreateMenuOpen(false); }} disabled={!canCreateInitiative}><Flag size={15} /> תכנית ארוכת טווח</button>{canCreateCommunication && <button onClick={() => openCommunicationContext({ type: 'general', id: 'task_panel', label: 'פאנל המשימות' })}><MailPlus size={15} /> מייל ומעקב</button>}</div>}</div>
             {canAssignMandatory && <button className="btn btn-secondary" onClick={() => setShowMandatoryForm(true)}><AlertCircle size={15} /> משימה מחייבת</button>}
           </div>
           <div className="task-filters">
@@ -1039,11 +1127,17 @@ export default function TaskBoard() {
           onDetailChange={setInitiativeDetailOpen}
           onMessage={showMessage}
           onError={setError}
+          onCreateCommunication={canCreateCommunication ? openCommunicationContext : undefined}
         />}
 
         {activeTab === 'dashboard' && !initiativeDetailOpen && actionItems.length > 0 && <section className="task-action-required"><div><h2>דורש ממני פעולה</h2><p>רק פריטים שממתינים לפעולה שלך</p></div><div>{actionItems.map(item => <button key={item.id} onClick={() => item.type === 'invitation' ? setActiveTab('invitations') : setSearchText(item.title)}><span>{item.title}</span><small>{item.detail}</small></button>)}</div></section>}
 
-        {activeTab === 'invitations' ? (
+        {activeTab === 'communications' ? <CommunicationDashboard
+          tasks={[...personalTasks, ...organizationTasks, ...communicationDrafts]}
+          staff={staff}
+          onOpen={setCommunicationTask}
+          onCreate={() => openCommunicationContext({ type: 'general', id: 'task_panel', label: 'פאנל המשימות' })}
+        /> : activeTab === 'invitations' ? (
           <div className="task-invitations-list">
             {[...taskInvitations].sort((a, b) => timestampMillis(b.createdAt) - timestampMillis(a.createdAt)).map(invitation => (
               <article className="card task-invitation-card" key={invitation.id}>
@@ -1126,8 +1220,12 @@ export default function TaskBoard() {
       {communicationTask && <CommunicationComposer
         schoolId={schoolId}
         user={{ uid, fullName: userData?.fullName || '' }}
+        staff={staff}
+        files={allFiles}
+        contactPermissions={contactPermissions}
+        communicationPermissions={communicationPermissions}
         task={communicationTask}
-        onClose={() => setCommunicationTask(null)}
+        onClose={closeCommunication}
         onSuccess={showMessage}
         onError={setError}
       />}

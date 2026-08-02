@@ -15,6 +15,7 @@ export const PATH_TO_PERMISSION = {
   '/files':       'files_view',
   '/teams':       'teams_view',
   '/students':    'students_view',
+  '/contacts':    'contacts.view',
   '/holidays':    'holidays_view',
   '/messages':    'messages_send',
   '/settings':    'settings_edit',
@@ -22,7 +23,7 @@ export const PATH_TO_PERMISSION = {
 
 // Default view permission for each key (viewer defaults = all view = true)
 function defaultAllowed(permission) {
-  return permission !== 'students_view';
+  return !['students_view', 'contacts.view'].includes(permission);
 }
 
 export default function NavPermissionsPanel({ item, anchor, schoolId, onClose }) {

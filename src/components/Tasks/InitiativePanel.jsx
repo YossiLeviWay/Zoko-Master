@@ -11,6 +11,7 @@ import {
   FileText,
   Flag,
   MessageSquarePlus,
+  MailPlus,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -122,6 +123,7 @@ export default function InitiativePanel({
   onDetailChange,
   onMessage,
   onError,
+  onCreateCommunication,
 }) {
   const [activeId, setActiveId] = useState('');
   const [details, setDetails] = useState({ milestones: [], updates: [], comments: [], activity: [] });
@@ -569,6 +571,7 @@ export default function InitiativePanel({
       <header className="initiative-hero">
         <div><span className="initiative-identity"><Flag size={14} /> תכנית ארוכת טווח · {activeInitiative.academicYearLabel}</span><span className={`initiative-health initiative-health--${health}`}>{INITIATIVE_HEALTH[health]}</span><h2>{activeInitiative.title}</h2><p>{activeInitiative.description || 'לא נוסף תיאור.'}</p></div>
         <div className="initiative-hero-actions">
+          {onCreateCommunication && <button className="btn btn-secondary" onClick={() => onCreateCommunication({ type: 'initiative', id: activeInitiative.id, label: activeInitiative.title, description: activeInitiative.description, initiativeId: activeInitiative.id, fileIds: activeInitiative.fileIds || [], participantIds: initiativeRecipients() })}><MailPlus size={15} /> מייל ומעקב</button>}
           {canCreateMilestones && <button className="btn btn-primary" onClick={() => { setEditingMilestoneId(''); setMilestoneForm(emptyMilestone(details.milestones.length)); setShowMilestone(true); }}><Flag size={15} /> אבן דרך חדשה</button>}
           <button className="btn btn-secondary" onClick={() => setShowUpdate(true)}><MessageSquarePlus size={15} /> פרסום עדכון</button>
         </div>
@@ -599,7 +602,7 @@ export default function InitiativePanel({
                 <div className="milestone-meta"><span>{MILESTONE_DATE_TYPES[item.dateType] || 'תאריך'}: {dateLabel(date)}</span><span>חשיבות: {item.priority === 'high' ? 'קריטית' : item.priority === 'low' ? 'רגילה' : 'חשובה'}</span><span>משקל: {item.weight || 1}</span>{taskCount.length > 0 && <span>{taskCount.filter(task => task.status === 'done' || task.status === 'completed').length} מתוך {taskCount.length} משימות קיימות הושלמו</span>}</div>
                 {conflict && <div className="milestone-warning"><CircleAlert size={14} /> התאריך חל ב־{conflict.name}. היום הזמין הקרוב לפי לוח החופשות: {dateLabel(suggestedDate)}. התאריך לא ישתנה ללא אישור.</div>}
               </div>
-              <div className="milestone-actions"><select value={item.status} disabled={!(canEdit || (canApproveMilestones && item.approverId === actor.uid)) || saving} onChange={event => changeMilestoneStatus(item, event.target.value)}>{Object.entries(MILESTONE_STATUSES).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select>{canEdit && <div className="milestone-action-buttons">{milestoneSort === 'manual' && <><button className="icon-btn" disabled={manualIndex <= 0 || saving} onClick={() => moveMilestone(item, -1)} aria-label={`העלאת ${item.title} בסדר`}><ArrowUp size={14} /></button><button className="icon-btn" disabled={manualIndex >= details.milestones.length - 1 || saving} onClick={() => moveMilestone(item, 1)} aria-label={`הורדת ${item.title} בסדר`}><ArrowDown size={14} /></button></>}<button className="icon-btn" onClick={() => { setEditingMilestoneId(item.id); setMilestoneForm({ ...emptyMilestone(item.order), ...item }); setShowMilestone(true); }} aria-label={`עריכת ${item.title}`}><Pencil size={14} /></button><button className="icon-btn icon-btn--danger" disabled={saving} onClick={() => handleArchiveMilestone(item)} aria-label={`הסרת ${item.title}`}><Trash2 size={14} /></button></div>}</div>
+              <div className="milestone-actions"><select value={item.status} disabled={!(canEdit || (canApproveMilestones && item.approverId === actor.uid)) || saving} onChange={event => changeMilestoneStatus(item, event.target.value)}>{Object.entries(MILESTONE_STATUSES).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select><button className="icon-btn" onClick={() => onCreateCommunication?.({ type: 'milestone', id: item.id, label: `${activeInitiative.title} — ${item.title}`, description: item.description || item.requiredOutput, initiativeId: activeInitiative.id, milestoneId: item.id, fileIds: item.fileIds || [], participantIds: [...new Set([...(item.participantIds || []), item.ownerId, item.approverId].filter(Boolean))] })} aria-label={`יצירת מייל ומעקב עבור ${item.title}`}><MailPlus size={14} /></button>{canEdit && <div className="milestone-action-buttons">{milestoneSort === 'manual' && <><button className="icon-btn" disabled={manualIndex <= 0 || saving} onClick={() => moveMilestone(item, -1)} aria-label={`העלאת ${item.title} בסדר`}><ArrowUp size={14} /></button><button className="icon-btn" disabled={manualIndex >= details.milestones.length - 1 || saving} onClick={() => moveMilestone(item, 1)} aria-label={`הורדת ${item.title} בסדר`}><ArrowDown size={14} /></button></>}<button className="icon-btn" onClick={() => { setEditingMilestoneId(item.id); setMilestoneForm({ ...emptyMilestone(item.order), ...item }); setShowMilestone(true); }} aria-label={`עריכת ${item.title}`}><Pencil size={14} /></button><button className="icon-btn icon-btn--danger" disabled={saving} onClick={() => handleArchiveMilestone(item)} aria-label={`הסרת ${item.title}`}><Trash2 size={14} /></button></div>}</div>
             </article>;
           })}
           {details.milestones.length === 0 && <div className="initiative-empty"><Flag size={28} /><p>עדיין לא הוגדרו אבני דרך.</p>{canCreateMilestones && <button className="btn btn-primary btn-sm" onClick={() => { setEditingMilestoneId(''); setMilestoneForm(emptyMilestone()); setShowMilestone(true); }}>הוספת אבן דרך ראשונה</button>}</div>}

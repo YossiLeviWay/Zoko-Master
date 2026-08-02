@@ -1,5 +1,5 @@
 .communication-overlay { z-index: 1200; }
-.communication-modal { width: min(760px, calc(100vw - 28px)); max-height: min(880px, calc(100vh - 28px)); overflow: auto; background: var(--bg-card, #fff); border: 1px solid #ead9df; border-radius: 22px; box-shadow: 0 24px 70px rgba(59, 19, 34, .2); }
+.communication-modal { width: min(1120px, calc(100vw - 28px)); max-height: min(920px, calc(100vh - 28px)); overflow: auto; background: var(--bg-card, #fff); border: 1px solid #ead9df; border-radius: 22px; box-shadow: 0 24px 70px rgba(59, 19, 34, .2); }
 .communication-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 24px 26px 18px; border-bottom: 1px solid #f0e4e8; }
 .communication-header h2 { margin: 6px 0; color: #32101d; font-size: 1.35rem; }
 .communication-header p { margin: 0; color: #765968; }
@@ -9,8 +9,54 @@
 .communication-form .form-group { margin-bottom: 14px; }
 .communication-form input, .communication-form select, .communication-form textarea { width: 100%; }
 .communication-body { min-height: 180px; resize: vertical; }
+.communication-compose-workspace { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; align-items: start; }
+.communication-compose-workspace--agent { grid-template-columns: minmax(300px, .8fr) minmax(0, 1.2fr); }
+.communication-structured-fields { min-width: 0; padding: 16px; border: 1px solid var(--color-border); border-radius: 16px; background: #fff; }
+.communication-agent { position: sticky; top: 0; display: flex; flex-direction: column; gap: 13px; min-width: 0; padding: 16px; border: 1px solid #f1c4b8; border-radius: 16px; background: linear-gradient(145deg, #fff8f3, #fff); }
+.communication-agent header h3 { margin: 6px 0; color: var(--color-text); font-size: 1.05rem; }
+.communication-agent header > span { display: inline-flex; align-items: center; gap: 5px; color: var(--color-primary); font-size: .78rem; font-weight: 800; }
+.communication-agent header p { margin: 0; color: var(--color-text-muted); font-size: .78rem; line-height: 1.55; }
+.communication-agent label { display: flex; flex-direction: column; gap: 5px; color: var(--color-text-secondary); font-size: .75rem; font-weight: 700; }
+.communication-agent textarea { min-height: 120px; resize: vertical; }
+.communication-agent-privacy { display: flex; align-items: flex-start; gap: 6px; padding: 9px; border-radius: 9px; background: #fff7dc; color: #77520d; font-size: .72rem; line-height: 1.45; }
+.communication-agent-messages { display: flex; flex-direction: column; gap: 6px; max-height: 130px; overflow: auto; }
+.communication-agent-message { display: flex; align-items: flex-start; gap: 6px; padding: 8px 9px; border-radius: 9px; background: #f7f4f5; color: var(--color-text-secondary); font-size: .72rem; }
+.communication-agent-message--user { margin-inline-start: 22px; background: #fff0ea; }
+.communication-agent-message--assistant { margin-inline-end: 22px; background: #edf8f5; }
+.communication-agent-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; }
+.communication-agent-controls .btn { min-height: 42px; }
+.communication-agent-error { margin: 0; padding: 9px; border-radius: 8px; background: #fff0f0; color: #a12b2b; font-size: .75rem; }
+.communication-agent-proposal { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid #b9dfd6; border-radius: 12px; background: #f7fcfa; }
+.communication-agent-proposal > div:first-child { display: flex; justify-content: space-between; gap: 8px; }
+.communication-agent-proposal > div:first-child span { color: var(--color-text-faint); font-size: .68rem; }
+.communication-agent-proposal dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 0; }
+.communication-agent-proposal dl div { min-width: 0; padding: 7px; border-radius: 7px; background: #fff; }
+.communication-agent-proposal dt { color: var(--color-text-faint); font-size: .65rem; }
+.communication-agent-proposal dd { overflow-wrap: anywhere; margin: 3px 0 0; color: var(--color-text-secondary); font-size: .72rem; font-weight: 700; }
+.communication-agent-missing { color: #855a16; font-size: .72rem; }
+.communication-agent-missing ul { margin: 4px 0 0; padding-inline-start: 18px; }
+.communication-agent-proposal-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.communication-templates { margin-bottom: 14px; padding: 10px 12px; border: 1px solid #ead9df; border-radius: 12px; background: #fff9f7; }
+.communication-templates summary { display: flex; align-items: center; gap: 6px; color: var(--color-primary); font-size: .8rem; font-weight: 800; cursor: pointer; }
+.communication-template-picker { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+.communication-template-picker select { flex: 1 1 210px; width: auto; }
+.communication-template-new { display: inline-flex; align-items: center; gap: 5px; margin-top: 8px; border: 0; background: transparent; color: var(--color-primary); cursor: pointer; font: inherit; font-size: .74rem; font-weight: 700; }
+.communication-template-editor { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #ead9df; }
+.communication-template-editor textarea, .communication-template-editor > div { grid-column: 1 / -1; }
+.communication-template-editor textarea { min-height: 110px; }
+.communication-template-editor > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.communication-template-editor small { color: var(--color-text-faint); font-size: .65rem; }
 .communication-privacy-note, .communication-attachment-note { padding: 12px 14px; border-radius: 12px; background: #fff5ef; color: #6f3f31; font-size: .9rem; margin-bottom: 16px; }
 .communication-attachment-note { background: #f6f3fb; color: #564472; }
+.communication-context-note { margin-bottom: 10px; padding: 11px 13px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-surface-muted); color: var(--color-text-secondary); font-size: .86rem; }
+.communication-student-warning { display: flex; align-items: flex-start; gap: 9px; margin-bottom: 12px; padding: 12px 14px; border: 1px solid #f6c66e; border-radius: 12px; background: #fff9e8; color: #78510a; line-height: 1.55; font-size: .86rem; }
+.communication-student-warning svg { flex: 0 0 auto; margin-top: 2px; }
+.communication-files { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; max-height: 170px; overflow: auto; margin: 0 0 14px; padding: 12px; border: 1px solid var(--color-border); border-radius: 12px; }
+.communication-files legend { padding: 0 6px; color: var(--color-text-secondary); font-size: .82rem; font-weight: 700; }
+.communication-files label { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 6px; border-radius: 7px; color: var(--color-text-secondary); font-size: .78rem; }
+.communication-files label:hover { background: var(--color-surface-muted); }
+.communication-files input { width: auto; }
+.communication-visibility small { display: block; margin-top: 5px; color: var(--color-text-faint); }
 .communication-copy-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 14px; }
 .communication-copy-actions--center { justify-content: center; }
 .communication-notice { margin: 8px 0; padding: 10px 12px; border-radius: 10px; background: #edf9f5; color: #137a67; font-size: .88rem; }
@@ -23,8 +69,70 @@
 .communication-confirmation dt { color: #8b7180; font-size: .78rem; }
 .communication-confirmation dd { margin: 4px 0 0; font-weight: 700; }
 .communication-confirm-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 9px; }
+.communication-contact-picker { margin-top: .4rem; font-size: .76rem; color: var(--color-text-muted); }
+.communication-new-recipients { display: flex; flex-direction: column; gap: .5rem; padding: .7rem; margin-bottom: 14px; border: 1px solid #f5c2a8; border-radius: 10px; background: #fff8f4; }
+.communication-new-recipients > strong { color: var(--color-text); font-size: .76rem; }
+.communication-new-recipients > div { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.communication-new-recipients > div > span { color: var(--color-text-muted); font-size: .74rem; }
+.communication-new-recipients > div > div { display: flex; align-items: center; flex-wrap: wrap; gap: .3rem; }
+.communication-new-recipients button { display: inline-flex; align-items: center; gap: .2rem; border: 1px solid var(--color-border); border-radius: 7px; padding: .3rem .45rem; background: #fff; color: var(--color-primary); cursor: pointer; font-size: .68rem; }
+.communication-new-recipients div div span { color: var(--color-text-faint); font-size: .65rem; }
+.communication-contact-save { display: flex; flex-direction: column; gap: .55rem; padding: .75rem; margin-bottom: 14px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-surface-muted); }
+.communication-contact-save > div:first-child { display: flex; align-items: center; justify-content: space-between; }
+.communication-contact-save > div:first-child button { display: flex; border: 0; background: transparent; color: var(--color-text-muted); cursor: pointer; }
+.communication-contact-save input { width: 100%; box-sizing: border-box; }
+.communication-followup-detail { display: flex; flex-direction: column; gap: 14px; padding: 20px 24px 26px; }
+.communication-followup-summary, .communication-followup-actions, .communication-timeline { padding: 16px; border: 1px solid var(--color-border); border-radius: 14px; background: #fff; }
+.communication-followup-summary { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, .8fr); gap: 18px; background: linear-gradient(135deg, #fff8f3, #fff); }
+.communication-followup-summary h3 { margin: 8px 0 4px; color: var(--color-text); font-size: 1.2rem; }
+.communication-followup-summary p { margin: 0; color: var(--color-text-muted); }
+.communication-followup-summary dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.communication-followup-summary dl div { min-width: 0; padding: 9px; border: 1px solid #f0e4e8; border-radius: 9px; background: rgba(255,255,255,.82); }
+.communication-followup-summary dt { color: var(--color-text-faint); font-size: .7rem; }
+.communication-followup-summary dd { overflow: hidden; margin: 3px 0 0; color: var(--color-text-secondary); font-size: .78rem; font-weight: 700; text-overflow: ellipsis; }
+.communication-status { display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px; border-radius: 999px; background: #eef8f4; color: #14735f; font-size: .75rem; font-weight: 800; }
+.communication-status--action_required, .communication-status--postponed { background: #fff4e9; color: #9a521d; }
+.communication-status--resolved, .communication-status--closed_without_reply { background: #edf8ef; color: #2f7645; }
+.communication-followup-actions > div:first-child h3, .communication-timeline > div:first-child h3 { margin: 0; color: var(--color-text); }
+.communication-followup-actions > div:first-child p { margin: 3px 0 12px; color: var(--color-text-muted); font-size: .8rem; }
+.communication-action-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
+.communication-action-grid button { display: flex; align-items: center; justify-content: center; gap: 5px; min-height: 42px; padding: 8px; border: 1px solid var(--color-border); border-radius: 9px; background: #fff; color: var(--color-text-secondary); cursor: pointer; font: inherit; font-size: .72rem; font-weight: 700; }
+.communication-action-grid button:hover, .communication-action-grid button.active { border-color: var(--color-primary); background: #fff3f0; color: var(--color-primary); }
+.communication-action-grid button:disabled { cursor: not-allowed; opacity: .45; }
+.communication-action-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 12px; padding: 12px; border-radius: 11px; background: var(--color-surface-muted); }
+.communication-action-form label { display: flex; flex-direction: column; gap: 5px; color: var(--color-text-secondary); font-size: .75rem; font-weight: 700; }
+.communication-action-form label:has(textarea) { grid-column: 1 / -1; }
+.communication-action-form textarea { min-height: 70px; resize: vertical; }
+.communication-action-form .btn { justify-self: start; }
+.communication-reminder-drafts { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--color-border); }
+.communication-reminder-drafts strong { display: inline-flex; align-items: center; gap: 5px; color: var(--color-text-secondary); font-size: .78rem; }
+.communication-reminder-drafts span { color: var(--color-text-faint); font-size: .7rem; }
+.communication-reminder-drafts > div { display: flex; gap: 6px; }
+.communication-timeline > div:first-child { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.communication-timeline > div:first-child span { color: var(--color-text-faint); font-size: .72rem; }
+.communication-timeline article { position: relative; display: grid; grid-template-columns: 28px 1fr; gap: 9px; padding: 8px 0; }
+.communication-timeline article:not(:last-of-type)::after { position: absolute; top: 35px; bottom: -8px; right: 13px; width: 1px; background: var(--color-border); content: ''; }
+.communication-timeline-dot { position: relative; z-index: 1; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: #fff0eb; color: var(--color-primary); }
+.communication-timeline article strong { color: var(--color-text-secondary); font-size: .8rem; }
+.communication-timeline article p { margin: 2px 0; color: var(--color-text-muted); font-size: .74rem; }
+.communication-timeline article small { color: var(--color-text-faint); font-size: .68rem; }
+.communication-timeline-empty { color: var(--color-text-faint); text-align: center; }
 @media (max-width: 640px) {
   .communication-header, .communication-form, .communication-confirmation { padding: 18px; }
   .communication-form .form-row, .communication-confirmation dl { grid-template-columns: 1fr; }
   .communication-confirm-actions .btn { width: 100%; }
+  .communication-new-recipients > div { align-items: flex-start; flex-direction: column; }
+  .communication-files { grid-template-columns: 1fr; }
+  .communication-followup-detail { padding: 14px; }
+  .communication-followup-summary { grid-template-columns: 1fr; }
+  .communication-action-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .communication-action-form { grid-template-columns: 1fr; }
+  .communication-reminder-drafts { grid-template-columns: 1fr; }
+  .communication-agent-controls, .communication-agent-proposal dl, .communication-template-editor { grid-template-columns: 1fr; }
+  .communication-template-editor textarea, .communication-template-editor > div { grid-column: auto; }
+  .communication-template-editor > div { align-items: stretch; flex-direction: column; }
+}
+@media (max-width: 900px) {
+  .communication-compose-workspace--agent { grid-template-columns: 1fr; }
+  .communication-agent { position: static; }
 }

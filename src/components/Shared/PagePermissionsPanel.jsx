@@ -17,6 +17,7 @@ const FEATURE_LABELS = {
   students:    { label: 'כיתות ותלמידים', view: 'students_view',    edit: 'students_update' },
   messages:    { label: 'הודעות',         view: null,               edit: 'messages_send' },
   holidays:    { label: 'חגים וחופשות',  view: 'holidays_view',    edit: 'holidays_edit' },
+  contacts:    { label: 'אנשי קשר',       view: 'contacts.view',    edit: 'contacts.edit', editExtra: ['contacts.create', 'contacts.archive'] },
 };
 
 const ROLE_LABELS = {
@@ -86,6 +87,7 @@ export default function PagePermissionsPanel({ feature, onClose }) {
         ...(featureMeta.viewAlias ? { [featureMeta.viewAlias]: true } : {}),
         ...(editKey ? { [editKey]: level === 'edit' } : {}),
         ...(featureMeta.editAlias ? { [featureMeta.editAlias]: level === 'edit' } : {}),
+        ...Object.fromEntries((featureMeta.editExtra || []).map(key => [key, level === 'edit'])),
       };
       await updateStaffUser({ userId: user.id, schoolId, permissions: patch });
       setStaff(prev => prev.map(u => u.id === user.id

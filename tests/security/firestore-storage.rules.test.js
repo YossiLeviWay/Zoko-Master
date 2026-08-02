@@ -484,7 +484,9 @@ test('email follow-up creation is atomic, tenant-scoped and requires explicit se
     communicationStatus: 'awaiting_send', communicationDraftId: 'mail_draft_1',
     communicationTrackingId: 'MAIL-mail_draft_1', nextFollowUpAt: '2026-08-04',
     completionCriteria: 'התקבלה תשובה', sourceTaskId: 'source_task',
-    sourceTaskStorageMode: 'nested', createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    sourceTaskStorageMode: 'nested', linkedContextType: 'task', linkedContextId: 'source_task',
+    linkedContextLabel: 'משימת מקור', communicationSubject: 'עדכון',
+    externalRecipientLabel: 'recipient@example.com', createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
   });
   batch.set(doc(senderDb, draftPath), {
     schoolId: SCHOOL_A, trackingId: 'MAIL-mail_draft_1', taskId: 'mail_task_1',
@@ -496,13 +498,16 @@ test('email follow-up creation is atomic, tenant-scoped and requires explicit se
     completionCriteria: 'התקבלה תשובה', sourceTaskId: 'source_task',
     sourceTaskStorageMode: 'nested', sourceTaskOwnerId: '', linkedStudentId: '',
     linkedClassId: '', linkedTeamId: '', linkedInitiativeId: '', linkedMilestoneId: '',
-    linkedEventId: '', linkedFileIds: [], links: [], actionHistory: [], reminderHistory: [],
-    visibility: 'private', participantIds: ['sender_a'], schemaVersion: 1,
+    linkedEventId: '', linkedContextType: 'task', linkedContextId: 'source_task',
+    linkedContextLabel: 'משימת מקור', linkedFileIds: [], links: [], actionHistory: [], reminderHistory: [],
+    visibility: 'private', participantIds: ['sender_a'], lastEventId: 'mail_event_1', reminderNotifiedFor: '', schemaVersion: 1,
     createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
   });
   batch.set(doc(senderDb, eventPath), {
     schoolId: SCHOOL_A, draftId: 'mail_draft_1', taskId: 'mail_task_1',
-    actorId: 'sender_a', type: 'draft_created', schemaVersion: 1, createdAt: serverTimestamp(),
+    actorId: 'sender_a', type: 'draft_created', previousStatus: '', newStatus: 'awaiting_send',
+    metadata: { note: '', previousDate: '', nextDate: '', previousAssigneeId: '', nextAssigneeId: '', reminderTone: '' },
+    schemaVersion: 1, createdAt: serverTimestamp(),
   });
   await assertSucceeds(batch.commit());
 
@@ -528,6 +533,7 @@ test('email follow-up creation is atomic, tenant-scoped and requires explicit se
     communicationStatus: 'awaiting_reply',
     confirmedSentBy: 'sender_a',
     confirmedSentAt: serverTimestamp(),
+    lastEventId: 'mail_event_2',
     updatedAt: serverTimestamp(),
   });
   confirmation.update(doc(senderDb, taskPath), {
@@ -536,11 +542,373 @@ test('email follow-up creation is atomic, tenant-scoped and requires explicit se
   });
   confirmation.set(doc(senderDb, `schools/${SCHOOL_A}/communicationEvents/mail_event_2`), {
     schoolId: SCHOOL_A, draftId: 'mail_draft_1', taskId: 'mail_task_1',
-    actorId: 'sender_a', type: 'send_confirmed', schemaVersion: 1, createdAt: serverTimestamp(),
+    actorId: 'sender_a', type: 'send_confirmed', previousStatus: 'awaiting_send', newStatus: 'awaiting_reply',
+    metadata: { note: '', previousDate: '', nextDate: '', previousAssigneeId: '', nextAssigneeId: '', reminderTone: '' },
+    schemaVersion: 1, createdAt: serverTimestamp(),
   });
   await assertSucceeds(confirmation.commit());
   const savedDraft = await getDoc(doc(senderDb, draftPath));
   assert.equal(savedDraft.data().communicationStatus, 'awaiting_reply');
+});
+
+test('follow-up lifecycle is append-only, assignable inside the school and closable by permission', async () => {
+  const taskPath = 'users/followup_owner/personalTasks/followup_task';
+  const draftPath = `schools/${SCHOOL_A}/communicationDrafts/followup_draft`;
+  await seedFirestore({
+    'users/followup_owner': user({
+      schoolId: SCHOOL_A,
+      permissions: { 'communications.create': true, 'communications.reassign': true },
+    }),
+    'users/followup_assignee': user({ schoolId: SCHOOL_A }),
+    'users/followup_manager': user({ schoolId: SCHOOL_A, permissions: { 'communications.viewAll': true, 'communications.reassign': true, 'communications.close': true } }),
+    'users/followup_outsider': user({ schoolId: SCHOOL_A }),
+    'users/followup_cross_school': user({ schoolId: SCHOOL_B }),
+    [taskPath]: {
+      title: 'מעקב מייל', description: 'מעקב', priority: 'medium', status: 'todo', taskStatus: 'todo',
+      dueDate: '2026-08-04', reminderAt: '', tags: ['מייל'], attachedFileId: '', attachedFileName: '',
+      initiativeId: '', milestoneId: '', scope: 'personal', schoolId: SCHOOL_A, ownerId: 'followup_owner',
+      createdBy: 'followup_owner', assigneeIds: [], participantIds: ['followup_owner'], teamId: '',
+      assigneeTeamId: '', completedAt: null, workflowType: 'external_email_followup',
+      communicationStatus: 'awaiting_reply', communicationDraftId: 'followup_draft',
+      communicationTrackingId: 'MAIL-followup_draft', nextFollowUpAt: '2026-08-04',
+      completionCriteria: 'התקבלה תשובה', sourceTaskId: 'source_task', sourceTaskStorageMode: 'nested',
+    },
+    [draftPath]: {
+      schoolId: SCHOOL_A, trackingId: 'MAIL-followup_draft', taskId: 'followup_task',
+      workflowType: 'external_email_followup', communicationStatus: 'awaiting_reply', subject: 'תיאום',
+      draftBody: 'טיוטה', summary: 'מעקב', to: ['vendor@example.com'], cc: [], bcc: [],
+      linkedContactId: '', createdBy: 'followup_owner', confirmedSentBy: 'followup_owner',
+      confirmedSentAt: 'sent', followUpAssigneeId: 'followup_owner', nextFollowUpAt: '2026-08-04',
+      priority: 'medium', completionCriteria: 'התקבלה תשובה', sourceTaskId: 'source_task',
+      sourceTaskStorageMode: 'nested', sourceTaskOwnerId: '', linkedStudentId: '', linkedClassId: '',
+      linkedTeamId: '', linkedInitiativeId: '', linkedMilestoneId: '', linkedEventId: '',
+      linkedContextType: 'task', linkedContextId: 'source_task', linkedContextLabel: 'משימת מקור',
+      linkedFileIds: [], links: [], actionHistory: [], reminderHistory: [], visibility: 'private',
+      participantIds: ['followup_owner'], lastEventId: 'initial_event', reminderNotifiedFor: '', schemaVersion: 1,
+      createdAt: 'created', updatedAt: 'created',
+    },
+  });
+
+  const metadata = (overrides = {}) => ({
+    note: '', previousDate: '', nextDate: '', previousAssigneeId: '',
+    nextAssigneeId: '', reminderTone: '', ...overrides,
+  });
+  const event = (actorId, type, previousStatus, newStatus, overrides = {}) => ({
+    schoolId: SCHOOL_A, draftId: 'followup_draft', taskId: 'followup_task', actorId, type,
+    previousStatus, newStatus, metadata: metadata(overrides), schemaVersion: 1, createdAt: serverTimestamp(),
+  });
+
+  const ownerDb = context('followup_owner').firestore();
+  const reassign = writeBatch(ownerDb);
+  reassign.update(doc(ownerDb, draftPath), {
+    followUpAssigneeId: 'followup_assignee', participantIds: ['followup_owner', 'followup_assignee'],
+    lastEventId: 'reassign_event', updatedAt: serverTimestamp(),
+  });
+  reassign.set(doc(ownerDb, `schools/${SCHOOL_A}/communicationEvents/reassign_event`),
+    event('followup_owner', 'responsibility_reassigned', 'awaiting_reply', 'awaiting_reply', {
+      previousAssigneeId: 'followup_owner', nextAssigneeId: 'followup_assignee',
+    }));
+  await assertSucceeds(reassign.commit());
+  await assertSucceeds(getDoc(doc(context('followup_assignee').firestore(), draftPath)));
+
+  const outsiderDb = context('followup_outsider').firestore();
+  await assertFails(updateDoc(doc(outsiderDb, draftPath), { nextFollowUpAt: '2026-08-10' }));
+
+  const assigneeDb = context('followup_assignee').firestore();
+  const postpone = writeBatch(assigneeDb);
+  postpone.update(doc(assigneeDb, draftPath), {
+    communicationStatus: 'postponed', nextFollowUpAt: '2026-08-10', reminderNotifiedFor: '',
+    lastEventId: 'postpone_event', updatedAt: serverTimestamp(),
+  });
+  postpone.set(doc(assigneeDb, `schools/${SCHOOL_A}/communicationEvents/postpone_event`),
+    event('followup_assignee', 'no_reply_reported', 'awaiting_reply', 'postponed', {
+      previousDate: '2026-08-04', nextDate: '2026-08-10',
+    }));
+  await assertSucceeds(postpone.commit());
+
+  const managerDb = context('followup_manager').firestore();
+  const crossSchoolReassign = writeBatch(managerDb);
+  crossSchoolReassign.update(doc(managerDb, draftPath), {
+    followUpAssigneeId: 'followup_cross_school',
+    participantIds: ['followup_owner', 'followup_assignee', 'followup_cross_school'],
+    lastEventId: 'cross_school_event', updatedAt: serverTimestamp(),
+  });
+  crossSchoolReassign.set(doc(managerDb, `schools/${SCHOOL_A}/communicationEvents/cross_school_event`),
+    event('followup_manager', 'responsibility_reassigned', 'postponed', 'postponed', {
+      previousAssigneeId: 'followup_assignee', nextAssigneeId: 'followup_cross_school',
+    }));
+  await assertFails(crossSchoolReassign.commit());
+
+  const close = writeBatch(managerDb);
+  close.update(doc(managerDb, draftPath), {
+    communicationStatus: 'closed_without_reply', lastEventId: 'close_event', updatedAt: serverTimestamp(),
+  });
+  close.set(doc(managerDb, `schools/${SCHOOL_A}/communicationEvents/close_event`),
+    event('followup_manager', 'closed_without_reply', 'postponed', 'closed_without_reply'));
+  await assertSucceeds(close.commit());
+  await assertFails(updateDoc(doc(assigneeDb, draftPath), { nextFollowUpAt: '2026-08-12' }));
+});
+
+test('student-linked communication requires student access and always remains private', async () => {
+  await seedFirestore({
+    'users/principal_a': user({ schoolId: SCHOOL_A, role: 'principal' }),
+    'users/sender_a': user({ schoolId: SCHOOL_A, permissions: { 'communications.create': true } }),
+    [`schools/${SCHOOL_A}/students/student_1`]: { schoolId: SCHOOL_A, classId: 'class_1', fullName: 'Student' },
+  });
+
+  function studentCommunicationBatch(uid, suffix, visibility = 'private', participantIds = [uid]) {
+    const client = context(uid).firestore();
+    const taskId = `student_mail_task_${suffix}`;
+    const draftId = `student_mail_draft_${suffix}`;
+    const trackingId = `MAIL-${draftId}`;
+    const batch = writeBatch(client);
+    batch.set(doc(client, `users/${uid}/personalTasks/${taskId}`), {
+      title: 'מעקב מייל: תלמיד', description: 'מעקב', priority: 'medium', status: 'todo', taskStatus: 'todo',
+      dueDate: '2026-08-04', reminderAt: '', tags: ['מייל'], attachedFileId: '', attachedFileName: '',
+      initiativeId: '', milestoneId: '', scope: 'personal', schoolId: SCHOOL_A, ownerId: uid, createdBy: uid,
+      createdByName: 'Sender', assigneeIds: [], participantIds: [uid], teamId: '', assigneeTeamId: '',
+      completedAt: null, workflowType: 'external_email_followup', communicationStatus: 'awaiting_send',
+      communicationDraftId: draftId, communicationTrackingId: trackingId, nextFollowUpAt: '2026-08-04',
+      completionCriteria: 'התקבלה תשובה', sourceTaskId: 'student_1', sourceTaskStorageMode: 'context',
+      linkedContextType: 'student', linkedContextId: 'student_1', linkedContextLabel: 'Student',
+      communicationSubject: 'עדכון', externalRecipientLabel: 'parent@example.com',
+      createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    });
+    batch.set(doc(client, `schools/${SCHOOL_A}/communicationDrafts/${draftId}`), {
+      schoolId: SCHOOL_A, trackingId, taskId, workflowType: 'external_email_followup',
+      communicationStatus: 'awaiting_send', subject: 'עדכון', draftBody: 'נוסח שאינו מכיל מידע רגיש.',
+      summary: 'מעקב', to: ['parent@example.com'], cc: [], bcc: [], linkedContactId: '', createdBy: uid,
+      confirmedSentBy: '', confirmedSentAt: null, followUpAssigneeId: uid, nextFollowUpAt: '2026-08-04',
+      priority: 'medium', completionCriteria: 'התקבלה תשובה', sourceTaskId: 'student_1',
+      sourceTaskStorageMode: 'context', sourceTaskOwnerId: '', linkedStudentId: 'student_1',
+      linkedClassId: 'class_1', linkedTeamId: '', linkedInitiativeId: '', linkedMilestoneId: '', linkedEventId: '',
+      linkedContextType: 'student', linkedContextId: 'student_1', linkedContextLabel: 'Student',
+      linkedFileIds: [], links: [], actionHistory: [], reminderHistory: [], visibility, participantIds,
+      lastEventId: `student_mail_event_${suffix}`, reminderNotifiedFor: '',
+      schemaVersion: 1, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    });
+    batch.set(doc(client, `schools/${SCHOOL_A}/communicationEvents/student_mail_event_${suffix}`), {
+      schoolId: SCHOOL_A, draftId, taskId, actorId: uid, type: 'draft_created', schemaVersion: 1,
+      previousStatus: '', newStatus: 'awaiting_send',
+      metadata: { note: '', previousDate: '', nextDate: '', previousAssigneeId: '', nextAssigneeId: '', reminderTone: '' },
+      createdAt: serverTimestamp(),
+    });
+    return batch;
+  }
+
+  await assertSucceeds(studentCommunicationBatch('principal_a', 'private').commit());
+  await assertFails(studentCommunicationBatch('principal_a', 'shared', 'participants', ['principal_a', 'sender_a']).commit());
+  await assertFails(studentCommunicationBatch('sender_a', 'no_student_access').commit());
+});
+
+test('institutional and private contacts enforce permissions, visibility and tenant isolation', async () => {
+  const institutionalContact = ({
+    schoolId = SCHOOL_A,
+    createdBy = 'contact_creator_a',
+    visibility = 'institution',
+    ownerStaffIds = [],
+    archived = false,
+  } = {}) => ({
+    scope: 'institutional', schoolId, fullName: 'External Contact', organization: 'Vendor Ltd',
+    jobTitle: 'Coordinator', primaryEmail: 'contact@example.com', additionalEmails: [],
+    normalizedEmails: ['contact@example.com'], phone: '', category: 'vendor', tags: [], notes: '',
+    ownerStaffIds, visibility, linkedStaffId: '', archived, schemaVersion: 1,
+    createdBy, updatedBy: createdBy, archivedBy: '', archivedAt: null,
+    mergedIntoId: '', mergedFromIds: [], createdAt: 'created', updatedAt: 'created',
+  });
+  const privateContact = {
+    scope: 'private', ownerId: 'private_owner_a', schoolId: SCHOOL_A,
+    fullName: 'Private Contact', organization: '', jobTitle: '',
+    primaryEmail: 'private@example.com', additionalEmails: [],
+    normalizedEmails: ['private@example.com'], phone: '', category: '', tags: [], notes: '',
+    archived: false, schemaVersion: 1, createdBy: 'private_owner_a', updatedBy: 'private_owner_a',
+    archivedBy: '', archivedAt: null, mergedIntoId: '', mergedFromIds: [],
+    createdAt: 'created', updatedAt: 'created',
+  };
+  await seedFirestore({
+    'users/contact_viewer_a': user({ schoolId: SCHOOL_A, permissions: { 'contacts.view': true } }),
+    'users/contact_creator_a': user({ schoolId: SCHOOL_A, permissions: { 'contacts.view': true, 'contacts.create': true } }),
+    'users/contact_editor_a': user({ schoolId: SCHOOL_A, permissions: { 'contacts.view': true, 'contacts.edit': true } }),
+    'users/contact_archiver_a': user({ schoolId: SCHOOL_A, permissions: { 'contacts.view': true, 'contacts.archive': true } }),
+    'users/contact_merger_a': user({ schoolId: SCHOOL_A, permissions: { 'contacts.view': true, 'contacts.merge': true } }),
+    'users/responsible_a': user({ schoolId: SCHOOL_A }),
+    'users/peer_a': user({ schoolId: SCHOOL_A }),
+    'users/principal_a': user({ schoolId: SCHOOL_A, role: 'principal' }),
+    'users/private_owner_a': user({ schoolId: SCHOOL_A }),
+    'users/viewer_b': user({ schoolId: SCHOOL_B, permissions: { 'contacts.view': true } }),
+    'users/platform_admin': user({ schoolId: SCHOOL_A }),
+    [`schools/${SCHOOL_A}/contactDirectory/institutional/items/public_contact`]: institutionalContact(),
+    [`schools/${SCHOOL_A}/contactDirectory/institutional/items/restricted_contact`]: institutionalContact({
+      visibility: 'responsible_staff', ownerStaffIds: ['responsible_a'],
+    }),
+    [`schools/${SCHOOL_A}/contactDirectory/institutional/items/merge_source`]: {
+      ...institutionalContact({ createdBy: 'contact_merger_a' }),
+      primaryEmail: 'source@example.com', normalizedEmails: ['source@example.com'],
+    },
+    [`schools/${SCHOOL_A}/contactDirectory/institutional/items/merge_target`]: {
+      ...institutionalContact({ createdBy: 'contact_merger_a' }),
+      primaryEmail: 'target@example.com', normalizedEmails: ['target@example.com'],
+    },
+    'users/private_owner_a/contactDirectory/private/items/private_contact': privateContact,
+  });
+
+  const publicPath = `schools/${SCHOOL_A}/contactDirectory/institutional/items/public_contact`;
+  const restrictedPath = `schools/${SCHOOL_A}/contactDirectory/institutional/items/restricted_contact`;
+  await assertSucceeds(getDoc(doc(context('contact_viewer_a').firestore(), publicPath)));
+  await assertFails(getDoc(doc(context('contact_viewer_a').firestore(), restrictedPath)));
+  await assertSucceeds(getDoc(doc(context('responsible_a').firestore(), restrictedPath)));
+  await assertSucceeds(getDoc(doc(context('principal_a').firestore(), restrictedPath)));
+  await assertFails(getDoc(doc(context('peer_a').firestore(), publicPath)));
+  await assertFails(getDoc(doc(context('viewer_b').firestore(), publicPath)));
+  await assertFails(getDoc(doc(context('platform_admin', { platform_admin: true }).firestore(), publicPath)));
+  await assertSucceeds(getDocs(query(
+    collection(context('contact_viewer_a').firestore(), `schools/${SCHOOL_A}/contactDirectory/institutional/items`),
+    where('visibility', '==', 'institution'),
+  )));
+
+  const createPayload = {
+    ...institutionalContact(),
+    createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  };
+  await assertSucceeds(setDoc(
+    doc(context('contact_creator_a').firestore(), `schools/${SCHOOL_A}/contactDirectory/institutional/items/new_contact`),
+    createPayload,
+  ));
+  await assertFails(setDoc(
+    doc(context('peer_a').firestore(), `schools/${SCHOOL_A}/contactDirectory/institutional/items/forged_contact`),
+    { ...createPayload, createdBy: 'peer_a', updatedBy: 'peer_a' },
+  ));
+  await assertFails(setDoc(
+    doc(context('contact_creator_a').firestore(), `schools/${SCHOOL_A}/contactDirectory/institutional/items/extra_field`),
+    { ...createPayload, unsafeField: true },
+  ));
+  await assertSucceeds(updateDoc(doc(context('contact_editor_a').firestore(), publicPath), {
+    fullName: 'Updated External Contact',
+    updatedBy: 'contact_editor_a',
+    updatedAt: serverTimestamp(),
+  }));
+  await assertFails(updateDoc(doc(context('contact_editor_a').firestore(), publicPath), {
+    schoolId: SCHOOL_B,
+    updatedBy: 'contact_editor_a',
+    updatedAt: serverTimestamp(),
+  }));
+  const mergerDb = context('contact_merger_a').firestore();
+  const mergeBatch = writeBatch(mergerDb);
+  mergeBatch.update(
+    doc(mergerDb, `schools/${SCHOOL_A}/contactDirectory/institutional/items/merge_target`),
+    {
+      primaryEmail: 'target@example.com',
+      additionalEmails: ['source@example.com'],
+      normalizedEmails: ['target@example.com', 'source@example.com'],
+      mergedFromIds: ['merge_source'],
+      updatedBy: 'contact_merger_a',
+      updatedAt: serverTimestamp(),
+    },
+  );
+  mergeBatch.update(
+    doc(mergerDb, `schools/${SCHOOL_A}/contactDirectory/institutional/items/merge_source`),
+    {
+      archived: true,
+      archivedBy: 'contact_merger_a',
+      archivedAt: serverTimestamp(),
+      mergedIntoId: 'merge_target',
+      updatedBy: 'contact_merger_a',
+      updatedAt: serverTimestamp(),
+    },
+  );
+  await assertSucceeds(mergeBatch.commit());
+  await assertFails(deleteDoc(doc(context('principal_a').firestore(), publicPath)));
+  await assertSucceeds(updateDoc(doc(context('contact_archiver_a').firestore(), publicPath), {
+    archived: true,
+    archivedBy: 'contact_archiver_a',
+    archivedAt: serverTimestamp(),
+    updatedBy: 'contact_archiver_a',
+    updatedAt: serverTimestamp(),
+  }));
+
+  const privatePath = 'users/private_owner_a/contactDirectory/private/items/private_contact';
+  await assertSucceeds(getDoc(doc(context('private_owner_a').firestore(), privatePath)));
+  await assertFails(getDoc(doc(context('peer_a').firestore(), privatePath)));
+  await assertFails(getDoc(doc(context('principal_a').firestore(), privatePath)));
+  await assertFails(getDoc(doc(context('platform_admin', { platform_admin: true }).firestore(), privatePath)));
+  await assertSucceeds(setDoc(
+    doc(context('private_owner_a').firestore(), 'users/private_owner_a/contactDirectory/private/items/new_private'),
+    { ...privateContact, createdAt: serverTimestamp(), updatedAt: serverTimestamp() },
+  ));
+  await assertSucceeds(updateDoc(doc(context('private_owner_a').firestore(), privatePath), {
+    fullName: 'Updated Private Contact',
+    updatedBy: 'private_owner_a',
+    updatedAt: serverTimestamp(),
+  }));
+  await assertFails(setDoc(
+    doc(context('peer_a').firestore(), 'users/private_owner_a/contactDirectory/private/items/forged_private'),
+    { ...privateContact, createdAt: serverTimestamp(), updatedAt: serverTimestamp() },
+  ));
+  await assertFails(deleteDoc(doc(context('private_owner_a').firestore(), privatePath)));
+});
+
+test('communication templates remain owner-scoped, tenant-scoped and archive-only', async () => {
+  await seedFirestore({
+    'users/template_owner_a': user({ schoolId: SCHOOL_A, permissions: { 'communications.create': true } }),
+    'users/template_peer_a': user({ schoolId: SCHOOL_A, permissions: { 'communications.create': true } }),
+    'users/template_reader_a': user({ schoolId: SCHOOL_A, permissions: { 'communications.useAgent': true } }),
+    'users/template_manager_a': user({ schoolId: SCHOOL_A, permissions: { 'communications.manageTemplates': true } }),
+    'users/template_viewer_a': user({ schoolId: SCHOOL_A }),
+    'users/template_manager_b': user({ schoolId: SCHOOL_B, permissions: { 'communications.manageTemplates': true } }),
+  });
+  const payload = ({ scope, schoolId, ownerId, actor }) => ({
+    scope,
+    schoolId,
+    ownerId,
+    name: 'תזכורת מוסדית',
+    category: 'מעקב',
+    subjectTemplate: 'תזכורת: {{subject}}',
+    bodyTemplate: 'שלום, נשמח לקבל עדכון.',
+    tone: 'respectful',
+    archived: false,
+    archivedBy: '',
+    archivedAt: null,
+    createdBy: actor,
+    updatedBy: actor,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    schemaVersion: 1,
+  });
+
+  const privatePath = 'users/template_owner_a/communicationTemplates/private_a';
+  const institutionalPath = `schools/${SCHOOL_A}/communicationTemplates/institutional_a`;
+  await assertSucceeds(setDoc(
+    doc(context('template_owner_a').firestore(), privatePath),
+    payload({ scope: 'private', schoolId: SCHOOL_A, ownerId: 'template_owner_a', actor: 'template_owner_a' }),
+  ));
+  await assertSucceeds(getDoc(doc(context('template_owner_a').firestore(), privatePath)));
+  await assertFails(getDoc(doc(context('template_peer_a').firestore(), privatePath)));
+  await assertFails(updateDoc(doc(context('template_owner_a').firestore(), privatePath), {
+    ownerId: 'template_peer_a',
+    updatedBy: 'template_owner_a',
+    updatedAt: serverTimestamp(),
+  }));
+  await assertSucceeds(updateDoc(doc(context('template_owner_a').firestore(), privatePath), {
+    archived: true,
+    archivedBy: 'template_owner_a',
+    archivedAt: serverTimestamp(),
+    updatedBy: 'template_owner_a',
+    updatedAt: serverTimestamp(),
+  }));
+  await assertFails(deleteDoc(doc(context('template_owner_a').firestore(), privatePath)));
+
+  await assertSucceeds(setDoc(
+    doc(context('template_manager_a').firestore(), institutionalPath),
+    payload({ scope: 'institutional', schoolId: SCHOOL_A, ownerId: '', actor: 'template_manager_a' }),
+  ));
+  await assertSucceeds(getDoc(doc(context('template_reader_a').firestore(), institutionalPath)));
+  await assertFails(getDoc(doc(context('template_viewer_a').firestore(), institutionalPath)));
+  await assertFails(getDoc(doc(context('template_manager_b').firestore(), institutionalPath)));
+  await assertFails(setDoc(
+    doc(context('template_owner_a').firestore(), `schools/${SCHOOL_A}/communicationTemplates/forged`),
+    payload({ scope: 'institutional', schoolId: SCHOOL_A, ownerId: '', actor: 'template_owner_a' }),
+  ));
+  await assertFails(deleteDoc(doc(context('template_manager_a').firestore(), institutionalPath)));
 });
 
 test('mandatory tasks are server-created and cannot be deleted by recipients', async () => {

@@ -11,6 +11,7 @@ export {
 } from './callables/memberships.js';
 export { updateTeamMembership } from './callables/teams.js';
 export { createNotifications } from './callables/notifications.js';
+export { draftCommunicationWithAgent } from './callables/communicationAgent.js';
 export { createSchool, updateSchool, deleteSchool, assignInstitutionManager } from './callables/schools.js';
 export { createStaffInvitation, manageStaffInvitation, acceptStaffInvitation } from './callables/invitations.js';
 export { submitJoinRequest, reviewJoinRequest } from './callables/joinRequests.js';

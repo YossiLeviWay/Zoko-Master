@@ -45,11 +45,19 @@ test('email follow-up fields survive personal task normalization', () => {
     communicationDraftId: 'draft_1',
     communicationTrackingId: 'MAIL-draft_1',
     nextFollowUpAt: '2026-08-04',
+    linkedContextType: 'student',
+    linkedContextId: 'student_1',
+    linkedContextLabel: 'תלמיד א',
+    communicationSubject: 'עדכון',
+    externalRecipientLabel: 'parent@example.com',
   });
   assert.equal(task.workflowType, 'external_email_followup');
   assert.equal(task.communicationStatus, 'awaiting_send');
   assert.equal(task.communicationDraftId, 'draft_1');
   assert.equal(task.nextFollowUpAt, '2026-08-04');
+  assert.equal(task.linkedContextType, 'student');
+  assert.equal(task.linkedContextLabel, 'תלמיד א');
+  assert.equal(task.externalRecipientLabel, 'parent@example.com');
 });
 
 test('existing task normalization keeps optional initiative links without creating another task', () => {

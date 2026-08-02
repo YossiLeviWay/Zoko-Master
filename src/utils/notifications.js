@@ -24,8 +24,8 @@ export async function createNotifications(userIds, {
   link = '',
 }) {
   try {
-    if (!schoolId || userIds.length === 0) return;
-    await createServerNotifications({
+    if (!schoolId || userIds.length === 0) return null;
+    return await createServerNotifications({
       schoolId,
       userIds,
       title,
@@ -35,5 +35,6 @@ export async function createNotifications(userIds, {
     });
   } catch {
     console.warn('Unable to create notification.');
+    return null;
   }
 }

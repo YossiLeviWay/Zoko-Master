@@ -12,6 +12,7 @@ import {
 import PersonalFileTab from './PersonalFileTab';
 import CvBuilderTab from './CvBuilderTab';
 import GradeMappingEditor from '../Files/GradeMappingEditor';
+import CommunicationLauncherButton from '../Shared/CommunicationLauncherButton';
 import { subscribeClassGradebooks } from '../../services/firestore/gradebookRepository';
 
 const PROGRAM_LABELS = {
@@ -119,7 +120,7 @@ export default function StudentProfile({
   }
 
   return <div className="modal-overlay" onClick={onClose}><div className="modal-content modal-content--wide student-profile-modal" role="dialog" aria-modal="true" aria-label={`פרופיל ${student.fullName}`} onClick={event => event.stopPropagation()}>
-    <div className="modal-header"><div className="student-profile-heading"><div className="student-profile-avatar">{student.fullName?.charAt(0) || '?'}</div><div><h3>{student.fullName}</h3><p>{student.className || 'ללא כיתה'} · {student.gradeLevel || 'ללא שכבה'} · {student.academicYear || 'ללא שנת לימודים'}</p></div></div><div className="student-profile-actions">{canEdit && <button className="icon-btn" onClick={onEdit} aria-label="עריכת תלמיד"><Edit3 size={16} /></button>}<button className="modal-close" onClick={onClose} aria-label="סגירה"><X size={18} /></button></div></div>
+    <div className="modal-header"><div className="student-profile-heading"><div className="student-profile-avatar">{student.fullName?.charAt(0) || '?'}</div><div><h3>{student.fullName}</h3><p>{student.className || 'ללא כיתה'} · {student.gradeLevel || 'ללא שכבה'} · {student.academicYear || 'ללא שנת לימודים'}</p></div></div><div className="student-profile-actions"><CommunicationLauncherButton context={{ type: 'student', id: student.id, label: student.fullName, studentId: student.id, classId: student.classId }} className="btn btn-secondary btn-sm">מייל ומעקב</CommunicationLauncherButton>{canEdit && <button className="icon-btn" onClick={onEdit} aria-label="עריכת תלמיד"><Edit3 size={16} /></button>}<button className="modal-close" onClick={onClose} aria-label="סגירה"><X size={18} /></button></div></div>
     <nav className="student-profile-tabs" aria-label="חלקי פרופיל התלמיד">{PROFILE_TABS.map(tab => { const Icon = tab.icon; return <button type="button" key={tab.id} className={activeTab === tab.id ? 'active' : ''} onClick={() => setActiveTab(tab.id)}><Icon size={15} />{tab.label}</button>; })}</nav>
     <div className="modal-form student-profile-content">
       {error && <div className="students-feedback students-feedback--error" role="alert">{error}</div>}

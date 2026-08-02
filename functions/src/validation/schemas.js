@@ -483,8 +483,73 @@ export const notificationSchema = z.object({
   userIds: z.array(id).min(1).max(50).transform(values => [...new Set(values)]),
   title: z.string().trim().min(1).max(120),
   body: z.string().trim().max(500).optional().default(''),
-  type: z.enum(['calendar', 'staff', 'file', 'message', 'permission', 'system', 'task']),
+  type: z.enum(['calendar', 'staff', 'file', 'message', 'permission', 'system', 'task', 'communication']),
   link: z.string().trim().max(200).regex(/^\/[A-Za-z0-9/_?=&.-]*$/).optional().default(''),
+}).strict();
+
+const communicationAgentContext = z.object({
+  type: z.enum(['general', 'task', 'student', 'team', 'initiative', 'milestone', 'event', 'contact']),
+  id,
+  label: z.string().trim().min(1).max(300),
+}).strict();
+
+const communicationAgentContactRef = z.object({
+  id,
+  scope: z.enum(['private', 'institutional']),
+}).strict();
+
+const communicationAgentDraft = z.object({
+  recipients: z.array(email).max(20).optional().default([]),
+  cc: z.array(email).max(20).optional().default([]),
+  bcc: z.array(email).max(20).optional().default([]),
+  subject: z.string().trim().max(300).optional().default(''),
+  body: z.string().trim().max(10000).optional().default(''),
+  summary: z.string().trim().max(1000).optional().default(''),
+  priority: z.enum(['low', 'normal', 'high']).optional().default('normal'),
+  followUpAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional().default(null),
+  completionCriteria: z.string().trim().max(1000).optional().default(''),
+}).strict();
+
+export const communicationAgentRequestSchema = z.object({
+  schoolId: id,
+  request: z.string().trim().min(3).max(4000),
+  operation: z.enum(['compose', 'shorten', 'expand', 'change_tone', 'suggest_next_action', 'summarize_history']).optional().default('compose'),
+  language: z.enum(['he', 'ar', 'en']).optional().default('he'),
+  style: z.enum(['respectful', 'direct', 'friendly', 'formal']).optional().default('respectful'),
+  context: communicationAgentContext,
+  contactRefs: z.array(communicationAgentContactRef).max(12).optional().default([]),
+  assigneeIds: z.array(id).max(40).optional().default([]).transform(values => [...new Set(values)]),
+  currentDraft: communicationAgentDraft.optional().default({
+    recipients: [],
+    cc: [],
+    bcc: [],
+    subject: '',
+    body: '',
+    summary: '',
+    priority: 'normal',
+    followUpAt: null,
+    completionCriteria: '',
+  }),
+}).strict();
+
+export const communicationAgentResultSchema = z.object({
+  recipients: z.array(email).max(20),
+  cc: z.array(email).max(20),
+  bcc: z.array(email).max(20),
+  subject: z.string().trim().max(300),
+  body: z.string().trim().max(10000),
+  summary: z.string().trim().max(1000),
+  priority: z.enum(['low', 'normal', 'high']),
+  followUpAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  completionCriteria: z.string().trim().max(1000),
+  suggestedAssigneeId: id.nullable(),
+  linkedEntities: z.array(z.object({
+    type: z.enum(['general', 'task', 'student', 'team', 'initiative', 'milestone', 'event', 'contact']),
+    id,
+    label: z.string().trim().min(1).max(300),
+  }).strict()).max(10),
+  missingFields: z.array(z.string().trim().min(1).max(120)).max(12),
+  suggestedNextAction: z.string().trim().max(500),
 }).strict();
 
 const schoolDetails = {
