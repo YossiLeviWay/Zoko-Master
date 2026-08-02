@@ -1,13 +1,21 @@
 :root {
-  /* Official Atid network palette, centralized for the entire application. */
-  --atid-orange: #fc5029;
-  --atid-burgundy: #870335;
+  /* Central application palette. */
+  --brand-burgundy: #98133f;
+  --brand-orange: #f4512c;
+  --surface: #ffffff;
+  --page-background: #fafafa;
+  --text-primary: #171717;
+  --text-secondary: #666666;
+  --border-subtle: #e8e8e8;
+
+  --atid-orange: var(--brand-orange);
+  --atid-burgundy: var(--brand-burgundy);
   --atid-burgundy-dark: #5c0123;
-  --atid-ink: #1e000c;
-  --atid-cream: #f9f1ef;
+  --atid-ink: var(--text-primary);
+  --atid-cream: var(--page-background);
   --atid-peach: #f9dab9;
-  --atid-warm-white: #fbf6f5;
-  --atid-white: #fefefe;
+  --atid-warm-white: #fff8f5;
+  --atid-white: var(--surface);
 
   --color-primary: var(--atid-burgundy);
   --color-primary-hover: var(--atid-burgundy-dark);
@@ -17,15 +25,15 @@
   --color-accent-border: #f6ad99;
   --color-text-strong: var(--atid-ink);
   --color-text: var(--atid-ink);
-  --color-text-secondary: #3f1828;
-  --color-text-muted: #5f3b49;
-  --color-text-subtle: #765968;
-  --color-text-faint: #9b8790;
-  --color-surface: var(--atid-warm-white);
-  --color-surface-muted: var(--atid-cream);
-  --color-surface-raised: var(--atid-white);
-  --color-border: #eadfe2;
-  --color-border-strong: #d9cbd0;
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: #666666;
+  --color-text-subtle: #737373;
+  --color-text-faint: #8a8a8a;
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--page-background);
+  --color-surface-raised: var(--surface);
+  --color-border: var(--border-subtle);
+  --color-border-strong: #d4d4d4;
 
   --control-height: 44px;
   --control-height-small: 36px;

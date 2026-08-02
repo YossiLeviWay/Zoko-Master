@@ -671,7 +671,7 @@ export default function InitiativePanel({
     <div className="initiative-card-grid">
       {displayedInitiatives.map(item => <button className="initiative-card" key={item.id} onClick={() => setActiveId(item.id)}>
         <div className="initiative-card-head"><span className={`initiative-health initiative-health--${item.health}`}>{INITIATIVE_HEALTH[item.health] || INITIATIVE_STATUSES[item.status]}</span><span>{item.academicYearLabel}</span></div>
-        <h3>{item.title}</h3><p>{item.description || item.nextAction || 'ללא תיאור'}</p>
+        <h3>{item.title}</h3><div className="initiative-card-next"><span>אבן הדרך הבאה</span><strong>{item.nextAction || 'טרם הוגדרה'}</strong><small>{item.endDate ? dateLabel(item.endDate) : 'ללא תאריך קרוב'}</small></div>
         <div className="initiative-card-progress"><div><span style={{ width: `${item.progressPercent || 0}%` }} /></div><strong>{item.progressPercent == null ? '—' : `${item.progressPercent}%`}</strong></div>
         <div className="initiative-card-meta"><span><Users size={13} /> {item.ownerName || 'לא הוגדר מוביל'}</span><span><Flag size={13} /> {item.completedMilestones || 0}/{item.totalMilestones || 0}</span></div>
       </button>)}
