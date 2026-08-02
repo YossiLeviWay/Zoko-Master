@@ -13,10 +13,10 @@ import {
   FileText,
   Filter,
   Flag,
-  Link2,
   Lock,
   MailPlus,
   MessageSquare,
+  MoreHorizontal,
   Paperclip,
   Pin,
   Plus,
@@ -72,6 +72,12 @@ import {
   subscribeCommunicationDrafts,
 } from '../../services/firestore/communicationRepository';
 import { communicationSourceFromContext, normalizeCommunicationContext } from '../../utils/communicationContext';
+import {
+  belongsToTaskView,
+  overdueDayCount,
+  taskDateBucket,
+  TASK_GROUP_ORDER,
+} from '../../utils/taskDashboardView';
 import '../Gantt/Gantt.css';
 import './Tasks.css';
 
@@ -87,18 +93,27 @@ const STATUS_CONFIG = {
   done: { label: 'הושלם', color: '#22c55e' },
 };
 
-const TAB_LABELS = {
-  dashboard: 'כל המשימות',
-  communications: 'מיילים ומעקבים',
-  invitations: 'הזמנות ושיתופים',
-};
-
 const GROUP_LABELS = {
   overdue: 'באיחור',
   today: 'להיום',
   upcoming: 'בקרוב',
   no_date: 'ללא תאריך',
   completed: 'הושלמו',
+};
+
+const WORK_VIEW_OPTIONS = [
+  { value: 'mine', label: 'שלי' },
+  { value: 'teams', label: 'צוותים' },
+  { value: 'plans', label: 'תכניות' },
+];
+
+const SCOPE_FILTER_LABELS = {
+  personal: 'אישיות',
+  assigned: 'מוקצות לי',
+  shared: 'משותפות',
+  team: 'צוות ומוסד',
+  mandatory: 'מחייבות',
+  created: 'שיצרתי',
 };
 
 function emptyForm(scope = TASK_SCOPES.PERSONAL) {
@@ -152,14 +167,11 @@ function localDateKey(date = new Date()) {
 }
 
 function taskDateGroup(task) {
-  if (isTaskComplete(task)) return 'completed';
-  const dueDate = taskDueDate(task);
-  if (!dueDate) return 'no_date';
-  const key = String(dueDate).slice(0, 10);
-  const today = localDateKey();
-  if (key < today) return 'overdue';
-  if (key === today) return 'today';
-  return 'upcoming';
+  return taskDateBucket(
+    { ...task, dueDate: taskDueDate(task) },
+    localDateKey(),
+    isTaskComplete(task),
+  );
 }
 
 function academicYearIdForTask(task) {
@@ -249,16 +261,21 @@ export default function TaskBoard() {
   const [academicYears, setAcademicYears] = useState([]);
   const [initiatives, setInitiatives] = useState([]);
   const [activeTab, setActiveTab] = useState(() => searchParams.get('view') === 'communications' ? 'communications' : 'dashboard');
+  const [workView, setWorkView] = useState(() => searchParams.get('initiative') ? 'plans' : 'mine');
   const communicationReminderInFlight = useRef(new Set());
   const [scopeFilter, setScopeFilter] = useState('all');
   const [searchText, setSearchText] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
+  const [filterPriority, setFilterPriority] = useState('all');
   const [filterTeam, setFilterTeam] = useState('all');
   const [filterDate, setFilterDate] = useState('all');
+  const [filterDateFrom, setFilterDateFrom] = useState('');
+  const [filterDateTo, setFilterDateTo] = useState('');
   const [filterAcademicYear, setFilterAcademicYear] = useState('all');
   const [filterOwner, setFilterOwner] = useState('all');
   const [filterInitiative, setFilterInitiative] = useState('all');
-  const [quickTitle, setQuickTitle] = useState('');
+  const [showCompleted, setShowCompleted] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [editingTask, setEditingTask] = useState(null);
@@ -302,6 +319,17 @@ export default function TaskBoard() {
       navigate(target);
     }
   }
+
+  useEffect(() => {
+    if (!showFilters && !createMenuOpen) return undefined;
+    const closeTransientPanels = event => {
+      if (event.key !== 'Escape') return;
+      setShowFilters(false);
+      setCreateMenuOpen(false);
+    };
+    window.addEventListener('keydown', closeTransientPanels);
+    return () => window.removeEventListener('keydown', closeTransientPanels);
+  }, [createMenuOpen, showFilters]);
 
   useEffect(() => {
     if (!location.state?.communicationContext) return;
@@ -518,22 +546,31 @@ export default function TaskBoard() {
     return tasks.filter(task => task.workflowType !== 'external_email_followup');
   }, [activeTab, organizationTasks, personalTasks]);
 
-  const filteredTasks = useMemo(() => tabTasks.filter(task => {
-    if (scopeFilter === 'mine' && task._source === 'organization'
-      && !task.assigneeIds?.includes(uid) && !task.participantIds?.includes(uid)) return false;
+  const viewTasks = useMemo(() => activeTab === 'dashboard'
+    ? tabTasks.filter(task => belongsToTaskView(task, workView, uid))
+    : tabTasks, [activeTab, tabTasks, uid, workView]);
+
+  const filteredTasks = useMemo(() => viewTasks.filter(task => {
     if (scopeFilter === 'personal' && task.scope !== TASK_SCOPES.PERSONAL) return false;
     if (scopeFilter === 'shared' && task.scope !== 'shared') return false;
     if (scopeFilter === 'assigned' && !task.assigneeIds?.includes(uid)) return false;
     if (scopeFilter === 'team' && task.scope !== TASK_SCOPES.TEAM && task.assigneeType !== 'all_school') return false;
+    if (scopeFilter === 'mandatory' && !task.mandatory) return false;
     if (scopeFilter === 'created' && task.createdBy !== uid) return false;
+    const complete = isTaskComplete(task);
+    if (complete && !showCompleted && filterStatus !== 'done' && filterDate !== 'completed') return false;
     if (filterStatus !== 'all') {
-      const status = isTaskComplete(task) ? 'done' : task.status || 'todo';
+      const status = complete ? 'done' : task.status || 'todo';
       if (status !== filterStatus) return false;
     }
+    if (filterPriority !== 'all' && task.priority !== filterPriority) return false;
     if (filterTeam !== 'all' && (task.teamId || task.assigneeTeamId) !== filterTeam) return false;
     if (filterDate !== 'all' && taskDateGroup(task) !== filterDate) return false;
     if (filterInitiative !== 'all' && task.initiativeId !== filterInitiative) return false;
     if (filterOwner !== 'all' && task.createdBy !== filterOwner && !task.assigneeIds?.includes(filterOwner)) return false;
+    const dueDate = String(taskDueDate(task) || '').slice(0, 10);
+    if (filterDateFrom && (!dueDate || dueDate < filterDateFrom)) return false;
+    if (filterDateTo && (!dueDate || dueDate > filterDateTo)) return false;
     if (filterAcademicYear !== 'all') {
       const initiativeYear = initiatives.find(item => item.id === task.initiativeId)?.academicYearId;
       if ((initiativeYear || academicYearIdForTask(task)) !== filterAcademicYear) return false;
@@ -552,7 +589,7 @@ export default function TaskBoard() {
     if (dateA !== dateB) return String(dateA).localeCompare(String(dateB));
     return timestampMillis(b.createdAt) - timestampMillis(a.createdAt);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [chatReceipts, filterAcademicYear, filterDate, filterInitiative, filterOwner, filterStatus, filterTeam, initiatives, schoolId, scopeFilter, searchText, tabTasks, uid]);
+  }), [chatReceipts, filterAcademicYear, filterDate, filterDateFrom, filterDateTo, filterInitiative, filterOwner, filterPriority, filterStatus, filterTeam, initiatives, schoolId, scopeFilter, searchText, showCompleted, uid, viewTasks]);
 
   const groupedMineTasks = useMemo(() => {
     const groups = { overdue: [], today: [], upcoming: [], no_date: [], completed: [] };
@@ -567,26 +604,65 @@ export default function TaskBoard() {
   }
 
   const dashboardStats = useMemo(() => {
-    const allTasks = [...personalTasks, ...organizationTasks];
+    const allTasks = [...personalTasks, ...organizationTasks]
+      .filter(task => task.workflowType !== 'external_email_followup')
+      .filter(task => belongsToTaskView(task, 'mine', uid));
     return {
       today: allTasks.filter(task => taskDateGroup(task) === 'today').length,
       overdue: allTasks.filter(task => taskDateGroup(task) === 'overdue').length,
       waiting: taskInvitations.filter(item => item.recipientId === uid && item.status === 'pending').length,
-      initiatives: initiatives.filter(item => ['attention', 'at_risk'].includes(item.health)).length,
     };
   // Chat receipts intentionally refresh the unread summary without rebuilding task subscriptions.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatReceipts, initiatives, organizationTasks, personalTasks, schoolId, taskInvitations, uid]);
+  }, [chatReceipts, organizationTasks, personalTasks, schoolId, taskInvitations, uid]);
 
-  const actionItems = useMemo(() => {
-    const urgentTasks = [...personalTasks, ...organizationTasks]
-      .filter(task => ['today', 'overdue'].includes(taskDateGroup(task)))
-      .map(task => ({ id: task._key, type: 'task', title: task.title, detail: taskDateGroup(task) === 'overdue' ? 'עבר מועד הביצוע' : 'מועד הביצוע היום' }));
-    const invitations = taskInvitations
-      .filter(item => item.recipientId === uid && item.status === 'pending')
-      .map(item => ({ id: item.id, type: 'invitation', title: item.title, detail: 'הזמנה שממתינה לתגובה שלך' }));
-    return [...urgentTasks, ...invitations].slice(0, 8);
-  }, [organizationTasks, personalTasks, taskInvitations, uid]);
+  const activeFilterCount = [
+    scopeFilter !== 'all', filterStatus !== 'all', filterPriority !== 'all', filterTeam !== 'all',
+    filterDate !== 'all', Boolean(filterDateFrom), Boolean(filterDateTo), filterAcademicYear !== 'all',
+    filterOwner !== 'all', filterInitiative !== 'all', showCompleted,
+  ].filter(Boolean).length;
+  const activeFilterChips = [];
+  if (scopeFilter !== 'all') activeFilterChips.push({ key: 'scope', label: `סוג: ${SCOPE_FILTER_LABELS[scopeFilter] || scopeFilter}`, clear: () => setScopeFilter('all') });
+  if (filterStatus !== 'all') activeFilterChips.push({ key: 'status', label: `סטטוס: ${STATUS_CONFIG[filterStatus]?.label || filterStatus}`, clear: () => setFilterStatus('all') });
+  if (filterPriority !== 'all') activeFilterChips.push({ key: 'priority', label: `עדיפות: ${PRIORITY_CONFIG[filterPriority]?.label || filterPriority}`, clear: () => setFilterPriority('all') });
+  if (filterTeam !== 'all') activeFilterChips.push({ key: 'team', label: `צוות: ${teams.find(item => item.id === filterTeam)?.name || 'נבחר'}`, clear: () => setFilterTeam('all') });
+  if (filterDate !== 'all') activeFilterChips.push({ key: 'date', label: `מועד: ${GROUP_LABELS[filterDate] || filterDate}`, clear: () => setFilterDate('all') });
+  if (filterDateFrom || filterDateTo) activeFilterChips.push({ key: 'range', label: `טווח: ${filterDateFrom || 'התחלה'}–${filterDateTo || 'המשך'}`, clear: () => { setFilterDateFrom(''); setFilterDateTo(''); } });
+  if (filterAcademicYear !== 'all') activeFilterChips.push({ key: 'year', label: `שנה: ${academicYears.find(item => item.id === filterAcademicYear)?.hebrewLabel || 'נבחרה'}`, clear: () => setFilterAcademicYear('all') });
+  if (filterOwner !== 'all') activeFilterChips.push({ key: 'owner', label: `אחראי: ${staff.find(item => (item.uid || item.id) === filterOwner)?.fullName || 'נבחר'}`, clear: () => setFilterOwner('all') });
+  if (filterInitiative !== 'all') activeFilterChips.push({ key: 'initiative', label: `תכנית: ${initiatives.find(item => item.id === filterInitiative)?.title || 'נבחרה'}`, clear: () => setFilterInitiative('all') });
+  if (showCompleted) activeFilterChips.push({ key: 'completed', label: 'כולל משימות שהושלמו', clear: () => setShowCompleted(false) });
+
+  function clearAllFilters() {
+    setScopeFilter('all');
+    setFilterStatus('all');
+    setFilterPriority('all');
+    setFilterTeam('all');
+    setFilterDate('all');
+    setFilterDateFrom('');
+    setFilterDateTo('');
+    setFilterAcademicYear('all');
+    setFilterOwner('all');
+    setFilterInitiative('all');
+    setShowCompleted(false);
+  }
+
+  function selectWorkView(view) {
+    setWorkView(view);
+    setActiveTab('dashboard');
+    setInitiativeDetailOpen(false);
+    setInitiativeAttentionOnly(false);
+    setFilterDate('all');
+  }
+
+  function openMetric(dateFilter) {
+    setActiveTab('dashboard');
+    setWorkView('mine');
+    setInitiativeDetailOpen(false);
+    setFilterStatus('all');
+    setFilterDate(dateFilter);
+    if (dateFilter !== 'completed') setShowCompleted(false);
+  }
 
   function showMessage(text) {
     setMessage(text);
@@ -662,29 +738,9 @@ export default function TaskBoard() {
       setForm(emptyForm());
       setShowForm(false);
       setActiveTab('dashboard');
-      setScopeFilter(input.scope === TASK_SCOPES.PERSONAL ? 'mine' : 'created');
+      setWorkView(input.scope === TASK_SCOPES.TEAM ? 'teams' : 'mine');
+      setScopeFilter(input.scope === TASK_SCOPES.PERSONAL ? 'all' : 'created');
       showMessage('המשימה נוצרה בהצלחה.');
-    } catch {
-      setGeneralError();
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleQuickAdd(event) {
-    event.preventDefault();
-    if (!quickTitle.trim() || !schoolId || !uid) return;
-    setSaving(true);
-    setError('');
-    try {
-      await createPersonalTask({
-        db,
-        schoolId,
-        user: { uid, fullName: userData?.fullName },
-        input: { ...emptyForm(), title: quickTitle.trim() },
-      });
-      setQuickTitle('');
-      showMessage('משימה אישית נוספה.');
     } catch {
       setGeneralError();
     } finally {
@@ -991,113 +1047,86 @@ export default function TaskBoard() {
   }
 
   function renderTask(task) {
-    const priority = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG.medium;
-    const PriorityIcon = priority.icon;
     const status = STATUS_CONFIG[isTaskComplete(task) ? 'done' : task.status] || STATUS_CONFIG.todo;
     const overdue = taskDateGroup(task) === 'overdue';
+    const daysLate = overdue ? overdueDayCount({ dueDate: taskDueDate(task) }, localDateKey()) : 0;
     const pinned = task.pinnedBy?.includes(uid);
     const unreadChat = isTaskChatUnread(task);
+    const closeAndRun = (event, action) => {
+      event.currentTarget.closest('details')?.removeAttribute('open');
+      action();
+    };
     return (
-      <article key={task._key} className={`task-row ${overdue ? 'task-row--overdue' : ''} ${task.scope === TASK_SCOPES.PERSONAL ? 'task-row--personal' : ''}`}>
-        <div className="task-priority" style={{ background: priority.bg }}><PriorityIcon size={16} color={priority.color} /></div>
+      <article key={task._key} className={`task-row task-work-card ${overdue ? 'task-row--overdue' : ''}`}>
         <div className="task-main">
           <div className="task-title-line">
             <span className="task-title">{task.title}</span>
-            {task.scope === TASK_SCOPES.PERSONAL && <span className="personal-task-badge"><Lock size={11} /> אישית</span>}
-            {task.scope === 'shared' && <span className="shared-task-badge"><Users size={11} /> משותפת</span>}
-            {task.mandatory && <span className="mandatory-task-badge"><AlertCircle size={11} /> משימה מחייבת</span>}
+            {(task.mandatory || !canDeleteTask(task)) && <span className="task-restriction" title={task.mandatory ? 'משימה מחייבת — ההגבלות שהוגדרו נשמרות' : 'אין הרשאה למחוק משימה זו'} aria-label={task.mandatory ? 'משימה מחייבת' : 'משימה מוגנת'}><Lock size={12} /></span>}
+            {task.priority === 'high' && <span className="task-urgency"><AlertCircle size={11} /> דחוף</span>}
+            {overdue && <span className="task-overdue-badge">באיחור</span>}
           </div>
           {task.description && <div className="task-desc">{task.description}</div>}
           <div className="task-meta">
-            <span className="task-priority-badge" style={{ background: priority.bg, color: priority.color }}>{priority.label}</span>
             <span className="task-assignee">{task.scope === TASK_SCOPES.PERSONAL ? <Lock size={11} /> : <Users size={11} />}{getAssigneeDisplay(task)}</span>
-            {taskDueDate(task) && <span className={`task-due ${overdue ? 'task-due--late' : ''}`}>{new Date(`${String(taskDueDate(task)).slice(0, 10)}T00:00:00`).toLocaleDateString('he-IL')}</span>}
-            {task.sourceTaskId && <span className="task-source"><Link2 size={11} /> משימת המשך</span>}
-            {task.workflowType === 'external_email_followup' && <span className="task-source"><MailPlus size={11} /> {task.communicationStatus === 'awaiting_reply' ? 'ממתין לתשובה' : task.communicationStatus === 'cancelled' ? 'מעקב בוטל' : 'ממתין לשליחה'}</span>}
-            {task.initiativeId && <span className="task-source"><Flag size={11} /> {initiatives.find(item => item.id === task.initiativeId)?.title || 'תכנית ארוכת טווח'}</span>}
-            {task.mandatory && <span className="task-source">הוקצתה על ידי: {task.assignedByName || 'בעל הרשאה'}</span>}
+            {taskDueDate(task) ? <span className={`task-due ${overdue ? 'task-due--late' : ''}`}>{new Date(`${String(taskDueDate(task)).slice(0, 10)}T00:00:00`).toLocaleDateString('he-IL')}{daysLate > 0 ? ` · ${daysLate} ימים` : ''}</span> : <span className="task-due">ללא תאריך</span>}
+            <span className={`task-status-badge task-status-badge--${isTaskComplete(task) ? 'done' : task.status || 'todo'}`}>{status.label}</span>
           </div>
         </div>
-        <div className="task-status-wrap">
-          {canChangeStatus(task) ? (
-            <select className="task-status-select" value={isTaskComplete(task) ? 'done' : task.status || 'todo'} onChange={event => changeStatus(task, event.target.value)} style={{ color: status.color, borderColor: status.color }} aria-label={`שינוי סטטוס של ${task.title}`}>
-              {Object.entries(STATUS_CONFIG).map(([key, config]) => <option key={key} value={key}>{config.label}</option>)}
-            </select>
-          ) : <span className="task-status-badge" style={{ color: status.color, borderColor: status.color }}>{status.label}</span>}
-        </div>
-        <div className="task-actions">
-          <button className="icon-btn" onClick={() => changeStatus(task, isTaskComplete(task) ? 'todo' : 'done')} disabled={!canChangeStatus(task)} aria-label={isTaskComplete(task) ? `החזרת ${task.title} לביצוע` : `השלמת ${task.title}`} title={isTaskComplete(task) ? 'החזרה לביצוע' : 'סימון כהושלמה'}>
-            {isTaskComplete(task) ? <RotateCcw size={15} /> : <Check size={15} />}
-          </button>
-          {canEditDetails(task) && <button className="icon-btn" onClick={() => pinTask(task)} aria-label={`${pinned ? 'ביטול הצמדת' : 'הצמדת'} ${task.title}`} title={pinned ? 'ביטול הצמדה' : 'הצמדה'}><Pin size={15} color={pinned ? '#870335' : undefined} /></button>}
-          {canEditDetails(task) && <button className="icon-btn" onClick={() => startEdit(task)} aria-label={`עריכת ${task.title}`} title="עריכה"><Edit3 size={15} /></button>}
-          {task._source === 'organization' && <button className={`icon-btn task-chat-button ${unreadChat ? 'task-chat-button--unread' : ''}`} onClick={() => setChatTask(task)} aria-label={`פתיחת צ׳אט עבור ${task.title}${unreadChat ? ' — יש הודעות חדשות' : ''}`} title={unreadChat ? 'הודעות חדשות בצ׳אט' : 'צ׳אט משימה'}><MessageSquare size={16} />{unreadChat && <span className="task-chat-alert" aria-hidden="true">!</span>}</button>}
-          {task._source === 'organization' && <button className="icon-btn" onClick={() => createFollowUp(task)} aria-label={`יצירת משימת המשך אישית עבור ${task.title}`} title="צור לי משימת המשך אישית"><CopyPlus size={15} /></button>}
-          {canCreateCommunication && task.workflowType !== 'external_email_followup' && <button className="icon-btn task-email-button" onClick={() => setCommunicationTask(task)} aria-label={`יצירת טיוטת מייל ומעקב מתוך ${task.title}`} title="יצירת מייל ומעקב"><MailPlus size={16} /></button>}
-          {task.workflowType === 'external_email_followup' && task.communicationStatus === 'awaiting_send' && <button className="icon-btn task-email-button" onClick={() => setCommunicationTask(task)} aria-label={`פתיחת טיוטת המייל של ${task.title}`} title="פתיחת טיוטת המייל מחדש"><MailPlus size={16} /></button>}
-          {task._source === 'personal' && <button className="icon-btn" onClick={() => { setCollaborationTask(task); setCollaborationRecipients([]); setCollaborationMessage(''); }} aria-label={`הזמנת שותפים אל ${task.title}`} title="הזמנת שותפים"><User size={15} /></button>}
-          {task._source === 'personal' && canAssignTasks && <button className="icon-btn" onClick={() => { setConversionTask(task); setConversion({ scope: TASK_SCOPES.ASSIGNED, assigneeId: '', teamId: '' }); }} aria-label={`הפיכת ${task.title} למשימה ארגונית`} title="הפוך למשימה ארגונית"><Users size={15} /></button>}
-          {task.attachedFileId && <button className="icon-btn" onClick={() => setPreviewFile(task)} aria-label={`פתיחת הקובץ של ${task.title}`} title="קובץ מצורף"><Paperclip size={15} /></button>}
-          {task._source === 'organization' && canManageTaskPermissions && <button className="icon-btn" onClick={event => setPermissionTask({ task, position: { x: Math.max(16, event.clientX - 360), y: Math.max(16, Math.min(window.innerHeight - 540, event.clientY + 8)) } })} aria-label={`ניהול הרשאות של ${task.title}`} title="הרשאות נקודתיות"><Shield size={15} /></button>}
-          {canDeleteTask(task) && <button className="icon-btn icon-btn--danger" onClick={() => removeTask(task)} aria-label={`מחיקת ${task.title}`} title="מחיקה"><Trash2 size={15} /></button>}
-        </div>
+        <button className="task-complete-action" type="button" onClick={() => changeStatus(task, isTaskComplete(task) ? 'todo' : 'done')} disabled={!canChangeStatus(task)} aria-label={isTaskComplete(task) ? `החזרת ${task.title} לביצוע` : `סימון ${task.title} כהושלם`}>
+          {isTaskComplete(task) ? <RotateCcw size={15} /> : <Check size={15} />}<span>{isTaskComplete(task) ? 'החזרה לביצוע' : 'סימון כהושלם'}</span>
+        </button>
+        <details className="task-actions-menu">
+          <summary aria-label={`פעולות נוספות עבור ${task.title}`} title="פעולות נוספות"><MoreHorizontal size={18} />{unreadChat && <span className="task-menu-unread" aria-label="יש הודעות חדשות">!</span>}</summary>
+          <div role="menu">
+            {canEditDetails(task) && <button role="menuitem" onClick={event => closeAndRun(event, () => startEdit(task))}><Edit3 size={15} /> עריכה</button>}
+            {task._source === 'organization' && <button role="menuitem" onClick={event => closeAndRun(event, () => setChatTask(task))}><MessageSquare size={15} /> {unreadChat ? 'תגובה — הודעה חדשה' : 'תגובה'}</button>}
+            {canEditDetails(task) && <button role="menuitem" onClick={event => closeAndRun(event, () => pinTask(task))}><Pin size={15} /> {pinned ? 'ביטול הצמדה' : 'הצמדת משימה'}</button>}
+            {task.attachedFileId && <button role="menuitem" onClick={event => closeAndRun(event, () => setPreviewFile(task))}><Paperclip size={15} /> פתיחת קובץ</button>}
+            {canEditDetails(task) && <button role="menuitem" onClick={event => closeAndRun(event, () => startEdit(task))}><Paperclip size={15} /> {task.attachedFileId ? 'החלפת קובץ' : 'הוספת קובץ'}</button>}
+            {task._source === 'organization' && <button role="menuitem" onClick={event => closeAndRun(event, () => createFollowUp(task))}><CopyPlus size={15} /> יצירת משימת המשך</button>}
+            {canCreateCommunication && task.workflowType !== 'external_email_followup' && <button role="menuitem" onClick={event => closeAndRun(event, () => setCommunicationTask(task))}><MailPlus size={15} /> יצירת מייל ומעקב</button>}
+            {task.workflowType === 'external_email_followup' && task.communicationStatus === 'awaiting_send' && <button role="menuitem" onClick={event => closeAndRun(event, () => setCommunicationTask(task))}><MailPlus size={15} /> פתיחת טיוטת המייל</button>}
+            {task._source === 'personal' && <button role="menuitem" onClick={event => closeAndRun(event, () => { setCollaborationTask(task); setCollaborationRecipients([]); setCollaborationMessage(''); })}><User size={15} /> הזמנת שותפים</button>}
+            {task._source === 'personal' && canAssignTasks && <button role="menuitem" onClick={event => closeAndRun(event, () => { setConversionTask(task); setConversion({ scope: TASK_SCOPES.ASSIGNED, assigneeId: '', teamId: '' }); })}><Users size={15} /> העברת אחריות</button>}
+            {task._source === 'organization' && canManageTaskPermissions && <button role="menuitem" onClick={event => closeAndRun(event, () => setPermissionTask({ task, position: { x: Math.max(16, window.innerWidth / 2 - 180), y: Math.max(16, window.innerHeight / 2 - 260) } }))}><Shield size={15} /> הרשאות נקודתיות</button>}
+            {canDeleteTask(task) && <button className="is-danger" role="menuitem" onClick={event => closeAndRun(event, () => removeTask(task))}><Trash2 size={15} /> מחיקה</button>}
+          </div>
+        </details>
       </article>
     );
   }
 
   return (
     <div className="page">
-      <Header title="פאנל משימות" onPermissions={() => setShowPermissionsPanel(true)} />
+      <Header title="משימות" onPermissions={() => setShowPermissionsPanel(true)} />
       {showPermissionsPanel && <PagePermissionsPanel feature="tasks" onClose={() => setShowPermissionsPanel(false)} />}
-      <div className="page-content">
-        <div className="task-tabs">
-          <SegmentedControl
-            value={activeTab}
-            onChange={setActiveTab}
-            label="תצוגת משימות"
-            options={Object.entries(TAB_LABELS).map(([value, label]) => ({
-              value,
-              label,
-              ...(value === 'invitations' ? { count: taskInvitations.filter(item => item.recipientId === uid && item.status === 'pending').length } : {}),
-            }))}
-          />
-        </div>
-
+      <div className="page-content task-page-content">
         {message && <div className="task-feedback task-feedback--success" role="status">{message}</div>}
         {error && <div className="task-feedback task-feedback--error" role="alert">{error}<button onClick={() => setError('')} aria-label="סגירת הודעת שגיאה"><X size={14} /></button></div>}
 
-        {activeTab === 'dashboard' && <section className="task-dashboard-summary" aria-label="סיכום משימות">
-          <button type="button" onClick={() => { setFilterStatus('all'); setFilterDate('today'); }}><strong>{dashboardStats.today}</strong><span>להיום</span></button>
-          <button type="button" className={dashboardStats.overdue ? 'is-urgent' : ''} onClick={() => { setFilterStatus('all'); setFilterDate('overdue'); }}><strong>{dashboardStats.overdue}</strong><span>באיחור</span></button>
-          <button type="button" className={dashboardStats.waiting ? 'has-unread' : ''} onClick={() => { setActiveTab('invitations'); setFilterDate('all'); }}><strong>{dashboardStats.waiting}</strong><span>ממתין לתגובה שלי</span></button>
-          <button type="button" className={dashboardStats.initiatives ? 'is-urgent' : ''} onClick={() => { setInitiativeAttentionOnly(true); setActiveTab('dashboard'); }}><strong>{dashboardStats.initiatives}</strong><span>תכניות הדורשות תשומת לב</span></button>
-        </section>}
+        {activeTab === 'dashboard' ? <>
+          <section className="task-dashboard-head" aria-labelledby="task-dashboard-title">
+            <h1 id="task-dashboard-title">המשימות שלי</h1>
+            <label className="task-compact-search"><Search size={16} aria-hidden="true" /><span className="sr-only">חיפוש משימות</span><input value={searchText} onChange={event => setSearchText(event.target.value)} placeholder="חיפוש" /></label>
+            <div className="task-create-menu-wrap"><button type="button" className="btn task-create-primary" onClick={() => setCreateMenuOpen(value => !value)} aria-expanded={createMenuOpen} aria-haspopup="menu"><Plus size={16} /> יצירה חדשה <ChevronDown size={14} /></button>{createMenuOpen && <div className="task-create-menu" role="menu"><button role="menuitem" onClick={() => openTaskForm(TASK_SCOPES.PERSONAL)}><Lock size={15} /> משימה אישית</button><button role="menuitem" onClick={() => openTaskForm(TASK_SCOPES.ASSIGNED)} disabled={!canAssignTasks}><User size={15} /> משימה לאדם</button><button role="menuitem" onClick={() => openTaskForm(TASK_SCOPES.TEAM)} disabled={!canAssignTasks}><Users size={15} /> משימת צוות</button><button role="menuitem" onClick={() => { setWorkView('plans'); setInitiativeCreateRequest(value => value + 1); setCreateMenuOpen(false); }} disabled={!canCreateInitiative}><Flag size={15} /> תכנית ארוכת טווח</button>{canAssignMandatory && <button role="menuitem" onClick={() => { setShowMandatoryForm(true); setCreateMenuOpen(false); }}><AlertCircle size={15} /> משימה מחייבת</button>}{canCreateCommunication && <button role="menuitem" onClick={() => openCommunicationContext({ type: 'general', id: 'task_panel', label: 'פאנל המשימות' })}><MailPlus size={15} /> מייל ומעקב חדש</button>}<div className="task-create-menu-divider" role="separator" /><button role="menuitem" onClick={() => { setActiveTab('communications'); setCreateMenuOpen(false); }}><MailPlus size={15} /> מרכז מיילים ומעקבים</button><button role="menuitem" onClick={() => { setActiveTab('invitations'); setCreateMenuOpen(false); }}><Users size={15} /> הזמנות ושיתופים{dashboardStats.waiting > 0 ? ` (${dashboardStats.waiting})` : ''}</button></div>}</div>
+          </section>
 
-        {activeTab === 'dashboard' && !initiativeDetailOpen && (
-          <form className="quick-task-form" onSubmit={handleQuickAdd}>
-            <Lock size={16} />
-            <input value={quickTitle} onChange={event => setQuickTitle(event.target.value)} placeholder="הוספת משימה אישית מהירה..." aria-label="כותרת משימה אישית מהירה" />
-            <button className="btn btn-primary btn-sm" type="submit" disabled={!quickTitle.trim() || saving}><Plus size={15} /> הוספה</button>
-          </form>
-        )}
+          <section className="task-action-metrics" aria-label="מה דורש טיפול">
+            <button type="button" className={filterDate === 'today' && workView === 'mine' ? 'active' : ''} onClick={() => openMetric('today')}><span>להיום</span><strong>{dashboardStats.today}</strong></button>
+            <button type="button" className={filterDate === 'overdue' && workView === 'mine' ? 'active is-overdue' : 'is-overdue'} onClick={() => openMetric('overdue')}><span>באיחור</span><strong>{dashboardStats.overdue}</strong></button>
+            <button type="button" className={dashboardStats.waiting ? 'has-unread' : ''} onClick={() => { setActiveTab('invitations'); setFilterDate('all'); }}><span>ממתין לי</span><strong>{dashboardStats.waiting}</strong></button>
+          </section>
 
-        {activeTab === 'dashboard' && !initiativeDetailOpen && <div className="page-toolbar task-toolbar">
-          <div className="task-toolbar-actions">
-            <div className="task-create-menu-wrap"><button className="btn btn-primary" onClick={() => setCreateMenuOpen(value => !value)}><Plus size={16} /> יצירה חדשה <ChevronDown size={14} /></button>{createMenuOpen && <div className="task-create-menu"><button onClick={() => openTaskForm(TASK_SCOPES.PERSONAL)}><Lock size={15} /> משימה אישית</button><button onClick={() => openTaskForm(TASK_SCOPES.TEAM)} disabled={!canAssignTasks}><Users size={15} /> משימת צוות</button><button onClick={() => { setInitiativeCreateRequest(value => value + 1); setCreateMenuOpen(false); }} disabled={!canCreateInitiative}><Flag size={15} /> תכנית ארוכת טווח</button>{canCreateCommunication && <button onClick={() => openCommunicationContext({ type: 'general', id: 'task_panel', label: 'פאנל המשימות' })}><MailPlus size={15} /> מייל ומעקב</button>}</div>}</div>
-            {canAssignMandatory && <button className="btn btn-secondary" onClick={() => setShowMandatoryForm(true)}><AlertCircle size={15} /> משימה מחייבת</button>}
-          </div>
-          <div className="task-filters">
-            <div className="search-bar"><Search size={14} /><input value={searchText} onChange={event => setSearchText(event.target.value)} placeholder="חיפוש משימות..." aria-label="חיפוש משימות" /></div>
-            {academicYears.length > 0 && <select value={filterAcademicYear} onChange={event => setFilterAcademicYear(event.target.value)} aria-label="סינון שנת לימודים"><option value="all">כל שנות הלימודים</option>{academicYears.map(item => <option key={item.id} value={item.id}>{item.hebrewLabel || item.label}</option>)}</select>}
-            {staff.length > 0 && <select value={filterOwner} onChange={event => setFilterOwner(event.target.value)} aria-label="סינון אחראי"><option value="all">כל האחראים</option>{staff.map(item => <option key={item.uid || item.id} value={item.uid || item.id}>{item.fullName}</option>)}</select>}
-            <select value={filterStatus} onChange={event => setFilterStatus(event.target.value)} aria-label="סינון סטטוס"><option value="all">כל הסטטוסים</option>{Object.entries(STATUS_CONFIG).map(([key, config]) => <option key={key} value={key}>{config.label}</option>)}</select>
-            <select value={filterDate} onChange={event => setFilterDate(event.target.value)} aria-label="סינון מועד"><option value="all">כל המועדים</option><option value="overdue">באיחור</option><option value="today">להיום</option><option value="upcoming">קרובות</option><option value="no_date">ללא מועד</option><option value="completed">הושלמו</option></select>
-            {teams.length > 0 && <select value={filterTeam} onChange={event => setFilterTeam(event.target.value)} aria-label="סינון צוות"><option value="all">כל הצוותים</option>{teams.map(team => <option key={team.id} value={team.id}>{team.name}</option>)}</select>}
-            {initiatives.length > 0 && <select value={filterInitiative} onChange={event => setFilterInitiative(event.target.value)} aria-label="סינון תכנית"><option value="all">כל התכניות</option>{initiatives.filter(item => item.status !== 'archived').map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select>}
-            {activeTab === 'dashboard' && <select value={scopeFilter} onChange={event => setScopeFilter(event.target.value)} aria-label="סינון שיוך משימה"><option value="all">כל המשימות</option><option value="mine">באחריותי</option><option value="personal">אישיות</option><option value="assigned">הוקצו לי</option><option value="shared">משותפות</option><option value="team">צוות ומוסד</option><option value="created">שיצרתי</option></select>}
-            <span className="task-stats"><Filter size={13} /> {filteredTasks.length} משימות</span>
-          </div>
-        </div>}
+          <section className="task-view-layer" aria-label="בחירת תצוגה">
+            <SegmentedControl value={workView} onChange={selectWorkView} label="בחירת סוג העבודה" options={WORK_VIEW_OPTIONS} />
+            {workView !== 'plans' && <button type="button" className="task-filter-trigger" onClick={() => setShowFilters(true)} aria-label={`פתיחת מסננים${activeFilterCount ? `, ${activeFilterCount} פעילים` : ''}`}><Filter size={15} /> סינון{activeFilterCount > 0 && <span>{activeFilterCount}</span>}</button>}
+          </section>
+
+          {workView !== 'plans' && <section className="task-work-list-head" aria-label="מסננים פעילים">
+            <span className="task-stats">{filteredTasks.length} משימות</span>
+            {activeFilterChips.length > 0 && <div className="task-active-filters">{activeFilterChips.map(chip => <button type="button" key={chip.key} onClick={chip.clear} aria-label={`הסרת מסנן ${chip.label}`}>{chip.label}<X size={12} aria-hidden="true" /></button>)}<button type="button" className="task-clear-filters" onClick={clearAllFilters}>נקה הכול</button></div>}
+          </section>}
+        </> : <section className="task-secondary-head"><div><button type="button" className="btn btn-secondary btn-sm" onClick={() => setActiveTab('dashboard')}>חזרה למשימות</button><h1>{activeTab === 'communications' ? 'מיילים ומעקבים' : 'הזמנות ושיתופים'}</h1></div>{activeTab === 'communications' && canCreateCommunication && <button type="button" className="btn task-create-primary" onClick={() => openCommunicationContext({ type: 'general', id: 'task_panel', label: 'פאנל המשימות' })}><Plus size={15} /> מייל ומעקב חדש</button>}</section>}
 
         {showForm && !initiativeDetailOpen && (
           <div className="card form-card">
@@ -1108,7 +1137,7 @@ export default function TaskBoard() {
           </div>
         )}
 
-        {activeTab === 'dashboard' && <InitiativePanel
+        {activeTab === 'dashboard' && workView === 'plans' && <InitiativePanel
           schoolId={schoolId}
           actor={{ uid, fullName: userData?.fullName || '', role: userData?.role || '' }}
           initiatives={initiatives}
@@ -1130,8 +1159,6 @@ export default function TaskBoard() {
           onCreateCommunication={canCreateCommunication ? openCommunicationContext : undefined}
         />}
 
-        {activeTab === 'dashboard' && !initiativeDetailOpen && actionItems.length > 0 && <section className="task-action-required"><div><h2>דורש ממני פעולה</h2><p>רק פריטים שממתינים לפעולה שלך</p></div><div>{actionItems.map(item => <button key={item.id} onClick={() => item.type === 'invitation' ? setActiveTab('invitations') : setSearchText(item.title)}><span>{item.title}</span><small>{item.detail}</small></button>)}</div></section>}
-
         {activeTab === 'communications' ? <CommunicationDashboard
           tasks={[...personalTasks, ...organizationTasks, ...communicationDrafts]}
           staff={staff}
@@ -1149,8 +1176,8 @@ export default function TaskBoard() {
             {taskInvitations.length === 0 && <div className="empty-state"><p>אין הצעות או הזמנות להצגה.</p></div>}
           </div>
         ) : initiativeDetailOpen ? null : loading ? <div className="empty-state"><p>טוען משימות...</p></div> : activeTab === 'dashboard' ? (
-          <div className="personal-task-groups">
-            {Object.keys(GROUP_LABELS).map(group => groupedMineTasks[group].length > 0 && (
+          workView === 'plans' ? null : <div className="personal-task-groups">
+            {TASK_GROUP_ORDER.map(group => groupedMineTasks[group].length > 0 && (
               <section key={group} className="task-group">
                 <h3>{GROUP_LABELS[group]} <span>{groupedMineTasks[group].length}</span></h3>
                 <div className="task-list">{groupedMineTasks[group].map(renderTask)}</div>
@@ -1165,6 +1192,25 @@ export default function TaskBoard() {
           </div>
         )}
       </div>
+
+      {showFilters && <div className="task-filter-overlay" onClick={() => setShowFilters(false)}>
+        <section className="task-filter-drawer" role="dialog" aria-modal="true" aria-labelledby="task-filter-title" onClick={event => event.stopPropagation()}>
+          <header><div><h2 id="task-filter-title">סינון משימות</h2><p>רק המסננים שנבחרו ישפיעו על הרשימה.</p></div><button type="button" className="icon-btn" onClick={() => setShowFilters(false)} aria-label="סגירת המסננים"><X size={18} /></button></header>
+          <div className="task-filter-fields">
+            <label>אחראי<select value={filterOwner} onChange={event => setFilterOwner(event.target.value)}><option value="all">כל האחראים</option>{staff.map(item => <option key={item.uid || item.id} value={item.uid || item.id}>{item.fullName}</option>)}</select></label>
+            <label>צוות<select value={filterTeam} onChange={event => setFilterTeam(event.target.value)}><option value="all">כל הצוותים</option>{teams.map(team => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>
+            <label>סטטוס<select value={filterStatus} onChange={event => setFilterStatus(event.target.value)}><option value="all">כל הסטטוסים</option>{Object.entries(STATUS_CONFIG).map(([key, config]) => <option key={key} value={key}>{config.label}</option>)}</select></label>
+            <label>עדיפות<select value={filterPriority} onChange={event => setFilterPriority(event.target.value)}><option value="all">כל העדיפויות</option>{Object.entries(PRIORITY_CONFIG).map(([key, config]) => <option key={key} value={key}>{config.label}</option>)}</select></label>
+            <label>שנת לימודים<select value={filterAcademicYear} onChange={event => setFilterAcademicYear(event.target.value)}><option value="all">כל שנות הלימודים</option>{academicYears.map(item => <option key={item.id} value={item.id}>{item.hebrewLabel || item.label}</option>)}</select></label>
+            <label>תכנית<select value={filterInitiative} onChange={event => setFilterInitiative(event.target.value)}><option value="all">כל התכניות</option>{initiatives.filter(item => item.status !== 'archived').map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
+            <label>מועד<select value={filterDate} onChange={event => setFilterDate(event.target.value)}><option value="all">כל המועדים</option><option value="overdue">באיחור</option><option value="today">להיום</option><option value="upcoming">קרובות</option><option value="no_date">ללא תאריך</option><option value="completed">הושלמו</option></select></label>
+            <label>סוג משימה<select value={scopeFilter} onChange={event => setScopeFilter(event.target.value)}><option value="all">כל הסוגים</option>{Object.entries(SCOPE_FILTER_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+            <fieldset className="task-date-range"><legend>טווח תאריכים</legend><label>מתאריך<input type="date" value={filterDateFrom} onChange={event => setFilterDateFrom(event.target.value)} /></label><label>עד תאריך<input type="date" value={filterDateTo} min={filterDateFrom || undefined} onChange={event => setFilterDateTo(event.target.value)} /></label></fieldset>
+            <label className="task-completed-toggle"><input type="checkbox" checked={showCompleted} onChange={event => setShowCompleted(event.target.checked)} /> הצגת משימות שהושלמו</label>
+          </div>
+          <footer><button type="button" className="btn btn-secondary" onClick={clearAllFilters}>נקה הכול</button><button type="button" className="btn btn-primary" onClick={() => setShowFilters(false)}>הצגת התוצאות</button></footer>
+        </section>
+      </div>}
 
       {editingTask && editForm && (
         <div className="task-edit-overlay" onClick={() => setEditingTask(null)}>
