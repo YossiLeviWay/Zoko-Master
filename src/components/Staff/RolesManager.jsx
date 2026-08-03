@@ -27,6 +27,10 @@ const EMPTY_FORM = Object.freeze({
   delegable: true,
   assignableBy: [],
   defaultForInvites: false,
+  responsibilityAreas: [],
+  relatedTeamIds: [],
+  relatedGrades: [],
+  commonTaskTypes: [],
 });
 
 const ROLE_PRESETS = Object.freeze([
@@ -51,6 +55,10 @@ function roleForm(role = EMPTY_FORM) {
     delegable: role.delegable !== false,
     assignableBy: [...(role.assignableBy || [])],
     defaultForInvites: role.defaultForInvites === true,
+    responsibilityAreas: [...(role.responsibilityAreas || [])],
+    relatedTeamIds: [...(role.relatedTeamIds || [])],
+    relatedGrades: [...(role.relatedGrades || [])],
+    commonTaskTypes: [...(role.commonTaskTypes || [])],
   };
 }
 
@@ -75,6 +83,7 @@ export default function RolesManager({ schoolId, onClose }) {
   const [roles, setRoles] = useState([]);
   const [classes, setClasses] = useState([]);
   const [staff, setStaff] = useState([]);
+  const [teams, setTeams] = useState([]);
   const [editingRole, setEditingRole] = useState(null);
   const [editForm, setEditForm] = useState(roleForm());
   const [expandedGroups, setExpandedGroups] = useState({});
@@ -95,14 +104,16 @@ export default function RolesManager({ schoolId, onClose }) {
   const loadData = useCallback(async () => {
     if (!schoolId || !canView) return;
     try {
-      const [roleSnapshot, classSnapshot, staffByPrimary, staffByMembership] = await Promise.all([
+      const [roleSnapshot, classSnapshot, teamSnapshot, staffByPrimary, staffByMembership] = await Promise.all([
         getDocs(schoolCollection(db, schoolId, 'roleDefinitions')),
         getDocs(schoolCollection(db, schoolId, 'classes')),
+        getDocs(schoolCollection(db, schoolId, 'teams')),
         getDocs(query(collection(db, 'users'), where('schoolId', '==', schoolId))),
         getDocs(query(collection(db, 'users'), where('schoolIds', 'array-contains', schoolId))),
       ]);
       setRoles(roleSnapshot.docs.map(item => ({ id: item.id, ...item.data() })));
       setClasses(classSnapshot.docs.map(item => ({ id: item.id, ...item.data() })));
+      setTeams(teamSnapshot.docs.map(item => ({ id: item.id, ...item.data() })));
       const users = new Map();
       [...staffByPrimary.docs, ...staffByMembership.docs].forEach(item => users.set(item.id, { id: item.id, ...item.data() }));
       setStaff([...users.values()].filter(user => user.accountStatus !== 'disabled'));
@@ -316,8 +327,17 @@ export default function RolesManager({ schoolId, onClose }) {
                 <label className="form-group role-description-field">תיאור<input value={editForm.description} onChange={event => setEditForm(previous => ({ ...previous, description: event.target.value }))} maxLength={500} /></label>
                 <label className="form-group">אייקון מערכת<select value={editForm.icon} onChange={event => setEditForm(previous => ({ ...previous, icon: event.target.value }))}><option value="shield">מגן</option><option value="user">אדם</option><option value="book">ספר</option><option value="briefcase">תיק</option></select></label>
                 <label className="form-group role-color-field">צבע תפקיד<span className="role-color-control"><input type="color" value={editForm.color} onChange={event => setEditForm(previous => ({ ...previous, color: event.target.value }))} /><span>{editForm.color.toUpperCase()}</span></span></label>
+                <label className="form-group role-description-field">תחומי אחריות<input value={editForm.responsibilityAreas.join(', ')} onChange={event => setEditForm(previous => ({ ...previous, responsibilityAreas: event.target.value.split(',').map(item => item.trim()).filter(Boolean).slice(0, 20) }))} placeholder="ייעוץ, ליווי רגשי, טיולים" /></label>
+                <label className="form-group role-description-field">סוגי משימות שכיחים<input value={editForm.commonTaskTypes.join(', ')} onChange={event => setEditForm(previous => ({ ...previous, commonTaskTypes: event.target.value.split(',').map(item => item.trim()).filter(Boolean).slice(0, 20) }))} placeholder="אישורי פעילות, תיאום הורים" /></label>
               </div>
             </section>
+
+            <fieldset className="role-form-section role-scope-section">
+              <legend>הקשר ארגוני לסוכן המשימות</legend>
+              <p>המידע מסייע להציע את התפקיד רק במשימות שבהן הוא באמת רלוונטי.</p>
+              <div className="role-class-grid">{teams.map(team => <label key={team.id}><input type="checkbox" checked={editForm.relatedTeamIds.includes(team.id)} onChange={event => setEditForm(previous => ({ ...previous, relatedTeamIds: event.target.checked ? [...new Set([...previous.relatedTeamIds, team.id])] : previous.relatedTeamIds.filter(id => id !== team.id) }))} /> {team.name}</label>)}</div>
+              <label className="form-group">שכבות קשורות<input value={editForm.relatedGrades.join(', ')} onChange={event => setEditForm(previous => ({ ...previous, relatedGrades: event.target.value.split(',').map(item => item.trim()).filter(Boolean).slice(0, 20) }))} placeholder="י, יא, יב" /></label>
+            </fieldset>
 
             <fieldset className="role-form-section role-scope-section">
               <legend>היקף ההרשאה</legend>

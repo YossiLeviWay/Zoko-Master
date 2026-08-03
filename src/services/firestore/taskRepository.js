@@ -46,6 +46,23 @@ function safeDateValue(value) {
     : '';
 }
 
+function safeWorkPlanSteps(value) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 30).map((step, index) => ({
+    id: safeString(step?.id, `step_${index + 1}`).slice(0, 60),
+    phase: safeString(step?.phase, 'ביצוע').slice(0, 80),
+    title: safeString(step?.title).trim().slice(0, 180),
+    party: safeString(step?.party).slice(0, 80),
+    relativeDays: Number.isFinite(Number(step?.relativeDays)) ? Math.max(-365, Math.min(365, Math.round(Number(step.relativeDays)))) : 0,
+    suggestedParties: Array.isArray(step?.suggestedParties) ? step.suggestedParties.slice(0, 10).map(party => ({
+      id: safeString(party?.id).slice(0, 128),
+      name: safeString(party?.name).slice(0, 120),
+      jobTitle: safeString(party?.jobTitle).slice(0, 120),
+      source: party?.source === 'team' ? 'team' : 'staff',
+    })).filter(party => party.id && party.name) : [],
+  })).filter(step => step.title);
+}
+
 export function isTaskComplete(task) {
   return task?.status === 'done' || task?.status === 'completed';
 }
@@ -66,6 +83,10 @@ export function normalizeOrganizationTask(item, storageMode = 'nested') {
     reminderAt: safeString(item.reminderAt),
     assigneeIds: safeIdList(item.assigneeIds),
     participantIds: safeIdList(item.participantIds),
+    responsibleIds: safeIdList(item.responsibleIds),
+    partnerIds: safeIdList(item.partnerIds),
+    informedIds: safeIdList(item.informedIds),
+    workPlanSteps: safeWorkPlanSteps(item.workPlanSteps),
     pinnedBy: safeIdList(item.pinnedBy),
     tags: safeIdList(item.tags),
     scope: safeString(item.scope, TASK_SCOPES.TEAM),
@@ -108,6 +129,10 @@ export function normalizePersonalTask(item) {
     reminderAt: safeString(item.reminderAt),
     assigneeIds: [],
     participantIds: safeIdList(item.participantIds),
+    responsibleIds: safeIdList(item.responsibleIds),
+    partnerIds: safeIdList(item.partnerIds),
+    informedIds: safeIdList(item.informedIds),
+    workPlanSteps: safeWorkPlanSteps(item.workPlanSteps),
     pinnedBy: safeIdList(item.pinnedBy),
     tags: safeIdList(item.tags),
     attachedFileId: safeString(item.attachedFileId),
@@ -301,6 +326,10 @@ function editableFields(input) {
     attachedFileName: input.attachedFileName || '',
     initiativeId: input.initiativeId || '',
     milestoneId: input.initiativeId ? input.milestoneId || '' : '',
+    responsibleIds: safeIdList(input.responsibleIds).slice(0, 50),
+    partnerIds: safeIdList(input.partnerIds).slice(0, 50),
+    informedIds: safeIdList(input.informedIds).slice(0, 50),
+    workPlanSteps: safeWorkPlanSteps(input.workPlanSteps),
   };
 }
 
@@ -329,7 +358,11 @@ export async function createOrganizationTask({ db, schoolId, user, input }) {
   const assigneeIds = scope === TASK_SCOPES.ASSIGNED ? input.assigneeIds?.slice(0, 1) || [] : [];
   const teamId = scope === TASK_SCOPES.TEAM ? input.teamId || input.assigneeTeamId || '' : '';
   const participantIds = scope === TASK_SCOPES.TEAM
-    ? [...new Set(input.memberIds || input.participantIds || [])].slice(0, 50)
+    ? [...new Set([
+        ...(input.memberIds || input.participantIds || []),
+        ...safeIdList(input.partnerIds),
+        ...safeIdList(input.informedIds),
+      ])].slice(0, 50)
     : [];
   return addDoc(schoolCollection(db, schoolId, 'tasks'), {
     ...editableFields(input),
@@ -359,7 +392,11 @@ export async function updateTask({ db, schoolId, uid, task, input }) {
     assigneeType: input.scope === TASK_SCOPES.ASSIGNED ? 'individual' : 'team',
     assigneeIds: input.scope === TASK_SCOPES.ASSIGNED ? input.assigneeIds?.slice(0, 1) || [] : [],
     participantIds: input.scope === TASK_SCOPES.TEAM
-      ? [...new Set(input.memberIds || input.participantIds || [])].slice(0, 50)
+      ? [...new Set([
+          ...(input.memberIds || input.participantIds || []),
+          ...safeIdList(input.partnerIds),
+          ...safeIdList(input.informedIds),
+        ])].slice(0, 50)
       : [],
     teamId: input.scope === TASK_SCOPES.TEAM ? input.teamId || input.assigneeTeamId || '' : '',
     assigneeTeamId: input.scope === TASK_SCOPES.TEAM ? input.teamId || input.assigneeTeamId || '' : '',

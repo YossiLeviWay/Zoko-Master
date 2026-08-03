@@ -26,6 +26,25 @@ test('task assistant normalizes a detailed proposal and drops unknown fields', (
   assert.equal(Object.hasOwn(proposal, 'injectedPermission'), false);
 });
 
+test('task assistant preserves three assignment levels and editable work-plan parties', () => {
+  const proposal = normalizeTaskAssistantProposal({
+    title: 'טיול שנתי',
+    taskType: 'team',
+    assignmentPlan: {
+      responsible: [{ id: 'team-a', name: 'צוות טיולים', source: 'team' }],
+      partners: [{ id: 'teacher-a', name: 'מחנכת יא', jobTitle: 'מחנכת', source: 'staff' }],
+      informed: [{ id: 'principal-a', name: 'מנהלת', source: 'staff' }],
+    },
+    workPlanSteps: [{ id: 'route', phase: 'היערכות', title: 'בניית מסלול', party: 'team', suggestedParties: [{ id: 'team-a', name: 'צוות טיולים', source: 'team' }] }],
+    confidence: 'high',
+  });
+  const form = proposalToTaskForm({ ...proposal, team: { id: 'team-a' }, assignee: null, initiative: null, linkedClass: null }, { memberIds: [] });
+  assert.deepEqual(form.partnerIds, ['teacher-a']);
+  assert.deepEqual(form.informedIds, ['principal-a']);
+  assert.deepEqual(form.memberIds, ['teacher-a', 'principal-a']);
+  assert.equal(form.workPlanSteps[0].suggestedParties[0].id, 'team-a');
+});
+
 test('task assistant redacts contact details and refuses sensitive student content', () => {
   const cleaned = redactTaskAssistantInput('שלחו עדכון ל-050-123-4567 ול-test@example.com');
   assert.equal(cleaned.safe, true);

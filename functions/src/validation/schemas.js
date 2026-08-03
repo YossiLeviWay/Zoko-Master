@@ -159,6 +159,10 @@ const roleDetails = {
   delegable: z.boolean().optional().default(true),
   assignableBy: z.array(id).max(100).optional().default([]),
   defaultForInvites: z.boolean().optional().default(false),
+  responsibilityAreas: z.array(z.string().trim().min(1).max(120)).max(20).optional().default([]),
+  relatedTeamIds: z.array(id).max(50).optional().default([]),
+  relatedGrades: z.array(z.string().trim().min(1).max(20)).max(20).optional().default([]),
+  commonTaskTypes: z.array(z.string().trim().min(1).max(120)).max(20).optional().default([]),
 };
 
 export const createCustomRoleSchema = z.object(roleDetails).strict();

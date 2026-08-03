@@ -50,6 +50,10 @@ function roleFields(input, actorUid) {
     delegable: input.delegable === true,
     assignableBy: input.assignableBy || [],
     defaultForInvites: input.defaultForInvites === true,
+    responsibilityAreas: input.responsibilityAreas || [],
+    relatedTeamIds: input.relatedTeamIds || [],
+    relatedGrades: input.relatedGrades || [],
+    commonTaskTypes: input.commonTaskTypes || [],
     protected: false,
     legacy: false,
     version: 1,
@@ -62,6 +66,7 @@ async function validateClassScope(input) {
   if (input.accessScope.type === 'classes') {
     await assertReferencesBelongToSchool(input.schoolId, 'classes', input.accessScope.classIds);
   }
+  await assertReferencesBelongToSchool(input.schoolId, 'teams', input.relatedTeamIds || []);
 }
 
 export async function createCustomRoleHandler(request) {

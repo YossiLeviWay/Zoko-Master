@@ -355,6 +355,33 @@ test('institution managers may manage only teams in their own school', async () 
   await assertFails(setDoc(doc(context('viewer_a').firestore(), `teams_${SCHOOL_A}/viewer_team`), teamData));
 });
 
+test('only a school manager may save institutional task-agent rules and playbooks', async () => {
+  await seedFirestore({
+    'users/principal_a': { ...user({ schoolId: SCHOOL_A, role: 'principal' }), uid: 'principal_a' },
+    'users/viewer_a': { ...user({ schoolId: SCHOOL_A }), uid: 'viewer_a' },
+    'users/principal_b': { ...user({ schoolId: SCHOOL_B, role: 'principal' }), uid: 'principal_b' },
+  });
+  const settingsPath = `schools/${SCHOOL_A}/settings/task_agent`;
+  const settings = {
+    schoolId: SCHOOL_A,
+    approvedRules: ['אין לקבוע פעילות ביום חסום'],
+    taskPlaybooks: [{ id: 'annual_school_trip', name: 'טיול שנתי', domain: 'school_trip', steps: [] }],
+    taskPlaybooksUpdatedBy: 'principal_a',
+    taskPlaybooksUpdatedAt: serverTimestamp(),
+  };
+
+  await assertSucceeds(setDoc(doc(context('principal_a').firestore(), settingsPath), settings));
+  await assertFails(setDoc(doc(context('viewer_a').firestore(), settingsPath), {
+    ...settings,
+    taskPlaybooksUpdatedBy: 'viewer_a',
+  }, { merge: true }));
+  await assertFails(setDoc(doc(context('principal_b').firestore(), settingsPath), {
+    ...settings,
+    schoolId: SCHOOL_B,
+    taskPlaybooksUpdatedBy: 'principal_b',
+  }, { merge: true }));
+});
+
 test('assigned user reads a task and may change only completion fields', async () => {
   await seedFirestore({
     'users/viewer_a': user({ schoolId: SCHOOL_A, permissions: { students_view: true } }),

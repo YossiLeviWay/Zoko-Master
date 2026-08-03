@@ -1,4 +1,5 @@
 import { inferTaskTeamSuggestion, normalizeTaskAssistantProposal, redactTaskAssistantInput } from '../utils/taskAssistant.js';
+import { buildTaskResponsibilityPlan } from './taskResponsibilityEngine.js';
 
 const CACHE_TTL_MS = 2 * 60 * 1000;
 const cache = new Map();
@@ -13,6 +14,7 @@ const CONTEXT_TYPES = new Set([
   'initiatives',
   'tasks',
   'approvedRules',
+  'playbooks',
 ]);
 
 const text = (value, maxLength = 180) => typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
@@ -47,6 +49,11 @@ function stableVersion(items = []) {
         ...Object.values(item?.customRoleAssignments || {}).flatMap(ids),
         ...ids(item?.leaderIds),
         ...ids(item?.managerIds),
+        ...ids(item?.responsibilityAreas),
+        ...ids(item?.keywords),
+        ...ids(item?.aliases),
+        ...ids(item?.supportingRoles),
+        ...ids(item?.typicalTaskTypes),
       ]).sort().join(','),
     ].join(':');
   }).sort().join('|');
@@ -69,6 +76,7 @@ export function buildSchoolContextVersion(sources = {}) {
     sources.initiatives,
     sources.tasks,
     sources.approvedRules,
+    sources.playbooks,
   ].map(stableVersion).join('.');
 }
 
@@ -118,6 +126,11 @@ function sanitizeTeam(item) {
     responsibility: text(item?.responsibility || item?.description || item?.domain, 280),
     memberIds: ids(item?.memberIds),
     leaderIds: unique([...ids(item?.leaderIds), ...ids(item?.managerIds), text(item?.managerId, 128)]),
+    responsibilityAreas: unique([...ids(item?.responsibilityAreas), text(item?.responsibility, 120)]),
+    keywords: ids(item?.keywords),
+    aliases: ids(item?.aliases),
+    supportingRoles: ids(item?.supportingRoles),
+    typicalTaskTypes: ids(item?.typicalTaskTypes),
   };
 }
 
@@ -126,6 +139,11 @@ function sanitizeRole(item) {
     id: text(item?.id, 128),
     name: text(item?.name || item?.title),
     description: text(item?.description, 280),
+    responsibilityAreas: ids(item?.responsibilityAreas),
+    relatedTeamIds: ids(item?.relatedTeamIds),
+    relatedClassIds: ids(item?.relatedClassIds),
+    relatedGrades: ids(item?.relatedGrades),
+    commonTaskTypes: ids(item?.commonTaskTypes),
   };
 }
 
@@ -189,6 +207,9 @@ function assembleAuthorizedContext(sources, permissions) {
     approvedRules: principal || canRead(permissions, 'tasks.useAssistant')
       ? (sources.approvedRules || []).map(item => text(item, 240)).filter(Boolean).slice(0, 20)
       : [],
+    playbooks: principal || canRead(permissions, 'tasks.useAssistant')
+      ? (sources.playbooks || []).filter(item => item && typeof item === 'object').slice(0, 20)
+      : [],
   };
 }
 
@@ -218,7 +239,7 @@ export function clearSchoolContextCache() {
   cache.clear();
 }
 
-const GRADE_PATTERN = /(?:שכבה|שכבת|כיתה|כיתות)\s*([א-יב]{1,2})|(?:^|\s)(י[א-ב]?|ט|ח|ז)(?:\s|$)/u;
+const GRADE_PATTERN = /(?:שכבה|שכבת|כיתה|כיתות)\s*(י[״"׳']?[אב]?|ט|ח|ז)|(?:^|\s)(י[״"׳']?[אב]?|ט|ח|ז)(?:\s|$)/u;
 
 export function inferSchoolTaskRequest(request = '') {
   const safe = redactTaskAssistantInput(request);
@@ -227,7 +248,7 @@ export function inferSchoolTaskRequest(request = '') {
   const gradeMatch = safe.text.match(GRADE_PATTERN);
   return {
     domain: teamSuggestion ? teamSuggestion.replace(/^צוות\s+/u, '') : '',
-    grade: text(gradeMatch?.[1] || gradeMatch?.[2], 12),
+    grade: text(gradeMatch?.[1] || gradeMatch?.[2], 12).replace(/[״"׳']/gu, ''),
     teamSuggestion,
   };
 }
@@ -249,24 +270,45 @@ export function resolveSchoolTaskContext({
   const context = primeSchoolContext({ schoolId, contextVersion, userPermissionsVersion, permissions, sources });
   const inferred = inferSchoolTaskRequest(request);
   const requested = new Set((contextRequest.requestedContext || [
-    'teams', 'teamMembers', 'relevantRoles', 'gradeHomeroomTeachers', 'calendar', 'initiatives', 'tasks', 'approvedRules',
+    'teams', 'teamMembers', 'relevantRoles', 'gradeHomeroomTeachers', 'calendar', 'initiatives', 'tasks', 'approvedRules', 'playbooks',
   ]).filter(item => CONTEXT_TYPES.has(item)));
   const domain = text(contextRequest.domain || inferred.domain, 80);
   const grade = text(contextRequest.grade || inferred.grade, 12);
   const domainTerms = unique([domain, inferred.teamSuggestion, ...domain.split(/\s+/u)]).map(item => item.toLocaleLowerCase('he'));
   const matchingTeams = requested.has('teams') || requested.has('teamMembers')
-    ? context.teams.filter(team => includesSearchable(`${team.name} ${team.responsibility}`, domainTerms))
+    ? context.teams.filter(team => includesSearchable([
+        team.name,
+        team.responsibility,
+        ...team.responsibilityAreas,
+        ...team.keywords,
+        ...team.aliases,
+        ...team.typicalTaskTypes,
+      ].join(' '), domainTerms))
     : [];
   const teamMemberIds = new Set(matchingTeams.flatMap(team => [...team.memberIds, ...team.leaderIds]));
   const teamMembers = requested.has('teamMembers') ? context.staff.filter(member => teamMemberIds.has(member.id)) : [];
+  const supportingRoleTerms = unique(matchingTeams.flatMap(team => team.supportingRoles));
+  const builtInSupportTerms = inferred.domain && /טיול|מסע|סיור/u.test(inferred.domain)
+    ? ['יועץ', 'יועצת', 'מנהלנית', 'מנהלן', 'מזכירה', 'מזכיר']
+    : [];
   const relevantRoles = requested.has('roles') || requested.has('relevantRoles')
-    ? context.roles.filter(role => !domainTerms.length || includesSearchable(`${role.name} ${role.description}`, domainTerms))
+    ? context.roles.filter(role => (
+        !domainTerms.length
+        || includesSearchable(`${role.name} ${role.description} ${role.responsibilityAreas.join(' ')}`, domainTerms)
+        || supportingRoleTerms.includes(role.id)
+        || includesSearchable(`${role.name} ${role.description}`, [...supportingRoleTerms, ...builtInSupportTerms])
+      ))
     : [];
   const roleIds = new Set(relevantRoles.map(role => role.id));
   const normalizedRequest = text(request, 1800).toLocaleLowerCase('he');
   const roleHolders = context.staff.filter(member => (
     member.customRoleIds.some(roleId => roleIds.has(roleId))
     || (member.jobTitle && normalizedRequest.includes(member.jobTitle.toLocaleLowerCase('he')))
+  ));
+  const supportRoleHolders = context.staff.filter(member => (
+    includesSearchable(member.jobTitle, [...supportingRoleTerms, ...builtInSupportTerms])
+    || member.customRoleIds.some(roleId => relevantRoles.some(role => role.id === roleId
+      && includesSearchable(`${role.name} ${role.description}`, [...supportingRoleTerms, ...builtInSupportTerms])))
   ));
   const gradeClasses = requested.has('classes') || requested.has('gradeHomeroomTeachers')
     ? context.classes.filter(item => !grade || item.grade === grade || item.name.includes(grade))
@@ -286,12 +328,15 @@ export function resolveSchoolTaskContext({
     teamMembers,
     relevantRoles,
     roleHolders,
+    supportRoleHolders,
+    authorizedStaff: context.staff,
     gradeClasses,
     homeroomTeachers,
     calendar: relevantCalendar,
     initiatives: relevantInitiatives,
     tasks: relevantTasks,
     approvedRules: requested.has('approvedRules') ? context.approvedRules : [],
+    playbooks: requested.has('playbooks') ? context.playbooks : [],
   };
 }
 
@@ -320,7 +365,7 @@ export function buildGeminiSchoolContext(result) {
   };
 }
 
-export function createLocalTaskProposal(request, result) {
+export function createLocalTaskProposal(request, result, options = {}) {
   const safe = redactTaskAssistantInput(request);
   if (!safe.safe) {
     const error = new Error(safe.reason);
@@ -328,12 +373,16 @@ export function createLocalTaskProposal(request, result) {
     throw error;
   }
   const title = safe.text.split(/[.!?\n]/u).find(Boolean)?.slice(0, 180) || 'משימה חדשה';
+  const plan = buildTaskResponsibilityPlan({
+    request,
+    answer: options.answer || '',
+    context: result,
+    playbooks: result?.playbooks || [],
+  });
   const team = result?.teams?.[0]?.name || result?.inferred?.teamSuggestion || '';
   const assignees = unique([
-    ...(result?.teamMembers || []).map(item => item.name),
-    ...(result?.homeroomTeachers || []).map(item => item.name),
-    ...(result?.roleHolders || []).map(item => item.name),
-  ]).slice(0, 8);
+    ...(plan.assignments.responsible || []).filter(item => item.source === 'staff').map(item => item.name),
+  ]).slice(0, 12);
   return normalizeTaskAssistantProposal({
     title,
     description: safe.text,
@@ -342,7 +391,18 @@ export function createLocalTaskProposal(request, result) {
     assigneeSuggestions: assignees,
     teamSuggestions: team ? [team] : [],
     linkedEntitySuggestions: (result?.gradeClasses || []).map(item => item.name).slice(0, 5),
-    reasoningSummary: 'ההצעה הראשונית נבנתה מההקשר המוסדי הזמין למשתמש.',
+    dateRange: plan.dateRange,
+    dueDate: plan.dateRange?.endDate || null,
+    followUpQuestion: plan.followUpQuestion,
+    completionCriteria: plan.completionCriteria,
+    subtasks: plan.workPlanSteps.map(step => step.title),
+    assignmentPlan: plan.assignments,
+    workPlanSteps: plan.workPlanSteps,
+    confidence: plan.confidence,
+    domain: plan.domain,
+    playbookId: plan.playbookId,
+    commonDocuments: plan.commonDocuments,
+    reasoningSummary: plan.summary,
   });
 }
 
@@ -360,6 +420,13 @@ export function mergeTaskAssistantProposals(localProposal, agentProposal) {
     assigneeSuggestions: unique([...local.assigneeSuggestions, ...agent.assigneeSuggestions]),
     teamSuggestions: unique([...local.teamSuggestions, ...agent.teamSuggestions]),
     linkedEntitySuggestions: unique([...local.linkedEntitySuggestions, ...agent.linkedEntitySuggestions]),
+    assignmentPlan: local.assignmentPlan,
+    workPlanSteps: local.workPlanSteps.length ? local.workPlanSteps : agent.workPlanSteps,
+    confidence: local.confidence,
+    domain: local.domain,
+    playbookId: local.playbookId,
+    commonDocuments: local.commonDocuments,
+    followUpQuestion: local.playbookId ? local.followUpQuestion : agent.followUpQuestion,
     reasoningSummary: agent.reasoningSummary || local.reasoningSummary,
   });
 }

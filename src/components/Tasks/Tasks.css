@@ -1649,3 +1649,100 @@
   font-size: 0.82rem;
   min-height: 1.25rem;
 }
+.task-assistant-assignment-summary {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.55rem;
+}
+
+.task-assistant-assignment-summary span,
+.task-assistant-confidence {
+  color: var(--text-secondary, #666);
+  font-size: 0.8rem;
+}
+
+.task-assistant-confidence--high { color: #18794e; }
+.task-assistant-confidence--medium { color: #9a5a00; }
+.task-assistant-confidence--low { color: #a13030; }
+
+.task-assistant-assignment-editor {
+  border: 1px solid var(--border-subtle, #e8e8e8);
+  border-radius: 14px;
+  padding: 0.8rem;
+  background: var(--surface, #fff);
+}
+
+.task-assistant-assignment-editor summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--brand-burgundy, #98133f);
+}
+
+.task-assistant-assignment-levels {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.7rem;
+  margin: 0.8rem 0;
+}
+
+.task-assistant-assignment-levels fieldset {
+  border: 1px solid var(--border-subtle, #e8e8e8);
+  border-radius: 10px;
+  padding: 0.65rem;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.task-assistant-assignment-levels label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0;
+  font-size: 0.78rem;
+}
+
+.task-work-plan-editor,
+.task-playbook-steps {
+  border: 1px solid var(--border-subtle, #e8e8e8);
+  border-radius: 14px;
+  padding: 0.8rem;
+}
+
+.task-work-plan-row,
+.task-playbook-step {
+  display: grid;
+  grid-template-columns: minmax(75px, 0.45fr) minmax(220px, 2fr) minmax(150px, 1fr) auto;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.5rem;
+}
+
+.task-work-plan-row > span {
+  color: var(--brand-orange, #f4512c);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.task-playbook-manager {
+  width: min(980px, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
+}
+
+.task-playbook-steps > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.task-playbook-steps h4 {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+@media (max-width: 760px) {
+  .task-assistant-assignment-levels { grid-template-columns: 1fr; }
+  .task-work-plan-row,
+  .task-playbook-step { grid-template-columns: 1fr; }
+}

@@ -47,6 +47,33 @@ export function normalizeTaskAssistantProposal(value) {
   const range = proposal.dateRange && typeof proposal.dateRange === 'object'
     ? { startDate: isoDate(proposal.dateRange.startDate), endDate: isoDate(proposal.dateRange.endDate) }
     : null;
+  const normalizeParty = party => party && typeof party === 'object' && !Array.isArray(party)
+    ? {
+        id: text(party.id, 128),
+        name: text(party.name, 120),
+        jobTitle: text(party.jobTitle, 120),
+        source: ['staff', 'team', 'role'].includes(party.source) ? party.source : 'staff',
+      }
+    : null;
+  const normalizeParties = value => Array.isArray(value)
+    ? value.map(normalizeParty).filter(item => item?.id && item.name).slice(0, 50)
+    : [];
+  const assignmentPlan = proposal.assignmentPlan && typeof proposal.assignmentPlan === 'object'
+    ? {
+        responsible: normalizeParties(proposal.assignmentPlan.responsible),
+        partners: normalizeParties(proposal.assignmentPlan.partners),
+        informed: normalizeParties(proposal.assignmentPlan.informed),
+      }
+    : { responsible: [], partners: [], informed: [] };
+  const workPlanSteps = Array.isArray(proposal.workPlanSteps) ? proposal.workPlanSteps.map((step, index) => ({
+    id: text(step?.id, 60) || `step_${index + 1}`,
+    phase: text(step?.phase, 80) || 'ביצוע',
+    title: text(step?.title, 180),
+    party: text(step?.party, 80),
+    relativeDays: Number.isFinite(Number(step?.relativeDays)) ? Math.max(-365, Math.min(365, Math.round(Number(step.relativeDays)))) : 0,
+    condition: text(step?.condition, 60),
+    suggestedParties: normalizeParties(step?.suggestedParties),
+  })).filter(step => step.title).slice(0, 30) : [];
   return {
     title: text(proposal.title, 180),
     description: text(proposal.description, 2000),
@@ -62,6 +89,12 @@ export function normalizeTaskAssistantProposal(value) {
     completionCriteria: text(proposal.completionCriteria, 800),
     followUpQuestion: text(proposal.followUpQuestion, 240) || null,
     reasoningSummary: text(proposal.reasoningSummary, 400),
+    assignmentPlan,
+    workPlanSteps,
+    confidence: ['high', 'medium', 'low'].includes(proposal.confidence) ? proposal.confidence : 'low',
+    domain: text(proposal.domain, 80),
+    playbookId: text(proposal.playbookId, 80),
+    commonDocuments: list(proposal.commonDocuments, 20, 180),
   };
 }
 
@@ -94,13 +127,25 @@ export function buildTaskAssistantInput({ request, currentProposal, answer, orga
     error.code = cleaned.reason;
     throw error;
   }
+  const normalizedCurrent = currentProposal ? normalizeTaskAssistantProposal(currentProposal) : null;
+  const modelCurrentProposal = normalizedCurrent ? {
+    title: normalizedCurrent.title,
+    description: normalizedCurrent.description,
+    taskType: normalizedCurrent.taskType,
+    priority: normalizedCurrent.priority,
+    dueDate: normalizedCurrent.dueDate,
+    dateRange: normalizedCurrent.dateRange,
+    subtasks: normalizedCurrent.subtasks,
+    completionCriteria: normalizedCurrent.completionCriteria,
+    followUpQuestion: normalizedCurrent.followUpQuestion,
+  } : null;
   return JSON.stringify({
     request: cleaned.text,
     today: new Date().toISOString().slice(0, 10),
     organizationContext: organizationContext && typeof organizationContext === 'object'
       ? normalizeTaskAssistantOrganizationContext(organizationContext)
       : null,
-    currentProposal: currentProposal ? normalizeTaskAssistantProposal(currentProposal) : null,
+    currentProposal: modelCurrentProposal,
     answer: text(answer, 500) || null,
   });
 }
@@ -273,6 +318,12 @@ export function proposalToTaskForm(resolved, baseForm) {
   const scope = resolved.taskType === 'assigned' ? 'assigned'
     : resolved.taskType === 'team' ? 'team'
       : 'personal';
+  const staffIds = level => (resolved.assignmentPlan?.[level] || [])
+    .filter(item => item.source === 'staff')
+    .map(item => item.id);
+  const responsibleIds = staffIds('responsible');
+  const partnerIds = staffIds('partners');
+  const informedIds = staffIds('informed');
   return {
     ...baseForm,
     creationKind: isInitiative ? 'initiative' : 'task',
@@ -289,7 +340,12 @@ export function proposalToTaskForm(resolved, baseForm) {
     teamId: resolved.team?.id || '',
     initiativeId: resolved.initiative?.id || '',
     classIds: resolved.linkedClass?.id ? [resolved.linkedClass.id] : [],
-    subtasks: resolved.subtasks,
+    responsibleIds,
+    partnerIds,
+    informedIds,
+    memberIds: [...new Set([...(baseForm.memberIds || []), ...partnerIds, ...informedIds])],
+    subtasks: resolved.workPlanSteps.length ? resolved.workPlanSteps.map(step => step.title) : resolved.subtasks,
+    workPlanSteps: resolved.workPlanSteps,
     completionCriteria: resolved.completionCriteria,
     nextAction: resolved.subtasks[0] || '',
   };
