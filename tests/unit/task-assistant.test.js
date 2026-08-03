@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildTaskAssistantInput,
   findHolidayConflict,
+  inferTaskTeamSuggestion,
   normalizeTaskAssistantProposal,
   proposalToTaskForm,
   redactTaskAssistantInput,
@@ -31,6 +32,64 @@ test('task assistant redacts contact details and refuses sensitive student conte
   assert.equal(cleaned.text.includes('050-123-4567'), false);
   assert.equal(cleaned.text.includes('test@example.com'), false);
   assert.equal(redactTaskAssistantInput('צריך לטפל בציונים של תלמיד').safe, false);
+  assert.equal(redactTaskAssistantInput('צריך להקים צוות לטיפול בציונים ובהערכה').safe, true);
+});
+
+test('task assistant matches a unique staff first name without exposing other records', () => {
+  const resolved = resolveTaskAssistantProposal({
+    proposal: { title: 'בדיקה', taskType: 'assigned', assigneeSuggestions: ['לינה'] },
+    staff: [{ id: 'staff-lina', fullName: 'לינה כהן' }, { id: 'staff-david', fullName: 'דוד לוי' }],
+    canAssign: true,
+  });
+  assert.equal(resolved.assignee.id, 'staff-lina');
+  assert.deepEqual(resolved.unresolvedAssigneeSuggestions, []);
+});
+
+test('trip language selects an existing trips team even without an explicit team suggestion', () => {
+  const resolved = resolveTaskAssistantProposal({
+    proposal: { title: 'הכנת הטיול', taskType: 'personal', assigneeSuggestions: ['לינה'] },
+    request: 'צריך לקדם את הטיול השנתי ולקבוע מקומות לינה',
+    staff: [{ id: 'staff-lina', fullName: 'לינה כהן' }],
+    teams: [{ id: 'trips-team', name: 'טיולים וסיורים', memberIds: [] }],
+    canAssign: true,
+    canCreateTeam: true,
+  });
+  assert.equal(inferTaskTeamSuggestion('צריך לקדם טיולים'), 'צוות טיולים');
+  assert.equal(resolved.taskType, 'team');
+  assert.equal(resolved.team.id, 'trips-team');
+  assert.equal(resolved.assignee, null);
+  assert.deepEqual(resolved.unresolvedAssigneeSuggestions, []);
+  assert.equal(resolved.proposedTeam, null);
+});
+
+test('task assistant proposes an approved team creation with matched named staff', () => {
+  const resolved = resolveTaskAssistantProposal({
+    proposal: {
+      title: 'מיפוי ציונים',
+      taskType: 'team',
+      teamSuggestions: ['צוות ציונים'],
+      assigneeSuggestions: ['מאיה', 'אורי'],
+    },
+    request: 'מאיה ואורי יכינו מיפוי ציונים',
+    staff: [{ id: 'maya', fullName: 'מאיה לוי' }, { id: 'uri', fullName: 'אורי כהן' }],
+    teams: [],
+    canAssign: true,
+    canCreateTeam: true,
+  });
+  assert.equal(resolved.proposedTeam.name, 'צוות ציונים');
+  assert.deepEqual(resolved.proposedTeam.memberIds, ['maya', 'uri']);
+});
+
+test('task assistant detects named staff missing from an existing relevant team', () => {
+  const resolved = resolveTaskAssistantProposal({
+    proposal: { title: 'ציונים', taskType: 'team', teamSuggestions: ['ציונים'], assigneeSuggestions: ['מאיה'] },
+    staff: [{ id: 'maya', fullName: 'מאיה לוי' }],
+    teams: [{ id: 'grades', name: 'צוות ציונים', memberIds: [] }],
+    canAssign: true,
+    canCreateTeam: true,
+  });
+  assert.equal(resolved.team.id, 'grades');
+  assert.deepEqual(resolved.missingTeamMembers.map(member => member.id), ['maya']);
 });
 
 test('task assistant builds a bounded prompt without institutional records', () => {

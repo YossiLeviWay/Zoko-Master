@@ -328,6 +328,33 @@ test('unauthenticated users cannot read Firestore data', async () => {
   await assertFails(getDoc(doc(environment.unauthenticatedContext().firestore(), 'schools', SCHOOL_A)));
 });
 
+test('institution managers may manage only teams in their own school', async () => {
+  await seedFirestore({
+    'users/manager_a': { ...user({ schoolId: SCHOOL_A, role: 'institution_manager' }), uid: 'manager_a' },
+    'users/viewer_a': { ...user({ schoolId: SCHOOL_A }), uid: 'viewer_a' },
+    [`teams_${SCHOOL_A}/existing_team`]: {
+      schoolId: SCHOOL_A, name: 'Existing', memberIds: [], managerIds: ['manager_a'],
+    },
+  });
+  const managerDb = context('manager_a').firestore();
+  const ownTeam = doc(managerDb, `teams_${SCHOOL_A}/new_team`);
+  const otherTeam = doc(managerDb, `teams_${SCHOOL_B}/foreign_team`);
+  const teamData = {
+    schoolId: SCHOOL_A,
+    name: 'School A team',
+    memberIds: [],
+    managerIds: ['manager_a'],
+    createdById: 'manager_a',
+  };
+
+  await assertSucceeds(setDoc(ownTeam, teamData));
+  await assertSucceeds(updateDoc(doc(managerDb, `teams_${SCHOOL_A}/existing_team`), { name: 'Updated' }));
+  await assertFails(setDoc(otherTeam, { ...teamData, schoolId: SCHOOL_B }));
+  await assertFails(setDoc(otherTeam, teamData));
+  await assertFails(updateDoc(doc(managerDb, `teams_${SCHOOL_A}/existing_team`), { schoolId: SCHOOL_B }));
+  await assertFails(setDoc(doc(context('viewer_a').firestore(), `teams_${SCHOOL_A}/viewer_team`), teamData));
+});
+
 test('assigned user reads a task and may change only completion fields', async () => {
   await seedFirestore({
     'users/viewer_a': user({ schoolId: SCHOOL_A, permissions: { students_view: true } }),
@@ -960,14 +987,17 @@ test('task invitations and shared tasks are visible only to their actors', async
 test('legacy team tasks remain visible to their team and private from other schools', async () => {
   await seedFirestore({
     'users/member_a': user({ schoolId: SCHOOL_A, teamIds: ['team_a'] }),
+    'users/document_member_a': user({ schoolId: SCHOOL_A }),
     'users/other_team_a': user({ schoolId: SCHOOL_A, teamIds: ['team_other'] }),
     'users/member_b': user({ schoolId: SCHOOL_B, teamIds: ['team_a'] }),
     [`schools/${SCHOOL_A}/tasks/legacy_team`]: {
-      assigneeType: 'team', assigneeTeamId: 'team_a', title: 'Existing task', status: 'todo',
+      assigneeType: 'team', assigneeTeamId: 'team_a', participantIds: ['document_member_a'],
+      title: 'Existing task', status: 'todo',
     },
   });
   const taskPath = `schools/${SCHOOL_A}/tasks/legacy_team`;
   await assertSucceeds(getDoc(doc(context('member_a').firestore(), taskPath)));
+  await assertSucceeds(getDoc(doc(context('document_member_a').firestore(), taskPath)));
   await assertFails(getDoc(doc(context('other_team_a').firestore(), taskPath)));
   await assertFails(getDoc(doc(context('member_b').firestore(), taskPath)));
 });

@@ -328,6 +328,9 @@ export async function createOrganizationTask({ db, schoolId, user, input }) {
   const scope = input.scope === TASK_SCOPES.ASSIGNED ? TASK_SCOPES.ASSIGNED : TASK_SCOPES.TEAM;
   const assigneeIds = scope === TASK_SCOPES.ASSIGNED ? input.assigneeIds?.slice(0, 1) || [] : [];
   const teamId = scope === TASK_SCOPES.TEAM ? input.teamId || input.assigneeTeamId || '' : '';
+  const participantIds = scope === TASK_SCOPES.TEAM
+    ? [...new Set(input.memberIds || input.participantIds || [])].slice(0, 50)
+    : [];
   return addDoc(schoolCollection(db, schoolId, 'tasks'), {
     ...editableFields(input),
     scope,
@@ -337,6 +340,7 @@ export async function createOrganizationTask({ db, schoolId, user, input }) {
     createdByName: user.fullName || '',
     assigneeType: scope === TASK_SCOPES.ASSIGNED ? 'individual' : 'team',
     assigneeIds,
+    participantIds,
     teamId,
     assigneeTeamId: teamId,
     completedAt: null,
@@ -354,6 +358,9 @@ export async function updateTask({ db, schoolId, uid, task, input }) {
     scope: input.scope === TASK_SCOPES.ASSIGNED ? TASK_SCOPES.ASSIGNED : TASK_SCOPES.TEAM,
     assigneeType: input.scope === TASK_SCOPES.ASSIGNED ? 'individual' : 'team',
     assigneeIds: input.scope === TASK_SCOPES.ASSIGNED ? input.assigneeIds?.slice(0, 1) || [] : [],
+    participantIds: input.scope === TASK_SCOPES.TEAM
+      ? [...new Set(input.memberIds || input.participantIds || [])].slice(0, 50)
+      : [],
     teamId: input.scope === TASK_SCOPES.TEAM ? input.teamId || input.assigneeTeamId || '' : '',
     assigneeTeamId: input.scope === TASK_SCOPES.TEAM ? input.teamId || input.assigneeTeamId || '' : '',
   } : {};

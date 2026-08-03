@@ -1583,6 +1583,18 @@
 .task-assistant-proposal-note { display: grid; grid-template-columns: auto 1fr auto; align-items: start; gap: 0.6rem; padding: 0.65rem; border: 1px solid #ffd1c3; border-radius: 10px; background: #fff8f5; color: var(--text-secondary); }
 .task-assistant-proposal-note > svg { color: var(--brand-orange); }
 .task-assistant-proposal-note p { margin: 0 0 0.25rem; font-size: 0.72rem; }
+.task-assistant-team-suggestion {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.7rem;
+  margin-top: 0.55rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid #ffd8cc;
+}
+.task-assistant-team-suggestion p { flex: 1 1 320px; color: var(--text-primary); }
+.task-assistant-team-suggestion small { flex-basis: 100%; color: var(--text-secondary); }
+.task-assistant-team-suggestion .btn-primary { color: #fff; white-space: nowrap; }
 .task-assistant-feedback { display: flex; align-items: center; gap: 0.35rem; margin-block: 0.6rem; padding: 0.55rem 0.7rem; border: 1px solid var(--border-subtle); border-radius: 9px; background: #fff; color: var(--text-secondary); font-size: 0.72rem; }
 
 @media (max-width: 700px) {
