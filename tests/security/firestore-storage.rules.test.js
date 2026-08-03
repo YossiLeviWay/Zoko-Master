@@ -355,6 +355,33 @@ test('institution managers may manage only teams in their own school', async () 
   await assertFails(setDoc(doc(context('viewer_a').firestore(), `teams_${SCHOOL_A}/viewer_team`), teamData));
 });
 
+test('only a school manager may save institutional task-agent rules and playbooks', async () => {
+  await seedFirestore({
+    'users/principal_a': { ...user({ schoolId: SCHOOL_A, role: 'principal' }), uid: 'principal_a' },
+    'users/viewer_a': { ...user({ schoolId: SCHOOL_A }), uid: 'viewer_a' },
+    'users/principal_b': { ...user({ schoolId: SCHOOL_B, role: 'principal' }), uid: 'principal_b' },
+  });
+  const settingsPath = `schools/${SCHOOL_A}/settings/task_agent`;
+  const settings = {
+    schoolId: SCHOOL_A,
+    approvedRules: ['אין לקבוע פעילות ביום חסום'],
+    taskPlaybooks: [{ id: 'annual_school_trip', name: 'טיול שנתי', domain: 'school_trip', steps: [] }],
+    taskPlaybooksUpdatedBy: 'principal_a',
+    taskPlaybooksUpdatedAt: serverTimestamp(),
+  };
+
+  await assertSucceeds(setDoc(doc(context('principal_a').firestore(), settingsPath), settings));
+  await assertFails(setDoc(doc(context('viewer_a').firestore(), settingsPath), {
+    ...settings,
+    taskPlaybooksUpdatedBy: 'viewer_a',
+  }, { merge: true }));
+  await assertFails(setDoc(doc(context('principal_b').firestore(), settingsPath), {
+    ...settings,
+    schoolId: SCHOOL_B,
+    taskPlaybooksUpdatedBy: 'principal_b',
+  }, { merge: true }));
+});
+
 test('assigned user reads a task and may change only completion fields', async () => {
   await seedFirestore({
     'users/viewer_a': user({ schoolId: SCHOOL_A, permissions: { students_view: true } }),
@@ -424,12 +451,17 @@ test('personal task can be created, read, updated and deleted only by its owner'
   const personalTask = {
     scope: 'personal', schoolId: SCHOOL_A, ownerId: 'owner_a', createdBy: 'owner_a',
     title: 'Private', status: 'todo', assigneeIds: [], teamId: '', assigneeTeamId: '',
+    completionCriteria: 'היעד הושג', startDate: '', endDate: '2027-05-01',
+    responsibleIds: ['owner_a'], partnerIds: [], informedIds: [],
+    workPlanSteps: [{ id: 'step_1', title: 'שלב', dueDate: '', status: 'todo', responsibleIds: ['owner_a'], teamId: '', dependencyStepId: '', order: 0 }],
   };
 
   await assertSucceeds(setDoc(taskRef, personalTask));
   await assertSucceeds(getDoc(taskRef));
   await assertSucceeds(updateDoc(taskRef, { title: 'Updated', updatedAt: 'server-value' }));
+  await assertSucceeds(updateDoc(taskRef, { workPlanSteps: [{ id: 'step_1', title: 'שלב מעודכן', dueDate: '2027-04-01', status: 'in_progress', responsibleIds: ['owner_a'], teamId: '', dependencyStepId: '', order: 0 }], updatedAt: 'server-value' }));
   await assertFails(getDoc(doc(context('peer_a').firestore(), 'users/owner_a/personalTasks/personal_1')));
+  await assertFails(updateDoc(doc(context('peer_a').firestore(), 'users/owner_a/personalTasks/personal_1'), { workPlanSteps: [] }));
   await assertFails(getDoc(doc(context('principal_a').firestore(), 'users/owner_a/personalTasks/personal_1')));
   await assertFails(getDoc(doc(context('global_admin', { global_admin: true }).firestore(), 'users/owner_a/personalTasks/personal_1')));
   await assertFails(getDoc(doc(context('member_b').firestore(), 'users/owner_a/personalTasks/personal_1')));

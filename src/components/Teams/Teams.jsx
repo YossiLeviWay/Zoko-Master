@@ -30,7 +30,10 @@ export default function Teams() {
   const [staff, setStaff] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingTeam, setEditingTeam] = useState(null);
-  const [form, setForm] = useState({ name: '', description: '' });
+  const [form, setForm] = useState({
+    name: '', description: '', responsibilityAreas: '', keywords: '', aliases: '',
+    supportingRoles: '', typicalTaskTypes: '',
+  });
   const [manageTeam, setManageTeam] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [memberSearch, setMemberSearch] = useState('');
@@ -39,6 +42,11 @@ export default function Teams() {
   const isAdmin = isPrincipal() || isGlobalAdmin();
   const hasTeamsPermission = isAdmin || permissions.teams_edit;
   const canEdit = hasTeamsPermission;
+  const emptyTeamForm = () => ({
+    name: '', description: '', responsibilityAreas: '', keywords: '', aliases: '',
+    supportingRoles: '', typicalTaskTypes: '',
+  });
+  const splitList = value => [...new Set(String(value || '').split(/[,\n]/u).map(item => item.trim()).filter(Boolean))].slice(0, 20);
 
   // Check if user can manage a specific team (admin, has teams_edit permission, or is team manager)
   function canManageTeam(team) {
@@ -96,21 +104,33 @@ export default function Teams() {
     e.preventDefault();
     if (!form.name.trim() || !schoolId) return;
 
+    const organizationFields = {
+      responsibilityAreas: splitList(form.responsibilityAreas),
+      keywords: splitList(form.keywords),
+      aliases: splitList(form.aliases),
+      supportingRoles: splitList(form.supportingRoles),
+      typicalTaskTypes: splitList(form.typicalTaskTypes),
+      updatedAt: new Date().toISOString(),
+    };
     if (editingTeam) {
       await updateDoc(doc(db, `teams_${schoolId}`, editingTeam), {
         name: form.name,
-        description: form.description
+        description: form.description,
+        ...organizationFields,
       });
     } else {
       await addDoc(collection(db, `teams_${schoolId}`), {
+        schoolId,
         name: form.name,
         description: form.description,
         memberIds: [],
+        managerIds: userData?.uid ? [userData.uid] : [],
+        ...organizationFields,
         createdBy: userData?.fullName || '',
         createdAt: new Date().toISOString()
       });
     }
-    setForm({ name: '', description: '' });
+    setForm(emptyTeamForm());
     setShowForm(false);
     setEditingTeam(null);
   }
@@ -121,7 +141,15 @@ export default function Teams() {
   }
 
   function handleEdit(team) {
-    setForm({ name: team.name, description: team.description || '' });
+    setForm({
+      name: team.name,
+      description: team.description || '',
+      responsibilityAreas: (team.responsibilityAreas || []).join(', '),
+      keywords: (team.keywords || []).join(', '),
+      aliases: (team.aliases || []).join(', '),
+      supportingRoles: (team.supportingRoles || []).join(', '),
+      typicalTaskTypes: (team.typicalTaskTypes || []).join(', '),
+    });
     setEditingTeam(team.id);
     setShowForm(true);
   }
@@ -196,7 +224,7 @@ export default function Teams() {
         <div className="page-toolbar">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
             {canEdit && (
-              <button className="btn btn-primary" onClick={() => { setShowForm(true); setEditingTeam(null); setForm({ name: '', description: '' }); }}>
+              <button className="btn btn-primary" onClick={() => { setShowForm(true); setEditingTeam(null); setForm(emptyTeamForm()); }}>
                 <Plus size={16} />
                 צוות חדש
               </button>
@@ -227,6 +255,15 @@ export default function Teams() {
                   required
                 />
               </div>
+              <div className="form-row">
+                <div className="form-group"><label>תחומי אחריות</label><input value={form.responsibilityAreas} onChange={e => setForm(prev => ({ ...prev, responsibilityAreas: e.target.value }))} placeholder="טיולים, מסעות, סיורים" /></div>
+                <div className="form-group"><label>מילות מפתח</label><input value={form.keywords} onChange={e => setForm(prev => ({ ...prev, keywords: e.target.value }))} placeholder="טיול שנתי, מסלול, הסעות" /></div>
+              </div>
+              <div className="form-row">
+                <div className="form-group"><label>שמות חלופיים</label><input value={form.aliases} onChange={e => setForm(prev => ({ ...prev, aliases: e.target.value }))} placeholder="רכזי טיולים, צוות מסעות" /></div>
+                <div className="form-group"><label>תפקידים תומכים שכיחים</label><input value={form.supportingRoles} onChange={e => setForm(prev => ({ ...prev, supportingRoles: e.target.value }))} placeholder="יועצת, מנהלנית, מזכירה" /></div>
+              </div>
+              <div className="form-group"><label>סוגי משימות שכיחים</label><input value={form.typicalTaskTypes} onChange={e => setForm(prev => ({ ...prev, typicalTaskTypes: e.target.value }))} placeholder="תכנון טיול, הזמנת הסעות, אישורי הורים" /></div>
               <div className="form-group">
                 <label>תיאור</label>
                 <input

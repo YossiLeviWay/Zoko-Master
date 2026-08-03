@@ -69,3 +69,25 @@ test('existing task normalization keeps optional initiative links without creati
   assert.equal(task.milestoneId, 'milestone_1');
   assert.equal(task._key, 'organization:nested:linked_1');
 });
+
+test('unified task steps preserve optional scheduling and responsibility fields', () => {
+  const task = normalizeOrganizationTask({
+    id: 'task_steps',
+    title: 'טיול',
+    workPlanSteps: [{
+      id: 'permissions',
+      title: 'אישורי הורים',
+      dueDate: '2027-04-01',
+      status: 'in_progress',
+      responsibleIds: ['staff_a'],
+      teamId: '',
+      dependencyStepId: 'route',
+      order: 2,
+    }],
+  });
+  assert.equal(task.workPlanSteps[0].dueDate, '2027-04-01');
+  assert.equal(task.workPlanSteps[0].status, 'in_progress');
+  assert.deepEqual(task.workPlanSteps[0].responsibleIds, ['staff_a']);
+  assert.equal(task.workPlanSteps[0].dependencyStepId, 'route');
+  assert.equal(task.workPlanSteps[0].order, 2);
+});

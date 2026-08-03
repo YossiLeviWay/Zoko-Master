@@ -2441,7 +2441,7 @@ service cloud.firestore {
           !data.keys().hasAny([
             'workflowType', 'communicationStatus', 'communicationDraftId',
             'communicationTrackingId', 'taskStatus', 'nextFollowUpAt',
-            'completionCriteria', 'sourceTaskStorageMode'
+            'sourceTaskStorageMode'
           ])
           || validCommunicationTaskCreate(userId, taskId, data)
         );
@@ -2466,7 +2466,9 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'title', 'description', 'priority', 'status', 'dueDate', 'reminderAt',
           'completedAt', 'updatedAt', 'tags', 'attachedFileId', 'attachedFileName',
-          'pinnedBy', 'sourceTaskId', 'initiativeId', 'milestoneId'
+          'pinnedBy', 'sourceTaskId', 'initiativeId', 'milestoneId',
+          'startDate', 'endDate', 'completionCriteria', 'responsibleIds',
+          'partnerIds', 'informedIds', 'workPlanSteps'
         ]));
     }
 

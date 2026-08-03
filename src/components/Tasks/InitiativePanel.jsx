@@ -53,6 +53,7 @@ import {
   nextInitiativeMilestone,
   UPDATE_TYPES,
 } from '../../utils/initiatives';
+import { legacyInitiativeToUnifiedTask } from '../../utils/unifiedTaskModel';
 
 function dateLabel(value) {
   if (!value) return 'טרם נקבע';
@@ -145,6 +146,7 @@ export default function InitiativePanel({
   const [saving, setSaving] = useState(false);
 
   const activeInitiative = initiatives.find(item => item.id === activeId) || null;
+  const unifiedActiveTask = activeInitiative ? legacyInitiativeToUnifiedTask(activeInitiative, details.milestones) : null;
   const canCreate = permissions['initiatives.create'];
   const canEdit = permissions['initiatives.edit'] || (activeInitiative?.ownerId === actor.uid && canCreate);
   const canManageParticipants = permissions['initiatives.manageParticipants'];
@@ -570,7 +572,7 @@ export default function InitiativePanel({
       </div>
 
       <header className="initiative-hero">
-        <div><span className="initiative-identity"><Flag size={14} /> תכנית ארוכת טווח · {activeInitiative.academicYearLabel}</span><span className={`initiative-health initiative-health--${health}`}>{INITIATIVE_HEALTH[health]}</span><h2>{activeInitiative.title}</h2><p>{activeInitiative.description || 'לא נוסף תיאור.'}</p></div>
+        <div><span className="initiative-identity"><Flag size={14} /> משימה עם שלבים · {activeInitiative.academicYearLabel}</span><span className={`initiative-health initiative-health--${health}`}>{INITIATIVE_HEALTH[health]}</span><h2>{unifiedActiveTask.title}</h2><p>{unifiedActiveTask.description || 'לא נוסף תיאור.'}</p></div>
         <div className="initiative-hero-actions">
           {onCreateCommunication && <button className="btn btn-secondary" onClick={() => onCreateCommunication({ type: 'initiative', id: activeInitiative.id, label: activeInitiative.title, description: activeInitiative.description, initiativeId: activeInitiative.id, fileIds: activeInitiative.fileIds || [], participantIds: initiativeRecipients() })}><MailPlus size={15} /> מייל ומעקב</button>}
           {canCreateMilestones && <button className="btn btn-primary" onClick={() => { setEditingMilestoneId(''); setMilestoneForm(emptyMilestone(details.milestones.length)); setShowMilestone(true); }}><Flag size={15} /> אבן דרך חדשה</button>}
@@ -668,7 +670,7 @@ export default function InitiativePanel({
   }
 
   return <section className="initiative-dashboard" aria-label="תכניות ארוכות טווח">
-    <div className="initiative-section-title"><div><h2>{showArchived ? 'ארכיון תכניות' : 'תכניות ארוכות טווח'}</h2><p>{showArchived ? 'תכניות סגורות שנשמרו לצורך עיון ושכפול בטוח' : 'מהלכים, אבני דרך וביצוע לאורך שנת הלימודים'}</p></div><div className="initiative-title-actions">{attentionOnly && <button className="btn btn-secondary btn-sm" onClick={onClearAttention}>הצגת כל התכניות</button>}<button className="btn btn-secondary btn-sm" onClick={() => setShowArchived(value => !value)}><Archive size={14} /> {showArchived ? 'חזרה לפעילות' : 'ארכיון'}</button>{canCreate && !showArchived && <button className="btn btn-primary btn-sm" onClick={() => onRequestCreate ? onRequestCreate() : setShowCreate(true)}><Plus size={14} /> תכנית חדשה</button>}</div></div>
+    <div className="initiative-section-title"><div><h2>{showArchived ? 'ארכיון משימות עם שלבים' : 'משימות עם שלבים'}</h2><p>{showArchived ? 'משימות ישנות שנשמרו לצורך תאימות ועיון' : 'משימות ותיקות מוצגות כאן במודל המאוחד, ללא העתקת נתונים'}</p></div><div className="initiative-title-actions">{attentionOnly && <button className="btn btn-secondary btn-sm" onClick={onClearAttention}>הצגת הכול</button>}<button className="btn btn-secondary btn-sm" onClick={() => setShowArchived(value => !value)}><Archive size={14} /> {showArchived ? 'חזרה לפעילות' : 'ארכיון'}</button>{canCreate && !showArchived && <button className="btn btn-primary btn-sm" onClick={() => onRequestCreate ? onRequestCreate() : setShowCreate(true)}><Plus size={14} /> משימה חדשה</button>}</div></div>
     <div className="initiative-card-grid">
       {displayedInitiatives.map(item => <button className="initiative-card" key={item.id} onClick={() => setActiveId(item.id)}>
         <div className="initiative-card-head"><span className={`initiative-health initiative-health--${item.health}`}>{INITIATIVE_HEALTH[item.health] || INITIATIVE_STATUSES[item.status]}</span><span>{item.academicYearLabel}</span></div>

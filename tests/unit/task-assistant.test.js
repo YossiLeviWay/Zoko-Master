@@ -26,6 +26,25 @@ test('task assistant normalizes a detailed proposal and drops unknown fields', (
   assert.equal(Object.hasOwn(proposal, 'injectedPermission'), false);
 });
 
+test('task assistant preserves three assignment levels and editable work-plan parties', () => {
+  const proposal = normalizeTaskAssistantProposal({
+    title: 'טיול שנתי',
+    taskType: 'team',
+    assignmentPlan: {
+      responsible: [{ id: 'team-a', name: 'צוות טיולים', source: 'team' }],
+      partners: [{ id: 'teacher-a', name: 'מחנכת יא', jobTitle: 'מחנכת', source: 'staff' }],
+      informed: [{ id: 'principal-a', name: 'מנהלת', source: 'staff' }],
+    },
+    workPlanSteps: [{ id: 'route', phase: 'היערכות', title: 'בניית מסלול', party: 'team', suggestedParties: [{ id: 'team-a', name: 'צוות טיולים', source: 'team' }] }],
+    confidence: 'high',
+  });
+  const form = proposalToTaskForm({ ...proposal, team: { id: 'team-a' }, assignee: null, initiative: null, linkedClass: null }, { memberIds: [] });
+  assert.deepEqual(form.partnerIds, ['teacher-a']);
+  assert.deepEqual(form.informedIds, ['principal-a']);
+  assert.deepEqual(form.memberIds, ['teacher-a', 'principal-a']);
+  assert.equal(form.workPlanSteps[0].suggestedParties[0].id, 'team-a');
+});
+
 test('task assistant redacts contact details and refuses sensitive student content', () => {
   const cleaned = redactTaskAssistantInput('שלחו עדכון ל-050-123-4567 ול-test@example.com');
   assert.equal(cleaned.safe, true);
@@ -92,10 +111,21 @@ test('task assistant detects named staff missing from an existing relevant team'
   assert.deepEqual(resolved.missingTeamMembers.map(member => member.id), ['maya']);
 });
 
-test('task assistant builds a bounded prompt without institutional records', () => {
-  const payload = JSON.parse(buildTaskAssistantInput({ request: 'צריך להכין ישיבת צוות עד יום ראשון הבא' }));
+test('task assistant builds a bounded prompt with only minimized institutional context', () => {
+  const payload = JSON.parse(buildTaskAssistantInput({
+    request: 'צריך להכין ישיבת צוות עד יום ראשון הבא',
+    organizationContext: {
+      domain: 'טיולים',
+      matchingTeamLabels: ['צוות טיולים'],
+      staff: [{ id: 'secret', fullName: 'שם פרטי' }],
+      identityNumber: '123456789',
+    },
+  }));
   assert.equal(payload.request.includes('ישיבת צוות'), true);
-  assert.deepEqual(Object.keys(payload).sort(), ['answer', 'currentProposal', 'request', 'today']);
+  assert.deepEqual(Object.keys(payload).sort(), ['answer', 'currentProposal', 'organizationContext', 'request', 'today']);
+  assert.deepEqual(payload.organizationContext.matchingTeamLabels, ['צוות טיולים']);
+  assert.equal(Object.hasOwn(payload.organizationContext, 'staff'), false);
+  assert.equal(JSON.stringify(payload).includes('123456789'), false);
 });
 
 test('relative dates are resolved locally before saving', () => {
@@ -115,11 +145,11 @@ test('local resolution only links records supplied by the authorized client cont
   assert.equal(resolved.taskType, 'team');
 });
 
-test('unauthorized task types are downgraded locally before the form is shown', () => {
+test('legacy plan suggestions use the same unified task form', () => {
   const resolved = resolveTaskAssistantProposal({ proposal: { title: 'תכנית', taskType: 'initiative' } });
   const form = proposalToTaskForm(resolved, { scope: 'personal', assigneeIds: [], teamId: '' });
   assert.equal(resolved.taskType, 'personal');
-  assert.equal(form.creationKind, 'task');
+  assert.equal(Object.hasOwn(form, 'creationKind'), false);
   assert.equal(form.scope, 'personal');
 });
 
