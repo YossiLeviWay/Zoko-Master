@@ -451,12 +451,17 @@ test('personal task can be created, read, updated and deleted only by its owner'
   const personalTask = {
     scope: 'personal', schoolId: SCHOOL_A, ownerId: 'owner_a', createdBy: 'owner_a',
     title: 'Private', status: 'todo', assigneeIds: [], teamId: '', assigneeTeamId: '',
+    completionCriteria: 'היעד הושג', startDate: '', endDate: '2027-05-01',
+    responsibleIds: ['owner_a'], partnerIds: [], informedIds: [],
+    workPlanSteps: [{ id: 'step_1', title: 'שלב', dueDate: '', status: 'todo', responsibleIds: ['owner_a'], teamId: '', dependencyStepId: '', order: 0 }],
   };
 
   await assertSucceeds(setDoc(taskRef, personalTask));
   await assertSucceeds(getDoc(taskRef));
   await assertSucceeds(updateDoc(taskRef, { title: 'Updated', updatedAt: 'server-value' }));
+  await assertSucceeds(updateDoc(taskRef, { workPlanSteps: [{ id: 'step_1', title: 'שלב מעודכן', dueDate: '2027-04-01', status: 'in_progress', responsibleIds: ['owner_a'], teamId: '', dependencyStepId: '', order: 0 }], updatedAt: 'server-value' }));
   await assertFails(getDoc(doc(context('peer_a').firestore(), 'users/owner_a/personalTasks/personal_1')));
+  await assertFails(updateDoc(doc(context('peer_a').firestore(), 'users/owner_a/personalTasks/personal_1'), { workPlanSteps: [] }));
   await assertFails(getDoc(doc(context('principal_a').firestore(), 'users/owner_a/personalTasks/personal_1')));
   await assertFails(getDoc(doc(context('global_admin', { global_admin: true }).firestore(), 'users/owner_a/personalTasks/personal_1')));
   await assertFails(getDoc(doc(context('member_b').firestore(), 'users/owner_a/personalTasks/personal_1')));

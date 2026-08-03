@@ -50,11 +50,7 @@ import {
 } from '../../services/firestore/taskRepository';
 import { schoolCollection, schoolDoc } from '../../services/firestore/paths';
 import { subscribeAcademicYears } from '../../services/firestore/academicYearRepository';
-import {
-  createInitiative,
-  createMilestone,
-  subscribeInitiatives,
-} from '../../services/firestore/initiativeRepository';
+import { subscribeInitiatives } from '../../services/firestore/initiativeRepository';
 import { createNotification, createNotifications } from '../../utils/notifications';
 import {
   createMandatoryTask,
@@ -120,7 +116,7 @@ const GROUP_LABELS = {
 const WORK_VIEW_OPTIONS = [
   { value: 'mine', label: 'שלי' },
   { value: 'teams', label: 'צוותים' },
-  { value: 'plans', label: 'תכניות' },
+  { value: 'plans', label: 'משימות עם שלבים' },
 ];
 
 const SCOPE_FILTER_LABELS = {
@@ -134,7 +130,7 @@ const SCOPE_FILTER_LABELS = {
 
 function emptyForm(scope = TASK_SCOPES.PERSONAL) {
   return {
-    creationKind: 'task',
+    currentUserId: '',
     mandatory: false,
     title: '',
     description: '',
@@ -142,7 +138,7 @@ function emptyForm(scope = TASK_SCOPES.PERSONAL) {
     status: 'todo',
     dueDate: '',
     reminderAt: '',
-    tagsText: '',
+    legacyTags: [],
     scope,
     assigneeIds: [],
     teamId: '',
@@ -165,16 +161,23 @@ function emptyForm(scope = TASK_SCOPES.PERSONAL) {
   };
 }
 
-function formFromTask(task) {
+function formFromTask(task, currentUserId = '') {
+  const legacySteps = Array.isArray(task.subtasks) && !task.workPlanSteps?.length
+    ? task.subtasks.map((title, index) => ({ id: `legacy_subtask_${index + 1}`, title, dueDate: '', status: 'todo', responsibleIds: [], teamId: '', dependencyStepId: '', order: index }))
+    : [];
   return {
     ...emptyForm(task.scope),
+    currentUserId,
     title: task.title || '',
     description: task.description || '',
     priority: task.priority || 'medium',
     status: isTaskComplete(task) ? 'done' : task.status || 'todo',
     dueDate: taskDueDate(task),
+    startDate: task.startDate || '',
+    endDate: task.endDate || '',
+    completionCriteria: task.completionCriteria || '',
     reminderAt: task.reminderAt || '',
-    tagsText: Array.isArray(task.tags) ? task.tags.join(', ') : '',
+    legacyTags: Array.isArray(task.tags) ? task.tags : [],
     scope: task.scope,
     assigneeIds: task.assigneeIds || [],
     memberIds: task.participantIds || [],
@@ -186,7 +189,7 @@ function formFromTask(task) {
     attachedFileName: task.attachedFileName || '',
     initiativeId: task.initiativeId || '',
     milestoneId: task.milestoneId || '',
-    workPlanSteps: Array.isArray(task.workPlanSteps) ? task.workPlanSteps : [],
+    workPlanSteps: task.workPlanSteps?.length ? task.workPlanSteps : legacySteps,
   };
 }
 
@@ -197,6 +200,12 @@ function taskInput(form) {
       phase: displayText(step?.phase, 'ביצוע').slice(0, 80),
       title: displayText(step?.title).trim().slice(0, 180),
       party: displayText(step?.party).slice(0, 80),
+      dueDate: displayText(step?.dueDate).slice(0, 10),
+      status: ['todo', 'in_progress', 'done'].includes(step?.status) ? step.status : 'todo',
+      responsibleIds: idList(step?.responsibleIds).slice(0, 10),
+      teamId: displayText(step?.teamId).slice(0, 128),
+      dependencyStepId: displayText(step?.dependencyStepId).slice(0, 60),
+      order: index,
       relativeDays: Number.isFinite(Number(step?.relativeDays)) ? Math.max(-365, Math.min(365, Math.round(Number(step.relativeDays)))) : 0,
       suggestedParties: Array.isArray(step?.suggestedParties) ? step.suggestedParties.slice(0, 10).map(party => ({
         id: displayText(party?.id).slice(0, 128),
@@ -205,12 +214,24 @@ function taskInput(form) {
         source: party?.source === 'team' ? 'team' : 'staff',
       })).filter(party => party.id && party.name) : [],
     })).filter(step => step.title).slice(0, 30) : [];
+  const leadIds = idList(form.responsibleIds);
+  const sharedPeople = [...new Set([
+    ...leadIds,
+    ...idList(form.partnerIds),
+    ...idList(form.informedIds),
+    ...idList(form.memberIds),
+  ])];
+  const scope = form.teamId ? TASK_SCOPES.TEAM
+    : (form.scope === TASK_SCOPES.ASSIGNED || sharedPeople.some(id => id !== form.currentUserId)) ? TASK_SCOPES.ASSIGNED
+      : TASK_SCOPES.PERSONAL;
+  const effectiveLeadIds = leadIds.length ? leadIds : (scope === TASK_SCOPES.ASSIGNED && form.currentUserId ? [form.currentUserId] : []);
   return {
     ...form,
-    tags: form.tagsText.split(',').map(tag => tag.trim()).filter(Boolean),
-    subtasks: workPlanSteps.length
-      ? workPlanSteps.map(step => step.title)
-      : Array.isArray(form.subtasks) ? form.subtasks.map(item => item.trim()).filter(Boolean).slice(0, 20) : [],
+    scope,
+    responsibleIds: effectiveLeadIds,
+    assigneeIds: scope === TASK_SCOPES.ASSIGNED ? (effectiveLeadIds.length ? effectiveLeadIds.slice(0, 1) : idList(form.assigneeIds).slice(0, 1)) : [],
+    tags: Array.isArray(form.legacyTags) ? form.legacyTags : [],
+    subtasks: [],
     workPlanSteps,
   };
 }
@@ -351,6 +372,7 @@ export default function TaskBoard() {
   const [error, setError] = useState('');
   const [assistantMeta, setAssistantMeta] = useState(null);
   const [assistantFeedback, setAssistantFeedback] = useState(false);
+  const [peopleSearch, setPeopleSearch] = useState('');
   const [collaborationTask, setCollaborationTask] = useState(null);
   const [collaborationRecipients, setCollaborationRecipients] = useState([]);
   const [collaborationMessage, setCollaborationMessage] = useState('');
@@ -739,6 +761,11 @@ export default function TaskBoard() {
     return groups;
   }, [filteredTasks]);
 
+  const unifiedStepTasks = useMemo(() => [...personalTasks, ...organizationTasks]
+    .filter(task => task.workflowType !== 'external_email_followup')
+    .filter(task => (task.workPlanSteps?.length || task.subtasks?.length) && (!isTaskComplete(task) || showCompleted)),
+  [organizationTasks, personalTasks, showCompleted]);
+
   function isTaskChatUnread(task) {
     if (task._source !== 'organization' || !task.lastChatMessageAt || task.lastChatMessageBy === uid) return false;
     const receipt = chatReceipts[taskChatReceiptId(schoolId, task)];
@@ -829,10 +856,10 @@ export default function TaskBoard() {
     const defaultTeam = scope === TASK_SCOPES.TEAM ? teams[0] : null;
     setForm({
       ...emptyForm(scope),
-      ...(defaultTeam ? { teamId: defaultTeam.id, memberIds: idList(defaultTeam.memberIds) } : {}),
+      currentUserId: uid,
+      ...(defaultTeam ? { teamId: defaultTeam.id } : {}),
       initiativeId: context.initiativeId || '',
       milestoneId: context.milestoneId || '',
-      creationKind: context.creationKind || 'task',
     });
     setAssistantMeta(null);
     setShowForm(true);
@@ -854,6 +881,7 @@ export default function TaskBoard() {
     });
     finishMatching();
     const nextForm = proposalToTaskForm(resolved, emptyForm());
+    nextForm.currentUserId = uid;
     const holiday = findHolidayConflict(nextForm.dueDate || nextForm.endDate, holidays);
     setForm(nextForm);
     setAssistantMeta({
@@ -1003,7 +1031,12 @@ export default function TaskBoard() {
       link: `/tasks?task=${taskId}`,
     };
     if (input.scope === TASK_SCOPES.ASSIGNED) {
-      const recipients = input.assigneeIds.filter(id => id !== uid);
+      const recipients = [...new Set([
+        ...input.assigneeIds,
+        ...(input.partnerIds || []),
+        ...(input.informedIds || []),
+        ...(input.memberIds || []),
+      ])].filter(id => id !== uid);
       if (recipients.length) await createNotifications(recipients, options);
     } else if (input.scope === TASK_SCOPES.TEAM) {
       const team = teams.find(item => item.id === input.teamId);
@@ -1020,10 +1053,6 @@ export default function TaskBoard() {
     event.preventDefault();
     const input = taskInput(form);
     if (!input.title.trim() || !schoolId || !uid) return;
-    if (input.creationKind === 'initiative' && !canCreateInitiative) {
-      setError('אין הרשאה ליצור תכנית ארוכת טווח.');
-      return;
-    }
     if (input.mandatory && (!canAssignMandatory || input.recipientIds.length === 0)) {
       setError('יש לבחור לפחות מקבל אחד למשימה המחייבת.');
       return;
@@ -1035,75 +1064,42 @@ export default function TaskBoard() {
     setSaving(true);
     setError('');
     try {
-      if (input.creationKind === 'initiative') {
-        const activeYear = academicYears.find(item => item.isActive) || academicYears[0];
-        if (!activeYear) throw new Error('NO_ACADEMIC_YEAR');
-        const ownerId = input.assigneeIds[0] || uid;
-        const owner = staff.find(item => (item.uid || item.id) === ownerId);
-        const initiativeId = await createInitiative({
-          db,
+      if (input.mandatory) {
+        await createMandatoryTask({
           schoolId,
-          actor: { uid, fullName: userData?.fullName || '' },
-          input: {
-            title: input.title,
-            description: input.description,
-            academicYearId: activeYear.id,
-            academicYearLabel: activeYear.hebrewLabel || activeYear.label || '',
-            category: 'תכנית מוסדית',
-            startDate: input.startDate,
-            endDate: input.endDate || input.dueDate,
-            ownerId,
-            ownerName: owner?.fullName || userData?.fullName || '',
-            memberIds: input.memberIds,
-            teamIds: input.teamId ? [input.teamId] : [],
-            classIds: input.classIds,
-            fileIds: input.attachedFileId ? [input.attachedFileId] : [],
-            goals: input.completionCriteria ? [input.completionCriteria] : [],
-            nextAction: input.nextAction || input.subtasks[0] || '',
-            status: 'active',
-          },
+          title: input.title,
+          description: input.description,
+          dueDate: input.dueDate,
+          startDate: input.startDate,
+          endDate: input.endDate,
+          reminderAt: input.reminderAt,
+          completionCriteria: input.completionCriteria,
+          workPlanSteps: input.workPlanSteps.map((step, order) => ({
+            id: step.id,
+            title: step.title,
+            dueDate: step.dueDate,
+            status: step.status,
+            responsibleIds: step.responsibleIds,
+            teamId: step.teamId,
+            dependencyStepId: step.dependencyStepId,
+            order,
+          })),
+          priority: input.priority,
+          recipientIds: input.recipientIds,
         });
-        await Promise.all(input.subtasks.map((title, index) => createMilestone({
-          db,
-          schoolId,
-          initiativeId,
-          actor: { uid, fullName: userData?.fullName || '' },
-          input: {
-            title,
-            description: '',
-            ownerId,
-            participantIds: input.memberIds,
-            status: 'not_started',
-            priority: input.priority,
-            weight: 1,
-            dateType: input.endDate || input.dueDate ? 'exact' : 'unset',
-            startDate: input.endDate || input.dueDate,
-            order: index + 1,
-          },
-        })));
-        const recipients = [...new Set([ownerId, ...input.memberIds].filter(id => id && id !== uid))];
-        if (recipients.length) await createNotifications(recipients, { schoolId, title: `צורפת לתכנית: ${input.title}`, body: input.description?.slice(0, 80) || '', type: 'initiative', link: `/tasks?initiative=${initiativeId}` });
-      } else if (input.mandatory) {
-        await createMandatoryTask({ schoolId, title: input.title, description: input.description, dueDate: input.dueDate, priority: input.priority, recipientIds: input.recipientIds });
       } else {
         const creator = input.scope === TASK_SCOPES.PERSONAL ? createPersonalTask : createOrganizationTask;
         const created = await creator({ db, schoolId, user: { uid, fullName: userData?.fullName }, input });
         if (input.scope !== TASK_SCOPES.PERSONAL) await notifyAssignment(input, created.id);
-        await Promise.all(input.subtasks.map(title => creator({
-          db,
-          schoolId,
-          user: { uid, fullName: userData?.fullName },
-          input: { ...input, title, description: '', sourceTaskId: created.id, subtasks: [] },
-        })));
       }
       setForm(emptyForm());
       setShowForm(false);
       setActiveTab('dashboard');
-      setWorkView(input.creationKind === 'initiative' ? 'plans' : input.scope === TASK_SCOPES.TEAM ? 'teams' : 'mine');
+      setWorkView(input.scope === TASK_SCOPES.TEAM ? 'teams' : 'mine');
       setScopeFilter(input.scope === TASK_SCOPES.PERSONAL ? 'all' : 'created');
       setAssistantFeedback(Boolean(assistantMeta));
       setAssistantMeta(null);
-      showMessage(input.creationKind === 'initiative' ? 'התכנית ואבני הדרך נוצרו בהצלחה.' : 'המשימה נוצרה בהצלחה.');
+      showMessage(input.workPlanSteps.length ? 'המשימה והשלבים נשמרו בהצלחה.' : 'המשימה נוצרה בהצלחה.');
     } catch {
       setGeneralError();
     } finally {
@@ -1113,7 +1109,7 @@ export default function TaskBoard() {
 
   function startEdit(task) {
     setEditingTask(task);
-    setEditForm(formFromTask(task));
+    setEditForm(formFromTask(task, uid));
   }
 
   async function saveEdit() {
@@ -1315,7 +1311,7 @@ export default function TaskBoard() {
     );
   }
 
-  function renderFormFields(value, setter, editing = false) {
+  function renderLegacyFormFields(value, setter, editing = false) {
     return (
       <>
         {!editing && <div className="task-creation-kind" role="group" aria-label="מבנה העבודה">
@@ -1413,6 +1409,113 @@ export default function TaskBoard() {
     );
   }
 
+  void renderLegacyFormFields;
+
+  function renderFormFields(value, setter, editing = false) {
+    const staffId = member => member.uid || member.id;
+    const visibleStaff = staff.filter(member => {
+      const needle = peopleSearch.trim().toLocaleLowerCase('he');
+      if (!needle) return true;
+      return `${member.fullName || ''} ${member.jobTitle || member.roleName || ''}`.toLocaleLowerCase('he').includes(needle);
+    });
+    const setPerson = (field, id, checked) => setter(previous => ({
+      ...previous,
+      [field]: checked ? [...new Set([...(previous[field] || []), id])] : (previous[field] || []).filter(item => item !== id),
+    }));
+    const updateStep = (index, patch) => setter(previous => ({
+      ...previous,
+      workPlanSteps: previous.workPlanSteps.map((step, stepIndex) => stepIndex === index ? { ...step, ...patch } : step),
+    }));
+    const addStep = () => setter(previous => ({
+      ...previous,
+      workPlanSteps: [...previous.workPlanSteps, {
+        id: `step_${Date.now()}`,
+        phase: 'ביצוע',
+        title: '',
+        dueDate: '',
+        status: 'todo',
+        responsibleIds: [],
+        teamId: '',
+        dependencyStepId: '',
+        order: previous.workPlanSteps.length,
+        suggestedParties: [],
+      }],
+    }));
+    const moveStep = (index, direction) => setter(previous => {
+      const nextIndex = index + direction;
+      if (nextIndex < 0 || nextIndex >= previous.workPlanSteps.length) return previous;
+      const steps = [...previous.workPlanSteps];
+      [steps[index], steps[nextIndex]] = [steps[nextIndex], steps[index]];
+      return { ...previous, workPlanSteps: steps.map((step, order) => ({ ...step, order })) };
+    });
+    const leadId = value.responsibleIds?.[0] || value.assigneeIds?.[0] || '';
+
+    return <div className="task-unified-fields">
+      <section className="task-form-section" aria-labelledby="task-what-title">
+        <header><span>1</span><div><h3 id="task-what-title">מה עושים</h3><p>הגדירו את המטרה ואת התנאי שמסמן שהושגה.</p></div></header>
+        <div className="form-group"><label htmlFor="task-title">כותרת</label><input id="task-title" name="title" value={value.title} onChange={event => handleFormChange(setter, event)} required autoFocus={!editing} maxLength={180} /></div>
+        <div className="form-group"><label htmlFor="task-description">תיאור קצר</label><textarea id="task-description" name="description" value={value.description} onChange={event => handleFormChange(setter, event)} rows={2} maxLength={2000} /></div>
+        <div className="form-group"><label htmlFor="task-completion">תנאי לסיום</label><input id="task-completion" name="completionCriteria" value={value.completionCriteria} onChange={event => handleFormChange(setter, event)} maxLength={800} placeholder="מה צריך לקרות כדי שהמשימה תיחשב שהושלמה?" /></div>
+      </section>
+
+      <section className="task-form-section" aria-labelledby="task-people-title">
+        <header><span>2</span><div><h3 id="task-people-title">מי מעורב</h3><p>צוות אחראי אינו הופך אוטומטית את כל חבריו לאחראים.</p></div></header>
+        {canAssignTasks ? <>
+          <div className="form-row">
+            <div className="form-group"><label>צוות אחראי</label><select value={value.teamId || ''} onChange={event => setter(previous => ({ ...previous, teamId: event.target.value, scope: event.target.value ? TASK_SCOPES.TEAM : previous.scope }))}><option value="">ללא צוות אחראי</option>{teams.map(team => <option key={team.id} value={team.id}>{team.name}</option>)}</select></div>
+            <div className="form-group"><label>אחראי מוביל</label><select value={leadId} onChange={event => setter(previous => ({ ...previous, responsibleIds: event.target.value ? [event.target.value] : [], assigneeIds: event.target.value ? [event.target.value] : [], scope: previous.teamId ? TASK_SCOPES.TEAM : event.target.value && event.target.value !== uid ? TASK_SCOPES.ASSIGNED : previous.scope }))}><option value="">ללא אחראי מוביל</option>{staff.map(member => <option key={staffId(member)} value={staffId(member)}>{member.fullName} {member.jobTitle ? `— ${member.jobTitle}` : ''}</option>)}</select></div>
+          </div>
+          <div className="form-group task-people-search"><label htmlFor="task-people-search">חיפוש אנשי צוות</label><input id="task-people-search" value={peopleSearch} onChange={event => setPeopleSearch(event.target.value)} placeholder="שם או תפקיד" /></div>
+          <div className="task-people-groups">
+            {[
+              ['partnerIds', 'שותפים', 'משתתפים בביצוע'],
+              ['informedIds', 'לעדכון', 'מקבלים עדכון בלי אחריות לביצוע'],
+              ['memberIds', 'אנשי צוות נוספים', 'אנשים שאינם חלק מהצוות הראשי'],
+            ].map(([field, label, hint]) => <fieldset key={field}><legend>{label}<small>{hint}</small></legend>{visibleStaff.map(member => { const id = staffId(member); const suggested = assistantMeta?.assignmentPlan && Object.values(assistantMeta.assignmentPlan).flat().some(item => item.id === id); return <label key={id}><input type="checkbox" checked={(value[field] || []).includes(id)} onChange={event => setPerson(field, id, event.target.checked)} /><span><strong>{member.fullName}</strong><small>{member.jobTitle || member.roleName || 'איש צוות'}{suggested ? ' · הוצע לפי ההקשר המוסדי' : ''}</small></span></label>; })}</fieldset>)}
+          </div>
+        </> : <p className="personal-task-note"><Lock size={14} /> המשימה פרטית ורק אתה יכול לראות אותה.</p>}
+      </section>
+
+      <section className="task-form-section" aria-labelledby="task-when-title">
+        <header><span>3</span><div><h3 id="task-when-title">מתי</h3><p>תאריך היעד הוא המועד להשגת המטרה הסופית, ואפשר להשאירו ריק.</p></div></header>
+        <div className="form-row"><div className="form-group"><label>תאריך יעד</label><input name="dueDate" type="date" value={value.dueDate} onChange={event => handleFormChange(setter, event)} dir="ltr" /></div><div className="form-group"><label>תזכורת</label><input name="reminderAt" type="datetime-local" value={value.reminderAt} onChange={event => handleFormChange(setter, event)} dir="ltr" /></div></div>
+        <div className="form-row"><div className="form-group"><label>תחילת טווח (אופציונלי)</label><input name="startDate" type="date" value={value.startDate} onChange={event => handleFormChange(setter, event)} /></div><div className="form-group"><label>סיום טווח (אופציונלי)</label><input name="endDate" type="date" min={value.startDate || undefined} value={value.endDate} onChange={event => handleFormChange(setter, event)} /></div></div>
+        {findHolidayConflict(value.dueDate, holidays) && <p className="task-date-warning"><AlertTriangle size={14} /> תאריך היעד חופף לחופשה: {findHolidayConflict(value.dueDate, holidays).name || findHolidayConflict(value.dueDate, holidays).title}</p>}
+      </section>
+
+      <section className="task-form-section" aria-labelledby="task-steps-title">
+        <header><span>4</span><div><h3 id="task-steps-title">שלבים</h3><p>אין חובה להוסיף שלבים. תאריך שלב הופך אותו גם לאבן דרך.</p></div><button type="button" className="btn btn-secondary btn-sm" onClick={addStep}><Plus size={14} /> הוספת שלב</button></header>
+        <div className="task-stage-list">
+          {value.workPlanSteps.map((step, index) => <details className="task-stage-row" key={step.id || index}>
+            <summary>
+              <input type="checkbox" checked={step.status === 'done'} onClick={event => event.stopPropagation()} onChange={event => updateStep(index, { status: event.target.checked ? 'done' : 'todo' })} aria-label={`סימון השלב ${step.title || index + 1} כהושלם`} />
+              <span className="task-stage-title">{step.title || 'שלב חדש'}</span>
+              <time>{step.dueDate ? new Date(`${step.dueDate}T00:00:00`).toLocaleDateString('he-IL') : 'ללא תאריך'}</time>
+              <span>{step.teamId ? teams.find(team => team.id === step.teamId)?.name : staff.find(member => step.responsibleIds?.includes(staffId(member)))?.fullName || 'ללא אחראי'}</span>
+              <span className="task-stage-actions" onClick={event => event.preventDefault()}><button type="button" onClick={() => moveStep(index, -1)} disabled={index === 0} aria-label="הזזת שלב למעלה">↑</button><button type="button" onClick={() => moveStep(index, 1)} disabled={index === value.workPlanSteps.length - 1} aria-label="הזזת שלב למטה">↓</button><button type="button" onClick={() => setter(previous => ({ ...previous, workPlanSteps: previous.workPlanSteps.filter((_, itemIndex) => itemIndex !== index) }))} aria-label="מחיקת שלב"><Trash2 size={13} /></button></span>
+            </summary>
+            <div className="task-stage-details">
+              <div className="form-group"><label>שם השלב</label><input value={step.title} maxLength={180} onChange={event => updateStep(index, { title: event.target.value })} /></div>
+              <div className="form-row"><div className="form-group"><label>תאריך אופציונלי</label><input type="date" value={step.dueDate || ''} onChange={event => updateStep(index, { dueDate: event.target.value })} /></div><div className="form-group"><label>סטטוס</label><select value={step.status || 'todo'} onChange={event => updateStep(index, { status: event.target.value })}>{Object.entries(STATUS_CONFIG).map(([key, config]) => <option key={key} value={key}>{config.label}</option>)}</select></div></div>
+              <div className="form-row"><div className="form-group"><label>אחראי</label><select value={step.responsibleIds?.[0] || ''} onChange={event => updateStep(index, { responsibleIds: event.target.value ? [event.target.value] : [], teamId: '' })}><option value="">ללא אחראי</option>{staff.map(member => <option key={staffId(member)} value={staffId(member)}>{member.fullName}</option>)}</select></div><div className="form-group"><label>או צוות</label><select value={step.teamId || ''} onChange={event => updateStep(index, { teamId: event.target.value, responsibleIds: [] })}><option value="">ללא צוות</option>{teams.map(team => <option key={team.id} value={team.id}>{team.name}</option>)}</select></div></div>
+              <div className="form-group"><label>תלות בשלב קודם</label><select value={step.dependencyStepId || ''} onChange={event => updateStep(index, { dependencyStepId: event.target.value })}><option value="">ללא תלות</option>{value.workPlanSteps.filter((_, optionIndex) => optionIndex !== index).map(option => <option key={option.id} value={option.id}>{option.title || 'שלב ללא שם'}</option>)}</select></div>
+            </div>
+          </details>)}
+          {value.workPlanSteps.length === 0 && <p className="task-stages-empty">זו תהיה משימה פשוטה ללא שלבים.</p>}
+        </div>
+      </section>
+
+      <details className="task-more-options"><summary>אפשרויות נוספות</summary><div>
+        <div className="form-row"><div className="form-group"><label>עדיפות</label><select name="priority" value={value.priority} onChange={event => handleFormChange(setter, event)}>{Object.entries(PRIORITY_CONFIG).map(([key, config]) => <option key={key} value={key}>{config.label}</option>)}</select></div><div className="form-group"><label>סטטוס</label><select name="status" value={value.status} onChange={event => handleFormChange(setter, event)}>{Object.entries(STATUS_CONFIG).map(([key, config]) => <option key={key} value={key}>{config.label}</option>)}</select></div><div className="form-group"><label>שיתוף</label><select value={value.scope} onChange={event => setter(previous => ({ ...previous, scope: event.target.value, teamId: event.target.value === TASK_SCOPES.TEAM ? previous.teamId : '', assigneeIds: event.target.value === TASK_SCOPES.ASSIGNED ? previous.assigneeIds : [] }))}><option value={TASK_SCOPES.PERSONAL}>פרטית</option>{canAssignTasks && <option value={TASK_SCOPES.ASSIGNED}>עם אדם</option>}{canAssignTasks && <option value={TASK_SCOPES.TEAM}>עם צוות</option>}</select></div></div>
+        {initiatives.length > 0 && <div className="form-group"><label>קישור לתכנית ישנה (תאימות)</label><select value={value.initiativeId || ''} onChange={event => setter(previous => ({ ...previous, initiativeId: event.target.value, milestoneId: '' }))}><option value="">ללא קישור</option>{initiatives.filter(item => item.status !== 'archived').map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></div>}
+        {!editing && canAssignMandatory && <label className="task-mandatory-toggle"><input type="checkbox" checked={value.mandatory} onChange={event => setter(previous => ({ ...previous, mandatory: event.target.checked, scope: event.target.checked ? TASK_SCOPES.ASSIGNED : previous.scope }))} /> משימה מחייבת שלא ניתן להסיר</label>}
+        {!editing && value.mandatory && <div className="form-group"><label>מקבלי משימה מחייבת</label><div className="task-recipient-list">{staff.filter(member => staffId(member) !== uid).map(member => <label key={staffId(member)}><input type="checkbox" checked={value.recipientIds.includes(staffId(member))} onChange={event => setPerson('recipientIds', staffId(member), event.target.checked)} /> {member.fullName}</label>)}</div></div>}
+        <div className="form-group"><label><Paperclip size={12} /> קובץ מצורף</label><select value={value.attachedFileId} onChange={event => handleAttachment(setter, event.target.value)}><option value="">ללא קובץ</option>{allFiles.filter(file => ['spreadsheet', 'document'].includes(file.fileType)).map(file => <option key={file.id} value={file.id}>{file.name}</option>)}</select></div>
+        {editing && value.legacyTags?.length > 0 && <p className="task-legacy-tags">תגיות ישנות נשמרות לתאימות: {value.legacyTags.join(', ')}</p>}
+      </div></details>
+    </div>;
+  }
+
   function renderTask(task) {
     const status = STATUS_CONFIG[isTaskComplete(task) ? 'done' : task.status] || STATUS_CONFIG.todo;
     const overdue = taskDateGroup(task) === 'overdue';
@@ -1500,17 +1603,19 @@ export default function TaskBoard() {
         {showForm && !initiativeDetailOpen && (
           <div className="card form-card">
             <form onSubmit={handleCreate} className="task-form">
-              <header className="task-unified-form-head"><div><span>טיוטה לפני יצירה</span><h2>{form.creationKind === 'initiative' ? 'תכנית ארוכת טווח חדשה' : 'משימה חדשה'}</h2><p>כל סוגי המשימות נוצרים מכאן. בדקו וערכו את הפרטים לפני השמירה.</p></div><button type="button" className="icon-btn" onClick={() => setShowForm(false)} aria-label="סגירת טופס היצירה"><X size={18} /></button></header>
-              {assistantMeta && <div className="task-assistant-proposal-note"><Sparkles size={16} /><div>{assistantMeta.reasoningSummary && <p>{assistantMeta.reasoningSummary}</p>}<div className={`task-assistant-confidence task-assistant-confidence--${assistantMeta.confidence}`}><strong>רמת ודאות:</strong> {assistantMeta.confidence === 'high' ? 'גבוהה — נבחרה התאמה מוסדית ברורה' : assistantMeta.confidence === 'medium' ? 'בינונית — מומלץ לאשר את השיבוץ' : 'נמוכה — נדרשת בחירה ממוקדת'}</div><div className="task-assistant-assignment-summary">{[['responsible', 'אחראי'], ['partners', 'שותפים'], ['informed', 'לעדכון']].map(([level, label]) => <span key={level}><strong>{label}:</strong> {(assistantMeta.assignmentPlan?.[level] || []).map(item => item.name).join(', ') || 'לא הוצע'}</span>)}</div>{assistantMeta.holidayName && <p><strong>בדיקת לוח:</strong> המועד חופף ל־{assistantMeta.holidayName}. כדאי לבחור מועד אחר.</p>}{assistantMeta.unresolved.map(item => <p key={item}>{item}. אפשר לבחור ידנית מהרשימה.</p>)}{assistantMeta.proposedTeam && <div className="task-assistant-team-suggestion"><p><strong>לא נמצא צוות קיים מתאים.</strong> האם ליצור את „{assistantMeta.proposedTeam.name}”{assistantMeta.proposedTeam.members.length ? ` ולצרף את ${assistantMeta.proposedTeam.members.map(member => member.fullName || member.name).join(', ')}` : ''}?</p><button type="button" className="btn btn-primary btn-sm" onClick={createAssistantSuggestedTeam} disabled={saving}><Users size={14} /> {assistantMeta.proposedTeam.members.length ? 'יצירת הצוות ובחירתו' : 'יצירת הצוות'}</button>{assistantMeta.proposedTeam.members.length === 0 && <small>לא צוינו אנשי צוות. לאחר היצירה ניתן לצרף חברים במסך הצוותים.</small>}</div>}{assistantMeta.membershipProposal && <div className="task-assistant-team-suggestion"><p>הצוות „{assistantMeta.membershipProposal.team.name}” נמצא, אך {assistantMeta.membershipProposal.members.map(member => member.fullName || member.name).join(', ')} עדיין אינם חברים בו.</p><button type="button" className="btn btn-primary btn-sm" onClick={addAssistantSuggestedMembers} disabled={saving}><Users size={14} /> צירוף לצוות ובחירתו</button></div>}{assistantMeta.domain && form.teamId && <button type="button" className="btn btn-secondary btn-sm" onClick={rememberAssistantTeamPreference}>לזכור את ההתאמה עבורי</button>}</div><button type="button" className="btn btn-link" onClick={() => { setShowForm(false); document.getElementById('task-assistant-request')?.focus(); }}>חזרה לסוכן</button></div>}
+              <header className="task-unified-form-head"><div><span>טיוטה לפני יצירה</span><h2>משימה חדשה</h2><p>משימה אחת יכולה להיות פשוטה או לכלול שלבים ואבני דרך.</p></div><button type="button" className="icon-btn" onClick={() => setShowForm(false)} aria-label="סגירת טופס היצירה"><X size={18} /></button></header>
+              {assistantMeta && <div className="task-assistant-proposal-note"><Sparkles size={16} /><div><p><strong>{assistantMeta.reasoningSummary || 'הסוכן הכין הצעה לפי ההקשר המוסדי.'}</strong></p><details><summary>הצג למה</summary><div className={`task-assistant-confidence task-assistant-confidence--${assistantMeta.confidence}`}>רמת ודאות: {assistantMeta.confidence === 'high' ? 'גבוהה' : assistantMeta.confidence === 'medium' ? 'בינונית' : 'נמוכה'}</div><div className="task-assistant-assignment-summary">{[['responsible', 'אחראי'], ['partners', 'שותפים'], ['informed', 'לעדכון']].map(([level, label]) => <span key={level}><strong>{label}:</strong> {(assistantMeta.assignmentPlan?.[level] || []).map(item => item.name).join(', ') || 'לא הוצע'}</span>)}</div>{assistantMeta.holidayName && <p>המועד חופף ל־{assistantMeta.holidayName}.</p>}{assistantMeta.unresolved.map(item => <p key={item}>{item}.</p>)}{assistantMeta.proposedTeam && <div className="task-assistant-team-suggestion"><p>לא נמצא צוות מתאים. אפשר ליצור את „{assistantMeta.proposedTeam.name}”.</p><button type="button" className="btn btn-primary btn-sm" onClick={createAssistantSuggestedTeam} disabled={saving}><Users size={14} /> יצירת הצוות ובחירתו</button></div>}{assistantMeta.membershipProposal && <div className="task-assistant-team-suggestion"><p>יש אנשי צוות מוצעים שעדיין אינם חברים בצוות.</p><button type="button" className="btn btn-primary btn-sm" onClick={addAssistantSuggestedMembers} disabled={saving}>צירוף לצוות</button></div>}{assistantMeta.domain && form.teamId && <button type="button" className="btn btn-secondary btn-sm" onClick={rememberAssistantTeamPreference}>לזכור את ההתאמה</button>}</details></div><div className="task-assistant-proposal-actions"><button type="button" className="btn btn-link" onClick={() => { setShowForm(false); window.setTimeout(() => document.getElementById('task-assistant-request')?.focus(), 0); }}>חזור לסוכן</button><button type="button" className="btn btn-link" onClick={() => document.getElementById('task-title')?.focus()}>עדכן הצעה</button></div></div>}
               {renderFormFields(form, setForm)}
-              <div className="form-actions"><button className="btn btn-primary" type="submit" disabled={saving}>{saving ? 'יוצר…' : form.creationKind === 'initiative' ? 'יצירת התכנית' : 'יצירת המשימה'}</button><button className="btn btn-secondary" type="button" onClick={() => setShowForm(false)}>ביטול</button></div>
+              <div className="form-actions"><button className="btn btn-primary" type="submit" disabled={saving}>{saving ? 'יוצר…' : 'יצירת המשימה'}</button><button className="btn btn-secondary" type="button" onClick={() => setShowForm(false)}>ביטול</button></div>
             </form>
           </div>
         )}
 
         {assistantFeedback && <div className="task-assistant-feedback" role="status"><span>האם הצעת הסוכן הייתה מועילה?</span><button type="button" className="btn btn-link" onClick={() => setAssistantFeedback(false)}>כן</button><button type="button" className="btn btn-link" onClick={() => { const note = window.prompt('מה היה צריך להיות שונה?'); if (note?.trim()) window.localStorage.setItem(`zoko-task-agent-feedback:${uid}`, note.trim().slice(0, 500)); setAssistantFeedback(false); }}>לא מדויקת</button></div>}
 
-        {activeTab === 'dashboard' && workView === 'plans' && <InitiativePanel
+        {activeTab === 'dashboard' && workView === 'plans' && <>
+          {unifiedStepTasks.length > 0 && !initiativeDetailOpen && <section className="task-group task-unified-step-tasks"><h3>משימות במודל החדש <span>{unifiedStepTasks.length}</span></h3><div className="task-list">{unifiedStepTasks.map(renderTask)}</div></section>}
+          <InitiativePanel
           schoolId={schoolId}
           actor={{ uid, fullName: userData?.fullName || '', role: userData?.role || '' }}
           initiatives={initiatives}
@@ -1529,8 +1634,9 @@ export default function TaskBoard() {
           onMessage={showMessage}
           onError={setError}
           onCreateCommunication={canCreateCommunication ? openCommunicationContext : undefined}
-          onRequestCreate={() => openTaskForm(TASK_SCOPES.PERSONAL, { creationKind: 'initiative' })}
-        />}
+          onRequestCreate={() => openTaskForm(TASK_SCOPES.PERSONAL)}
+          />
+        </>}
 
         {activeTab === 'communications' ? <CommunicationDashboard
           tasks={[...personalTasks, ...organizationTasks, ...communicationDrafts]}

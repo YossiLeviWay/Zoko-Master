@@ -145,11 +145,11 @@ test('local resolution only links records supplied by the authorized client cont
   assert.equal(resolved.taskType, 'team');
 });
 
-test('unauthorized task types are downgraded locally before the form is shown', () => {
+test('legacy plan suggestions use the same unified task form', () => {
   const resolved = resolveTaskAssistantProposal({ proposal: { title: 'תכנית', taskType: 'initiative' } });
   const form = proposalToTaskForm(resolved, { scope: 'personal', assigneeIds: [], teamId: '' });
   assert.equal(resolved.taskType, 'personal');
-  assert.equal(form.creationKind, 'task');
+  assert.equal(Object.hasOwn(form, 'creationKind'), false);
   assert.equal(form.scope, 'personal');
 });
 

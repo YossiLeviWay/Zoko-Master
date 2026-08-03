@@ -314,9 +314,8 @@ export function resolveTaskAssistantProposal({
 }
 
 export function proposalToTaskForm(resolved, baseForm) {
-  const isInitiative = resolved.taskType === 'initiative';
   const scope = resolved.taskType === 'assigned' ? 'assigned'
-    : resolved.taskType === 'team' ? 'team'
+    : ((resolved.taskType === 'team' || resolved.taskType === 'initiative') && resolved.team) ? 'team'
       : 'personal';
   const staffIds = level => (resolved.assignmentPlan?.[level] || [])
     .filter(item => item.source === 'staff')
@@ -326,7 +325,6 @@ export function proposalToTaskForm(resolved, baseForm) {
   const informedIds = staffIds('informed');
   return {
     ...baseForm,
-    creationKind: isInitiative ? 'initiative' : 'task',
     mandatory: resolved.taskType === 'mandatory',
     title: resolved.title,
     description: resolved.description,

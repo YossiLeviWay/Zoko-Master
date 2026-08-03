@@ -117,6 +117,17 @@ const taskDetails = {
   priority: z.enum(['low', 'medium', 'high']).optional().default('medium'),
 };
 
+const unifiedTaskStepSchema = z.object({
+  id: z.string().trim().min(1).max(60),
+  title: z.string().trim().min(1).max(180),
+  dueDate: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal('')]).optional().default(''),
+  status: z.enum(['todo', 'in_progress', 'done']).optional().default('todo'),
+  responsibleIds: z.array(id).max(10).optional().default([]).transform(values => [...new Set(values)]),
+  teamId: z.union([id, z.literal('')]).optional().default(''),
+  dependencyStepId: z.string().trim().max(60).optional().default(''),
+  order: z.number().int().min(0).max(29),
+}).strict();
+
 export const taskCollaboratorInvitationSchema = z.object({
   schoolId: id,
   personalTaskId: id,
@@ -134,6 +145,11 @@ export const taskInvitationResponseSchema = z.object({
 export const mandatoryTaskSchema = z.object({
   schoolId: id,
   recipientIds: z.array(id).min(1).max(50).transform(values => [...new Set(values)]),
+  startDate: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal('')]).optional().default(''),
+  endDate: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal('')]).optional().default(''),
+  reminderAt: z.string().trim().max(40).optional().default(''),
+  completionCriteria: z.string().trim().max(1000).optional().default(''),
+  workPlanSteps: z.array(unifiedTaskStepSchema).max(30).optional().default([]),
   ...taskDetails,
 }).strict();
 

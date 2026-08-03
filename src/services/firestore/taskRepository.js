@@ -53,6 +53,12 @@ function safeWorkPlanSteps(value) {
     phase: safeString(step?.phase, 'ביצוע').slice(0, 80),
     title: safeString(step?.title).trim().slice(0, 180),
     party: safeString(step?.party).slice(0, 80),
+    dueDate: safeDateValue(step?.dueDate || step?.date),
+    status: ['todo', 'in_progress', 'done'].includes(step?.status) ? step.status : 'todo',
+    responsibleIds: safeIdList(step?.responsibleIds).slice(0, 10),
+    teamId: safeString(step?.teamId).slice(0, 128),
+    dependencyStepId: safeString(step?.dependencyStepId || step?.dependencyId).slice(0, 60),
+    order: Number.isFinite(Number(step?.order)) ? Math.max(0, Math.round(Number(step.order))) : index,
     relativeDays: Number.isFinite(Number(step?.relativeDays)) ? Math.max(-365, Math.min(365, Math.round(Number(step.relativeDays)))) : 0,
     suggestedParties: Array.isArray(step?.suggestedParties) ? step.suggestedParties.slice(0, 10).map(party => ({
       id: safeString(party?.id).slice(0, 128),
@@ -80,6 +86,9 @@ export function normalizeOrganizationTask(item, storageMode = 'nested') {
     priority: safeString(item.priority, 'medium'),
     status: safeString(item.status, 'todo'),
     dueDate: safeDateValue(item.dueDate || item.dueAt),
+    startDate: safeDateValue(item.startDate),
+    endDate: safeDateValue(item.endDate),
+    completionCriteria: safeString(item.completionCriteria),
     reminderAt: safeString(item.reminderAt),
     assigneeIds: safeIdList(item.assigneeIds),
     participantIds: safeIdList(item.participantIds),
@@ -126,6 +135,9 @@ export function normalizePersonalTask(item) {
     priority: safeString(item.priority, 'medium'),
     status: safeString(item.status, 'todo'),
     dueDate: safeDateValue(item.dueDate || item.dueAt),
+    startDate: safeDateValue(item.startDate),
+    endDate: safeDateValue(item.endDate),
+    completionCriteria: safeString(item.completionCriteria),
     reminderAt: safeString(item.reminderAt),
     assigneeIds: [],
     participantIds: safeIdList(item.participantIds),
@@ -320,6 +332,9 @@ function editableFields(input) {
     priority: input.priority || 'medium',
     status: input.status || 'todo',
     dueDate: input.dueDate || '',
+    startDate: input.startDate || '',
+    endDate: input.endDate || '',
+    completionCriteria: input.completionCriteria?.trim().slice(0, 1000) || '',
     reminderAt: input.reminderAt || '',
     tags: Array.isArray(input.tags) ? input.tags.slice(0, 20) : [],
     attachedFileId: input.attachedFileId || '',
@@ -357,13 +372,12 @@ export async function createOrganizationTask({ db, schoolId, user, input }) {
   const scope = input.scope === TASK_SCOPES.ASSIGNED ? TASK_SCOPES.ASSIGNED : TASK_SCOPES.TEAM;
   const assigneeIds = scope === TASK_SCOPES.ASSIGNED ? input.assigneeIds?.slice(0, 1) || [] : [];
   const teamId = scope === TASK_SCOPES.TEAM ? input.teamId || input.assigneeTeamId || '' : '';
-  const participantIds = scope === TASK_SCOPES.TEAM
-    ? [...new Set([
-        ...(input.memberIds || input.participantIds || []),
-        ...safeIdList(input.partnerIds),
-        ...safeIdList(input.informedIds),
-      ])].slice(0, 50)
-    : [];
+  const participantIds = [...new Set([
+    ...(input.memberIds || input.participantIds || []),
+    ...safeIdList(input.responsibleIds),
+    ...safeIdList(input.partnerIds),
+    ...safeIdList(input.informedIds),
+  ])].slice(0, 50);
   return addDoc(schoolCollection(db, schoolId, 'tasks'), {
     ...editableFields(input),
     scope,
@@ -391,13 +405,12 @@ export async function updateTask({ db, schoolId, uid, task, input }) {
     scope: input.scope === TASK_SCOPES.ASSIGNED ? TASK_SCOPES.ASSIGNED : TASK_SCOPES.TEAM,
     assigneeType: input.scope === TASK_SCOPES.ASSIGNED ? 'individual' : 'team',
     assigneeIds: input.scope === TASK_SCOPES.ASSIGNED ? input.assigneeIds?.slice(0, 1) || [] : [],
-    participantIds: input.scope === TASK_SCOPES.TEAM
-      ? [...new Set([
-          ...(input.memberIds || input.participantIds || []),
-          ...safeIdList(input.partnerIds),
-          ...safeIdList(input.informedIds),
-        ])].slice(0, 50)
-      : [],
+    participantIds: [...new Set([
+      ...(input.memberIds || input.participantIds || []),
+      ...safeIdList(input.responsibleIds),
+      ...safeIdList(input.partnerIds),
+      ...safeIdList(input.informedIds),
+    ])].slice(0, 50),
     teamId: input.scope === TASK_SCOPES.TEAM ? input.teamId || input.assigneeTeamId || '' : '',
     assigneeTeamId: input.scope === TASK_SCOPES.TEAM ? input.teamId || input.assigneeTeamId || '' : '',
   } : {};
