@@ -77,6 +77,7 @@ const DEFAULT_PERMISSIONS = {
   tasks_view: true,
   tasks_edit: false,
   tasks_assign: false,
+  'tasks.useAssistant': false,
   'tasks.inviteCollaborators': false,
   'tasks.assignMandatory': false,
   'tasks.manageAssignments': false,
@@ -154,6 +155,7 @@ const PERMISSION_GROUPS = [
       { key: 'tasks.inviteCollaborators', label: 'הזמנת שותפים למשימה' },
       { key: 'tasks.assignMandatory', label: 'הקצאת משימה מחייבת' },
       { key: 'tasks.manageAssignments', label: 'ניהול הקצאות משימה' },
+      { key: 'tasks.useAssistant', label: 'שימוש בסוכן יצירת משימות' },
     ]
   },
   {

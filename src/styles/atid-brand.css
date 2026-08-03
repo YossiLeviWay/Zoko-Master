@@ -17,9 +17,9 @@
   --atid-warm-white: #fff8f5;
   --atid-white: var(--surface);
 
-  --color-primary: var(--atid-burgundy);
-  --color-primary-hover: var(--atid-burgundy-dark);
-  --color-primary-soft: var(--atid-warm-white);
+  --color-primary: var(--brand-orange);
+  --color-primary-hover: #d93c1c;
+  --color-primary-soft: #fff2ed;
   --color-accent: var(--atid-orange);
   --color-accent-soft: var(--atid-peach);
   --color-accent-border: #f6ad99;
@@ -99,12 +99,13 @@
 .btn-primary {
   border-color: var(--color-primary);
   background: var(--color-primary);
-  color: var(--atid-white);
+  color: #ffffff;
 }
 
 .btn-primary:hover:not(:disabled) {
   border-color: var(--color-primary-hover);
   background: var(--color-primary-hover);
+  color: #ffffff;
 }
 
 .btn-secondary {

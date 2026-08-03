@@ -342,6 +342,7 @@ export async function createOrganizationTask({ db, schoolId, user, input }) {
     completedAt: null,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
+    ...(input.sourceTaskId ? { sourceTaskId: input.sourceTaskId } : {}),
   });
 }
 
