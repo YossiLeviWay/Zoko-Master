@@ -60,7 +60,9 @@ import {
   createMandatoryTask,
   inviteTaskCollaborators,
   respondTaskInvitation,
+  updateTeamMembership,
 } from '../../services/adminUserService';
+import { createSchoolTeam } from '../../services/firestore/teamRepository';
 import Header from '../Layout/Header';
 import SegmentedControl from '../Common/SegmentedControl';
 import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
@@ -240,6 +242,7 @@ export default function TaskBoard() {
   const canManageTaskPermissions = permissions['tasks.managePermissions'] || canAssignMandatory;
   const canCreateCommunication = permissions['communications.create'] || isInitiativeManager;
   const canUseTaskAssistant = permissions['tasks.useAssistant'] || isInitiativeManager;
+  const canManageTeams = permissions.teams_edit || isInitiativeManager;
   const communicationPermissions = {
     reassign: permissions['communications.reassign'] === true,
     close: permissions['communications.close'] === true,
@@ -713,16 +716,18 @@ export default function TaskBoard() {
     setShowForm(true);
   }
 
-  function applyAssistantProposal(proposal) {
+  function applyAssistantProposal(proposal, context = {}) {
     const resolved = resolveTaskAssistantProposal({
       proposal,
       staff,
       teams,
       classes,
       initiatives,
+      request: context.request || '',
       canAssign: canAssignTasks,
       canCreateInitiative,
       canAssignMandatory,
+      canCreateTeam: canManageTeams,
     });
     const nextForm = proposalToTaskForm(resolved, emptyForm());
     const holiday = findHolidayConflict(nextForm.dueDate || nextForm.endDate, holidays);
@@ -731,11 +736,103 @@ export default function TaskBoard() {
       reasoningSummary: resolved.reasoningSummary,
       holidayName: holiday?.name || holiday?.title || '',
       unresolved: [
-        resolved.assigneeSuggestions.length > 0 && !resolved.assignee ? 'האחראי שהוצע לא נמצא ברשימה המורשית' : '',
-        resolved.teamSuggestions.length > 0 && !resolved.team ? 'הצוות שהוצע לא נמצא ברשימה המורשית' : '',
+        ...(resolved.taskType === 'assigned' || resolved.assigneeCandidates.length > 0
+          ? resolved.unresolvedAssigneeSuggestions.map(name => `לא נמצאה התאמה חד־משמעית לאיש הצוות „${name}”`)
+          : []),
+        ...(!resolved.proposedTeam ? resolved.unresolvedTeamSuggestions.map(name => `לא נמצא צוות מתאים להצעה „${name}”`) : []),
       ].filter(Boolean),
+      proposedTeam: resolved.proposedTeam,
+      membershipProposal: resolved.team && resolved.missingTeamMembers.length > 0
+        ? { team: resolved.team, members: resolved.missingTeamMembers }
+        : null,
     });
     setShowForm(true);
+  }
+
+  async function addAssistantMembers(team, members) {
+    const uniqueMembers = [...new Map(members.map(member => [member.uid || member.id, member]))]
+      .filter(([id]) => Boolean(id));
+    const results = await Promise.allSettled(uniqueMembers.map(([userId]) => updateTeamMembership({
+      schoolId,
+      teamId: team.id,
+      userId,
+      action: 'add',
+    })));
+    const failed = results.filter(result => result.status === 'rejected').length;
+    if (!failed) {
+      const recipients = uniqueMembers.map(([userId]) => userId).filter(userId => userId !== uid);
+      if (recipients.length) {
+        createNotifications(recipients, {
+          schoolId,
+          title: `צורפת לצוות „${team.name}”`,
+          body: `${userData?.fullName || 'מנהל המוסד'} צירף אותך לצוות בעקבות יצירת משימה.`,
+          type: 'staff',
+          link: '/teams',
+        }).catch(() => undefined);
+      }
+    }
+    return { failed, total: uniqueMembers.length };
+  }
+
+  async function createAssistantSuggestedTeam() {
+    const suggestion = assistantMeta?.proposedTeam;
+    if (!suggestion || !canManageTeams || !schoolId || !uid) return;
+    const memberNames = suggestion.members.map(member => member.fullName || member.name).filter(Boolean);
+    const detail = memberNames.length ? ` ולצרף את ${memberNames.join(', ')}` : '';
+    if (!window.confirm(`ליצור את „${suggestion.name}”${detail}?`)) return;
+    setSaving(true);
+    setError('');
+    try {
+      const teamRef = await createSchoolTeam({
+        db,
+        schoolId,
+        actor: { uid, fullName: userData?.fullName || '' },
+        name: suggestion.name,
+        description: 'נוצר מתוך הצעת סוכן המשימות לאחר אישור מנהל המוסד.',
+      });
+      const createdTeam = { id: teamRef.id, name: suggestion.name, memberIds: [] };
+      if (!suggestion.members.length) {
+        setAssistantMeta(previous => previous ? { ...previous, proposedTeam: null } : null);
+        setError(`הצוות „${suggestion.name}” נוצר. יש לצרף אליו אנשי צוות במסך הצוותים לפני יצירת המשימה.`);
+        return;
+      }
+      const membership = await addAssistantMembers(createdTeam, suggestion.members);
+      if (membership.failed) {
+        setAssistantMeta(previous => previous ? { ...previous, proposedTeam: null } : null);
+        setError(`הצוות נוצר, אך ${membership.failed} מתוך ${membership.total} חברים לא צורפו. יש להשלים את השיוך במסך הצוותים לפני יצירת המשימה.`);
+        return;
+      }
+      setForm(previous => ({ ...previous, scope: TASK_SCOPES.TEAM, teamId: createdTeam.id, assigneeIds: [] }));
+      setAssistantMeta(previous => previous ? { ...previous, proposedTeam: null, membershipProposal: null } : null);
+      showMessage(`הצוות „${suggestion.name}” נוצר ונבחר למשימה.`);
+    } catch {
+      setError('לא ניתן ליצור את הצוות. אפשר לבחור צוות קיים או ליצור אותו במסך הצוותים.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function addAssistantSuggestedMembers() {
+    const suggestion = assistantMeta?.membershipProposal;
+    if (!suggestion || !canManageTeams) return;
+    const names = suggestion.members.map(member => member.fullName || member.name).filter(Boolean);
+    if (!window.confirm(`לצרף את ${names.join(', ')} לצוות „${suggestion.team.name}”?`)) return;
+    setSaving(true);
+    setError('');
+    try {
+      const membership = await addAssistantMembers(suggestion.team, suggestion.members);
+      if (membership.failed) {
+        setError(`לא ניתן היה לצרף ${membership.failed} מתוך ${membership.total} חברים לצוות.`);
+        return;
+      }
+      setForm(previous => ({ ...previous, scope: TASK_SCOPES.TEAM, teamId: suggestion.team.id, assigneeIds: [] }));
+      setAssistantMeta(previous => previous ? { ...previous, membershipProposal: null } : null);
+      showMessage(`אנשי הצוות צורפו ל„${suggestion.team.name}”.`);
+    } catch {
+      setGeneralError();
+    } finally {
+      setSaving(false);
+    }
   }
 
   function validateAssignment(value) {
@@ -1227,7 +1324,7 @@ export default function TaskBoard() {
           <div className="card form-card">
             <form onSubmit={handleCreate} className="task-form">
               <header className="task-unified-form-head"><div><span>טיוטה לפני יצירה</span><h2>{form.creationKind === 'initiative' ? 'תכנית ארוכת טווח חדשה' : 'משימה חדשה'}</h2><p>כל סוגי המשימות נוצרים מכאן. בדקו וערכו את הפרטים לפני השמירה.</p></div><button type="button" className="icon-btn" onClick={() => setShowForm(false)} aria-label="סגירת טופס היצירה"><X size={18} /></button></header>
-              {assistantMeta && <div className="task-assistant-proposal-note"><Sparkles size={16} /><div>{assistantMeta.reasoningSummary && <p>{assistantMeta.reasoningSummary}</p>}{assistantMeta.holidayName && <p><strong>בדיקת לוח:</strong> המועד חופף ל־{assistantMeta.holidayName}. כדאי לבחור מועד אחר.</p>}{assistantMeta.unresolved.map(item => <p key={item}>{item}. אפשר לבחור ידנית מהרשימה.</p>)}</div><button type="button" className="btn btn-link" onClick={() => { setShowForm(false); document.getElementById('task-assistant-request')?.focus(); }}>חזרה לסוכן</button></div>}
+              {assistantMeta && <div className="task-assistant-proposal-note"><Sparkles size={16} /><div>{assistantMeta.reasoningSummary && <p>{assistantMeta.reasoningSummary}</p>}{assistantMeta.holidayName && <p><strong>בדיקת לוח:</strong> המועד חופף ל־{assistantMeta.holidayName}. כדאי לבחור מועד אחר.</p>}{assistantMeta.unresolved.map(item => <p key={item}>{item}. אפשר לבחור ידנית מהרשימה.</p>)}{assistantMeta.proposedTeam && <div className="task-assistant-team-suggestion"><p><strong>לא נמצא צוות קיים מתאים.</strong> האם ליצור את „{assistantMeta.proposedTeam.name}”{assistantMeta.proposedTeam.members.length ? ` ולצרף את ${assistantMeta.proposedTeam.members.map(member => member.fullName || member.name).join(', ')}` : ''}?</p><button type="button" className="btn btn-primary btn-sm" onClick={createAssistantSuggestedTeam} disabled={saving}><Users size={14} /> {assistantMeta.proposedTeam.members.length ? 'יצירת הצוות ובחירתו' : 'יצירת הצוות'}</button>{assistantMeta.proposedTeam.members.length === 0 && <small>לא צוינו אנשי צוות. לאחר היצירה ניתן לצרף חברים במסך הצוותים.</small>}</div>}{assistantMeta.membershipProposal && <div className="task-assistant-team-suggestion"><p>הצוות „{assistantMeta.membershipProposal.team.name}” נמצא, אך {assistantMeta.membershipProposal.members.map(member => member.fullName || member.name).join(', ')} עדיין אינם חברים בו.</p><button type="button" className="btn btn-primary btn-sm" onClick={addAssistantSuggestedMembers} disabled={saving}><Users size={14} /> צירוף לצוות ובחירתו</button></div>}</div><button type="button" className="btn btn-link" onClick={() => { setShowForm(false); document.getElementById('task-assistant-request')?.focus(); }}>חזרה לסוכן</button></div>}
               {renderFormFields(form, setForm)}
               <div className="form-actions"><button className="btn btn-primary" type="submit" disabled={saving}>{saving ? 'יוצר…' : form.creationKind === 'initiative' ? 'יצירת התכנית' : 'יצירת המשימה'}</button><button className="btn btn-secondary" type="button" onClick={() => setShowForm(false)}>ביטול</button></div>
             </form>

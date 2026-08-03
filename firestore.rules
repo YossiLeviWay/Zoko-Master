@@ -3960,6 +3960,13 @@ service cloud.firestore {
         && (isGlobalAdmin() || currentUser().role in ['principal', 'editor']);
     }
 
+    function legacyTeamWriteAllowed(collectionName, data) {
+      let schoolId = legacySchoolId(data);
+      return collectionName.matches('^teams_[A-Za-z0-9_-]+$')
+        && collectionName == 'teams_' + schoolId
+        && hasPermission(schoolId, 'teams_edit');
+    }
+
     function legacyHolidayWriteAllowed(collectionName, data) {
       return data.schoolId is string
         && collectionName == 'holidays_' + data.schoolId
@@ -4251,6 +4258,9 @@ service cloud.firestore {
           collectionName.matches('^holidays_[A-Za-z0-9_-]+$')
           && legacyHolidayWriteAllowed(collectionName, data)
         ) || (
+          collectionName.matches('^teams_[A-Za-z0-9_-]+$')
+          && legacyTeamWriteAllowed(collectionName, data)
+        ) || (
           collectionName.matches('^files_[A-Za-z0-9_-]+$')
           && isAttendanceFile(data)
           && legacyAttendanceCreateAllowed(collectionName, data)
@@ -4293,6 +4303,10 @@ service cloud.firestore {
           && legacyHolidayWriteAllowed(collectionName, resource.data)
           && request.resource.data.schoolId == resource.data.schoolId
         ) || (
+          collectionName.matches('^teams_[A-Za-z0-9_-]+$')
+          && legacyTeamWriteAllowed(collectionName, resource.data)
+          && legacySchoolId(request.resource.data) == legacySchoolId(resource.data)
+        ) || (
           collectionName.matches('^files_[A-Za-z0-9_-]+$')
           && isAttendanceFile(resource.data)
           && legacyAttendanceUpdateAllowed(collectionName)
@@ -4332,6 +4346,9 @@ service cloud.firestore {
         ) || (
           collectionName.matches('^holidays_[A-Za-z0-9_-]+$')
           && legacyHolidayWriteAllowed(collectionName, data)
+        ) || (
+          collectionName.matches('^teams_[A-Za-z0-9_-]+$')
+          && legacyTeamWriteAllowed(collectionName, data)
         ) || (
           collectionName.matches('^settings_[A-Za-z0-9_-]+$')
           && legacySensitiveWriteAllowed(collectionName, data)

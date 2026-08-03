@@ -328,6 +328,33 @@ test('unauthenticated users cannot read Firestore data', async () => {
   await assertFails(getDoc(doc(environment.unauthenticatedContext().firestore(), 'schools', SCHOOL_A)));
 });
 
+test('institution managers may manage only teams in their own school', async () => {
+  await seedFirestore({
+    'users/manager_a': { ...user({ schoolId: SCHOOL_A, role: 'institution_manager' }), uid: 'manager_a' },
+    'users/viewer_a': { ...user({ schoolId: SCHOOL_A }), uid: 'viewer_a' },
+    [`teams_${SCHOOL_A}/existing_team`]: {
+      schoolId: SCHOOL_A, name: 'Existing', memberIds: [], managerIds: ['manager_a'],
+    },
+  });
+  const managerDb = context('manager_a').firestore();
+  const ownTeam = doc(managerDb, `teams_${SCHOOL_A}/new_team`);
+  const otherTeam = doc(managerDb, `teams_${SCHOOL_B}/foreign_team`);
+  const teamData = {
+    schoolId: SCHOOL_A,
+    name: 'School A team',
+    memberIds: [],
+    managerIds: ['manager_a'],
+    createdById: 'manager_a',
+  };
+
+  await assertSucceeds(setDoc(ownTeam, teamData));
+  await assertSucceeds(updateDoc(doc(managerDb, `teams_${SCHOOL_A}/existing_team`), { name: 'Updated' }));
+  await assertFails(setDoc(otherTeam, { ...teamData, schoolId: SCHOOL_B }));
+  await assertFails(setDoc(otherTeam, teamData));
+  await assertFails(updateDoc(doc(managerDb, `teams_${SCHOOL_A}/existing_team`), { schoolId: SCHOOL_B }));
+  await assertFails(setDoc(doc(context('viewer_a').firestore(), `teams_${SCHOOL_A}/viewer_team`), teamData));
+});
+
 test('assigned user reads a task and may change only completion fields', async () => {
   await seedFirestore({
     'users/viewer_a': user({ schoolId: SCHOOL_A, permissions: { students_view: true } }),

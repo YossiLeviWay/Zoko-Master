@@ -1,6 +1,7 @@
 const TASK_TYPES = new Set(['personal', 'assigned', 'team', 'initiative', 'mandatory']);
 const PRIORITIES = new Set(['low', 'normal', 'medium', 'high']);
-const SENSITIVE_TERMS = /(?:תעודת\s*זהות|מספר\s*זהות|מידע\s*רפואי|אבחו(?:ן|נים)|תרופ(?:ה|ות)|תיק\s*אישי|ציו(?:ן|נים)|הער(?:ה|ות)\s*אישי(?:ת|ות))/iu;
+const SENSITIVE_TERMS = /(?:תעודת\s*זהות|מספר\s*זהות|מידע\s*רפואי|אבחו(?:ן|נים)|תרופ(?:ה|ות)|תיק\s*אישי|הער(?:ה|ות)\s*אישי(?:ת|ות))/iu;
+const INDIVIDUAL_STUDENT_RECORD = /(?:(?:ציו(?:ן|נים)|הישגים|הערכה).{0,35}(?:של|עבור)\s+(?:ה?תלמיד(?:ה)?)(?:\s+\p{L}+)?|(?:ה?תלמיד(?:ה)?)(?:\s+\p{L}+)?\s*.{0,35}(?:ציו(?:ן|נים)|הישגים|הערכה))/iu;
 const EMAIL_PATTERN = /[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/gu;
 const PHONE_PATTERN = /(?:\+?972[-\s]?|0)(?:5\d|[23489])[-\s]?\d{3}[-\s]?\d{4}/gu;
 const ID_PATTERN = /(?:^|\D)\d{9}(?=\D|$)/gu;
@@ -33,7 +34,7 @@ export function resolveRelativeTaskDate(value, today = new Date()) {
 export function redactTaskAssistantInput(value, maxLength = 1800) {
   const raw = text(value, maxLength);
   if (raw.length < 3) return { safe: false, text: '', reason: 'too-short' };
-  if (SENSITIVE_TERMS.test(raw)) return { safe: false, text: '', reason: 'sensitive-content' };
+  if (SENSITIVE_TERMS.test(raw) || INDIVIDUAL_STUDENT_RECORD.test(raw)) return { safe: false, text: '', reason: 'sensitive-content' };
   const cleaned = raw
     .replace(EMAIL_PATTERN, '[דוא״ל הוסר]')
     .replace(PHONE_PATTERN, '[טלפון הוסר]')
@@ -79,14 +80,101 @@ export function buildTaskAssistantInput({ request, currentProposal, answer, maxL
   });
 }
 
-const normalizedName = value => text(value, 180).toLocaleLowerCase('he').replace(/[\s"'׳״-]+/gu, '');
-const findBySuggestion = (items, suggestions) => {
-  const wanted = suggestions.map(normalizedName).filter(Boolean);
-  return items.find(item => {
-    const name = normalizedName(item.fullName || item.name || item.title);
-    return wanted.some(suggestion => name.includes(suggestion) || suggestion.includes(name));
-  }) || null;
+const STOP_WORDS = new Set([
+  'אני', 'את', 'אתה', 'אתם', 'אנחנו', 'צריך', 'צריכה', 'צריכים', 'לקדם', 'משימה', 'עבור',
+  'של', 'עם', 'על', 'אל', 'או', 'גם', 'כל', 'כבר', 'עד', 'במהלך', 'בתחילת', 'בסוף', 'חדש', 'חדשה', 'צוות',
+]);
+const NON_PERSON_TERMS = new Set([
+  'לינה', 'אירוח', 'טיול', 'טיולים', 'מסע', 'סיור', 'ציונים', 'הערכה', 'מיפוי',
+  'בגרויות', 'טקסים', 'אירועים', 'בטיחות', 'תקשוב', 'פדגוגיה',
+]);
+const TEAM_DOMAINS = [
+  { pattern: /טיול|סיור|מסע/iu, name: 'צוות טיולים' },
+  { pattern: /ציו(?:ן|נים)|הערכה|מיפוי|הישגים/iu, name: 'צוות ציונים והערכה' },
+  { pattern: /בגרות|בגרויות/iu, name: 'צוות בגרויות' },
+  { pattern: /אירוע|טקס|מסיבה/iu, name: 'צוות אירועים וטקסים' },
+  { pattern: /תקשוב|מחשבים|טכנולוג/iu, name: 'צוות תקשוב' },
+  { pattern: /פדגוג|הוראה|למידה/iu, name: 'צוות פדגוגי' },
+  { pattern: /חברתי|קהיל|התנדבות/iu, name: 'צוות חברתי־קהילתי' },
+  { pattern: /בטיחות|חירום|ביטחון/iu, name: 'צוות בטיחות וחירום' },
+];
+
+const normalizedName = value => text(value, 180)
+  .toLocaleLowerCase('he')
+  .replace(/\bצוות\b/gu, '')
+  .replace(/[^\p{L}\p{N}]+/gu, '');
+const stemToken = value => {
+  const token = value.toLocaleLowerCase('he').replace(/[^\p{L}\p{N}]+/gu, '');
+  if (token.length > 4 && (token.endsWith('ים') || token.endsWith('ות'))) return token.slice(0, -2);
+  return token;
 };
+const tokens = value => text(value, 500)
+  .split(/[^\p{L}\p{N}]+/gu)
+  .map(stemToken)
+  .filter(token => token.length > 1 && !STOP_WORDS.has(token));
+const regexEscape = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const personSuggestions = (suggestions, request) => suggestions.filter(suggestion => {
+  const parts = text(suggestion, 120).split(/[^\p{L}\p{N}]+/gu).filter(Boolean);
+  const single = parts[0] || '';
+  if (parts.length > 1 || !NON_PERSON_TERMS.has(single) || !request) return true;
+  const name = regexEscape(single);
+  const explicitPersonCue = new RegExp(`(?:עם|לצרף(?:\\s+את)?|אחראי(?:ת)?|בהשתתפות)\\s+${name}|${name}\\s+(?:יטפל|תטפל|יכין|תכין|יוביל|תוביל|יצטרף|תצטרף)`, 'u');
+  return explicitPersonCue.test(request);
+});
+const entityLabels = (item, kind) => kind === 'staff'
+  ? [item.fullName, item.displayName, item.name, item.firstName, item.lastName, item.jobTitle, item.position, item.profession, item.subject, item.roleName]
+  : [item.name, item.title, item.description, item.category, ...(Array.isArray(item.tags) ? item.tags : [])];
+
+function matchScore(item, suggestion, kind) {
+  const wanted = normalizedName(suggestion);
+  if (!wanted) return 0;
+  const wantedTokens = new Set(tokens(suggestion));
+  return Math.max(0, ...entityLabels(item, kind).filter(Boolean).map(label => {
+    const candidate = normalizedName(label);
+    if (!candidate) return 0;
+    if (candidate === wanted) return 120;
+    if (candidate.includes(wanted) || wanted.includes(candidate)) return 90;
+    const candidateTokens = new Set(tokens(label));
+    const overlap = [...wantedTokens].filter(token => candidateTokens.has(token)).length;
+    if (!overlap) return 0;
+    const coverage = overlap / Math.max(1, wantedTokens.size);
+    return 45 + Math.round(coverage * 35);
+  }));
+}
+
+function rankSuggestion(items, suggestion, kind) {
+  return items
+    .map(item => ({ item, score: matchScore(item, suggestion, kind) }))
+    .filter(entry => entry.score >= 65)
+    .sort((a, b) => b.score - a.score);
+}
+
+function resolveSuggestions(items, suggestions, kind) {
+  const matches = [];
+  const unresolved = [];
+  const candidates = [];
+  suggestions.forEach(suggestion => {
+    const ranked = rankSuggestion(items, suggestion, kind);
+    const top = ranked[0];
+    const runnerUp = ranked[1];
+    const isUnambiguous = top && (top.score >= 90 || !runnerUp || top.score - runnerUp.score >= 15);
+    if (isUnambiguous) {
+      const id = top.item.uid || top.item.id;
+      if (!matches.some(item => (item.uid || item.id) === id)) matches.push(top.item);
+    } else {
+      unresolved.push(suggestion);
+      candidates.push(...ranked.slice(0, 3).map(entry => entry.item));
+    }
+  });
+  return { matches, unresolved, candidates };
+}
+
+export function inferTaskTeamSuggestion(request, proposal = {}) {
+  const explicit = list(proposal.teamSuggestions, 8, 120)[0];
+  if (explicit) return explicit.startsWith('צוות') ? explicit : `צוות ${explicit}`;
+  const source = `${text(request, 1800)} ${text(proposal.title, 180)} ${text(proposal.description, 500)}`;
+  return TEAM_DOMAINS.find(domain => domain.pattern.test(source))?.name || '';
+}
 
 export function resolveTaskAssistantProposal({
   proposal,
@@ -94,22 +182,65 @@ export function resolveTaskAssistantProposal({
   teams = [],
   classes = [],
   initiatives = [],
+  request = '',
   canAssign = false,
   canCreateInitiative = false,
   canAssignMandatory = false,
+  canCreateTeam = false,
 }) {
   const normalized = normalizeTaskAssistantProposal(proposal);
   let taskType = normalized.taskType;
   if (taskType === 'initiative' && !canCreateInitiative) taskType = 'personal';
   if (taskType === 'mandatory' && !canAssignMandatory) taskType = canAssign ? 'assigned' : 'personal';
   if (['assigned', 'team'].includes(taskType) && !canAssign) taskType = 'personal';
-  const assignee = canAssign ? findBySuggestion(staff, normalized.assigneeSuggestions) : null;
-  const team = canAssign ? findBySuggestion(teams, normalized.teamSuggestions) : null;
-  const linkedClass = findBySuggestion(classes, normalized.linkedEntitySuggestions);
-  const initiative = findBySuggestion(initiatives, normalized.linkedEntitySuggestions);
-  if (taskType === 'assigned' && !assignee) taskType = 'personal';
-  if (taskType === 'team' && !team) taskType = 'personal';
-  return { ...normalized, taskType, assignee, team, linkedClass, initiative };
+  const safeAssigneeSuggestions = personSuggestions(normalized.assigneeSuggestions, request);
+  const assignees = canAssign
+    ? resolveSuggestions(staff, safeAssigneeSuggestions, 'staff')
+    : { matches: [], unresolved: safeAssigneeSuggestions, candidates: [] };
+  const inferredTeamSuggestion = inferTaskTeamSuggestion(request, normalized);
+  const teamSuggestions = [...new Set([
+    ...normalized.teamSuggestions,
+    inferredTeamSuggestion,
+  ].filter(Boolean))];
+  const teamResolution = canAssign
+    ? resolveSuggestions(teams, teamSuggestions, 'team')
+    : { matches: [], unresolved: teamSuggestions, candidates: [] };
+  const linkedClassResolution = resolveSuggestions(classes, normalized.linkedEntitySuggestions, 'team');
+  const initiativeResolution = resolveSuggestions(initiatives, normalized.linkedEntitySuggestions, 'team');
+  const assignee = assignees.matches[0] || null;
+  const team = teamResolution.matches[0] || null;
+  const linkedClass = linkedClassResolution.matches[0] || null;
+  const initiative = initiativeResolution.matches[0] || null;
+
+  if (canAssign && team && ['personal', 'assigned'].includes(taskType) && teamSuggestions.length) taskType = 'team';
+  if (canAssign && inferredTeamSuggestion && !team && ['personal', 'assigned'].includes(taskType)) taskType = 'team';
+  if (canAssign && assignees.matches.length > 1 && taskType === 'assigned') taskType = 'team';
+  const proposedTeam = canAssign && canCreateTeam && taskType === 'team' && !team && inferredTeamSuggestion
+    ? {
+        name: inferredTeamSuggestion,
+        memberIds: assignees.matches.map(item => item.uid || item.id).filter(Boolean),
+        members: assignees.matches,
+      }
+    : null;
+  const missingTeamMembers = team
+    ? assignees.matches.filter(item => !Array.isArray(team.memberIds) || !team.memberIds.includes(item.uid || item.id))
+    : [];
+  return {
+    ...normalized,
+    taskType,
+    assignee,
+    assigneeMatches: assignees.matches,
+    unresolvedAssigneeSuggestions: assignees.unresolved,
+    assigneeCandidates: assignees.candidates,
+    team,
+    teamSuggestions,
+    unresolvedTeamSuggestions: teamResolution.unresolved,
+    teamCandidates: teamResolution.candidates,
+    proposedTeam,
+    missingTeamMembers,
+    linkedClass,
+    initiative,
+  };
 }
 
 export function proposalToTaskForm(resolved, baseForm) {
