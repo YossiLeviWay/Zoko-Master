@@ -987,14 +987,17 @@ test('task invitations and shared tasks are visible only to their actors', async
 test('legacy team tasks remain visible to their team and private from other schools', async () => {
   await seedFirestore({
     'users/member_a': user({ schoolId: SCHOOL_A, teamIds: ['team_a'] }),
+    'users/document_member_a': user({ schoolId: SCHOOL_A }),
     'users/other_team_a': user({ schoolId: SCHOOL_A, teamIds: ['team_other'] }),
     'users/member_b': user({ schoolId: SCHOOL_B, teamIds: ['team_a'] }),
     [`schools/${SCHOOL_A}/tasks/legacy_team`]: {
-      assigneeType: 'team', assigneeTeamId: 'team_a', title: 'Existing task', status: 'todo',
+      assigneeType: 'team', assigneeTeamId: 'team_a', participantIds: ['document_member_a'],
+      title: 'Existing task', status: 'todo',
     },
   });
   const taskPath = `schools/${SCHOOL_A}/tasks/legacy_team`;
   await assertSucceeds(getDoc(doc(context('member_a').firestore(), taskPath)));
+  await assertSucceeds(getDoc(doc(context('document_member_a').firestore(), taskPath)));
   await assertFails(getDoc(doc(context('other_team_a').firestore(), taskPath)));
   await assertFails(getDoc(doc(context('member_b').firestore(), taskPath)));
 });

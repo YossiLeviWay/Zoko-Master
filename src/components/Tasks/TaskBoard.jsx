@@ -60,9 +60,8 @@ import {
   createMandatoryTask,
   inviteTaskCollaborators,
   respondTaskInvitation,
-  updateTeamMembership,
 } from '../../services/adminUserService';
-import { createSchoolTeam } from '../../services/firestore/teamRepository';
+import { addSchoolTeamMembers, createSchoolTeam } from '../../services/firestore/teamRepository';
 import Header from '../Layout/Header';
 import SegmentedControl from '../Common/SegmentedControl';
 import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
@@ -169,6 +168,7 @@ function formFromTask(task) {
     tagsText: Array.isArray(task.tags) ? task.tags.join(', ') : '',
     scope: task.scope,
     assigneeIds: task.assigneeIds || [],
+    memberIds: task.participantIds || [],
     teamId: task.teamId || task.assigneeTeamId || '',
     attachedFileId: task.attachedFileId || '',
     attachedFileName: task.attachedFileName || '',
@@ -705,9 +705,10 @@ export default function TaskBoard() {
   }
 
   function openTaskForm(scope, context = {}) {
+    const defaultTeam = scope === TASK_SCOPES.TEAM ? teams[0] : null;
     setForm({
       ...emptyForm(scope),
-      ...(scope === TASK_SCOPES.TEAM && teams[0] ? { teamId: teams[0].id } : {}),
+      ...(defaultTeam ? { teamId: defaultTeam.id, memberIds: idList(defaultTeam.memberIds) } : {}),
       initiativeId: context.initiativeId || '',
       milestoneId: context.milestoneId || '',
       creationKind: context.creationKind || 'task',
@@ -752,26 +753,27 @@ export default function TaskBoard() {
   async function addAssistantMembers(team, members) {
     const uniqueMembers = [...new Map(members.map(member => [member.uid || member.id, member]))]
       .filter(([id]) => Boolean(id));
-    const results = await Promise.allSettled(uniqueMembers.map(([userId]) => updateTeamMembership({
-      schoolId,
-      teamId: team.id,
-      userId,
-      action: 'add',
-    })));
-    const failed = results.filter(result => result.status === 'rejected').length;
-    if (!failed) {
-      const recipients = uniqueMembers.map(([userId]) => userId).filter(userId => userId !== uid);
-      if (recipients.length) {
-        createNotifications(recipients, {
-          schoolId,
-          title: `צורפת לצוות „${team.name}”`,
-          body: `${userData?.fullName || 'מנהל המוסד'} צירף אותך לצוות בעקבות יצירת משימה.`,
-          type: 'staff',
-          link: '/teams',
-        }).catch(() => undefined);
-      }
+    try {
+      await addSchoolTeamMembers({
+        db,
+        schoolId,
+        teamId: team.id,
+        memberIds: uniqueMembers.map(([userId]) => userId),
+      });
+    } catch {
+      return { failed: uniqueMembers.length, total: uniqueMembers.length };
     }
-    return { failed, total: uniqueMembers.length };
+    const recipients = uniqueMembers.map(([userId]) => userId).filter(userId => userId !== uid);
+    if (recipients.length) {
+      createNotifications(recipients, {
+        schoolId,
+        title: `צורפת לצוות „${team.name}”`,
+        body: `${userData?.fullName || 'מנהל המוסד'} צירף אותך לצוות בעקבות יצירת משימה.`,
+        type: 'staff',
+        link: '/teams',
+      }).catch(() => undefined);
+    }
+    return { failed: 0, total: uniqueMembers.length };
   }
 
   async function createAssistantSuggestedTeam() {
@@ -789,20 +791,21 @@ export default function TaskBoard() {
         actor: { uid, fullName: userData?.fullName || '' },
         name: suggestion.name,
         description: 'נוצר מתוך הצעת סוכן המשימות לאחר אישור מנהל המוסד.',
+        memberIds: suggestion.memberIds,
       });
-      const createdTeam = { id: teamRef.id, name: suggestion.name, memberIds: [] };
+      const createdTeam = { id: teamRef.id, name: suggestion.name, memberIds: suggestion.memberIds };
       if (!suggestion.members.length) {
         setAssistantMeta(previous => previous ? { ...previous, proposedTeam: null } : null);
         setError(`הצוות „${suggestion.name}” נוצר. יש לצרף אליו אנשי צוות במסך הצוותים לפני יצירת המשימה.`);
         return;
       }
-      const membership = await addAssistantMembers(createdTeam, suggestion.members);
-      if (membership.failed) {
-        setAssistantMeta(previous => previous ? { ...previous, proposedTeam: null } : null);
-        setError(`הצוות נוצר, אך ${membership.failed} מתוך ${membership.total} חברים לא צורפו. יש להשלים את השיוך במסך הצוותים לפני יצירת המשימה.`);
-        return;
-      }
-      setForm(previous => ({ ...previous, scope: TASK_SCOPES.TEAM, teamId: createdTeam.id, assigneeIds: [] }));
+      setForm(previous => ({
+        ...previous,
+        scope: TASK_SCOPES.TEAM,
+        teamId: createdTeam.id,
+        assigneeIds: [],
+        memberIds: suggestion.memberIds,
+      }));
       setAssistantMeta(previous => previous ? { ...previous, proposedTeam: null, membershipProposal: null } : null);
       showMessage(`הצוות „${suggestion.name}” נוצר ונבחר למשימה.`);
     } catch {
@@ -825,7 +828,13 @@ export default function TaskBoard() {
         setError(`לא ניתן היה לצרף ${membership.failed} מתוך ${membership.total} חברים לצוות.`);
         return;
       }
-      setForm(previous => ({ ...previous, scope: TASK_SCOPES.TEAM, teamId: suggestion.team.id, assigneeIds: [] }));
+      setForm(previous => ({
+        ...previous,
+        scope: TASK_SCOPES.TEAM,
+        teamId: suggestion.team.id,
+        assigneeIds: [],
+        memberIds: suggestion.members.map(member => member.uid || member.id).filter(Boolean),
+      }));
       setAssistantMeta(previous => previous ? { ...previous, membershipProposal: null } : null);
       showMessage(`אנשי הצוות צורפו ל„${suggestion.team.name}”.`);
     } catch {
@@ -1136,7 +1145,19 @@ export default function TaskBoard() {
         {value.scope === TASK_SCOPES.TEAM && (
           <div className="form-group">
             <label>צוות</label>
-            <select name="teamId" value={value.teamId} onChange={event => handleFormChange(setter, event)} required>
+            <select
+              name="teamId"
+              value={value.teamId}
+              onChange={event => {
+                const selectedTeam = teams.find(team => team.id === event.target.value);
+                setter(previous => ({
+                  ...previous,
+                  teamId: event.target.value,
+                  memberIds: idList(selectedTeam?.memberIds),
+                }));
+              }}
+              required
+            >
               <option value="">בחרו צוות</option>
               {teams.map(team => <option key={team.id} value={team.id}>{team.name}</option>)}
             </select>
