@@ -11,5 +11,5 @@ export const FIREBASE_AI_CONFIG = Object.freeze({
   maxInputLength: positiveInteger(import.meta.env.VITE_TASK_ASSISTANT_MAX_INPUT, 1800),
   requestsPerWindow: positiveInteger(import.meta.env.VITE_TASK_ASSISTANT_WINDOW_LIMIT, 6),
   dailyRequestsPerUser: positiveInteger(import.meta.env.VITE_TASK_ASSISTANT_DAILY_LIMIT, 20),
-  timeoutMs: positiveInteger(import.meta.env.VITE_TASK_ASSISTANT_TIMEOUT_MS, 12000),
+  timeoutMs: positiveInteger(import.meta.env.VITE_TASK_ASSISTANT_TIMEOUT_MS, 8000),
 });

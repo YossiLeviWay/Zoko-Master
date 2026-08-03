@@ -34,7 +34,10 @@ export async function getFirebaseAiRuntimeConfig() {
         model: model || FIREBASE_AI_CONFIG.model,
         taskAssistantEnabled: remoteBoolean(remoteConfig, 'zoko_task_assistant_enabled', FIREBASE_AI_CONFIG.taskAssistantEnabled),
         dailyRequestsPerUser: remoteInteger(remoteConfig, 'zoko_task_assistant_daily_limit', FIREBASE_AI_CONFIG.dailyRequestsPerUser),
-        timeoutMs: remoteInteger(remoteConfig, 'zoko_task_assistant_timeout_ms', FIREBASE_AI_CONFIG.timeoutMs),
+        timeoutMs: Math.min(
+          remoteInteger(remoteConfig, 'zoko_task_assistant_timeout_ms', FIREBASE_AI_CONFIG.timeoutMs),
+          FIREBASE_AI_CONFIG.timeoutMs,
+        ),
       };
     } catch {
       return FIREBASE_AI_CONFIG;

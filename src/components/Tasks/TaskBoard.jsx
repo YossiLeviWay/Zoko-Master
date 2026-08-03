@@ -48,7 +48,7 @@ import {
   updateTask,
   updateTaskStatus,
 } from '../../services/firestore/taskRepository';
-import { schoolCollection } from '../../services/firestore/paths';
+import { schoolCollection, schoolDoc } from '../../services/firestore/paths';
 import { subscribeAcademicYears } from '../../services/firestore/academicYearRepository';
 import {
   createInitiative,
@@ -89,6 +89,11 @@ import {
   proposalToTaskForm,
   resolveTaskAssistantProposal,
 } from '../../utils/taskAssistant';
+import {
+  buildSchoolContextVersion,
+  buildUserPermissionsVersion,
+} from '../../services/schoolContextResolver';
+import { startTaskAssistantStage } from '../../services/taskAssistantPerformance';
 import '../Gantt/Gantt.css';
 import './Tasks.css';
 
@@ -283,6 +288,9 @@ export default function TaskBoard() {
   const [allFolders, setAllFolders] = useState([]);
   const [classes, setClasses] = useState([]);
   const [holidays, setHolidays] = useState([]);
+  const [calendarEvents, setCalendarEvents] = useState([]);
+  const [roles, setRoles] = useState([]);
+  const [approvedAgentRules, setApprovedAgentRules] = useState([]);
   const [academicYears, setAcademicYears] = useState([]);
   const [initiatives, setInitiatives] = useState([]);
   const [activeTab, setActiveTab] = useState(() => searchParams.get('view') === 'communications' ? 'communications' : 'dashboard');
@@ -326,6 +334,37 @@ export default function TaskBoard() {
   const [initiativeDetailOpen, setInitiativeDetailOpen] = useState(false);
   const [communicationTask, setCommunicationTask] = useState(null);
   const [communicationReturnTo, setCommunicationReturnTo] = useState('');
+
+  const schoolContextSources = useMemo(() => ({
+    staff,
+    teams,
+    roles,
+    classes,
+    events: calendarEvents,
+    holidays,
+    initiatives,
+    tasks: [...personalTasks, ...organizationTasks],
+    approvedRules: approvedAgentRules,
+  }), [approvedAgentRules, calendarEvents, classes, holidays, initiatives, organizationTasks, personalTasks, roles, staff, teams]);
+  const schoolContextVersion = useMemo(
+    () => buildSchoolContextVersion(schoolContextSources),
+    [schoolContextSources],
+  );
+  const contextPermissions = useMemo(
+    () => ({ ...permissions, __principal: isInitiativeManager }),
+    [isInitiativeManager, permissions],
+  );
+  const userPermissionsVersion = useMemo(
+    () => buildUserPermissionsVersion(contextPermissions),
+    [contextPermissions],
+  );
+  const schoolContextConfig = useMemo(() => ({
+    schoolId,
+    contextVersion: schoolContextVersion,
+    userPermissionsVersion,
+    permissions: contextPermissions,
+    sources: schoolContextSources,
+  }), [contextPermissions, schoolContextSources, schoolContextVersion, schoolId, userPermissionsVersion]);
 
   function openCommunicationContext(context, returnTo = '') {
     setCommunicationTask(communicationSourceFromContext(normalizeCommunicationContext(context)));
@@ -459,31 +498,65 @@ export default function TaskBoard() {
   useEffect(() => {
     if (!schoolId) return;
     async function loadStaff() {
+      const finishStaffLoad = startTaskAssistantStage('staffLoad');
       const users = new Map();
       try {
-        const bySchools = await getDocs(query(collection(db, 'users'), where('schoolIds', 'array-contains', schoolId)));
+        const [bySchools, byLegacySchool] = await Promise.all([
+          getDocs(query(collection(db, 'users'), where('schoolIds', 'array-contains', schoolId))),
+          getDocs(query(collection(db, 'users'), where('schoolId', '==', schoolId))),
+        ]);
         bySchools.docs.forEach(item => {
           const data = item.data();
           users.set(item.id, { ...data, id: item.id, fullName: displayText(data.fullName), email: displayText(data.email) });
         });
-        const byLegacySchool = await getDocs(query(collection(db, 'users'), where('schoolId', '==', schoolId)));
         byLegacySchool.docs.forEach(item => {
           const data = item.data();
           users.set(item.id, { ...data, id: item.id, fullName: displayText(data.fullName), email: displayText(data.email) });
         });
       } catch {
         setError('לא ניתן לטעון את רשימת העובדים.');
+      } finally {
+        finishStaffLoad();
       }
       setStaff([...users.values()].filter(user => user.accountStatus !== 'pending'));
     }
     loadStaff();
+    const finishTeamsLoad = startTaskAssistantStage('teamsLoad');
+    const finishRolesLoad = startTaskAssistantStage('rolesLoad');
+    const finishClassesLoad = startTaskAssistantStage('classesLoad');
+    const finishCalendarLoad = startTaskAssistantStage('calendarLoad');
+    let teamsReady = false;
+    let rolesReady = false;
+    let classesReady = false;
+    let eventsReady = false;
+    let holidaysReady = false;
+    let calendarRecorded = false;
+    const markCalendarReady = type => {
+      if (type === 'events') eventsReady = true;
+      if (type === 'holidays') holidaysReady = true;
+      if (eventsReady && holidaysReady && !calendarRecorded) {
+        calendarRecorded = true;
+        finishCalendarLoad();
+      }
+    };
     const unsubscribeTeams = onSnapshot(
       schoolCollection(db, schoolId, 'teams'),
-      snapshot => setTeams(snapshot.docs.map(item => {
-        const data = item.data();
-        return { ...data, id: item.id, name: displayText(data.name, 'צוות'), memberIds: idList(data.memberIds) };
-      })),
-      () => setTeams([]),
+      snapshot => {
+        setTeams(snapshot.docs.map(item => {
+          const data = item.data();
+          return { ...data, id: item.id, name: displayText(data.name, 'צוות'), memberIds: idList(data.memberIds) };
+        }));
+        if (!teamsReady) { teamsReady = true; finishTeamsLoad(); }
+      },
+      () => { setTeams([]); if (!teamsReady) { teamsReady = true; finishTeamsLoad(); } },
+    );
+    const unsubscribeRoles = onSnapshot(
+      schoolCollection(db, schoolId, 'roleDefinitions'),
+      snapshot => {
+        setRoles(snapshot.docs.map(item => ({ id: item.id, ...item.data() })).filter(item => item.status !== 'archived'));
+        if (!rolesReady) { rolesReady = true; finishRolesLoad(); }
+      },
+      () => { setRoles([]); if (!rolesReady) { rolesReady = true; finishRolesLoad(); } },
     );
     const unsubscribeFiles = onSnapshot(
       schoolCollection(db, schoolId, 'files'),
@@ -503,20 +576,39 @@ export default function TaskBoard() {
     );
     const unsubscribeClasses = onSnapshot(
       schoolCollection(db, schoolId, 'classes'),
-      snapshot => setClasses(snapshot.docs.map(item => ({ id: item.id, ...item.data() })).filter(item => item.status !== 'archived')),
-      () => setClasses([]),
+      snapshot => {
+        setClasses(snapshot.docs.map(item => ({ id: item.id, ...item.data() })).filter(item => item.status !== 'archived'));
+        if (!classesReady) { classesReady = true; finishClassesLoad(); }
+      },
+      () => { setClasses([]); if (!classesReady) { classesReady = true; finishClassesLoad(); } },
+    );
+    const unsubscribeEvents = onSnapshot(
+      schoolCollection(db, schoolId, 'events'),
+      snapshot => { setCalendarEvents(snapshot.docs.map(item => ({ id: item.id, ...item.data() }))); markCalendarReady('events'); },
+      () => { setCalendarEvents([]); markCalendarReady('events'); },
     );
     const unsubscribeHolidays = onSnapshot(
       schoolCollection(db, schoolId, 'holidays'),
-      snapshot => setHolidays(snapshot.docs.map(item => ({ id: item.id, ...item.data() }))),
-      () => setHolidays([]),
+      snapshot => { setHolidays(snapshot.docs.map(item => ({ id: item.id, ...item.data() }))); markCalendarReady('holidays'); },
+      () => { setHolidays([]); markCalendarReady('holidays'); },
+    );
+    const unsubscribeAgentRules = onSnapshot(
+      schoolDoc(db, schoolId, 'settings', 'task_agent'),
+      snapshot => {
+        const value = snapshot.data()?.approvedRules;
+        setApprovedAgentRules(Array.isArray(value) ? value.filter(item => typeof item === 'string') : []);
+      },
+      () => setApprovedAgentRules([]),
     );
     return () => {
       unsubscribeTeams();
+      unsubscribeRoles();
       unsubscribeFiles();
       unsubscribeFolders();
       unsubscribeClasses();
+      unsubscribeEvents();
       unsubscribeHolidays();
+      unsubscribeAgentRules();
     };
   }, [schoolId]);
 
@@ -718,6 +810,7 @@ export default function TaskBoard() {
   }
 
   function applyAssistantProposal(proposal, context = {}) {
+    const finishMatching = startTaskAssistantStage('nameMatching');
     const resolved = resolveTaskAssistantProposal({
       proposal,
       staff,
@@ -730,6 +823,7 @@ export default function TaskBoard() {
       canAssignMandatory,
       canCreateTeam: canManageTeams,
     });
+    finishMatching();
     const nextForm = proposalToTaskForm(resolved, emptyForm());
     const holiday = findHolidayConflict(nextForm.dueDate || nextForm.endDate, holidays);
     setForm(nextForm);
@@ -747,7 +841,9 @@ export default function TaskBoard() {
         ? { team: resolved.team, members: resolved.missingTeamMembers }
         : null,
     });
+    const finishProposalDisplay = startTaskAssistantStage('proposalDisplay');
     setShowForm(true);
+    window.requestAnimationFrame(() => finishProposalDisplay());
   }
 
   async function addAssistantMembers(team, members) {
@@ -1322,7 +1418,7 @@ export default function TaskBoard() {
             <button type="button" className="btn task-create-primary" onClick={() => openTaskForm(TASK_SCOPES.PERSONAL)}><Plus size={16} /> יצירה חדשה</button>
           </section>
 
-          {canUseTaskAssistant && <TaskAssistantEntry uid={uid} onManual={() => openTaskForm(TASK_SCOPES.PERSONAL)} onProposal={applyAssistantProposal} />}
+          {canUseTaskAssistant && <TaskAssistantEntry uid={uid} contextConfig={schoolContextConfig} onManual={() => openTaskForm(TASK_SCOPES.PERSONAL)} onProposal={applyAssistantProposal} />}
 
           <section className="task-action-metrics" aria-label="מה דורש טיפול">
             <button type="button" className={filterDate === 'today' && workView === 'mine' ? 'active' : ''} onClick={() => openMetric('today')}><span>להיום</span><strong>{dashboardStats.today}</strong></button>

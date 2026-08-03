@@ -65,7 +65,29 @@ export function normalizeTaskAssistantProposal(value) {
   };
 }
 
-export function buildTaskAssistantInput({ request, currentProposal, answer, maxLength = 1800 }) {
+export function normalizeTaskAssistantOrganizationContext(value) {
+  const context = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const safeLabels = (items, maxItems, maxLength) => list(items, maxItems, maxLength)
+    .map(item => redactTaskAssistantInput(item, maxLength))
+    .filter(item => item.safe)
+    .map(item => item.text);
+  return {
+    domain: safeLabels([context.domain], 1, 80)[0] || null,
+    grade: text(context.grade, 12) || null,
+    matchingTeamLabels: safeLabels(context.matchingTeamLabels, 5, 120),
+    relevantRoleLabels: safeLabels(context.relevantRoleLabels, 5, 120),
+    classLabels: safeLabels(context.classLabels, 8, 120),
+    blockedDates: Array.isArray(context.blockedDates) ? context.blockedDates.slice(0, 20).map(item => ({
+      title: safeLabels([item?.title], 1, 120)[0] || '',
+      startDate: isoDate(item?.startDate),
+      endDate: isoDate(item?.endDate),
+    })).filter(item => item.title && item.startDate) : [],
+    relatedInitiativeLabels: safeLabels(context.relatedInitiativeLabels, 5, 120),
+    approvedRules: safeLabels(context.approvedRules, 10, 240),
+  };
+}
+
+export function buildTaskAssistantInput({ request, currentProposal, answer, organizationContext = null, maxLength = 1800 }) {
   const cleaned = redactTaskAssistantInput(request, maxLength);
   if (!cleaned.safe) {
     const error = new Error(cleaned.reason);
@@ -75,6 +97,9 @@ export function buildTaskAssistantInput({ request, currentProposal, answer, maxL
   return JSON.stringify({
     request: cleaned.text,
     today: new Date().toISOString().slice(0, 10),
+    organizationContext: organizationContext && typeof organizationContext === 'object'
+      ? normalizeTaskAssistantOrganizationContext(organizationContext)
+      : null,
     currentProposal: currentProposal ? normalizeTaskAssistantProposal(currentProposal) : null,
     answer: text(answer, 500) || null,
   });

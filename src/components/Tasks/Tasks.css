@@ -1644,3 +1644,8 @@
   .task-complete-action span { font-size: 0.68rem; }
   .task-date-range { grid-template-columns: 1fr; }
 }
+.task-assistant-progress {
+  color: var(--text-secondary, #666666);
+  font-size: 0.82rem;
+  min-height: 1.25rem;
+}

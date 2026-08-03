@@ -3,6 +3,7 @@ import { FIREBASE_AI_CONFIG } from '../config/firebaseAi';
 import firebaseApp, { isAppCheckConfigured, isFirebaseConfigured } from '../firebase';
 import { getFirebaseAiRuntimeConfig } from './firebaseAiRuntimeConfig';
 import { buildTaskAssistantInput, normalizeTaskAssistantProposal, resolveRelativeTaskDate } from '../utils/taskAssistant';
+import { startTaskAssistantStage } from './taskAssistantPerformance';
 
 const requestTimes = new Map();
 
@@ -35,6 +36,7 @@ const SYSTEM_INSTRUCTION = [
   'You create concise task proposals for an educational institution and return only JSON matching the schema.',
   'Never save data, claim an action was performed, or make an authorization decision.',
   'Use names only as suggestions. The application resolves them locally against records the user may access.',
+  'The organizationContext contains only authorized, minimized labels. Use it for domain, team, role, class and calendar hints without inventing people.',
   'Extract every explicitly named staff member into assigneeSuggestions. Never invent a person name.',
   'For work with a clear domain such as trips, grades, ceremonies, pedagogy, technology or safety, suggest a concise canonical team name in teamSuggestions even if the user did not write the word team.',
   'When several named people should work together, prefer taskType team and suggest a team name that explains their shared purpose.',
@@ -71,11 +73,23 @@ function publicError(error) {
   return Object.assign(new Error('unavailable'), { code: 'agent-unavailable' });
 }
 
-export async function draftTaskWithFirebaseAI({ uid, request, currentProposal, answer }) {
+export async function draftTaskWithFirebaseAI({ uid, request, currentProposal, answer, organizationContext }) {
   if (!uid || !isFirebaseConfigured || !isAppCheckConfigured) throw Object.assign(new Error('not-configured'), { code: 'agent-not-configured' });
   const runtimeConfig = await getFirebaseAiRuntimeConfig();
   if (!runtimeConfig.taskAssistantEnabled) throw Object.assign(new Error('disabled'), { code: 'agent-disabled' });
-  const safeInput = buildTaskAssistantInput({ request, currentProposal, answer, maxLength: runtimeConfig.maxInputLength });
+  const finishPromptBuild = startTaskAssistantStage('promptBuild');
+  let safeInput;
+  try {
+    safeInput = buildTaskAssistantInput({
+      request,
+      currentProposal,
+      answer,
+      organizationContext,
+      maxLength: runtimeConfig.maxInputLength,
+    });
+  } finally {
+    finishPromptBuild();
+  }
   enforceRateLimit(uid, runtimeConfig);
   try {
     const ai = getAI(firebaseApp, { backend: new GoogleAIBackend() });
@@ -83,23 +97,42 @@ export async function draftTaskWithFirebaseAI({ uid, request, currentProposal, a
       model: runtimeConfig.model,
       systemInstruction: SYSTEM_INSTRUCTION,
       generationConfig: {
-        maxOutputTokens: 1800,
+        maxOutputTokens: 900,
         temperature: 0.25,
         responseMimeType: 'application/json',
         responseSchema,
       },
     });
+    const finishGemini = startTaskAssistantStage('geminiCall');
     const requestPromise = model.generateContent(safeInput);
-    const timeoutPromise = new Promise((_, reject) => window.setTimeout(() => reject(new Error('timeout')), runtimeConfig.timeoutMs));
-    const result = await Promise.race([requestPromise, timeoutPromise]);
-    const responseText = result.response.text();
-    if (!responseText) throw new Error('empty');
-    const proposal = normalizeTaskAssistantProposal(JSON.parse(responseText));
-    const deterministicDate = resolveRelativeTaskDate(request);
-    return { proposal: deterministicDate ? { ...proposal, dueDate: deterministicDate } : proposal };
+    let timeoutId;
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutId = window.setTimeout(() => reject(new Error('timeout')), runtimeConfig.timeoutMs);
+    });
+    let result;
+    try {
+      result = await Promise.race([requestPromise, timeoutPromise]);
+    } finally {
+      window.clearTimeout(timeoutId);
+      finishGemini();
+    }
+    const finishProcessing = startTaskAssistantStage('responseProcessing');
+    try {
+      const responseText = result.response.text();
+      if (!responseText) throw new Error('empty');
+      const proposal = normalizeTaskAssistantProposal(JSON.parse(responseText));
+      const deterministicDate = resolveRelativeTaskDate(request);
+      return { proposal: deterministicDate ? { ...proposal, dueDate: deterministicDate } : proposal };
+    } finally {
+      finishProcessing();
+    }
   } catch (error) {
     throw publicError(error);
   }
+}
+
+export function preloadTaskAssistantRuntime() {
+  return getFirebaseAiRuntimeConfig();
 }
 
 export function taskAssistantErrorMessage(error) {

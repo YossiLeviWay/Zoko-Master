@@ -92,10 +92,21 @@ test('task assistant detects named staff missing from an existing relevant team'
   assert.deepEqual(resolved.missingTeamMembers.map(member => member.id), ['maya']);
 });
 
-test('task assistant builds a bounded prompt without institutional records', () => {
-  const payload = JSON.parse(buildTaskAssistantInput({ request: 'צריך להכין ישיבת צוות עד יום ראשון הבא' }));
+test('task assistant builds a bounded prompt with only minimized institutional context', () => {
+  const payload = JSON.parse(buildTaskAssistantInput({
+    request: 'צריך להכין ישיבת צוות עד יום ראשון הבא',
+    organizationContext: {
+      domain: 'טיולים',
+      matchingTeamLabels: ['צוות טיולים'],
+      staff: [{ id: 'secret', fullName: 'שם פרטי' }],
+      identityNumber: '123456789',
+    },
+  }));
   assert.equal(payload.request.includes('ישיבת צוות'), true);
-  assert.deepEqual(Object.keys(payload).sort(), ['answer', 'currentProposal', 'request', 'today']);
+  assert.deepEqual(Object.keys(payload).sort(), ['answer', 'currentProposal', 'organizationContext', 'request', 'today']);
+  assert.deepEqual(payload.organizationContext.matchingTeamLabels, ['צוות טיולים']);
+  assert.equal(Object.hasOwn(payload.organizationContext, 'staff'), false);
+  assert.equal(JSON.stringify(payload).includes('123456789'), false);
 });
 
 test('relative dates are resolved locally before saving', () => {
