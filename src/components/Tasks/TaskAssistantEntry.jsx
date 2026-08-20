@@ -62,6 +62,7 @@ export default function TaskAssistantEntry({ uid, contextConfig, canManagePlaybo
         generate: async () => {
           const agentResult = await draftTaskWithFirebaseAI({
             uid,
+            schoolId: contextConfig.schoolId,
             request,
             currentProposal,
             answer,

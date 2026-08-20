@@ -33,6 +33,7 @@ export const requestPublicPasswordReset = callable('requestPublicPasswordReset')
 export const inviteTaskCollaborators = callable('inviteTaskCollaborators');
 export const respondTaskInvitation = callable('respondTaskInvitation');
 export const createMandatoryTask = callable('createMandatoryTask');
+export const draftTaskWithAgent = callable('draftTaskWithAgent');
 export const createCustomRole = callable('createCustomRole');
 export const updateCustomRole = callable('updateCustomRole');
 export const archiveCustomRole = callable('archiveCustomRole');

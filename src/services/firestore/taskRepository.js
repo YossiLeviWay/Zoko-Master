@@ -19,6 +19,7 @@ export const TASK_SCOPES = Object.freeze({
   PERSONAL: 'personal',
   ASSIGNED: 'assigned',
   TEAM: 'team',
+  INSTITUTION: 'institution',
 });
 
 function safeString(value, fallback = '') {
@@ -369,7 +370,9 @@ export async function createPersonalTask({ db, schoolId, user, input }) {
 
 export async function createOrganizationTask({ db, schoolId, user, input }) {
   if (!user?.uid || !schoolId || !input.title?.trim()) throw new Error('Invalid task');
-  const scope = input.scope === TASK_SCOPES.ASSIGNED ? TASK_SCOPES.ASSIGNED : TASK_SCOPES.TEAM;
+  const scope = [TASK_SCOPES.ASSIGNED, TASK_SCOPES.INSTITUTION].includes(input.scope)
+    ? input.scope
+    : TASK_SCOPES.TEAM;
   const assigneeIds = scope === TASK_SCOPES.ASSIGNED ? input.assigneeIds?.slice(0, 1) || [] : [];
   const teamId = scope === TASK_SCOPES.TEAM ? input.teamId || input.assigneeTeamId || '' : '';
   const participantIds = [...new Set([
@@ -385,7 +388,8 @@ export async function createOrganizationTask({ db, schoolId, user, input }) {
     ownerId: '',
     createdBy: user.uid,
     createdByName: user.fullName || '',
-    assigneeType: scope === TASK_SCOPES.ASSIGNED ? 'individual' : 'team',
+    assigneeType: scope === TASK_SCOPES.ASSIGNED ? 'individual'
+      : scope === TASK_SCOPES.INSTITUTION ? 'all_school' : 'team',
     assigneeIds,
     participantIds,
     teamId,
@@ -402,8 +406,9 @@ export async function updateTask({ db, schoolId, uid, task, input }) {
     ? personalTaskDoc(db, uid, task.id)
     : organizationTaskDoc(db, schoolId, task);
   const organizationAssignment = task._source === 'organization' ? {
-    scope: input.scope === TASK_SCOPES.ASSIGNED ? TASK_SCOPES.ASSIGNED : TASK_SCOPES.TEAM,
-    assigneeType: input.scope === TASK_SCOPES.ASSIGNED ? 'individual' : 'team',
+    scope: [TASK_SCOPES.ASSIGNED, TASK_SCOPES.INSTITUTION].includes(input.scope) ? input.scope : TASK_SCOPES.TEAM,
+    assigneeType: input.scope === TASK_SCOPES.ASSIGNED ? 'individual'
+      : input.scope === TASK_SCOPES.INSTITUTION ? 'all_school' : 'team',
     assigneeIds: input.scope === TASK_SCOPES.ASSIGNED ? input.assigneeIds?.slice(0, 1) || [] : [],
     participantIds: [...new Set([
       ...(input.memberIds || input.participantIds || []),

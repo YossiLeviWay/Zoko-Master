@@ -34,6 +34,7 @@ const EMPTY_FORM = Object.freeze({
 });
 
 const ROLE_PRESETS = Object.freeze([
+  { name: 'מורה — בסיס', keys: ['calendar.view', 'tasks.viewOwn', 'tasks.viewTeam', 'tasks.create', 'tasks.inviteCollaborators', 'tasks.useAssistant'] },
   { name: 'רכז פדגוגי', keys: ['academicYears.view', 'classes.view', 'classes.update', 'students.view', 'students.update', 'students.promote'] },
   { name: 'מחנך', keys: ['classes.view', 'students.view', 'students.update', 'students.addNotes', 'personalFile.view', 'cv.view'] },
   { name: 'רכז תעסוקה', keys: ['students.view', 'personalFile.view', 'personalFile.manage', 'cv.view', 'cv.create', 'cv.edit', 'cv.manageExperience', 'cv.manageRecommendations'] },

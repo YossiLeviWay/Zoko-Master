@@ -92,6 +92,41 @@
   overflow-y: auto;
 }
 
+.sidebar-section-label {
+  padding: 0.55rem 0.75rem 0.25rem;
+  color: var(--color-text-faint);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.sidebar-more-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  width: 100%;
+  margin-top: 0.45rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-subtle);
+  font: 500 0.85rem 'Inter', sans-serif;
+  cursor: pointer;
+}
+
+.sidebar-more-toggle:hover,
+.sidebar-more-toggle.is-open {
+  background: var(--color-surface-muted);
+  color: var(--color-text-secondary);
+}
+
+.sidebar-more-toggle span:first-of-type { flex: 1; text-align: right; }
+.sidebar-more-toggle svg:last-child { transition: transform 0.18s ease; }
+.sidebar-more-toggle.is-open svg:last-child { transform: rotate(180deg); }
+.sidebar-secondary { display: flex; flex-direction: column; gap: 2px; }
+.sidebar--collapsed .sidebar-more-toggle { justify-content: center; padding: 0.6rem; }
+
 .sidebar-link {
   display: flex;
   align-items: center;
