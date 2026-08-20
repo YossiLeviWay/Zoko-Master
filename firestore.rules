@@ -2365,6 +2365,13 @@ service cloud.firestore {
             && data.assigneeTeamId == data.teamId
             && hasPermission(schoolId, 'tasks_edit')
           )
+          || (
+            data.scope == 'institution'
+            && data.assigneeType == 'all_school'
+            && data.assigneeIds is list
+            && data.assigneeIds.size() == 0
+            && hasPermission(schoolId, 'tasks.manageAssignments')
+          )
         );
     }
 

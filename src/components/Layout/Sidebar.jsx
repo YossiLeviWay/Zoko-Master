@@ -37,7 +37,8 @@ import {
   LifeBuoy,
   MessagesSquare,
   ShieldCheck,
-  ContactRound
+  ContactRound,
+  ChevronDown
 } from 'lucide-react';
 import UserAvatar from '../Shared/UserAvatar';
 import NavPermissionsPanel, { PATH_TO_PERMISSION as PATH_TO_PERMISSION_SIDEBAR } from '../Shared/NavPermissionsPanel';
@@ -45,21 +46,21 @@ import { usePermissions } from '../../hooks/usePermissions';
 import './Layout.css';
 
 const NAV_ITEMS = [
-  { path: '/', icon: Home, label: 'דשבורד', platformAllowed: true },
-  { path: '/calendar', icon: Calendar, label: 'לוח שנה', requiresSchool: true, permission: 'calendar_view' },
-  { path: '/categories', icon: LayoutGrid, label: 'קטגוריות', requiresSchool: true, permission: 'categories_view' },
+  { path: '/tasks', icon: CheckSquare, label: 'המשימות שלי', requiresSchool: true, permission: 'tasks_view', primary: true },
+  { path: '/', icon: Home, label: 'דשבורד', platformAllowed: true, primary: true },
+  { path: '/calendar', icon: Calendar, label: 'לוח שנה', requiresSchool: true, permission: 'calendar_view', primary: true },
   { path: '/staff', icon: Users, label: 'סגל וקהילה', requiresSchool: true, permission: 'staff_view' },
-  { path: '/tasks', icon: CheckSquare, label: 'פאנל משימות', requiresSchool: true, permission: 'tasks_view' },
-  { path: '/files', icon: FolderOpen, label: 'קבצים', requiresSchool: true, permission: 'files_view' },
   { path: '/teams', icon: Users, label: 'צוותים', requiresSchool: true, permission: 'teams_view' },
-  { path: '/contacts', icon: ContactRound, label: 'אנשי קשר', requiresSchool: true },
   { path: '/students', icon: GraduationCap, label: 'תלמידים', requiresSchool: true, permission: 'students_view' },
+  { path: '/files', icon: FolderOpen, label: 'קבצים', requiresSchool: true, permission: 'files_view' },
+  { path: '/contacts', icon: ContactRound, label: 'אנשי קשר', requiresSchool: true, permission: 'contacts.view' },
   { path: '/messages', icon: MessageCircle, label: 'הודעות', permission: 'messages_send' },
+  { path: '/categories', icon: LayoutGrid, label: 'קטגוריות לוח שנה', requiresSchool: true, permission: 'categories_view' },
   { path: '/holidays', icon: Sun, label: 'חופשות וחגים', requiresSchool: true, permission: 'holidays_view' },
   { path: '/forum', icon: MessagesSquare, label: 'פורום בתי הספר', forumOnly: true, platformAllowed: true },
-  { path: '/support', icon: LifeBuoy, label: 'תמיכת המערכת', requiresSchool: true },
+  { path: '/support', icon: LifeBuoy, label: 'תמיכה', requiresSchool: true, permission: 'support.create' },
   { path: '/platform', icon: ShieldCheck, label: 'ניהול הפלטפורמה', adminOnly: true, platformAllowed: true },
-  { path: '/settings', icon: Settings, label: 'הגדרות' }
+  { path: '/settings', icon: Settings, label: 'הגדרות', permission: 'settings_edit' }
 ];
 
 const NOTIF_TYPE_ICONS = {
@@ -101,6 +102,7 @@ export default function Sidebar() {
   const isMobile = useIsMobile();
   const { permissions } = usePermissions();
   const [collapsed, setCollapsed] = useState(isMobile);
+  const [showMore, setShowMore] = useState(() => NAV_ITEMS.some(item => !item.primary && item.path === window.location.hash.slice(1)));
   const { logout, userData, currentUser, selectedSchool, isPending, isPrincipal, isGlobalAdmin, isPlatformAdmin } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -280,8 +282,9 @@ export default function Sidebar() {
         </button>
       </div>
 
-      <nav className="sidebar-nav">
-        {NAV_ITEMS.filter(canSeeItem).map(item => {
+      <nav className="sidebar-nav" aria-label="ניווט ראשי">
+        {!collapsed && <span className="sidebar-section-label">עבודה שוטפת</span>}
+        {NAV_ITEMS.filter(item => item.primary).filter(canSeeItem).map(item => {
           const isNotifications = item.path === '/notifications';
 
           return (
@@ -377,6 +380,29 @@ export default function Sidebar() {
             </div>
           );
         })}
+        {NAV_ITEMS.filter(item => !item.primary).filter(canSeeItem).length > 0 && <>
+          <button
+            type="button"
+            className={`sidebar-more-toggle ${showMore ? 'is-open' : ''}`}
+            onClick={() => setShowMore(value => !value)}
+            aria-expanded={showMore}
+            title={collapsed ? 'כלים נוספים' : undefined}
+          >
+            <LayoutGrid size={19} />
+            {!collapsed && <><span>כלים נוספים</span><ChevronDown size={16} /></>}
+          </button>
+          {showMore && <div className="sidebar-secondary" aria-label="כלים נוספים">
+            {!collapsed && <span className="sidebar-section-label">ניהול וכלים</span>}
+            {NAV_ITEMS.filter(item => !item.primary).filter(canSeeItem).map(item => (
+              <div key={item.path} className="sidebar-link-wrapper" onContextMenu={event => handleNavContextMenu(event, item)}>
+                <NavLink to={item.path} className={({ isActive }) => `sidebar-link ${isActive ? 'sidebar-link--active' : ''}`} title={collapsed ? item.label : undefined}>
+                  <item.icon size={20} />
+                  {!collapsed && <span>{item.label}</span>}
+                </NavLink>
+              </div>
+            ))}
+          </div>}
+        </>}
       </nav>
 
       <div className="sidebar-footer">

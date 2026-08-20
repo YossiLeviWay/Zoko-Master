@@ -221,7 +221,8 @@ function taskInput(form) {
     ...idList(form.informedIds),
     ...idList(form.memberIds),
   ])];
-  const scope = form.teamId ? TASK_SCOPES.TEAM
+  const scope = form.scope === TASK_SCOPES.INSTITUTION ? TASK_SCOPES.INSTITUTION
+    : form.teamId ? TASK_SCOPES.TEAM
     : (form.scope === TASK_SCOPES.ASSIGNED || sharedPeople.some(id => id !== form.currentUserId)) ? TASK_SCOPES.ASSIGNED
       : TASK_SCOPES.PERSONAL;
   const effectiveLeadIds = leadIds.length ? leadIds : (scope === TASK_SCOPES.ASSIGNED && form.currentUserId ? [form.currentUserId] : []);
@@ -1019,6 +1020,7 @@ export default function TaskBoard() {
   function validateAssignment(value) {
     if (value.scope === TASK_SCOPES.ASSIGNED && value.assigneeIds.length !== 1) return false;
     if (value.scope === TASK_SCOPES.TEAM && !value.teamId) return false;
+    if (value.scope === TASK_SCOPES.INSTITUTION && !canManageAssignments) return false;
     return true;
   }
 
@@ -1045,6 +1047,9 @@ export default function TaskBoard() {
         ...(input.partnerIds || []),
         ...(input.informedIds || []),
       ])].filter(id => id !== uid);
+      if (recipients.length) await createNotifications(recipients, options);
+    } else if (input.scope === TASK_SCOPES.INSTITUTION) {
+      const recipients = staff.map(member => member.uid || member.id).filter(id => id && id !== uid);
       if (recipients.length) await createNotifications(recipients, options);
     }
   }
@@ -1095,7 +1100,7 @@ export default function TaskBoard() {
       setForm(emptyForm());
       setShowForm(false);
       setActiveTab('dashboard');
-      setWorkView(input.scope === TASK_SCOPES.TEAM ? 'teams' : 'mine');
+      setWorkView([TASK_SCOPES.TEAM, TASK_SCOPES.INSTITUTION].includes(input.scope) ? 'teams' : 'mine');
       setScopeFilter(input.scope === TASK_SCOPES.PERSONAL ? 'all' : 'created');
       setAssistantFeedback(Boolean(assistantMeta));
       setAssistantMeta(null);
@@ -1234,11 +1239,11 @@ export default function TaskBoard() {
   function getAssigneeDisplay(task) {
     if (task.scope === TASK_SCOPES.PERSONAL) return 'אישית';
     if (task.scope === 'shared') return 'משותפת';
+    if (task.scope === TASK_SCOPES.INSTITUTION || task.assigneeType === 'all_school') return 'כל המוסד';
     if (task.scope === TASK_SCOPES.ASSIGNED || task.assigneeType === 'individual') {
       const names = (task.assigneeIds || []).map(id => staff.find(user => (user.uid || user.id) === id)?.fullName || 'עובד');
       return names.join(', ');
     }
-    if (task.assigneeType === 'all_school') return 'כל בית הספר';
     const team = teams.find(item => item.id === (task.teamId || task.assigneeTeamId));
     return team?.name || 'צוות';
   }
@@ -1307,6 +1312,9 @@ export default function TaskBoard() {
             </select>
           </div>
         )}
+        {value.scope === TASK_SCOPES.INSTITUTION && (
+          <p className="personal-task-note"><Users size={14} /> כל אנשי הצוות הפעילים במוסד יוכלו לראות את המשימה</p>
+        )}
       </>
     );
   }
@@ -1331,6 +1339,9 @@ export default function TaskBoard() {
                 <button type="button" className={value.scope === TASK_SCOPES.TEAM ? 'active' : ''} onClick={() => setter(previous => ({ ...previous, scope: TASK_SCOPES.TEAM, assigneeIds: [], teamId: '' }))}>
                   <Users size={15} /> לצוות
                 </button>
+                {canManageAssignments && <button type="button" className={value.scope === TASK_SCOPES.INSTITUTION ? 'active' : ''} onClick={() => setter(previous => ({ ...previous, scope: TASK_SCOPES.INSTITUTION, assigneeIds: [], teamId: '' }))}>
+                  <Users size={15} /> גלויה לכל המוסד
+                </button>}
               </>
             )}
           </div>
@@ -1339,6 +1350,7 @@ export default function TaskBoard() {
           <div className="task-scope-picker" role="group" aria-label="יעד משימה ארגונית">
             <button type="button" className={value.scope === TASK_SCOPES.ASSIGNED ? 'active' : ''} onClick={() => setter(previous => ({ ...previous, scope: TASK_SCOPES.ASSIGNED, assigneeIds: [], teamId: '' }))}><User size={15} /> לאדם</button>
             <button type="button" className={value.scope === TASK_SCOPES.TEAM ? 'active' : ''} onClick={() => setter(previous => ({ ...previous, scope: TASK_SCOPES.TEAM, assigneeIds: [], teamId: '' }))}><Users size={15} /> לצוות</button>
+            {canManageAssignments && <button type="button" className={value.scope === TASK_SCOPES.INSTITUTION ? 'active' : ''} onClick={() => setter(previous => ({ ...previous, scope: TASK_SCOPES.INSTITUTION, assigneeIds: [], teamId: '' }))}><Users size={15} /> לכל המוסד</button>}
           </div>
         )}
         <div className="form-group">
@@ -1506,7 +1518,7 @@ export default function TaskBoard() {
       </section>
 
       <details className="task-more-options"><summary>אפשרויות נוספות</summary><div>
-        <div className="form-row"><div className="form-group"><label>עדיפות</label><select name="priority" value={value.priority} onChange={event => handleFormChange(setter, event)}>{Object.entries(PRIORITY_CONFIG).map(([key, config]) => <option key={key} value={key}>{config.label}</option>)}</select></div><div className="form-group"><label>סטטוס</label><select name="status" value={value.status} onChange={event => handleFormChange(setter, event)}>{Object.entries(STATUS_CONFIG).map(([key, config]) => <option key={key} value={key}>{config.label}</option>)}</select></div><div className="form-group"><label>שיתוף</label><select value={value.scope} onChange={event => setter(previous => ({ ...previous, scope: event.target.value, teamId: event.target.value === TASK_SCOPES.TEAM ? previous.teamId : '', assigneeIds: event.target.value === TASK_SCOPES.ASSIGNED ? previous.assigneeIds : [] }))}><option value={TASK_SCOPES.PERSONAL}>פרטית</option>{canAssignTasks && <option value={TASK_SCOPES.ASSIGNED}>עם אדם</option>}{canAssignTasks && <option value={TASK_SCOPES.TEAM}>עם צוות</option>}</select></div></div>
+        <div className="form-row"><div className="form-group"><label>עדיפות</label><select name="priority" value={value.priority} onChange={event => handleFormChange(setter, event)}>{Object.entries(PRIORITY_CONFIG).map(([key, config]) => <option key={key} value={key}>{config.label}</option>)}</select></div><div className="form-group"><label>סטטוס</label><select name="status" value={value.status} onChange={event => handleFormChange(setter, event)}>{Object.entries(STATUS_CONFIG).map(([key, config]) => <option key={key} value={key}>{config.label}</option>)}</select></div><div className="form-group"><label>מי יכול לראות</label><select value={value.scope} onChange={event => setter(previous => ({ ...previous, scope: event.target.value, teamId: event.target.value === TASK_SCOPES.TEAM ? previous.teamId : '', assigneeIds: event.target.value === TASK_SCOPES.ASSIGNED ? previous.assigneeIds : [] }))}><option value={TASK_SCOPES.PERSONAL}>רק אני</option>{canAssignTasks && <option value={TASK_SCOPES.ASSIGNED}>אדם שנבחר</option>}{canAssignTasks && <option value={TASK_SCOPES.TEAM}>צוות שנבחר</option>}{canManageAssignments && <option value={TASK_SCOPES.INSTITUTION}>כל אנשי המוסד</option>}</select></div></div>
         {initiatives.length > 0 && <div className="form-group"><label>קישור לתכנית ישנה (תאימות)</label><select value={value.initiativeId || ''} onChange={event => setter(previous => ({ ...previous, initiativeId: event.target.value, milestoneId: '' }))}><option value="">ללא קישור</option>{initiatives.filter(item => item.status !== 'archived').map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></div>}
         {!editing && canAssignMandatory && <label className="task-mandatory-toggle"><input type="checkbox" checked={value.mandatory} onChange={event => setter(previous => ({ ...previous, mandatory: event.target.checked, scope: event.target.checked ? TASK_SCOPES.ASSIGNED : previous.scope }))} /> משימה מחייבת שלא ניתן להסיר</label>}
         {!editing && value.mandatory && <div className="form-group"><label>מקבלי משימה מחייבת</label><div className="task-recipient-list">{staff.filter(member => staffId(member) !== uid).map(member => <label key={staffId(member)}><input type="checkbox" checked={value.recipientIds.includes(staffId(member))} onChange={event => setPerson('recipientIds', staffId(member), event.target.checked)} /> {member.fullName}</label>)}</div></div>}

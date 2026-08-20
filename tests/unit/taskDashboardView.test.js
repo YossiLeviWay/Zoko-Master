@@ -13,6 +13,12 @@ test('team tasks never appear in the personal work view', () => {
   assert.equal(belongsToTaskView(task, 'teams', 'user-a'), true);
 });
 
+test('institution-visible tasks stay out of the personal view and appear with team work', () => {
+  const task = { scope: 'institution', assigneeType: 'all_school', createdBy: 'manager' };
+  assert.equal(belongsToTaskView(task, 'mine', 'teacher'), false);
+  assert.equal(belongsToTaskView(task, 'teams', 'teacher'), true);
+});
+
 test('personal and individually assigned work appears under mine', () => {
   assert.equal(belongsToTaskView({ _source: 'personal', scope: 'personal' }, 'mine', 'user-a'), true);
   assert.equal(belongsToTaskView({ scope: 'assigned', assigneeIds: ['user-a'] }, 'mine', 'user-a'), true);

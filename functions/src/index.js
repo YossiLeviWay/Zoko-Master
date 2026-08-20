@@ -17,6 +17,7 @@ export { createStaffInvitation, manageStaffInvitation, acceptStaffInvitation } f
 export { submitJoinRequest, reviewJoinRequest } from './callables/joinRequests.js';
 export { setActiveSchool, requestPublicPasswordReset } from './callables/auth.js';
 export { inviteTaskCollaborators, respondTaskInvitation, createMandatoryTask } from './callables/tasks.js';
+export { draftTaskWithAgent } from './callables/taskAgent.js';
 export {
   createCustomRole,
   updateCustomRole,
