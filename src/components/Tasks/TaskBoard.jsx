@@ -361,6 +361,7 @@ export default function TaskBoard() {
   const [communicationTask, setCommunicationTask] = useState(null);
   const [communicationReturnTo, setCommunicationReturnTo] = useState('');
   const [showPatternReview, setShowPatternReview] = useState(false);
+  const [contextTaskMenu, setContextTaskMenu] = useState(null);
 
   function openCommunicationContext(context, returnTo = '') {
     setCommunicationTask(communicationSourceFromContext(normalizeCommunicationContext(context)));
@@ -378,16 +379,17 @@ export default function TaskBoard() {
   }
 
   useEffect(() => {
-    if (!showFilters && !showForm && !showPatternReview) return undefined;
+    if (!showFilters && !showForm && !showPatternReview && !contextTaskMenu) return undefined;
     const closeTransientPanels = event => {
       if (event.key !== 'Escape') return;
       setShowFilters(false);
       setShowForm(false);
       setShowPatternReview(false);
+      setContextTaskMenu(null);
     };
     window.addEventListener('keydown', closeTransientPanels);
     return () => window.removeEventListener('keydown', closeTransientPanels);
-  }, [showFilters, showForm, showPatternReview]);
+  }, [showFilters, showForm, showPatternReview, contextTaskMenu]);
 
   useEffect(() => {
     if (!location.state?.communicationContext) return;
@@ -775,7 +777,7 @@ export default function TaskBoard() {
       classes,
       initiatives,
       request: context.request || '',
-      canAssign: canAssignTasks,
+      canAssign: canAssignTasks || context.capabilities?.collaborationMode === 'invite',
       canCreateInitiative,
       canAssignMandatory,
       canCreateTeam: false,
@@ -783,7 +785,7 @@ export default function TaskBoard() {
     finishMatching();
     const nextForm = proposalToTaskForm(resolved, emptyForm());
     nextForm.currentUserId = uid;
-    nextForm.creationSource = 'agent';
+    nextForm.creationSource = context.sessionId ? 'agent' : 'manual';
     nextForm.agentSessionId = context.sessionId || '';
     const inviteOnly = context.capabilities?.collaborationMode === 'invite' || !canAssignTasks;
     if (inviteOnly) {
@@ -816,6 +818,7 @@ export default function TaskBoard() {
         ? { team: resolved.team, members: resolved.missingTeamMembers }
         : null,
       capabilities: context.capabilities || { canAssign: canAssignTasks, collaborationMode: canAssignTasks ? 'assign' : 'invite' },
+      degraded: context.degraded === true,
     });
     const finishProposalDisplay = startTaskAssistantStage('proposalDisplay');
     setShowForm(true);
@@ -1364,7 +1367,16 @@ export default function TaskBoard() {
       action();
     };
     return (
-      <article key={task._key} className={`task-row task-work-card ${overdue ? 'task-row--overdue' : ''}`}>
+      <article key={task._key} className={`task-row task-work-card ${overdue ? 'task-row--overdue' : ''}`} onContextMenu={event => {
+        event.preventDefault();
+        const menuWidth = 230;
+        const menuHeight = 330;
+        setContextTaskMenu({
+          task,
+          x: Math.max(12, Math.min(event.clientX, window.innerWidth - menuWidth - 12)),
+          y: Math.max(12, Math.min(event.clientY, window.innerHeight - menuHeight - 12)),
+        });
+      }}>
         <div className="task-main">
           <div className="task-title-line">
             <span className="task-title">{task.title}</span>
@@ -1526,6 +1538,17 @@ export default function TaskBoard() {
       </div>}
 
       {showPatternReview && <TaskPatternReviewPanel schoolId={schoolId} onClose={() => setShowPatternReview(false)} />}
+
+      {contextTaskMenu && <div className="task-context-menu-backdrop" onPointerDown={() => setContextTaskMenu(null)}>
+        <div className="task-context-menu" role="menu" aria-label={`ניהול ${contextTaskMenu.task.title}`} style={{ left: contextTaskMenu.x, top: contextTaskMenu.y }} onPointerDown={event => event.stopPropagation()}>
+          {canEditDetails(contextTaskMenu.task) && <button role="menuitem" onClick={() => { startEdit(contextTaskMenu.task); setContextTaskMenu(null); }}><Edit3 size={15} /> עריכה</button>}
+          <button role="menuitem" disabled={!canChangeStatus(contextTaskMenu.task)} onClick={() => { changeStatus(contextTaskMenu.task, isTaskComplete(contextTaskMenu.task) ? 'todo' : 'done'); setContextTaskMenu(null); }}>{isTaskComplete(contextTaskMenu.task) ? <RotateCcw size={15} /> : <Check size={15} />} {isTaskComplete(contextTaskMenu.task) ? 'החזרה לביצוע' : 'סימון כהושלם'}</button>
+          {canEditDetails(contextTaskMenu.task) && <button role="menuitem" onClick={() => { pinTask(contextTaskMenu.task); setContextTaskMenu(null); }}><Pin size={15} /> {contextTaskMenu.task.pinnedBy?.includes(uid) ? 'ביטול הצמדה' : 'הצמדת משימה'}</button>}
+          {contextTaskMenu.task._source === 'organization' && <button role="menuitem" onClick={() => { setChatTask(contextTaskMenu.task); setContextTaskMenu(null); }}><MessageSquare size={15} /> תגובה</button>}
+          {contextTaskMenu.task._source === 'personal' && <button role="menuitem" onClick={() => { setCollaborationTask(contextTaskMenu.task); setCollaborationRecipients([]); setCollaborationMessage(''); setContextTaskMenu(null); }}><User size={15} /> הזמנת שותפים</button>}
+          {canDeleteTask(contextTaskMenu.task) && <button className="is-danger" role="menuitem" onClick={() => { const task = contextTaskMenu.task; setContextTaskMenu(null); removeTask(task); }}><Trash2 size={15} /> מחיקה</button>}
+        </div>
+      </div>}
 
       {editingTask && editForm && (
         <div className="task-edit-overlay" onClick={() => setEditingTask(null)}>

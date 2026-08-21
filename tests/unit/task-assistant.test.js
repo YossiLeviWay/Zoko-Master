@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildTaskAssistantInput,
+  createLocalTaskAgentProposal,
   findHolidayConflict,
   inferTaskTeamSuggestion,
   normalizeTaskAssistantProposal,
@@ -157,4 +158,13 @@ test('holiday conflicts are detected without allowing the model to decide offici
   const conflict = findHolidayConflict('2026-10-01', [{ id: 'holiday-1', name: 'חופשה', startDate: '2026-09-30', endDate: '2026-10-02' }]);
   assert.equal(conflict.id, 'holiday-1');
   assert.equal(findHolidayConflict('2026-10-03', [conflict]), null);
+});
+
+test('offline exam fallback proposes pedagogical roles and relevant grade', () => {
+  const proposal = createLocalTaskAgentProposal('הכנת מבחנים לשכבת ח׳ בחודש הבא');
+  assert.equal(proposal.domain, 'exams');
+  assert.ok(proposal.assigneeSuggestions.includes('רכז פדגוגי'));
+  assert.ok(proposal.assigneeSuggestions.some(label => label.includes('מחנכי שכבת ח')));
+  assert.deepEqual(proposal.linkedEntitySuggestions, ['שכבת ח׳']);
+  assert.ok(proposal.subtasks.length >= 3);
 });

@@ -98,6 +98,41 @@ export function normalizeTaskAssistantProposal(value) {
   };
 }
 
+export function createLocalTaskAgentProposal(request, maxInputLength = 1800) {
+  const source = String(request || '').trim().slice(0, maxInputLength);
+  const title = source.split(/[.!?\n]/u).find(Boolean)?.trim().slice(0, 180) || 'משימה חדשה';
+  const gradeMatch = source.match(/(?:שכבת|כית(?:ה|ות))\s*([א-יב]{1,2})[׳']/u);
+  const grade = gradeMatch?.[1] || '';
+  const isExam = /מבחנ|בחינ|הערכה|מבדק/u.test(source);
+  const isEvent = /טקס|אירוע|מסיבה/u.test(source);
+  const isTrip = /טיול|מסע|סיור/u.test(source);
+  const domain = isExam ? 'exams' : isTrip ? 'school_trip' : isEvent ? 'school_event' : 'general';
+  const roleSuggestions = isExam
+    ? ['רכז פדגוגי', grade ? `מחנכי שכבת ${grade}׳` : 'מחנכי הכיתות הרלוונטיות']
+    : isTrip ? ['רכז טיולים', grade ? `מחנכי שכבת ${grade}׳` : 'מחנכי הכיתות הרלוונטיות']
+      : isEvent ? ['רכז חברתי', 'צוות אירועים'] : [];
+  const teamSuggestions = isExam ? ['צוות פדגוגי'] : isTrip ? ['צוות טיולים'] : isEvent ? ['צוות אירועים וטקסים'] : [];
+  const subtasks = isExam
+    ? ['הגדרת מבנה ותכני המבחן', 'חלוקת כתיבה ובקרה מקצועית', 'תיאום מועד והיערכות הכיתות', 'בדיקה סופית והפצה לצוות']
+    : isTrip ? ['הגדרת מטרה ומסלול', 'ריכוז אישורים וספקים', 'תיאום צוות והורים', 'בדיקת מוכנות לפני היציאה']
+      : isEvent ? ['הגדרת תוצר ולוח זמנים', 'חלוקת אחריות', 'תיאום משאבים ותקשורת', 'בדיקת מוכנות וביצוע']
+        : ['הגדרת התוצאה הרצויה', 'חלוקת צעדים ואחריות', 'ביצוע ומעקב', 'סיכום וסגירה'];
+  return normalizeTaskAssistantProposal({
+    title,
+    description: source,
+    taskType: roleSuggestions.length || teamSuggestions.length ? 'team' : 'personal',
+    priority: 'medium',
+    assigneeSuggestions: roleSuggestions,
+    teamSuggestions,
+    linkedEntitySuggestions: grade ? [`שכבת ${grade}׳`] : [],
+    subtasks,
+    completionCriteria: isExam ? 'המבחן אושר מקצועית, תואם לכל הכיתות ומוכן להפצה במועד.' : 'כל הצעדים הושלמו והתוצר נבדק.',
+    reasoningSummary: roleSuggestions.length ? 'ההצעה מבוססת על תפקידים וצוותים המקובלים למשימה מסוג זה.' : 'נבנתה טיוטה בסיסית שאפשר להתאים.',
+    domain,
+    commonDocuments: isExam ? ['טבלת מפרט', 'טיוטת מבחן', 'מחוון בדיקה'] : [],
+  });
+}
+
 export function normalizeTaskAssistantOrganizationContext(value) {
   const context = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   const safeLabels = (items, maxItems, maxLength) => list(items, maxItems, maxLength)

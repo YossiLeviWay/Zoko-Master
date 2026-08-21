@@ -18,11 +18,12 @@ export default function TaskAssistantEntry({ uid, schoolId, onManual, onProposal
       const result = await draftTaskWithFirebaseAI({ uid, schoolId, request, currentProposal, answer });
       setAnswer('');
       setProposal(result.proposal);
-      setProposalMeta({ request, sessionId: result.sessionId, capabilities: result.capabilities });
+      setProposalMeta({ request, sessionId: result.sessionId, capabilities: result.capabilities, degraded: result.degraded });
       if (!result.proposal.followUpQuestion) onProposal(result.proposal, {
         request,
         sessionId: result.sessionId,
         capabilities: result.capabilities,
+        degraded: result.degraded,
       });
     } catch (caught) {
       setError(taskAssistantErrorMessage(caught));
