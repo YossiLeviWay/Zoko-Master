@@ -14,22 +14,26 @@ function publicError(error) {
   return Object.assign(new Error('unavailable'), { code: 'agent-unavailable' });
 }
 
-export async function draftTaskWithFirebaseAI({ uid, schoolId, request, currentProposal, answer, organizationContext }) {
+export async function draftTaskWithFirebaseAI({ uid, schoolId, request, currentProposal, answer }) {
   if (!uid || !schoolId) throw Object.assign(new Error('not-configured'), { code: 'agent-not-configured' });
   const runtimeConfig = await getFirebaseAiRuntimeConfig();
   if (!runtimeConfig.taskAssistantEnabled) throw Object.assign(new Error('disabled'), { code: 'agent-disabled' });
   const finishPromptBuild = startTaskAssistantStage('promptBuild');
   try {
-    buildTaskAssistantInput({ request, currentProposal, answer, organizationContext, maxLength: runtimeConfig.maxInputLength });
+    buildTaskAssistantInput({ request, currentProposal, answer, maxLength: runtimeConfig.maxInputLength });
   } finally {
     finishPromptBuild();
   }
   const finishGemini = startTaskAssistantStage('geminiCall');
   try {
-    const result = await callTaskAgent({ schoolId, request, currentProposal, answer, organizationContext });
+    const result = await callTaskAgent({ schoolId, request, currentProposal, answer });
     const proposal = normalizeTaskAssistantProposal(result.proposal);
     const deterministicDate = resolveRelativeTaskDate(request);
-    return { proposal: deterministicDate ? { ...proposal, dueDate: deterministicDate } : proposal };
+    return {
+      proposal: deterministicDate ? { ...proposal, dueDate: deterministicDate } : proposal,
+      sessionId: result.sessionId || '',
+      capabilities: result.capabilities || { canAssign: false, collaborationMode: 'invite' },
+    };
   } catch (error) {
     throw publicError(error);
   } finally {
