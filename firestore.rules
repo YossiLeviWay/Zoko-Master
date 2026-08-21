@@ -2348,6 +2348,7 @@ service cloud.firestore {
         && data.createdBy == request.auth.uid
         && data.title is string
         && data.title.size() > 0
+        && validTaskAgentMetadata(schoolId, data)
         && validTaskInitiativeLink(schoolId, data)
         && (!('mandatory' in data) || data.mandatory == false)
         && (
@@ -2371,6 +2372,20 @@ service cloud.firestore {
             && data.assigneeIds is list
             && data.assigneeIds.size() == 0
             && hasPermission(schoolId, 'tasks.manageAssignments')
+          )
+        );
+    }
+
+    function validTaskAgentMetadata(schoolId, data) {
+      return data.get('creationSource', 'manual') in ['manual', 'agent']
+        && data.get('agentSessionId', '') is string
+        && (
+          data.get('creationSource', 'manual') == 'manual'
+          || (
+            data.agentSessionId.size() > 0
+            && exists(/databases/$(database)/documents/schools/$(schoolId)/taskAgentSessions/$(data.agentSessionId))
+            && get(/databases/$(database)/documents/schools/$(schoolId)/taskAgentSessions/$(data.agentSessionId)).data.actorId == request.auth.uid
+            && get(/databases/$(database)/documents/schools/$(schoolId)/taskAgentSessions/$(data.agentSessionId)).data.schoolId == schoolId
           )
         );
     }
@@ -2439,6 +2454,7 @@ service cloud.firestore {
         && isSchoolMember(data.schoolId)
         && data.title is string
         && data.title.size() > 0
+        && validTaskAgentMetadata(data.schoolId, data)
         && validTaskInitiativeLink(data.schoolId, data)
         && data.assigneeIds is list
         && data.assigneeIds.size() == 0
@@ -2475,7 +2491,7 @@ service cloud.firestore {
           'completedAt', 'updatedAt', 'tags', 'attachedFileId', 'attachedFileName',
           'pinnedBy', 'sourceTaskId', 'initiativeId', 'milestoneId',
           'startDate', 'endDate', 'completionCriteria', 'responsibleIds',
-          'partnerIds', 'informedIds', 'workPlanSteps'
+          'partnerIds', 'informedIds', 'workPlanSteps', 'classIds'
         ]));
     }
 
@@ -2786,6 +2802,11 @@ service cloud.firestore {
         allow delete: if personalTaskOwner(userId, resource.data);
       }
 
+      match /taskAgentProfiles/{schoolId} {
+        allow read: if signedIn() && request.auth.uid == userId && isSchoolMember(schoolId);
+        allow create, update, delete: if false;
+      }
+
       match /taskChatReceipts/{receiptId} {
         allow read: if signedIn() && request.auth.uid == userId;
         allow create, update: if signedIn()
@@ -2945,6 +2966,18 @@ service cloud.firestore {
           allow update: if false;
           allow delete: if request.auth.uid == resource.data.authorId || canManageSchoolUsers(schoolId);
         }
+      }
+
+      match /taskAgentSessions/{sessionId} {
+        allow read, write: if false;
+      }
+
+      match /taskLearningEvents/{eventId} {
+        allow read, write: if false;
+      }
+
+      match /taskPatterns/{patternId} {
+        allow read, write: if false;
       }
 
       match /initiatives/{initiativeId} {

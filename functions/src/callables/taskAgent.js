@@ -5,25 +5,20 @@ import { CALLABLE_OPTIONS } from '../config.js';
 import { requireActor } from '../services/authorization.js';
 import { toPublicError, permissionDenied } from '../services/errors.js';
 import { enforceRateLimit } from '../services/rateLimit.js';
-import { GEMINI_API_KEY, GEMINI_TASK_MODEL, requestGeminiTaskProposal } from '../services/geminiTaskAgent.js';
+import { GEMINI_API_KEY, GEMINI_EMBEDDING_MODEL, GEMINI_TASK_MODEL, requestGeminiEmbedding, requestGeminiTaskProposal } from '../services/geminiTaskAgent.js';
 import { adminDb } from '../services/firebaseAdmin.js';
+import {
+  loadTaskAgentContext,
+  localTaskAgentProposal,
+  saveTaskAgentSession,
+  validateTaskAgentProposal,
+} from '../services/taskAgentContext.js';
 
-const nullableText = z.string().max(2000).nullable().optional();
 const inputSchema = z.object({
   schoolId: z.string().trim().min(1).max(128),
   request: z.string().trim().min(3).max(1800),
   answer: z.string().trim().max(500).default(''),
   currentProposal: z.record(z.string(), z.unknown()).nullable().default(null),
-  organizationContext: z.object({
-    domain: nullableText,
-    grade: nullableText,
-    matchingTeamLabels: z.array(z.string().max(120)).max(5).default([]),
-    relevantRoleLabels: z.array(z.string().max(120)).max(5).default([]),
-    classLabels: z.array(z.string().max(120)).max(8).default([]),
-    blockedDates: z.array(z.object({ title: z.string().max(180), startDate: z.string().max(30), endDate: z.string().max(30) })).max(20).default([]),
-    relatedInitiativeLabels: z.array(z.string().max(180)).max(5).default([]),
-    approvedRules: z.array(z.string().max(300)).max(10).default([]),
-  }).strict(),
 }).strict();
 
 async function requireApprovedSchoolMember(actor, schoolId) {
@@ -38,13 +33,53 @@ export async function draftTaskWithAgentHandler(request, dependencies = {}) {
   if (actor.platformAdmin) throw permissionDenied();
   await requireApprovedSchoolMember(actor, input.schoolId);
   await enforceRateLimit({ uid: actor.uid, action: 'tasks.agent', limit: 6, windowSeconds: 300 });
-  const proposal = await requestGeminiTaskProposal({
-    apiKey: dependencies.apiKey ?? GEMINI_API_KEY.value(),
-    model: dependencies.model || GEMINI_TASK_MODEL.value(),
+  const apiKey = dependencies.apiKey ?? GEMINI_API_KEY.value();
+  const queryVector = await requestGeminiEmbedding({
+    apiKey,
+    model: dependencies.embeddingModel || GEMINI_EMBEDDING_MODEL.value(),
+    text: input.request,
     fetchImpl: dependencies.fetchImpl,
-    input,
-  });
-  return { proposal };
+  }).catch(() => null);
+  const context = await loadTaskAgentContext({ actor, schoolId: input.schoolId, request: input.request, queryVector });
+  const localProposal = localTaskAgentProposal(input.request, context);
+  let generated = null;
+  try {
+    generated = await requestGeminiTaskProposal({
+      apiKey,
+      model: dependencies.model || GEMINI_TASK_MODEL.value(),
+      fetchImpl: dependencies.fetchImpl,
+      input: {
+        ...input,
+        organizationContext: {
+          grade: context.grade,
+          staff: context.staff,
+          teams: context.teams,
+          roles: context.roles,
+          classes: context.classes,
+          calendar: context.calendar,
+          approvedPatterns: context.patterns,
+          personalPreferences: context.personalProfile,
+        },
+      },
+    });
+  } catch (error) {
+    if (dependencies.failOnProviderError) throw error;
+    logger.warn('Gemini task proposal unavailable; using institutional fallback.', { code: error?.code || 'unknown' });
+  }
+  const localPartyCount = Object.values(localProposal.assignmentPlan || {}).flat().length;
+  const merged = generated ? {
+    ...localProposal,
+    ...generated,
+    assignmentPlan: localPartyCount ? localProposal.assignmentPlan : generated.assignmentPlan,
+    workPlanSteps: localProposal.workPlanSteps.length ? localProposal.workPlanSteps : generated.workPlanSteps,
+    commonDocuments: localProposal.commonDocuments.length ? localProposal.commonDocuments : generated.commonDocuments,
+    domain: localProposal.domain || generated.domain,
+    playbookId: localProposal.playbookId,
+    confidence: localProposal.confidence,
+  } : localProposal;
+  const proposal = validateTaskAgentProposal(merged, context);
+  const sessionId = await saveTaskAgentSession({ actor, schoolId: input.schoolId, request: input.request, proposal, capabilities: context.capabilities });
+  return { sessionId, proposal, capabilities: context.capabilities };
 }
 
 export const draftTaskWithAgent = onCall({ ...CALLABLE_OPTIONS, timeoutSeconds: 45, secrets: [GEMINI_API_KEY] }, async request => {

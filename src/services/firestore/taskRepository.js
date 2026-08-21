@@ -96,6 +96,7 @@ export function normalizeOrganizationTask(item, storageMode = 'nested') {
     responsibleIds: safeIdList(item.responsibleIds),
     partnerIds: safeIdList(item.partnerIds),
     informedIds: safeIdList(item.informedIds),
+    classIds: safeIdList(item.classIds),
     workPlanSteps: safeWorkPlanSteps(item.workPlanSteps),
     pinnedBy: safeIdList(item.pinnedBy),
     tags: safeIdList(item.tags),
@@ -145,6 +146,7 @@ export function normalizePersonalTask(item) {
     responsibleIds: safeIdList(item.responsibleIds),
     partnerIds: safeIdList(item.partnerIds),
     informedIds: safeIdList(item.informedIds),
+    classIds: safeIdList(item.classIds),
     workPlanSteps: safeWorkPlanSteps(item.workPlanSteps),
     pinnedBy: safeIdList(item.pinnedBy),
     tags: safeIdList(item.tags),
@@ -346,6 +348,9 @@ function editableFields(input) {
     partnerIds: safeIdList(input.partnerIds).slice(0, 50),
     informedIds: safeIdList(input.informedIds).slice(0, 50),
     workPlanSteps: safeWorkPlanSteps(input.workPlanSteps),
+    classIds: safeIdList(input.classIds).slice(0, 50),
+    creationSource: input.creationSource === 'agent' ? 'agent' : 'manual',
+    agentSessionId: safeString(input.agentSessionId).slice(0, 128),
   };
 }
 

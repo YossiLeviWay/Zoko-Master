@@ -382,6 +382,26 @@ test('only a school manager may save institutional task-agent rules and playbook
   }, { merge: true }));
 });
 
+test('task-agent memory is server-managed and personal profiles stay user scoped', async () => {
+  await seedFirestore({
+    'users/viewer_a': { ...user({ schoolId: SCHOOL_A }), uid: 'viewer_a' },
+    'users/viewer_b': { ...user({ schoolId: SCHOOL_B }), uid: 'viewer_b' },
+    [`users/viewer_a/taskAgentProfiles/${SCHOOL_A}`]: { schoolId: SCHOOL_A, userId: 'viewer_a', createdCount: 2 },
+    [`schools/${SCHOOL_A}/taskAgentSessions/session_1`]: { schoolId: SCHOOL_A, actorId: 'viewer_a' },
+    [`schools/${SCHOOL_A}/taskLearningEvents/event_1`]: { schoolId: SCHOOL_A, actorId: 'viewer_a' },
+    [`schools/${SCHOOL_A}/taskPatterns/pattern_1`]: { schoolId: SCHOOL_A, status: 'candidate' },
+  });
+  const ownDb = context('viewer_a').firestore();
+  const foreignDb = context('viewer_b').firestore();
+  await assertSucceeds(getDoc(doc(ownDb, `users/viewer_a/taskAgentProfiles/${SCHOOL_A}`)));
+  await assertFails(getDoc(doc(foreignDb, `users/viewer_a/taskAgentProfiles/${SCHOOL_A}`)));
+  await assertFails(setDoc(doc(ownDb, `users/viewer_a/taskAgentProfiles/${SCHOOL_A}`), { createdCount: 99 }, { merge: true }));
+  await assertFails(getDoc(doc(ownDb, `schools/${SCHOOL_A}/taskAgentSessions/session_1`)));
+  await assertFails(getDoc(doc(ownDb, `schools/${SCHOOL_A}/taskLearningEvents/event_1`)));
+  await assertFails(getDoc(doc(ownDb, `schools/${SCHOOL_A}/taskPatterns/pattern_1`)));
+  await assertFails(setDoc(doc(ownDb, `schools/${SCHOOL_A}/taskPatterns/pattern_2`), { status: 'approved' }));
+});
+
 test('assigned user reads a task and may change only completion fields', async () => {
   await seedFirestore({
     'users/viewer_a': user({ schoolId: SCHOOL_A, permissions: { students_view: true } }),
@@ -485,6 +505,22 @@ test('a user cannot create a personal task for another user or another school', 
     ...base, schoolId: SCHOOL_B,
   }));
   await assertFails(setDoc(doc(ownerDb, `schools/${SCHOOL_A}/tasks/personal_in_school`), base));
+});
+
+test('agent-created tasks require a server session owned by the creator', async () => {
+  await seedFirestore({
+    'users/owner_a': user({ schoolId: SCHOOL_A }),
+    [`schools/${SCHOOL_A}/taskAgentSessions/session_owner`]: { schoolId: SCHOOL_A, actorId: 'owner_a' },
+    [`schools/${SCHOOL_A}/taskAgentSessions/session_other`]: { schoolId: SCHOOL_A, actorId: 'someone_else' },
+  });
+  const ownerDb = context('owner_a').firestore();
+  const base = {
+    scope: 'personal', schoolId: SCHOOL_A, ownerId: 'owner_a', createdBy: 'owner_a',
+    title: 'Agent draft', status: 'todo', assigneeIds: [], teamId: '', assigneeTeamId: '', creationSource: 'agent',
+  };
+  await assertSucceeds(setDoc(doc(ownerDb, 'users/owner_a/personalTasks/agent_valid'), { ...base, agentSessionId: 'session_owner' }));
+  await assertFails(setDoc(doc(ownerDb, 'users/owner_a/personalTasks/agent_missing'), { ...base, agentSessionId: 'missing' }));
+  await assertFails(setDoc(doc(ownerDb, 'users/owner_a/personalTasks/agent_foreign'), { ...base, agentSessionId: 'session_other' }));
 });
 
 test('only an authorized same-school user can assign a task to one person', async () => {

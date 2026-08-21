@@ -18,6 +18,14 @@ export { submitJoinRequest, reviewJoinRequest } from './callables/joinRequests.j
 export { setActiveSchool, requestPublicPasswordReset } from './callables/auth.js';
 export { inviteTaskCollaborators, respondTaskInvitation, createMandatoryTask } from './callables/tasks.js';
 export { draftTaskWithAgent } from './callables/taskAgent.js';
+export { listTaskPatternCandidates, reviewTaskPattern } from './callables/taskPatterns.js';
+export {
+  learnNestedOrganizationTaskCreated,
+  learnNestedOrganizationTaskUpdated,
+  learnLegacyOrganizationTaskCreated,
+  learnLegacyOrganizationTaskUpdated,
+  learnPersonalTaskCreated,
+} from './triggers/taskLearning.js';
 export {
   createCustomRole,
   updateCustomRole,
