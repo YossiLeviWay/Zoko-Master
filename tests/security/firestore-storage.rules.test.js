@@ -548,6 +548,37 @@ test('only an authorized same-school user can assign a task to one person', asyn
   ));
 });
 
+test('assignment board adds multiple same-school staff without allowing cross-school targets', async () => {
+  await seedFirestore({
+    'users/manager_a': user({ schoolId: SCHOOL_A, permissions: { tasks_edit: true, tasks_assign: true } }),
+    'users/member_a': user({ schoolId: SCHOOL_A }),
+    'users/member_b': user({ schoolId: SCHOOL_A }),
+    'users/outsider_b': user({ schoolId: SCHOOL_B }),
+    [`schools/${SCHOOL_A}/tasks/board_task`]: {
+      scope: 'assigned', schoolId: SCHOOL_A, createdBy: 'manager_a', title: 'Board task',
+      status: 'todo', assigneeType: 'individual', assigneeIds: ['member_a'], participantIds: ['member_a'],
+      teamId: '', assigneeTeamId: '',
+    },
+  });
+  const taskRef = doc(context('manager_a').firestore(), `schools/${SCHOOL_A}/tasks/board_task`);
+  await assertSucceeds(updateDoc(taskRef, {
+    assigneeIds: ['member_a', 'member_b'],
+    participantIds: ['member_a', 'member_b'],
+    lastAssignedStaffId: 'member_b',
+    assignmentUpdatedBy: 'manager_a',
+    assignmentUpdatedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  }));
+  await assertFails(updateDoc(taskRef, {
+    assigneeIds: ['member_a', 'member_b', 'outsider_b'],
+    participantIds: ['member_a', 'member_b', 'outsider_b'],
+    lastAssignedStaffId: 'outsider_b',
+    assignmentUpdatedBy: 'manager_a',
+    assignmentUpdatedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  }));
+});
+
 test('email follow-up creation is atomic, tenant-scoped and requires explicit send confirmation', async () => {
   await seedFirestore({
     'users/sender_a': user({
