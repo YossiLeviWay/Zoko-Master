@@ -410,11 +410,15 @@ export async function updateTask({ db, schoolId, uid, task, input }) {
   const taskRef = task._source === 'personal'
     ? personalTaskDoc(db, uid, task.id)
     : organizationTaskDoc(db, schoolId, task);
+  const requestedAssigneeIds = safeIdList(input.assigneeIds).slice(0, 50);
   const organizationAssignment = task._source === 'organization' ? {
     scope: [TASK_SCOPES.ASSIGNED, TASK_SCOPES.INSTITUTION].includes(input.scope) ? input.scope : TASK_SCOPES.TEAM,
     assigneeType: input.scope === TASK_SCOPES.ASSIGNED ? 'individual'
       : input.scope === TASK_SCOPES.INSTITUTION ? 'all_school' : 'team',
-    assigneeIds: input.scope === TASK_SCOPES.ASSIGNED ? input.assigneeIds?.slice(0, 1) || [] : [],
+    assigneeIds: input.scope === TASK_SCOPES.ASSIGNED
+      ? (safeIdList(task.assigneeIds).length > 1 && requestedAssigneeIds.length <= 1 ? safeIdList(task.assigneeIds).slice(0, 50) : requestedAssigneeIds)
+      : [],
+    lastAssignedStaffId: requestedAssigneeIds[0] || safeIdList(task.assigneeIds)[0] || '',
     participantIds: [...new Set([
       ...(input.memberIds || input.participantIds || []),
       ...safeIdList(input.responsibleIds),
@@ -439,6 +443,31 @@ export async function updateTaskStatus({ db, schoolId, uid, task, status }) {
   return updateDoc(taskRef, {
     status,
     completedAt: status === 'done' || status === 'completed' ? serverTimestamp() : null,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function updateTaskAssignee({ db, schoolId, task, staffId, assigned, actorId }) {
+  if (task?._source !== 'organization' || !staffId) throw new Error('Invalid task assignment');
+  const taskRef = organizationTaskDoc(db, schoolId, task);
+  const currentAssignees = safeIdList(task.assigneeIds);
+  const nextAssignees = assigned
+    ? safeIdList([...currentAssignees, staffId]).slice(0, 50)
+    : currentAssignees.filter(id => id !== staffId);
+  const currentParticipants = safeIdList(task.participantIds);
+  const nextParticipants = assigned
+    ? safeIdList([...currentParticipants, staffId]).slice(0, 100)
+    : currentParticipants.filter(id => id !== staffId);
+  return updateDoc(taskRef, {
+    scope: TASK_SCOPES.ASSIGNED,
+    assigneeType: 'individual',
+    assigneeIds: nextAssignees,
+    participantIds: nextParticipants,
+    teamId: '',
+    assigneeTeamId: '',
+    lastAssignedStaffId: staffId,
+    assignmentUpdatedBy: actorId || '',
+    assignmentUpdatedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
 }

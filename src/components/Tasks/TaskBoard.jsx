@@ -46,6 +46,7 @@ import {
   taskDueDate,
   toggleTaskPin,
   updateTask,
+  updateTaskAssignee,
   updateTaskStatus,
 } from '../../services/firestore/taskRepository';
 import { schoolCollection } from '../../services/firestore/paths';
@@ -68,6 +69,7 @@ import CommunicationComposer from './CommunicationComposer';
 import CommunicationDashboard from './CommunicationDashboard';
 import TaskAssistantEntry from './TaskAssistantEntry';
 import TaskPatternReviewPanel from './TaskPatternReviewPanel';
+import TaskAssignmentBoard from './TaskAssignmentBoard';
 import {
   markCommunicationReminderNotified,
   subscribeCommunicationDrafts,
@@ -210,11 +212,14 @@ function taskInput(form) {
     : (form.scope === TASK_SCOPES.ASSIGNED || sharedPeople.some(id => id !== form.currentUserId)) ? TASK_SCOPES.ASSIGNED
       : TASK_SCOPES.PERSONAL;
   const effectiveLeadIds = leadIds.length ? leadIds : (scope === TASK_SCOPES.ASSIGNED && form.currentUserId ? [form.currentUserId] : []);
+  const existingAssigneeIds = idList(form.assigneeIds);
   return {
     ...form,
     scope,
     responsibleIds: effectiveLeadIds,
-    assigneeIds: scope === TASK_SCOPES.ASSIGNED ? (effectiveLeadIds.length ? effectiveLeadIds.slice(0, 1) : idList(form.assigneeIds).slice(0, 1)) : [],
+    assigneeIds: scope === TASK_SCOPES.ASSIGNED
+      ? (existingAssigneeIds.length > 1 ? existingAssigneeIds.slice(0, 50) : effectiveLeadIds.length ? effectiveLeadIds.slice(0, 1) : existingAssigneeIds.slice(0, 1))
+      : [],
     tags: Array.isArray(form.legacyTags) ? form.legacyTags : [],
     subtasks: [],
     workPlanSteps,
@@ -273,6 +278,8 @@ export default function TaskBoard() {
   const canAssignMandatory = permissions['tasks.assignMandatory']
     || ['principal', 'institution_manager', 'global_admin', 'platform_admin'].includes(userData?.role);
   const isInitiativeManager = ['principal', 'institution_manager', 'global_admin', 'platform_admin'].includes(userData?.role);
+  const canManageAssignmentBoard = userData?.role !== 'platform_admin'
+    && (isInitiativeManager || (canEditOrganizationTasks && canAssignTasks));
   const canCreateInitiative = permissions['initiatives.create'] || isInitiativeManager;
   const canManageAssignments = permissions['tasks.manageAssignments'] || canAssignMandatory;
   const canManageTaskPermissions = permissions['tasks.managePermissions'] || canAssignMandatory;
@@ -362,6 +369,8 @@ export default function TaskBoard() {
   const [communicationReturnTo, setCommunicationReturnTo] = useState('');
   const [showPatternReview, setShowPatternReview] = useState(false);
   const [contextTaskMenu, setContextTaskMenu] = useState(null);
+  const [showAssignmentBoard, setShowAssignmentBoard] = useState(false);
+  const [assignmentSavingKey, setAssignmentSavingKey] = useState('');
 
   function openCommunicationContext(context, returnTo = '') {
     setCommunicationTask(communicationSourceFromContext(normalizeCommunicationContext(context)));
@@ -379,17 +388,18 @@ export default function TaskBoard() {
   }
 
   useEffect(() => {
-    if (!showFilters && !showForm && !showPatternReview && !contextTaskMenu) return undefined;
+    if (!showFilters && !showForm && !showPatternReview && !contextTaskMenu && !showAssignmentBoard) return undefined;
     const closeTransientPanels = event => {
       if (event.key !== 'Escape') return;
       setShowFilters(false);
       setShowForm(false);
       setShowPatternReview(false);
       setContextTaskMenu(null);
+      setShowAssignmentBoard(false);
     };
     window.addEventListener('keydown', closeTransientPanels);
     return () => window.removeEventListener('keydown', closeTransientPanels);
-  }, [showFilters, showForm, showPatternReview, contextTaskMenu]);
+  }, [showFilters, showForm, showPatternReview, contextTaskMenu, showAssignmentBoard]);
 
   useEffect(() => {
     if (!location.state?.communicationContext) return;
@@ -446,7 +456,7 @@ export default function TaskBoard() {
       uid,
       schoolId,
       teamIds,
-      canViewAll: canEditOrganizationTasks,
+      canViewAll: canEditOrganizationTasks || canManageAssignmentBoard,
       onData: items => { setOrganizationTasks(items); markReady('organization'); },
       onError: onSubscriptionError,
     });
@@ -454,7 +464,7 @@ export default function TaskBoard() {
       unsubscribePersonal();
       unsubscribeOrganization();
     };
-  }, [canEditOrganizationTasks, schoolId, teamIds, uid]);
+  }, [canEditOrganizationTasks, canManageAssignmentBoard, schoolId, teamIds, uid]);
 
   useEffect(() => {
     if (!schoolId || !uid) return undefined;
@@ -826,7 +836,7 @@ export default function TaskBoard() {
   }
 
   function validateAssignment(value) {
-    if (value.scope === TASK_SCOPES.ASSIGNED && value.assigneeIds.length !== 1) return false;
+    if (value.scope === TASK_SCOPES.ASSIGNED && value.assigneeIds.length < 1) return false;
     if (value.scope === TASK_SCOPES.TEAM && !value.teamId) return false;
     if (value.scope === TASK_SCOPES.INSTITUTION && !canManageAssignments) return false;
     return true;
@@ -956,6 +966,20 @@ export default function TaskBoard() {
       showMessage(status === 'done' ? 'המשימה הושלמה.' : 'המשימה הוחזרה לביצוע.');
     } catch {
       setGeneralError();
+    }
+  }
+
+  async function changeTaskAssignment(task, memberId, assigned) {
+    const key = `${task._storageMode || 'nested'}:${task.id}:${memberId}`;
+    setAssignmentSavingKey(key);
+    setError('');
+    try {
+      await updateTaskAssignee({ db, schoolId, task, staffId: memberId, assigned, actorId: uid });
+      showMessage(assigned ? 'המשימה שויכה לאיש הצוות.' : 'השיוך הוסר. המשימה נשארה בבנק.');
+    } catch {
+      setError('לא ניתן לעדכן את השיוך. בדקו את ההרשאה ונסו שוב.');
+    } finally {
+      setAssignmentSavingKey('');
     }
   }
 
@@ -1424,25 +1448,25 @@ export default function TaskBoard() {
         {error && <div className="task-feedback task-feedback--error" role="alert">{error}<button onClick={() => setError('')} aria-label="סגירת הודעת שגיאה"><X size={14} /></button></div>}
 
         {activeTab === 'dashboard' ? <>
-          <section className="task-dashboard-head" aria-labelledby="task-dashboard-title">
+          {!showAssignmentBoard && <section className="task-dashboard-head" aria-labelledby="task-dashboard-title">
             <h1 id="task-dashboard-title">משימות</h1>
             <label className="task-compact-search"><Search size={16} aria-hidden="true" /><span className="sr-only">חיפוש משימות</span><input value={searchText} onChange={event => setSearchText(event.target.value)} placeholder="חיפוש" /></label>
-            <button type="button" className="btn task-create-primary" onClick={() => openTaskForm(TASK_SCOPES.PERSONAL)}><Plus size={16} /> יצירה חדשה</button>
-          </section>
+            <div className="task-dashboard-actions">{canManageAssignmentBoard && <button type="button" className="btn btn-secondary" onClick={() => setShowAssignmentBoard(true)}><Users size={16} /> ניהול הקצאות</button>}<button type="button" className="btn task-create-primary" onClick={() => openTaskForm(TASK_SCOPES.PERSONAL)}><Plus size={16} /> יצירה חדשה</button></div>
+          </section>}
 
-          {canUseTaskAssistant && <TaskAssistantEntry uid={uid} schoolId={schoolId} onManual={() => openTaskForm(TASK_SCOPES.PERSONAL)} onProposal={applyAssistantProposal} />}
+          {!showAssignmentBoard && canUseTaskAssistant && <TaskAssistantEntry uid={uid} schoolId={schoolId} onManual={() => openTaskForm(TASK_SCOPES.PERSONAL)} onProposal={applyAssistantProposal} />}
 
-          <section className="task-action-metrics" aria-label="מה דורש טיפול">
+          {!showAssignmentBoard && <section className="task-action-metrics" aria-label="מה דורש טיפול">
             <button type="button" className={filterDate === 'today' ? 'active' : ''} onClick={() => openMetric('today')}><span>להיום</span><strong>{dashboardStats.today}</strong></button>
             <button type="button" className={filterDate === 'overdue' ? 'active is-overdue' : 'is-overdue'} onClick={() => openMetric('overdue')}><span>באיחור</span><strong>{dashboardStats.overdue}</strong></button>
             <button type="button" className={dashboardStats.waiting ? 'has-unread' : ''} onClick={() => { setActiveTab('invitations'); setFilterDate('all'); }}><span>ממתין לי</span><strong>{dashboardStats.waiting}</strong></button>
-          </section>
+          </section>}
 
-          <section className="task-view-layer" aria-label="בחירת תצוגה">
-            <div className="task-view-tools"><button type="button" className="task-filter-trigger" onClick={() => setShowFilters(true)} aria-label={`פתיחת מסננים${activeFilterCount ? `, ${activeFilterCount} פעילים` : ''}`}><Filter size={15} /> סינון{activeFilterCount > 0 && <span>{activeFilterCount}</span>}</button><details className="task-tools-menu"><summary aria-label="כלים נוספים"><MoreHorizontal size={17} /> כלים</summary><div>{isInitiativeManager && <button type="button" onClick={() => setShowPatternReview(true)}><Sparkles size={14} /> למידת הסוכן</button>}{canCreateCommunication && <button type="button" onClick={() => openCommunicationContext({ type: 'general', id: 'task_panel', label: 'פאנל המשימות' })}><MailPlus size={14} /> מייל ומעקב חדש</button>}<button type="button" onClick={() => setActiveTab('communications')}><MailPlus size={14} /> מרכז מיילים ומעקבים</button><button type="button" onClick={() => setActiveTab('invitations')}><Users size={14} /> הזמנות ושיתופים{dashboardStats.waiting > 0 ? ` (${dashboardStats.waiting})` : ''}</button></div></details></div>
-          </section>
+          {!showAssignmentBoard && <section className="task-view-layer" aria-label="בחירת תצוגה">
+            <div className="task-view-tools"><button type="button" className="task-filter-trigger" onClick={() => setShowFilters(true)} aria-label={`פתיחת מסננים${activeFilterCount ? `, ${activeFilterCount} פעילים` : ''}`}><Filter size={15} /> סינון{activeFilterCount > 0 && <span>{activeFilterCount}</span>}</button><details className="task-tools-menu"><summary aria-label="כלים נוספים"><MoreHorizontal size={17} /> כלים</summary><div>{canManageAssignmentBoard && <button type="button" onClick={() => setShowAssignmentBoard(true)}><Users size={14} /> ניהול הקצאות</button>}{isInitiativeManager && <button type="button" onClick={() => setShowPatternReview(true)}><Sparkles size={14} /> למידת הסוכן</button>}{canCreateCommunication && <button type="button" onClick={() => openCommunicationContext({ type: 'general', id: 'task_panel', label: 'פאנל המשימות' })}><MailPlus size={14} /> מייל ומעקב חדש</button>}<button type="button" onClick={() => setActiveTab('communications')}><MailPlus size={14} /> מרכז מיילים ומעקבים</button><button type="button" onClick={() => setActiveTab('invitations')}><Users size={14} /> הזמנות ושיתופים{dashboardStats.waiting > 0 ? ` (${dashboardStats.waiting})` : ''}</button></div></details></div>
+          </section>}
 
-          {workView !== 'plans' && <section className="task-work-list-head" aria-label="מסננים פעילים">
+          {!showAssignmentBoard && workView !== 'plans' && <section className="task-work-list-head" aria-label="מסננים פעילים">
             <span className="task-stats">{filteredTasks.length} משימות</span>
             {activeFilterChips.length > 0 && <div className="task-active-filters">{activeFilterChips.map(chip => <button type="button" key={chip.key} onClick={chip.clear} aria-label={`הסרת מסנן ${chip.label}`}>{chip.label}<X size={12} aria-hidden="true" /></button>)}<button type="button" className="task-clear-filters" onClick={clearAllFilters}>נקה הכול</button></div>}
           </section>}
@@ -1485,7 +1509,7 @@ export default function TaskBoard() {
           />
         </>}
 
-        {activeTab === 'communications' ? <CommunicationDashboard
+        {activeTab === 'dashboard' && showAssignmentBoard ? <TaskAssignmentBoard tasks={organizationTasks} staff={staff} savingKey={assignmentSavingKey} onAssignmentChange={changeTaskAssignment} onClose={() => setShowAssignmentBoard(false)} /> : activeTab === 'communications' ? <CommunicationDashboard
           tasks={[...personalTasks, ...organizationTasks, ...communicationDrafts]}
           staff={staff}
           onOpen={setCommunicationTask}

@@ -2267,6 +2267,26 @@ service cloud.firestore {
         );
     }
 
+    function validTaskAssigneeMutation(schoolId) {
+      let oldIds = resource.data.get('assigneeIds', []);
+      let newIds = request.resource.data.get('assigneeIds', []);
+      let changedStaffId = request.resource.data.get('lastAssignedStaffId', '');
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['assigneeIds'])
+        || (
+          newIds is list
+          && newIds.size() <= 50
+          && changedStaffId is string
+          && changedStaffId.size() > 0
+          && newIds.toSet().difference(oldIds.toSet()).hasOnly([changedStaffId])
+          && (newIds.size() == 1 || oldIds.toSet().difference(newIds.toSet()).hasOnly([changedStaffId]))
+          && exists(/databases/$(database)/documents/users/$(changedStaffId))
+          && userBelongsToSchool(
+            get(/databases/$(database)/documents/users/$(changedStaffId)).data,
+            schoolId
+          )
+        );
+    }
+
     function initiativePermission(schoolId, permission) {
       return isGlobalAdmin()
         || (
@@ -2428,6 +2448,7 @@ service cloud.firestore {
         && (
           (
             hasPermission(schoolId, 'tasks_edit')
+            && validTaskAssigneeMutation(schoolId)
             && (!('mandatory' in resource.data) || resource.data.mandatory == false || resource.data.createdBy == request.auth.uid || hasPermission(schoolId, 'tasks.manageAssignments'))
           )
           || (
