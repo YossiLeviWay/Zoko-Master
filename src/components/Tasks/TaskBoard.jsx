@@ -334,16 +334,16 @@ export default function TaskBoard() {
   const [workView, setWorkView] = useState(() => searchParams.get('initiative') ? 'plans' : 'mine');
   const communicationReminderInFlight = useRef(new Set());
   const [searchText, setSearchText] = useState('');
-  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterStatus, setFilterStatus] = useState(() => ['active', 'todo', 'in_progress', 'done'].includes(searchParams.get('status')) ? searchParams.get('status') : 'all');
   const [filterPriority, setFilterPriority] = useState('all');
   const [filterTeam, setFilterTeam] = useState('all');
-  const [filterDate, setFilterDate] = useState('all');
+  const [filterDate, setFilterDate] = useState(() => ['overdue', 'today', 'upcoming', 'no_date', 'completed'].includes(searchParams.get('date')) ? searchParams.get('date') : 'all');
   const [filterDateFrom, setFilterDateFrom] = useState('');
   const [filterDateTo, setFilterDateTo] = useState('');
   const [filterAcademicYear, setFilterAcademicYear] = useState('all');
   const [filterOwner, setFilterOwner] = useState('all');
   const [filterInitiative, setFilterInitiative] = useState('all');
-  const [showCompleted, setShowCompleted] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(() => searchParams.get('status') === 'done' || searchParams.get('date') === 'completed');
   const [showFilters, setShowFilters] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -720,7 +720,7 @@ export default function TaskBoard() {
     if (complete && !showCompleted && filterStatus !== 'done' && filterDate !== 'completed') return false;
     if (filterStatus !== 'all') {
       const status = complete ? 'done' : task.status || 'todo';
-      if (status !== filterStatus) return false;
+      if (filterStatus === 'active' ? complete : status !== filterStatus) return false;
     }
     if (filterPriority !== 'all' && task.priority !== filterPriority) return false;
     if (filterTeam !== 'all' && (task.teamId || task.assigneeTeamId) !== filterTeam) return false;
@@ -780,7 +780,7 @@ export default function TaskBoard() {
     filterOwner !== 'all', filterInitiative !== 'all', showCompleted,
   ].filter(Boolean).length;
   const activeFilterChips = [];
-  if (filterStatus !== 'all') activeFilterChips.push({ key: 'status', label: `סטטוס: ${STATUS_CONFIG[filterStatus]?.label || filterStatus}`, clear: () => setFilterStatus('all') });
+  if (filterStatus !== 'all') activeFilterChips.push({ key: 'status', label: `סטטוס: ${filterStatus === 'active' ? 'פעילות' : STATUS_CONFIG[filterStatus]?.label || filterStatus}`, clear: () => setFilterStatus('all') });
   if (filterPriority !== 'all') activeFilterChips.push({ key: 'priority', label: `עדיפות: ${PRIORITY_CONFIG[filterPriority]?.label || filterPriority}`, clear: () => setFilterPriority('all') });
   if (filterTeam !== 'all') activeFilterChips.push({ key: 'team', label: `צוות: ${teams.find(item => item.id === filterTeam)?.name || 'נבחר'}`, clear: () => setFilterTeam('all') });
   if (filterDate !== 'all') activeFilterChips.push({ key: 'date', label: `מועד: ${GROUP_LABELS[filterDate] || filterDate}`, clear: () => setFilterDate('all') });
@@ -1060,6 +1060,15 @@ export default function TaskBoard() {
         showMessage('המשימה הועברה לבנק המוסדי ושויכה לאיש הצוות.');
       } else {
         await updateTaskAssignee({ db, schoolId, task, staffId: mutation.staffId, assigned: mutation.assigned, actorId: uid });
+        if (mutation.assigned && mutation.staffId !== uid) {
+          await createNotification(mutation.staffId, {
+            schoolId,
+            title: `שויכה אליך משימה: ${task.title}`,
+            body: task.description?.slice(0, 80) || '',
+            type: 'task',
+            link: `/tasks?task=${task.id}`,
+          });
+        }
         showMessage(assigned ? 'המשימה שויכה לאיש הצוות.' : 'השיוך הוסר. המשימה נשארה בבנק.');
       }
     } catch {
@@ -1635,7 +1644,7 @@ export default function TaskBoard() {
           <div className="task-filter-fields">
             <label>אחראי<select value={filterOwner} onChange={event => setFilterOwner(event.target.value)}><option value="all">כל האחראים</option>{staff.map(item => <option key={item.uid || item.id} value={item.uid || item.id}>{item.fullName}</option>)}</select></label>
             <label>צוות<select value={filterTeam} onChange={event => setFilterTeam(event.target.value)}><option value="all">כל הצוותים</option>{teams.map(team => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>
-            <label>סטטוס<select value={filterStatus} onChange={event => setFilterStatus(event.target.value)}><option value="all">כל הסטטוסים</option>{Object.entries(STATUS_CONFIG).map(([key, config]) => <option key={key} value={key}>{config.label}</option>)}</select></label>
+            <label>סטטוס<select value={filterStatus} onChange={event => setFilterStatus(event.target.value)}><option value="all">כל הסטטוסים</option><option value="active">כל המשימות הפעילות</option>{Object.entries(STATUS_CONFIG).map(([key, config]) => <option key={key} value={key}>{config.label}</option>)}</select></label>
             <label>עדיפות<select value={filterPriority} onChange={event => setFilterPriority(event.target.value)}><option value="all">כל העדיפויות</option>{Object.entries(PRIORITY_CONFIG).map(([key, config]) => <option key={key} value={key}>{config.label}</option>)}</select></label>
             <label>שנת לימודים<select value={filterAcademicYear} onChange={event => setFilterAcademicYear(event.target.value)}><option value="all">כל שנות הלימודים</option>{academicYears.map(item => <option key={item.id} value={item.id}>{item.hebrewLabel || item.label}</option>)}</select></label>
             <label>תכנית<select value={filterInitiative} onChange={event => setFilterInitiative(event.target.value)}><option value="all">כל התכניות</option>{initiatives.filter(item => item.status !== 'archived').map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>

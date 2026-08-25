@@ -4,6 +4,7 @@ import { db } from '../../firebase';
 import { collection, query, where, orderBy, updateDoc, doc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import Header from '../Layout/Header';
 import { Bell, Check, Trash2, CheckCheck, Calendar, Users, FileText, MessageCircle, Shield, Clock } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import './Notifications.css';
 
 const ICON_MAP = {
@@ -18,6 +19,7 @@ const ICON_MAP = {
 
 export default function Notifications() {
   const { currentUser } = useAuth();
+  const navigate = useNavigate();
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all'); // all, unread
@@ -49,6 +51,11 @@ export default function Notifications() {
 
   async function deleteNotification(notifId) {
     await deleteDoc(doc(db, 'notifications', notifId));
+  }
+
+  async function openNotification(notification) {
+    if (!notification.read) await markAsRead(notification.id);
+    if (notification.link) navigate(notification.link);
   }
 
   function formatTime(dateStr) {
@@ -116,7 +123,7 @@ export default function Notifications() {
                     borderRadius: 8,
                     cursor: 'pointer',
                   }}
-                  onClick={() => !notif.read && markAsRead(notif.id)}
+                  onClick={() => openNotification(notif)}
                 >
                   <div style={{
                     width: 36, height: 36, borderRadius: '50%',

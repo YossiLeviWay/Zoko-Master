@@ -16,13 +16,13 @@ import { useNavigate } from 'react-router-dom';
 import Header from '../Layout/Header';
 import { Calendar, CheckSquare, Users, Clock, Star, BookOpen, CheckCircle, XCircle, UserCheck, Activity, School, UserPlus, Shield, Megaphone, FileText, BarChart3, SlidersHorizontal, ArrowUpDown, Plus, X, GripVertical, Maximize2, Minimize2, Trash2, Eye, PlusCircle, Columns, Lock } from 'lucide-react';
 import {
-  isTaskComplete,
   subscribeOrganizationTasks,
   subscribePersonalTasks,
   TASK_SCOPES,
   taskDueDate,
   updateTaskStatus,
 } from '../../services/firestore/taskRepository';
+import { DASHBOARD_TASK_SORTS, dashboardTaskStats, sortDashboardTasks } from '../../utils/dashboardTasks';
 import './Dashboard.css';
 
 const WIDGET_TYPES = {
@@ -48,6 +48,10 @@ function getGreeting() {
   if (hour >= 5 && hour < 12) return 'בוקר טוב';
   if (hour >= 12 && hour < 17) return 'צהריים טובים';
   return 'ערב טוב';
+}
+
+function localDateKey(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
 function formatHebrewDate(dateStr) {
@@ -103,7 +107,6 @@ export default function Dashboard() {
   const globalAdmin = isGlobalAdmin();
   const principal = isPrincipal();
   const [events, setEvents] = useState([]);
-  const [taskStats, setTaskStats] = useState({ total: 0, pending: 0, completed: 0, overdue: 0 });
   const [staffCount, setStaffCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [holidays, setHolidays] = useState([]);
@@ -119,7 +122,7 @@ export default function Dashboard() {
   // Personal tasks
   const [myTasks, setMyTasks] = useState([]);
   const [myTeams, setMyTeams] = useState([]);
-  const [taskSortBy, setTaskSortBy] = useState('priority'); // 'priority' | 'dueDate'
+  const [taskSortBy, setTaskSortBy] = useState(DASHBOARD_TASK_SORTS.PRIORITY);
 
   // Widget management
   const [widgets, setWidgets] = useState(DEFAULT_WIDGETS);
@@ -149,9 +152,13 @@ export default function Dashboard() {
     if (prefs) {
       setHiddenEventCategories(prefs.hiddenEventCategories || []);
       setHiddenHolidayTypes(prefs.hiddenHolidayTypes || []);
+      setTaskSortBy(Object.values(DASHBOARD_TASK_SORTS).includes(prefs.taskSortBy)
+        ? prefs.taskSortBy
+        : DASHBOARD_TASK_SORTS.PRIORITY);
     } else {
       setHiddenEventCategories([]);
       setHiddenHolidayTypes([]);
+      setTaskSortBy(DASHBOARD_TASK_SORTS.PRIORITY);
     }
   }, [userData?.dashboardPreferences]);
 
@@ -172,6 +179,19 @@ export default function Dashboard() {
       });
     } catch (err) {
       console.error('Error saving widget config:');
+    }
+  }
+
+  async function saveTaskSort(sortBy) {
+    if (!Object.values(DASHBOARD_TASK_SORTS).includes(sortBy)) return;
+    setTaskSortBy(sortBy);
+    if (!currentUser?.uid) return;
+    try {
+      await updateDoc(doc(db, 'users', currentUser.uid), {
+        'dashboardPreferences.taskSortBy': sortBy,
+      });
+    } catch {
+      // Keep the current selection for this session when preference sync fails.
     }
   }
 
@@ -347,12 +367,12 @@ export default function Dashboard() {
     return unsub;
   }, [selectedSchool, currentUser?.uid]);
 
-  // Load only the current user's private and directly assigned tasks.
+  // Load the current user's private tasks and every organization task directly assigned to them.
   useEffect(() => {
     if (!selectedSchool || !currentUser?.uid) return;
     let personal = [];
     let assigned = [];
-    const emit = () => setMyTasks([...personal, ...assigned].filter(task => !isTaskComplete(task)));
+    const emit = () => setMyTasks([...personal, ...assigned]);
     const unsubscribePersonal = subscribePersonalTasks({
       db,
       uid: currentUser.uid,
@@ -377,20 +397,8 @@ export default function Dashboard() {
     };
   }, [selectedSchool, currentUser?.uid, myTeams]);
 
-  // Sort personal tasks
-  const sortedMyTasks = [...myTasks].sort((a, b) => {
-    if (taskSortBy === 'priority') {
-      const pOrder = { high: 0, medium: 1, low: 2 };
-      return (pOrder[a.priority] ?? 1) - (pOrder[b.priority] ?? 1);
-    }
-    // Sort by due date (no date = last)
-    const dueA = taskDueDate(a);
-    const dueB = taskDueDate(b);
-    if (!dueA && !dueB) return 0;
-    if (!dueA) return 1;
-    if (!dueB) return -1;
-    return String(dueA).localeCompare(String(dueB));
-  });
+  const sortedMyTasks = sortDashboardTasks(myTasks, taskSortBy);
+  const taskStats = dashboardTaskStats(myTasks, localDateKey());
 
   function getTaskTeamName(task) {
     if (task.scope === TASK_SCOPES.PERSONAL) return 'אישית';
@@ -659,18 +667,6 @@ export default function Dashboard() {
         const eventsSnap = await getDocs(eventsQuery);
         setEvents(eventsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
-        // Fetch task stats
-        const tasksRef = collection(db, `tasks_${selectedSchool}`);
-        const tasksSnap = await getDocs(tasksRef);
-        const tasks = tasksSnap.docs.map(d => d.data());
-        const pending = tasks.filter(t => t.status === 'pending' || t.status === 'todo').length;
-        const completed = tasks.filter(t => t.status === 'completed' || t.status === 'done').length;
-        const overdue = tasks.filter(t => {
-          if (t.status === 'completed' || t.status === 'done') return false;
-          return t.dueDate && t.dueDate < today;
-        }).length;
-        setTaskStats({ total: tasks.length, pending, completed, overdue });
-
         // Fetch staff count - query with new schoolIds array-contains
         const staffRef = collection(db, 'users');
         const staffQuery1 = query(staffRef, where('schoolIds', 'array-contains', selectedSchool));
@@ -782,7 +778,7 @@ export default function Dashboard() {
 
     switch (widget.type) {
       case 'my_tasks': {
-        const today = new Date().toISOString().slice(0, 10);
+        const today = localDateKey();
         const dueToday = sortedMyTasks.filter(task => String(taskDueDate(task)).slice(0, 10) === today).length;
         const overdueCount = sortedMyTasks.filter(task => taskDueDate(task) && String(taskDueDate(task)).slice(0, 10) < today).length;
         return (
@@ -790,17 +786,17 @@ export default function Dashboard() {
             <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
               <span className="my-task-status">להיום: {dueToday}</span>
               <span className="my-task-due my-task-due--late">באיחור: {overdueCount}</span>
-              <button className={`btn btn-sm ${taskSortBy === 'priority' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTaskSortBy('priority')} style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem' }}>
+              <button className={`btn btn-sm ${taskSortBy === DASHBOARD_TASK_SORTS.PRIORITY ? 'btn-primary' : 'btn-secondary'}`} onClick={() => saveTaskSort(DASHBOARD_TASK_SORTS.PRIORITY)} style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem' }} aria-pressed={taskSortBy === DASHBOARD_TASK_SORTS.PRIORITY}>
                 <ArrowUpDown size={12} /> דחיפות
               </button>
-              <button className={`btn btn-sm ${taskSortBy === 'dueDate' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTaskSortBy('dueDate')} style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem' }}>
+              <button className={`btn btn-sm ${taskSortBy === DASHBOARD_TASK_SORTS.DUE_DATE ? 'btn-primary' : 'btn-secondary'}`} onClick={() => saveTaskSort(DASHBOARD_TASK_SORTS.DUE_DATE)} style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem' }} aria-pressed={taskSortBy === DASHBOARD_TASK_SORTS.DUE_DATE}>
                 <ArrowUpDown size={12} /> תאריך יעד
               </button>
               <button className="btn btn-sm btn-secondary" onClick={() => navigate('/tasks')} style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem', marginInlineStart: 'auto' }}>
                 <Lock size={12} /> משימה אישית חדשה
               </button>
             </div>
-            {sortedMyTasks.length === 0 && <p className="section-empty">אין משימות אישיות או משימות שהוקצו לך להיום.</p>}
+            {sortedMyTasks.length === 0 && <p className="section-empty">אין משימות פעילות שמשויכות אליך.</p>}
             <div className="my-task-list">
               {sortedMyTasks.slice(0, 5).map(task => {
                 const dueDate = taskDueDate(task);
@@ -1102,7 +1098,7 @@ export default function Dashboard() {
 
         {/* Stats Grid */}
         <div className="dashboard-stats">
-          <div className="stat-card">
+          <button type="button" className="stat-card" onClick={() => navigate('/tasks?status=active')} aria-label={`פתיחת ${taskStats.pending} משימות ממתינות`}>
             <div className="stat-icon stat-icon--tasks">
               <CheckSquare size={20} />
             </div>
@@ -1110,8 +1106,8 @@ export default function Dashboard() {
               <span className="stat-value">{taskStats.pending}</span>
               <span className="stat-label">משימות ממתינות</span>
             </div>
-          </div>
-          <div className="stat-card">
+          </button>
+          <button type="button" className="stat-card" onClick={() => navigate('/tasks?status=done')} aria-label={`פתיחת ${taskStats.completed} משימות שהושלמו`}>
             <div className="stat-icon stat-icon--completed">
               <CheckSquare size={20} />
             </div>
@@ -1119,8 +1115,8 @@ export default function Dashboard() {
               <span className="stat-value">{taskStats.completed}</span>
               <span className="stat-label">משימות שהושלמו</span>
             </div>
-          </div>
-          <div className="stat-card">
+          </button>
+          <button type="button" className="stat-card" onClick={() => navigate('/tasks?date=overdue')} aria-label={`פתיחת ${taskStats.overdue} משימות באיחור`}>
             <div className="stat-icon stat-icon--overdue">
               <Clock size={20} />
             </div>
@@ -1128,8 +1124,8 @@ export default function Dashboard() {
               <span className="stat-value">{taskStats.overdue}</span>
               <span className="stat-label">משימות באיחור</span>
             </div>
-          </div>
-          <div className="stat-card">
+          </button>
+          <button type="button" className="stat-card" onClick={() => navigate('/staff')} aria-label={`פתיחת רשימת ${staffCount} אנשי צוות`}>
             <div className="stat-icon stat-icon--staff">
               <Users size={20} />
             </div>
@@ -1137,7 +1133,7 @@ export default function Dashboard() {
               <span className="stat-value">{staffCount}</span>
               <span className="stat-label">אנשי צוות</span>
             </div>
-          </div>
+          </button>
         </div>
 
         {/* Customizable Widget Grid */}
