@@ -46,8 +46,8 @@ import { usePermissions } from '../../hooks/usePermissions';
 import './Layout.css';
 
 const NAV_ITEMS = [
-  { path: '/tasks', icon: CheckSquare, label: 'המשימות שלי', requiresSchool: true, permission: 'tasks_view', primary: true },
   { path: '/', icon: Home, label: 'דשבורד', platformAllowed: true, primary: true },
+  { path: '/tasks', icon: CheckSquare, label: 'המשימות שלי', requiresSchool: true, permission: 'tasks_view', primary: true },
   { path: '/calendar', icon: Calendar, label: 'לוח שנה', requiresSchool: true, permission: 'calendar_view', primary: true },
   { path: '/staff', icon: Users, label: 'סגל וקהילה', requiresSchool: true, permission: 'staff_view' },
   { path: '/teams', icon: Users, label: 'צוותים', requiresSchool: true, permission: 'teams_view' },

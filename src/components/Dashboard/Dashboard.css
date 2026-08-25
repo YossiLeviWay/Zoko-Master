@@ -87,6 +87,11 @@
 }
 
 .stat-card {
+  width: 100%;
+  color: inherit;
+  font: inherit;
+  text-align: right;
+  cursor: pointer;
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -100,6 +105,11 @@
 .stat-card:hover {
   border-color: var(--color-accent-soft);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.stat-card:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--color-primary) 35%, transparent);
+  outline-offset: 2px;
 }
 
 .stat-icon {
