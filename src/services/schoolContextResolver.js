@@ -180,6 +180,11 @@ function sanitizeWorkItem(item, kind) {
     classIds: ids(item?.classIds),
     status: text(item?.status, 60),
     dueDate: dateText(item?.dueDate || item?.endDate),
+    assigneeIds: ids(item?.assigneeIds),
+    responsibleIds: ids(item?.responsibleIds),
+    partnerIds: ids(item?.partnerIds),
+    informedIds: ids(item?.informedIds),
+    participantIds: ids(item?.participantIds),
     kind,
   };
 }
@@ -275,6 +280,11 @@ export function resolveSchoolTaskContext({
   const domain = text(contextRequest.domain || inferred.domain, 80);
   const grade = text(contextRequest.grade || inferred.grade, 12);
   const domainTerms = unique([domain, inferred.teamSuggestion, ...domain.split(/\s+/u)]).map(item => item.toLocaleLowerCase('he'));
+  const requestTerms = unique(text(request, 1800).toLocaleLowerCase('he')
+    .split(/[^\p{L}\p{N}]+/gu)
+    .filter(item => item.length > 2 && !['משימה', 'צריך', 'צריכה', 'לקדם', 'עבור', 'הכנת'].includes(item)))
+    .slice(0, 12);
+  const taskTerms = domainTerms.length ? domainTerms : requestTerms;
   const matchingTeams = requested.has('teams') || requested.has('teamMembers')
     ? context.teams.filter(team => includesSearchable([
         team.name,
@@ -320,11 +330,12 @@ export function resolveSchoolTaskContext({
     ? context.initiatives.filter(item => !domainTerms.length || includesSearchable(item.title, domainTerms)).slice(0, 10)
     : [];
   const relevantTasks = requested.has('tasks')
-    ? context.tasks.filter(item => !domainTerms.length || includesSearchable(item.title, domainTerms)).slice(0, 10)
+    ? context.tasks.filter(item => taskTerms.length > 0 && includesSearchable(item.title, taskTerms)).slice(0, 10)
     : [];
   return {
     inferred,
     teams: matchingTeams,
+    authorizedTeams: context.teams,
     teamMembers,
     relevantRoles,
     roleHolders,
@@ -361,6 +372,7 @@ export function buildGeminiSchoolContext(result) {
       endDate: item.endDate,
     })).slice(0, 20),
     relatedInitiativeLabels: unique((result?.initiatives || []).map(item => item.title)).slice(0, 5),
+    similarTaskLabels: unique((result?.tasks || []).map(item => item.title)).slice(0, 5),
     approvedRules: (result?.approvedRules || []).slice(0, 10),
   };
 }
@@ -379,7 +391,10 @@ export function createLocalTaskProposal(request, result, options = {}) {
     context: result,
     playbooks: result?.playbooks || [],
   });
-  const team = result?.teams?.[0]?.name || result?.inferred?.teamSuggestion || '';
+  const team = plan.assignments.responsible.find(item => item.source === 'team')?.name
+    || result?.teams?.[0]?.name
+    || result?.inferred?.teamSuggestion
+    || '';
   const assignees = unique([
     ...(plan.assignments.responsible || []).filter(item => item.source === 'staff').map(item => item.name),
   ]).slice(0, 12);

@@ -5,6 +5,28 @@ const uniqueById = values => [...new Map(values.filter(Boolean).map(item => [`${
 const uniqueText = values => [...new Set(values.map(item => text(item, 120)).filter(Boolean))];
 const normalize = value => text(value, 400).toLocaleLowerCase('he').replace(/["״׳']/gu, '');
 
+function frequentIds(items, fields, limit = 6) {
+  const counts = new Map();
+  (items || []).forEach(item => fields.forEach(field => {
+    (Array.isArray(item?.[field]) ? item[field] : []).forEach(id => {
+      if (typeof id === 'string' && id) counts.set(id, (counts.get(id) || 0) + 1);
+    });
+  }));
+  return [...counts.entries()]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .slice(0, limit)
+    .map(([id]) => id);
+}
+
+function frequentValue(items, field) {
+  const counts = new Map();
+  (items || []).forEach(item => {
+    const value = text(item?.[field], 128);
+    if (value) counts.set(value, (counts.get(value) || 0) + 1);
+  });
+  return [...counts.entries()].sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))[0]?.[0] || '';
+}
+
 function containsAny(value, terms) {
   const source = normalize(value);
   return terms.some(term => source.includes(normalize(term)));
@@ -84,8 +106,11 @@ export function buildTaskResponsibilityPlan({ request, answer = '', context = {}
   const availablePlaybooks = resolveTaskPlaybooks(playbooks);
   const trip = context?.inferred?.domain && containsAny(context.inferred.domain, ['טיול', 'מסע', 'סיור']);
   const playbook = trip ? availablePlaybooks.find(item => item.id === ANNUAL_TRIP_PLAYBOOK_ID) : null;
+  const history = context.tasks || [];
+  const historyTeamId = frequentValue(history, 'teamId');
+  const learnedTeam = (context.authorizedTeams || []).find(team => team.id === historyTeamId) || null;
   const teams = context.teams || [];
-  const primaryTeam = teams[0] || null;
+  const primaryTeam = teams[0] || learnedTeam;
   const leaderIds = primaryTeam?.leaderIds || [];
   const leaderSet = new Set(leaderIds);
   const leaders = (context.authorizedStaff || context.teamMembers || []).filter(member => leaderSet.has(member.id));
@@ -93,15 +118,23 @@ export function buildTaskResponsibilityPlan({ request, answer = '', context = {}
   const supportTerms = playbook?.supportingRoles || primaryTeam?.supportingRoles || [];
   const supportHolders = findSupportHolders(context, supportTerms);
   const management = (context.authorizedStaff || []).filter(member => ['principal', 'institution_manager'].includes(member.role));
+  const learnedResponsibleIds = new Set(frequentIds(history, ['assigneeIds', 'responsibleIds']));
+  const learnedPartnerIds = new Set(frequentIds(history, ['partnerIds']));
+  const learnedInformedIds = new Set(frequentIds(history, ['informedIds']));
+  const learnedResponsible = (context.authorizedStaff || []).filter(member => learnedResponsibleIds.has(member.id));
+  const learnedPartners = (context.authorizedStaff || []).filter(member => learnedPartnerIds.has(member.id));
+  const learnedInformed = (context.authorizedStaff || []).filter(member => learnedInformedIds.has(member.id));
   const responsible = uniqueById([
     ...(primaryTeam ? [teamLabel(primaryTeam)] : []),
     ...leaders.map(staffLabel),
+    ...learnedResponsible.map(staffLabel),
   ]);
   const partners = uniqueById([
     ...homeroomTeachers.map(staffLabel),
     ...supportHolders.map(staffLabel),
+    ...learnedPartners.map(staffLabel),
   ]).filter(item => !responsible.some(owner => owner.id === item.id));
-  const informed = uniqueById(management.map(staffLabel))
+  const informed = uniqueById([...management.map(staffLabel), ...learnedInformed.map(staffLabel)])
     .filter(item => !responsible.some(owner => owner.id === item.id) && !partners.some(owner => owner.id === item.id));
   const confidence = confidenceFor({ teams, leaderIds, grade: context?.inferred?.grade, homeroomTeachers });
   const overnight = inferOvernightState(request, answer);
@@ -127,7 +160,7 @@ export function buildTaskResponsibilityPlan({ request, answer = '', context = {}
     dateRange: endOfMonthRange(request, now),
     overnight,
     summary: primaryTeam
-      ? `הצוות המוביל שנמצא הוא ${primaryTeam.name}${context?.inferred?.grade ? ` עבור שכבת ${context.inferred.grade}` : ''}.`
+      ? `${learnedTeam && primaryTeam.id === learnedTeam.id ? 'לפי משימות דומות שלך, ' : ''}הצוות המוביל שנמצא הוא ${primaryTeam.name}${context?.inferred?.grade ? ` עבור שכבת ${context.inferred.grade}` : ''}.`
       : 'לא נמצאה התאמה מוסדית חד־משמעית; אפשר לבחור אחראי ידנית.',
   };
 }

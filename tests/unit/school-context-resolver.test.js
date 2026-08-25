@@ -130,6 +130,27 @@ test('Gemini failure returns the local proposal instead of blocking task creatio
   assert.deepEqual(result.proposal.teamSuggestions, ['צוות טיולים']);
 });
 
+test('similar tasks learn the current user\'s previous team and assignees without a server trigger', () => {
+  clearSchoolContextCache();
+  const sources = {
+    ...baseSources(),
+    staff: [{ id: 'media-lead', fullName: 'מובילת מדיה', jobTitle: 'רכזת מדיה' }],
+    teams: [{ id: 'media', name: 'צוות מדיה', responsibility: 'צילום ותיעוד', memberIds: ['media-lead'] }],
+    tasks: [{
+      id: 'previous',
+      title: 'ארגון יום צילום לצוות',
+      teamId: 'media',
+      assigneeIds: ['media-lead'],
+    }],
+  };
+  const request = 'ארגון יום צילום נוסף';
+  const context = resolveSchoolTaskContext({ ...config({ sources }), request });
+  const proposal = createLocalTaskProposal(request, context);
+  assert.deepEqual(proposal.teamSuggestions, ['צוות מדיה']);
+  assert.equal(proposal.assignmentPlan.responsible.some(item => item.id === 'media-lead'), true);
+  assert.match(proposal.reasoningSummary, /משימות דומות שלך/u);
+});
+
 function tripOrganizationSources() {
   return {
     ...baseSources(),

@@ -151,6 +151,7 @@ export function normalizeTaskAssistantOrganizationContext(value) {
       endDate: isoDate(item?.endDate),
     })).filter(item => item.title && item.startDate) : [],
     relatedInitiativeLabels: safeLabels(context.relatedInitiativeLabels, 5, 120),
+    similarTaskLabels: safeLabels(context.similarTaskLabels, 5, 180),
     approvedRules: safeLabels(context.approvedRules, 10, 240),
   };
 }
