@@ -75,6 +75,7 @@ import {
   subscribeCommunicationDrafts,
 } from '../../services/firestore/communicationRepository';
 import { communicationSourceFromContext, normalizeCommunicationContext } from '../../utils/communicationContext';
+import { assignmentMutationForTask } from '../../utils/taskAssignmentBoard';
 import {
   overdueDayCount,
   taskDateBucket,
@@ -1039,8 +1040,28 @@ export default function TaskBoard() {
     setAssignmentSavingKey(key);
     setError('');
     try {
-      await updateTaskAssignee({ db, schoolId, task, staffId: memberId, assigned, actorId: uid });
-      showMessage(assigned ? 'המשימה שויכה לאיש הצוות.' : 'השיוך הוסר. המשימה נשארה בבנק.');
+      const mutation = assignmentMutationForTask(task, memberId, assigned);
+      if (!mutation) return;
+      if (mutation.kind === 'convert') {
+        const { assignment } = mutation;
+        await convertPersonalTask({
+          db,
+          schoolId,
+          user: { uid, fullName: userData?.fullName },
+          task,
+          assignment,
+        });
+        try {
+          await notifyAssignment({ ...task, ...assignment }, task.id);
+        } catch {
+          // The assignment itself is authoritative; a notification failure must
+          // not make a successful drag-and-drop operation look unsuccessful.
+        }
+        showMessage('המשימה הועברה לבנק המוסדי ושויכה לאיש הצוות.');
+      } else {
+        await updateTaskAssignee({ db, schoolId, task, staffId: mutation.staffId, assigned: mutation.assigned, actorId: uid });
+        showMessage(assigned ? 'המשימה שויכה לאיש הצוות.' : 'השיוך הוסר. המשימה נשארה בבנק.');
+      }
     } catch {
       setError('לא ניתן לעדכן את השיוך. בדקו את ההרשאה ונסו שוב.');
     } finally {
@@ -1574,7 +1595,7 @@ export default function TaskBoard() {
           />
         </>}
 
-        {activeTab === 'dashboard' && showAssignmentBoard ? <TaskAssignmentBoard tasks={organizationTasks} staff={staff} savingKey={assignmentSavingKey} onAssignmentChange={changeTaskAssignment} onClose={() => setShowAssignmentBoard(false)} /> : activeTab === 'communications' ? <CommunicationDashboard
+        {activeTab === 'dashboard' && showAssignmentBoard ? <TaskAssignmentBoard tasks={[...personalTasks, ...organizationTasks]} staff={staff} savingKey={assignmentSavingKey} onAssignmentChange={changeTaskAssignment} onClose={() => setShowAssignmentBoard(false)} /> : activeTab === 'communications' ? <CommunicationDashboard
           tasks={[...personalTasks, ...organizationTasks, ...communicationDrafts]}
           staff={staff}
           onOpen={setCommunicationTask}

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Check, GripVertical, Search, UserPlus, Users, X } from 'lucide-react';
 import { isTaskComplete, taskDueDate } from '../../services/firestore/taskRepository';
+import { assignedTasksForStaff, isAssignmentBankTask } from '../../utils/taskAssignmentBoard';
 
 const staffId = member => String(member?.uid || member?.id || '');
 const taskKey = task => `${task?._storageMode || 'nested'}:${task?.id || ''}`;
@@ -21,7 +22,7 @@ export default function TaskAssignmentBoard({ tasks, staff, savingKey, onAssignm
   const query = search.trim().toLocaleLowerCase('he');
 
   const bankTasks = useMemo(() => [...tasks]
-    .filter(task => task._source === 'organization' && task.workflowType !== 'external_email_followup')
+    .filter(isAssignmentBankTask)
     .filter(task => !query || `${task.title} ${task.description || ''}`.toLocaleLowerCase('he').includes(query))
     .sort((left, right) => Number(isTaskComplete(left)) - Number(isTaskComplete(right))
       || String(taskDueDate(left) || '9999').localeCompare(String(taskDueDate(right) || '9999'))
@@ -44,13 +45,13 @@ export default function TaskAssignmentBoard({ tasks, staff, savingKey, onAssignm
 
   async function assignFromPayload(payload, targetStaffId) {
     const task = tasks.find(item => taskKey(item) === payload?.taskKey);
-    if (!task || !targetStaffId || task.assigneeIds?.includes(targetStaffId)) return;
+    if (!task || !targetStaffId || savingKey || task.assigneeIds?.includes(targetStaffId)) return;
     await onAssignmentChange(task, targetStaffId, true);
   }
 
   async function removeFromPayload(payload) {
     const task = tasks.find(item => taskKey(item) === payload?.taskKey);
-    if (!task || !payload?.sourceStaffId) return;
+    if (!task || savingKey || !payload?.sourceStaffId) return;
     await onAssignmentChange(task, payload.sourceStaffId, false);
   }
 
@@ -68,8 +69,8 @@ export default function TaskAssignmentBoard({ tasks, staff, savingKey, onAssignm
         {bankTasks.map(task => {
           const key = taskKey(task);
           const assignedCount = task.assigneeIds?.length || 0;
-          return <button type="button" key={key} draggable onDragStart={event => startDrag(event, task)} onClick={() => setSelectedTaskKey(previous => previous === key ? '' : key)} className={`task-bank-card ${selectedTaskKey === key ? 'is-selected' : ''}`} aria-pressed={selectedTaskKey === key}>
-            <GripVertical size={15} aria-hidden="true" /><span><strong>{task.title}</strong><small>{dueLabel(task)} · {assignedCount ? `${assignedCount} משויכים` : 'טרם שובצה'}</small></span>{isTaskComplete(task) && <Check size={14} aria-label="הושלמה" />}
+          return <button type="button" key={key} draggable={!savingKey} onDragStart={event => startDrag(event, task)} onClick={() => setSelectedTaskKey(previous => previous === key ? '' : key)} className={`task-bank-card ${selectedTaskKey === key ? 'is-selected' : ''}`} aria-pressed={selectedTaskKey === key}>
+            <GripVertical size={15} aria-hidden="true" /><span><strong>{task.title}</strong><small>{dueLabel(task)} · {assignedCount ? `${assignedCount} משויכים` : task._source === 'personal' ? 'מוכנה לשיוך' : 'טרם שובצה'}</small></span>{isTaskComplete(task) && <Check size={14} aria-label="הושלמה" />}
           </button>;
         })}
         {bankTasks.length === 0 && <p className="task-assignment-empty">לא נמצאו משימות בבנק.</p>}
@@ -81,7 +82,7 @@ export default function TaskAssignmentBoard({ tasks, staff, savingKey, onAssignm
     <div className="task-staff-board" aria-label="הקצאות לפי אנשי צוות">
       {activeStaff.map(member => {
         const memberId = staffId(member);
-        const assignedTasks = tasks.filter(task => task._source === 'organization' && task.assigneeIds?.includes(memberId));
+        const assignedTasks = assignedTasksForStaff(tasks, memberId);
         const targetActive = dragTarget === memberId;
         const canAddSelected = selectedTask && !selectedTask.assigneeIds?.includes(memberId);
         return <article key={memberId} className={`task-staff-lane ${targetActive ? 'is-drop-target' : ''}`} onDragOver={event => { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; setDragTarget(memberId); }} onDragLeave={() => setDragTarget('')} onDrop={event => { event.preventDefault(); setDragTarget(''); assignFromPayload(dragData(event), memberId); }}>
