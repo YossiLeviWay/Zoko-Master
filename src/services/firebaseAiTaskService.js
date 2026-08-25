@@ -1,9 +1,16 @@
 import { getAI, getGenerativeModel, GoogleAIBackend, Schema } from 'firebase/ai';
 import { FIREBASE_AI_CONFIG } from '../config/firebaseAi';
-import { draftTaskWithAgent as callTaskAgent } from './adminUserService';
 import { getFirebaseAiRuntimeConfig } from './firebaseAiRuntimeConfig';
 import { buildTaskAssistantInput, createLocalTaskAgentProposal, normalizeTaskAssistantProposal, resolveRelativeTaskDate } from '../utils/taskAssistant';
 import { startTaskAssistantStage } from './taskAssistantPerformance';
+import {
+  buildGeminiSchoolContext,
+  buildSchoolContextVersion,
+  buildUserPermissionsVersion,
+  createLocalTaskProposal,
+  resolveSchoolTaskContext,
+  resolveTaskAssistantWithFallback,
+} from './schoolContextResolver';
 import firebaseApp, { isAppCheckConfigured, isFirebaseConfigured } from '../firebase';
 
 const fallbackRequestTimes = [];
@@ -46,10 +53,16 @@ function enforceFallbackRateLimit() {
   fallbackRequestTimes.push(now);
 }
 
-async function draftWithFirebaseAiLogic({ request, currentProposal, answer, runtimeConfig }) {
+async function draftWithFirebaseAiLogic({ request, currentProposal, answer, organizationContext, runtimeConfig }) {
   if (!isFirebaseConfigured || !isAppCheckConfigured) throw Object.assign(new Error('not-configured'), { code: 'agent-not-configured' });
   enforceFallbackRateLimit();
-  const safeInput = buildTaskAssistantInput({ request, currentProposal, answer, maxLength: runtimeConfig.maxInputLength });
+  const safeInput = buildTaskAssistantInput({
+    request,
+    currentProposal,
+    answer,
+    organizationContext,
+    maxLength: runtimeConfig.maxInputLength,
+  });
   const ai = getAI(firebaseApp, { backend: new GoogleAIBackend() });
   const model = getGenerativeModel(ai, {
     model: runtimeConfig.model,
@@ -82,43 +95,72 @@ function publicError(error) {
   return Object.assign(new Error('unavailable'), { code: 'agent-unavailable' });
 }
 
-export async function draftTaskWithFirebaseAI({ uid, schoolId, request, currentProposal, answer }) {
+function resolveInstitutionalContext({ schoolId, request, schoolContext }) {
+  const sources = schoolContext?.sources && typeof schoolContext.sources === 'object'
+    ? schoolContext.sources
+    : null;
+  if (!sources) return null;
+  const permissions = schoolContext?.permissions && typeof schoolContext.permissions === 'object'
+    ? schoolContext.permissions
+    : {};
+  return resolveSchoolTaskContext({
+    schoolId,
+    request,
+    sources,
+    permissions,
+    contextVersion: buildSchoolContextVersion(sources),
+    userPermissionsVersion: buildUserPermissionsVersion(permissions),
+  });
+}
+
+export async function draftTaskWithFirebaseAI({ uid, schoolId, request, currentProposal, answer, schoolContext }) {
   if (!uid || !schoolId) throw Object.assign(new Error('not-configured'), { code: 'agent-not-configured' });
   const runtimeConfig = await getFirebaseAiRuntimeConfig();
   if (!runtimeConfig.taskAssistantEnabled) throw Object.assign(new Error('disabled'), { code: 'agent-disabled' });
+  const institutionalContext = resolveInstitutionalContext({ schoolId, request, schoolContext });
+  const organizationContext = institutionalContext ? buildGeminiSchoolContext(institutionalContext) : null;
+  const localProposal = institutionalContext
+    ? createLocalTaskProposal(request, institutionalContext, { answer })
+    : createLocalTaskAgentProposal(request, runtimeConfig.maxInputLength);
   const finishPromptBuild = startTaskAssistantStage('promptBuild');
   try {
-    buildTaskAssistantInput({ request, currentProposal, answer, maxLength: runtimeConfig.maxInputLength });
+    buildTaskAssistantInput({
+      request,
+      currentProposal,
+      answer,
+      organizationContext,
+      maxLength: runtimeConfig.maxInputLength,
+    });
   } finally {
     finishPromptBuild();
   }
   const finishGemini = startTaskAssistantStage('geminiCall');
   try {
-    let result;
-    try {
-      result = await callTaskAgent({ schoolId, request, currentProposal, answer });
-    } catch (serverError) {
-      const reason = String(serverError?.code || serverError?.message || '');
-      if (reason.includes('unauthenticated') || reason.includes('permission-denied') || reason.includes('app-check')) throw serverError;
-      try {
-        result = await draftWithFirebaseAiLogic({ request, currentProposal, answer, runtimeConfig });
-      } catch (fallbackError) {
-        if (['sensitive-content', 'too-short'].includes(fallbackError?.code)) throw fallbackError;
-        result = {
-          proposal: createLocalTaskAgentProposal(request, runtimeConfig.maxInputLength),
-          sessionId: '',
-          capabilities: { canAssign: false, collaborationMode: 'invite' },
-          degraded: true,
-        };
-      }
-    }
-    const proposal = normalizeTaskAssistantProposal(result.proposal);
+    let aiResult = null;
+    const resolved = await resolveTaskAssistantWithFallback({
+      localProposal,
+      generate: async () => {
+        aiResult = await draftWithFirebaseAiLogic({
+          request,
+          currentProposal,
+          answer,
+          organizationContext,
+          runtimeConfig,
+        });
+        return aiResult.proposal;
+      },
+    });
+    const proposal = normalizeTaskAssistantProposal(resolved.proposal);
     const deterministicDate = resolveRelativeTaskDate(request);
+    const canAssign = schoolContext?.capabilities?.canAssign === true;
     return {
       proposal: deterministicDate ? { ...proposal, dueDate: deterministicDate } : proposal,
-      sessionId: result.sessionId || '',
-      capabilities: result.capabilities || { canAssign: false, collaborationMode: 'invite' },
-      degraded: result.degraded === true,
+      sessionId: '',
+      capabilities: {
+        canAssign,
+        collaborationMode: canAssign ? 'assign' : 'invite',
+      },
+      degraded: resolved.usedLocalFallback || aiResult?.degraded === true,
     };
   } catch (error) {
     throw publicError(error);

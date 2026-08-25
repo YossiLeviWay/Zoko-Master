@@ -49,7 +49,7 @@ import {
   updateTaskAssignee,
   updateTaskStatus,
 } from '../../services/firestore/taskRepository';
-import { schoolCollection } from '../../services/firestore/paths';
+import { schoolCollection, schoolDoc } from '../../services/firestore/paths';
 import { subscribeAcademicYears } from '../../services/firestore/academicYearRepository';
 import { subscribeInitiatives } from '../../services/firestore/initiativeRepository';
 import { createNotification, createNotifications } from '../../utils/notifications';
@@ -321,6 +321,8 @@ export default function TaskBoard() {
   const [taskInvitations, setTaskInvitations] = useState([]);
   const [staff, setStaff] = useState([]);
   const [teams, setTeams] = useState([]);
+  const [roles, setRoles] = useState([]);
+  const [taskAgentSettings, setTaskAgentSettings] = useState({ approvedRules: [], taskPlaybooks: [] });
   const [allFiles, setAllFiles] = useState([]);
   const [allFolders, setAllFolders] = useState([]);
   const [classes, setClasses] = useState([]);
@@ -546,6 +548,22 @@ export default function TaskBoard() {
       },
       () => { setTeams([]); if (!teamsReady) { teamsReady = true; finishTeamsLoad(); } },
     );
+    const unsubscribeRoles = onSnapshot(
+      schoolCollection(db, schoolId, 'roles'),
+      snapshot => setRoles(snapshot.docs.map(item => ({ id: item.id, ...item.data() })).filter(item => item.status !== 'archived')),
+      () => setRoles([]),
+    );
+    const unsubscribeTaskAgentSettings = onSnapshot(
+      schoolDoc(db, schoolId, 'settings', 'task_agent'),
+      snapshot => {
+        const data = snapshot.data() || {};
+        setTaskAgentSettings({
+          approvedRules: Array.isArray(data.approvedRules) ? data.approvedRules : [],
+          taskPlaybooks: Array.isArray(data.taskPlaybooks) ? data.taskPlaybooks : [],
+        });
+      },
+      () => setTaskAgentSettings({ approvedRules: [], taskPlaybooks: [] }),
+    );
     const unsubscribeFiles = onSnapshot(
       schoolCollection(db, schoolId, 'files'),
       snapshot => setAllFiles(snapshot.docs.map(item => {
@@ -577,6 +595,8 @@ export default function TaskBoard() {
     );
     return () => {
       unsubscribeTeams();
+      unsubscribeRoles();
+      unsubscribeTaskAgentSettings();
       unsubscribeFiles();
       unsubscribeFolders();
       unsubscribeClasses();
@@ -648,6 +668,51 @@ export default function TaskBoard() {
   const viewTasks = useMemo(() => activeTab === 'dashboard' && workView !== 'plans'
     ? [...tabTasks, ...initiativeItems]
     : tabTasks, [activeTab, initiativeItems, tabTasks, workView]);
+
+  const taskAssistantSchoolContext = useMemo(() => ({
+    capabilities: { canAssign: canAssignTasks },
+    // These flags only limit the already-authorized data loaded by Firestore.
+    // They do not grant read or write access and cannot bypass security rules.
+    permissions: {
+      'tasks.useAssistant': true,
+      tasks_view: true,
+      staff_view: true,
+      teams_view: true,
+      classes_view: true,
+      calendar_view: true,
+      'initiatives.view': true,
+    },
+    sources: {
+      staff,
+      teams,
+      roles,
+      classes,
+      events: [],
+      holidays,
+      initiatives,
+      // Personal preferences are learned from the user's own task history.
+      // Other users' unapproved organizational patterns are never sent to Gemini.
+      tasks: [
+        ...personalTasks,
+        ...organizationTasks.filter(task => task.createdBy === uid),
+      ],
+      approvedRules: taskAgentSettings.approvedRules,
+      playbooks: taskAgentSettings.taskPlaybooks,
+    },
+  }), [
+    canAssignTasks,
+    classes,
+    holidays,
+    initiatives,
+    organizationTasks,
+    personalTasks,
+    roles,
+    staff,
+    taskAgentSettings.approvedRules,
+    taskAgentSettings.taskPlaybooks,
+    teams,
+    uid,
+  ]);
 
   const filteredTasks = useMemo(() => viewTasks.filter(task => {
     const complete = isTaskComplete(task);
@@ -1454,7 +1519,7 @@ export default function TaskBoard() {
             <div className="task-dashboard-actions">{canManageAssignmentBoard && <button type="button" className="btn btn-secondary" onClick={() => setShowAssignmentBoard(true)}><Users size={16} /> ניהול הקצאות</button>}<button type="button" className="btn task-create-primary" onClick={() => openTaskForm(TASK_SCOPES.PERSONAL)}><Plus size={16} /> יצירה חדשה</button></div>
           </section>}
 
-          {!showAssignmentBoard && canUseTaskAssistant && <TaskAssistantEntry uid={uid} schoolId={schoolId} onManual={() => openTaskForm(TASK_SCOPES.PERSONAL)} onProposal={applyAssistantProposal} />}
+          {!showAssignmentBoard && canUseTaskAssistant && <TaskAssistantEntry uid={uid} schoolId={schoolId} schoolContext={taskAssistantSchoolContext} onManual={() => openTaskForm(TASK_SCOPES.PERSONAL)} onProposal={applyAssistantProposal} />}
 
           {!showAssignmentBoard && <section className="task-action-metrics" aria-label="מה דורש טיפול">
             <button type="button" className={filterDate === 'today' ? 'active' : ''} onClick={() => openMetric('today')}><span>להיום</span><strong>{dashboardStats.today}</strong></button>
