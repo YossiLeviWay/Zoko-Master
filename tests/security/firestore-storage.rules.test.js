@@ -548,6 +548,30 @@ test('only an authorized same-school user can assign a task to one person', asyn
   ));
 });
 
+test('assignment board atomically converts a manager personal task on its first staff assignment', async () => {
+  await seedFirestore({
+    'users/manager_a': user({ schoolId: SCHOOL_A, permissions: { tasks_edit: true, tasks_assign: true } }),
+    'users/member_a': user({ schoolId: SCHOOL_A }),
+    'users/manager_a/personalTasks/personal_bank_task': {
+      scope: 'personal', schoolId: SCHOOL_A, ownerId: 'manager_a', createdBy: 'manager_a',
+      title: 'Personal bank task', status: 'todo', assigneeIds: [], teamId: '', assigneeTeamId: '',
+    },
+  });
+  const managerDb = context('manager_a').firestore();
+  const personalRef = doc(managerDb, 'users/manager_a/personalTasks/personal_bank_task');
+  const organizationRef = doc(managerDb, `schools/${SCHOOL_A}/tasks/personal_bank_task`);
+  const batch = writeBatch(managerDb);
+  batch.set(organizationRef, {
+    scope: 'assigned', schoolId: SCHOOL_A, ownerId: '', createdBy: 'manager_a',
+    title: 'Personal bank task', status: 'todo', assigneeType: 'individual',
+    assigneeIds: ['member_a'], teamId: '', assigneeTeamId: '',
+  });
+  batch.delete(personalRef);
+  await assertSucceeds(batch.commit());
+  assert.equal((await getDoc(organizationRef)).exists(), true);
+  await assertFails(getDoc(personalRef));
+});
+
 test('assignment board adds multiple same-school staff without allowing cross-school targets', async () => {
   await seedFirestore({
     'users/manager_a': user({ schoolId: SCHOOL_A, permissions: { tasks_edit: true, tasks_assign: true } }),
