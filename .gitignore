@@ -8,6 +8,9 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+worker/wrangler.toml
+worker/.dev.vars
+.wrangler
 dist
 functions/migration-reports/
 dist-ssr

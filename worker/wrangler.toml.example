@@ -1,0 +1,23 @@
+name = "zoko-task-agent"
+main = "src/index.js"
+compatibility_date = "2026-08-26"
+
+[triggers]
+crons = ["15 2 * * *"]
+
+[vars]
+ALLOWED_ORIGINS = "https://yossileviway.github.io,http://localhost:5173"
+GEMINI_MODEL = "gemini-flash-latest"
+
+# Configure these with `wrangler secret put`:
+# GEMINI_API_KEY
+# FIREBASE_WEB_API_KEY
+# FIREBASE_PROJECT_ID
+# FIREBASE_PROJECT_NUMBER
+# FIREBASE_APP_IDS  (comma-separated Firebase app IDs)
+# FIREBASE_CLIENT_EMAIL
+# FIREBASE_PRIVATE_KEY
+# GITHUB_APP_ID
+# GITHUB_APP_PRIVATE_KEY
+# GITHUB_INSTALLATION_ID
+# SCHOOL_REPOSITORIES  (JSON: {"schoolId":"owner/private-repo"})

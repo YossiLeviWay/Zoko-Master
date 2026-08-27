@@ -402,6 +402,46 @@ test('task-agent memory is server-managed and personal profiles stay user scoped
   await assertFails(setDoc(doc(ownDb, `schools/${SCHOOL_A}/taskPatterns/pattern_2`), { status: 'approved' }));
 });
 
+test('temporary task-agent learning is private to managers and bound to its author', async () => {
+  await seedFirestore({
+    'users/teacher_a': { ...user({ schoolId: SCHOOL_A }), uid: 'teacher_a' },
+    'users/peer_a': { ...user({ schoolId: SCHOOL_A }), uid: 'peer_a' },
+    'users/principal_a': { ...user({ schoolId: SCHOOL_A, role: 'principal' }), uid: 'principal_a' },
+    'users/principal_b': { ...user({ schoolId: SCHOOL_B, role: 'principal' }), uid: 'principal_b' },
+  });
+  const path = `schools/${SCHOOL_A}/taskLearningInbox/event_a`;
+  const record = {
+    schoolId: SCHOOL_A,
+    actorId: 'teacher_a',
+    actorName: 'יעל לוי',
+    taskId: 'task_a',
+    originalText: 'הכנת מבחנים לשכבת ח׳',
+    summary: 'הכנת מבחנים',
+    canonicalIntent: 'מבחנים שכבת ח',
+    proposal: {},
+    savedTask: { title: 'הכנת מבחנים' },
+    status: 'candidate',
+    groupId: 'exam-pattern',
+    keywords: ['מבחנים'],
+    roles: ['רכז פדגוגי'],
+    people: [],
+    steps: [],
+    documents: [],
+    timing: '',
+    createdAt: '2026-08-27T10:00:00.000Z',
+    expiresAt: '2026-09-26T10:00:00.000Z',
+  };
+
+  await assertSucceeds(setDoc(doc(context('teacher_a').firestore(), path), record));
+  await assertFails(setDoc(doc(context('peer_a').firestore(), `schools/${SCHOOL_A}/taskLearningInbox/spoofed`), record));
+  await assertFails(getDoc(doc(context('teacher_a').firestore(), path)));
+  await assertFails(getDoc(doc(context('peer_a').firestore(), path)));
+  await assertFails(getDoc(doc(context('principal_b').firestore(), path)));
+  await assertSucceeds(getDoc(doc(context('principal_a').firestore(), path)));
+  await assertFails(updateDoc(doc(context('principal_a').firestore(), path), { summary: 'שינוי ישיר' }));
+  await assertSucceeds(deleteDoc(doc(context('principal_a').firestore(), path)));
+});
+
 test('assigned user reads a task and may change only completion fields', async () => {
   await seedFirestore({
     'users/viewer_a': user({ schoolId: SCHOOL_A, permissions: { students_view: true } }),

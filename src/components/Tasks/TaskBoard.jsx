@@ -87,6 +87,7 @@ import {
   resolveTaskAssistantProposal,
 } from '../../utils/taskAssistant';
 import { startTaskAssistantStage } from '../../services/taskAssistantPerformance';
+import { captureTaskAgentLearning } from '../../services/taskAgentBrainService';
 import '../Gantt/Gantt.css';
 import './Tasks.css';
 
@@ -267,7 +268,7 @@ function idList(value) {
 }
 
 export default function TaskBoard() {
-  const { userData, selectedSchool, currentUser } = useAuth();
+  const { userData, selectedSchool, currentUser, availableSchools } = useAuth();
   const { permissions } = usePermissions();
   const navigate = useNavigate();
   const location = useLocation();
@@ -715,6 +716,34 @@ export default function TaskBoard() {
     uid,
   ]);
 
+  const institutionalKnowledgeSnapshot = useMemo(() => ({
+    school: {
+      id: schoolId,
+      name: availableSchools?.find(item => item.id === schoolId)?.name || schoolId,
+    },
+    staff: staff.map(item => ({
+      id: item.uid || item.id,
+      name: item.fullName || item.name || '',
+      jobTitle: item.jobTitle || item.roleName || '',
+      teams: teams.filter(team => team.memberIds?.includes(item.uid || item.id)).map(team => team.name),
+      classes: classes.filter(entry => [entry.teacherId, entry.homeroomTeacherId, ...(entry.staffIds || [])].includes(item.uid || item.id)).map(entry => entry.name || entry.title),
+    })),
+    units: [
+      ...teams.map(item => ({ type: 'צוות', name: item.name, owners: (item.leaderIds || []).map(id => staff.find(member => (member.uid || member.id) === id)?.fullName).filter(Boolean), summary: item.description || '' })),
+      ...classes.map(item => ({ type: 'כיתה', name: item.name || item.title, owners: [item.teacherName || item.homeroomTeacherName].filter(Boolean), summary: item.grade || item.gradeLevel || '' })),
+      ...initiatives.map(item => ({ type: 'תכנית', name: item.title, owners: [staff.find(member => (member.uid || member.id) === item.ownerId)?.fullName].filter(Boolean), summary: item.description || item.summary || '' })),
+      ...[...personalTasks, ...organizationTasks].map(item => ({
+        type: 'משימה',
+        name: item.title,
+        owners: (item.assigneeIds || [item.assigneeId]).map(id => staff.find(member => (member.uid || member.id) === id)?.fullName).filter(Boolean),
+        summary: [item.description, ...(item.steps || item.subtasks || []).map(step => step.title || step.name || step)].filter(Boolean).join(' · '),
+      })),
+    ],
+    calendar: holidays.map(item => ({ date: item.startDate || item.date, range: item.endDate ? `${item.startDate}–${item.endDate}` : '', title: item.name || item.title, summary: item.description || '' })),
+    documents: allFiles.map(item => ({ name: item.name, domain: item.type || item.category || '', summary: item.content || item.text || item.description || item.summary || '' })),
+    patterns: taskAgentSettings.approvedRules || [],
+  }), [allFiles, availableSchools, classes, holidays, initiatives, organizationTasks, personalTasks, schoolId, staff, taskAgentSettings.approvedRules, teams]);
+
   const filteredTasks = useMemo(() => viewTasks.filter(task => {
     const complete = isTaskComplete(task);
     if (complete && !showCompleted && filterStatus !== 'done' && filterDate !== 'completed') return false;
@@ -877,6 +906,8 @@ export default function TaskBoard() {
     const holiday = findHolidayConflict(nextForm.dueDate || nextForm.endDate, holidays);
     setForm(nextForm);
     setAssistantMeta({
+      request: context.request || '',
+      proposal: resolved,
       reasoningSummary: resolved.reasoningSummary,
       confidence: resolved.confidence,
       domain: resolved.domain,
@@ -954,6 +985,7 @@ export default function TaskBoard() {
     setError('');
     let invitationWarning = false;
     try {
+      let createdTask = null;
       if (input.mandatory) {
         await createMandatoryTask({
           schoolId,
@@ -980,6 +1012,7 @@ export default function TaskBoard() {
       } else {
         const creator = input.scope === TASK_SCOPES.PERSONAL ? createPersonalTask : createOrganizationTask;
         const created = await creator({ db, schoolId, user: { uid, fullName: userData?.fullName }, input });
+        createdTask = { id: created.id, ...input };
         if (input.scope !== TASK_SCOPES.PERSONAL) await notifyAssignment(input, created.id);
         if (input.scope === TASK_SCOPES.PERSONAL && input.suggestedInviteIds?.length) {
           try {
@@ -988,6 +1021,14 @@ export default function TaskBoard() {
             invitationWarning = true;
           }
         }
+      }
+      if (createdTask) {
+        captureTaskAgentLearning({
+          schoolId,
+          request: assistantMeta?.request || `${input.title}\n${input.description || ''}`,
+          proposal: assistantMeta?.proposal || null,
+          savedTask: createdTask,
+        }).catch(() => undefined);
       }
       setForm(emptyForm());
       setShowForm(false);
@@ -1656,7 +1697,7 @@ export default function TaskBoard() {
         </section>
       </div>}
 
-      {showPatternReview && <TaskPatternReviewPanel schoolId={schoolId} onClose={() => setShowPatternReview(false)} />}
+      {showPatternReview && <TaskPatternReviewPanel schoolId={schoolId} knowledgeSnapshot={institutionalKnowledgeSnapshot} onClose={() => setShowPatternReview(false)} />}
 
       {contextTaskMenu && <div className="task-context-menu-backdrop" onPointerDown={() => setContextTaskMenu(null)}>
         <div className="task-context-menu" role="menu" aria-label={`ניהול ${contextTaskMenu.task.title}`} style={{ left: contextTaskMenu.x, top: contextTaskMenu.y }} onPointerDown={event => event.stopPropagation()}>

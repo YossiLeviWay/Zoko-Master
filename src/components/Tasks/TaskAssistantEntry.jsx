@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Bot, Sparkles } from 'lucide-react';
 import { FIREBASE_AI_CONFIG } from '../../config/firebaseAi';
-import { draftTaskWithFirebaseAI, taskAssistantErrorMessage } from '../../services/firebaseAiTaskService';
+import { taskAssistantErrorMessage } from '../../services/firebaseAiTaskService';
+import { draftTaskWithInstitutionalBrain } from '../../services/taskAgentBrainService';
 
 export default function TaskAssistantEntry({ uid, schoolId, schoolContext, onManual, onProposal }) {
   const [request, setRequest] = useState('');
@@ -15,7 +16,7 @@ export default function TaskAssistantEntry({ uid, schoolId, schoolContext, onMan
     setLoading(true);
     setError('');
     try {
-      const result = await draftTaskWithFirebaseAI({ uid, schoolId, request, currentProposal, answer, schoolContext });
+      const result = await draftTaskWithInstitutionalBrain({ uid, schoolId, request, currentProposal, answer, schoolContext });
       setAnswer('');
       setProposal(result.proposal);
       setProposalMeta({ request, sessionId: result.sessionId, capabilities: result.capabilities, degraded: result.degraded });

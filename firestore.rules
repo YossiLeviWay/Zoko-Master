@@ -2997,6 +2997,36 @@ service cloud.firestore {
         allow read, write: if false;
       }
 
+      // Temporary, review-only learning inbox for the Spark-plan task agent.
+      // A staff member may submit only a bounded record in their own name after
+      // saving a task. Only school managers can inspect or delete the source.
+      match /taskLearningInbox/{eventId} {
+        allow create: if isSchoolMember(schoolId)
+          && request.resource.data.keys().hasOnly([
+            'schoolId', 'actorId', 'actorName', 'taskId', 'originalText',
+            'summary', 'canonicalIntent', 'proposal', 'savedTask', 'status',
+            'groupId', 'keywords', 'roles', 'people', 'steps', 'documents',
+            'timing', 'createdAt', 'expiresAt'
+          ])
+          && request.resource.data.schoolId == schoolId
+          && request.resource.data.actorId == request.auth.uid
+          && request.resource.data.status == 'candidate'
+          && request.resource.data.actorName is string
+          && request.resource.data.actorName.size() <= 120
+          && request.resource.data.originalText is string
+          && request.resource.data.originalText.size() <= 5000
+          && request.resource.data.summary is string
+          && request.resource.data.summary.size() <= 500
+          && request.resource.data.canonicalIntent is string
+          && request.resource.data.canonicalIntent.size() <= 500
+          && request.resource.data.groupId is string
+          && request.resource.data.groupId.size() <= 64
+          && request.resource.data.createdAt is string
+          && request.resource.data.expiresAt is string;
+        allow read, delete: if canManageSchoolUsers(schoolId);
+        allow update: if false;
+      }
+
       match /taskPatterns/{patternId} {
         allow read, write: if false;
       }
