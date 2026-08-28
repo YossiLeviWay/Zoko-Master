@@ -17,14 +17,14 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: 'npm'
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 21
@@ -48,8 +48,7 @@ jobs:
             exit 1
           fi
           if [ -z "$VITE_TASK_AGENT_WORKER_URL" ]; then
-            echo "::error::VITE_TASK_AGENT_WORKER_URL is required for the institutional task agent."
-            exit 1
+            echo "::warning::VITE_TASK_AGENT_WORKER_URL is not configured. The task agent will use its existing Firebase AI fallback until the private Worker is deployed."
           fi
 
       - name: Build
@@ -64,9 +63,9 @@ jobs:
           VITE_FIREBASE_APPCHECK_SITE_KEY: ${{ secrets.VITE_FIREBASE_APPCHECK_SITE_KEY }}
           VITE_TASK_AGENT_WORKER_URL: ${{ secrets.VITE_TASK_AGENT_WORKER_URL }}
 
-      - uses: actions/configure-pages@v4
+      - uses: actions/configure-pages@v6
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: './dist'
 
@@ -79,4 +78,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
