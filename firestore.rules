@@ -527,6 +527,187 @@ service cloud.firestore {
         && currentUser().rolePermissionsBySchool[schoolId][permission] == true;
     }
 
+    function canManageCollectiveBrain(schoolId) {
+      return canManageSchoolUsers(schoolId)
+        || (
+          isSchoolMember(schoolId)
+          && currentUser().permissions is map
+          && currentUser().permissions.get('collectiveBrain.manage', false) == true
+        )
+        || rolePermission(schoolId, 'collectiveBrain.manage');
+    }
+
+    function collectiveBrainBoardFieldsValid(schoolId, data) {
+      return data.keys().hasOnly([
+          'schoolId', 'question', 'description', 'status',
+          'createdBy', 'createdAt', 'updatedBy', 'updatedAt',
+          'archivedBy', 'archivedAt', 'deletedBy', 'deletedAt'
+        ])
+        && data.schoolId == schoolId
+        && data.question is string
+        && data.question.size() > 0
+        && data.question.size() <= 300
+        && data.description is string
+        && data.description.size() <= 1500
+        && data.status in ['open', 'closed', 'archived', 'deleted']
+        && data.createdBy is string
+        && data.createdAt is timestamp
+        && data.updatedBy is string
+        && data.updatedAt is timestamp
+        && data.archivedBy is string
+        && (data.archivedAt == null || data.archivedAt is timestamp)
+        && data.deletedBy is string
+        && (data.deletedAt == null || data.deletedAt is timestamp)
+        && (
+          data.status == 'archived'
+            ? data.archivedBy.size() > 0 && data.archivedAt != null
+            : data.archivedBy == '' && data.archivedAt == null
+        )
+        && (
+          data.status == 'deleted'
+            ? data.deletedBy.size() > 0 && data.deletedAt != null
+            : data.deletedBy == '' && data.deletedAt == null
+        );
+    }
+
+    function validCollectiveBrainBoardCreate(schoolId, data) {
+      return canManageCollectiveBrain(schoolId)
+        && collectiveBrainBoardFieldsValid(schoolId, data)
+        && data.status == 'open'
+        && data.createdBy == request.auth.uid
+        && data.updatedBy == request.auth.uid
+        && data.createdAt == request.time
+        && data.updatedAt == request.time;
+    }
+
+    function safeCollectiveBrainBoardUpdate(schoolId) {
+      let statusChanged = request.resource.data.status != resource.data.status;
+      return canManageCollectiveBrain(schoolId)
+        && collectiveBrainBoardFieldsValid(schoolId, request.resource.data)
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedAt == request.time
+        && (
+          !statusChanged
+          || request.resource.data.status != 'archived'
+          || (
+            request.resource.data.archivedBy == request.auth.uid
+            && request.resource.data.archivedAt == request.time
+          )
+        )
+        && (
+          !statusChanged
+          || request.resource.data.status != 'deleted'
+          || (
+            request.resource.data.deletedBy == request.auth.uid
+            && request.resource.data.deletedAt == request.time
+          )
+        );
+    }
+
+    function collectiveBrainBoardOpen(schoolId, boardId) {
+      return exists(/databases/$(database)/documents/schools/$(schoolId)/collectiveBrainBoards/$(boardId))
+        && get(/databases/$(database)/documents/schools/$(schoolId)/collectiveBrainBoards/$(boardId)).data.status == 'open';
+    }
+
+    function collectiveBrainResponseFieldsValid(schoolId, boardId, data) {
+      return data.keys().hasOnly([
+          'schoolId', 'boardId', 'authorId', 'authorName', 'body', 'status',
+          'createdAt', 'updatedAt', 'editedAt', 'moderatedBy', 'moderatedAt',
+          'deletedBy', 'deletedAt'
+        ])
+        && data.schoolId == schoolId
+        && data.boardId == boardId
+        && data.authorId is string
+        && data.authorId.size() > 0
+        && data.authorName is string
+        && data.authorName.size() > 0
+        && data.authorName.size() <= 120
+        && data.body is string
+        && data.body.size() > 0
+        && data.body.size() <= 2000
+        && data.status in ['active', 'deleted']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && (data.editedAt == null || data.editedAt is timestamp)
+        && data.moderatedBy is string
+        && (data.moderatedAt == null || data.moderatedAt is timestamp)
+        && data.deletedBy is string
+        && (data.deletedAt == null || data.deletedAt is timestamp)
+        && (
+          data.status == 'deleted'
+            ? data.deletedBy.size() > 0 && data.deletedAt != null
+            : data.deletedBy == '' && data.deletedAt == null
+        );
+    }
+
+    function validCollectiveBrainResponseCreate(schoolId, boardId, responseId, data) {
+      return isSchoolMember(schoolId)
+        && collectiveBrainBoardOpen(schoolId, boardId)
+        && responseId == request.auth.uid
+        && collectiveBrainResponseFieldsValid(schoolId, boardId, data)
+        && data.authorId == request.auth.uid
+        && data.authorName == currentUser().get('fullName', 'משתמש')
+        && data.status == 'active'
+        && data.createdAt == request.time
+        && data.updatedAt == request.time
+        && data.editedAt == null
+        && data.moderatedBy == ''
+        && data.moderatedAt == null
+        && data.deletedBy == ''
+        && data.deletedAt == null;
+    }
+
+    function safeOwnCollectiveBrainResponseUpdate(schoolId, boardId, responseId) {
+      return isSchoolMember(schoolId)
+        && collectiveBrainBoardOpen(schoolId, boardId)
+        && responseId == request.auth.uid
+        && resource.data.authorId == request.auth.uid
+        && resource.data.status == 'active'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['body', 'updatedAt', 'editedAt'])
+        && request.resource.data.body is string
+        && request.resource.data.body.size() > 0
+        && request.resource.data.body.size() <= 2000
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.editedAt == request.time;
+    }
+
+    function safeManagedCollectiveBrainResponseUpdate(schoolId, boardId) {
+      let bodyChanged = request.resource.data.body != resource.data.body;
+      let statusChanged = request.resource.data.status != resource.data.status;
+      return canManageCollectiveBrain(schoolId)
+        && collectiveBrainResponseFieldsValid(schoolId, boardId, request.resource.data)
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.boardId == resource.data.boardId
+        && request.resource.data.authorId == resource.data.authorId
+        && request.resource.data.authorName == resource.data.authorName
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time
+        && (
+          !bodyChanged
+          || (
+            request.resource.data.editedAt == request.time
+            && request.resource.data.moderatedBy == request.auth.uid
+            && request.resource.data.moderatedAt == request.time
+          )
+        )
+        && (
+          !statusChanged
+          || (
+            request.resource.data.status == 'deleted'
+            && request.resource.data.deletedBy == request.auth.uid
+            && request.resource.data.deletedAt == request.time
+          )
+          || (
+            request.resource.data.status == 'active'
+            && request.resource.data.deletedBy == ''
+            && request.resource.data.deletedAt == null
+          )
+        );
+    }
+
     // Communication content is intentionally excluded from implicit manager or
     // platform-wide access. A manager may create their own draft, but reading
     // somebody else's private content requires an explicit permission grant.
@@ -2928,6 +3109,32 @@ service cloud.firestore {
         allow update: if canManageCommunicationTemplates(schoolId)
           && safeCommunicationTemplateUpdate(schoolId, '', 'institutional');
         allow delete: if false;
+      }
+
+      match /collectiveBrainBoards/{boardId} {
+        allow read: if canManageCollectiveBrain(schoolId)
+          || (
+            isSchoolMember(schoolId)
+            && resource.data.status != 'deleted'
+          );
+        allow create: if validCollectiveBrainBoardCreate(schoolId, request.resource.data);
+        allow update: if safeCollectiveBrainBoardUpdate(schoolId);
+        allow delete: if false;
+
+        match /responses/{responseId} {
+          allow read: if canManageCollectiveBrain(schoolId)
+            || (
+              isSchoolMember(schoolId)
+              && resource.data.status == 'active'
+              && get(/databases/$(database)/documents/schools/$(schoolId)/collectiveBrainBoards/$(boardId)).data.status != 'deleted'
+            );
+          allow create: if validCollectiveBrainResponseCreate(
+            schoolId, boardId, responseId, request.resource.data
+          );
+          allow update: if safeOwnCollectiveBrainResponseUpdate(schoolId, boardId, responseId)
+            || safeManagedCollectiveBrainResponseUpdate(schoolId, boardId);
+          allow delete: if false;
+        }
       }
 
       match /communicationDrafts/{draftId} {

@@ -38,7 +38,8 @@ import {
   MessagesSquare,
   ShieldCheck,
   ContactRound,
-  ChevronDown
+  ChevronDown,
+  Brain
 } from 'lucide-react';
 import UserAvatar from '../Shared/UserAvatar';
 import NavPermissionsPanel, { PATH_TO_PERMISSION as PATH_TO_PERMISSION_SIDEBAR } from '../Shared/NavPermissionsPanel';
@@ -54,6 +55,7 @@ const NAV_ITEMS = [
   { path: '/students', icon: GraduationCap, label: 'תלמידים', requiresSchool: true, permission: 'students_view' },
   { path: '/files', icon: FolderOpen, label: 'קבצים', requiresSchool: true, permission: 'files_view' },
   { path: '/contacts', icon: ContactRound, label: 'אנשי קשר', requiresSchool: true, permission: 'contacts.view' },
+  { path: '/collective-brain', icon: Brain, label: 'מוח משותף', requiresSchool: true },
   { path: '/messages', icon: MessageCircle, label: 'הודעות', permission: 'messages_send' },
   { path: '/categories', icon: LayoutGrid, label: 'קטגוריות לוח שנה', requiresSchool: true, permission: 'categories_view' },
   { path: '/holidays', icon: Sun, label: 'חופשות וחגים', requiresSchool: true, permission: 'holidays_view' },

@@ -158,6 +158,9 @@ export const PERMISSION_GROUPS = Object.freeze([
     ['institution.audit.view', 'צפייה ביומן ביקורת'],
     ['institution.permissionPreview', 'תצוגה מקדימה כמשתמש'],
   ] }),
+  Object.freeze({ id: 'collectiveBrain', label: 'מוח משותף', permissions: [
+    ['collectiveBrain.manage', 'יצירה וניהול של לוחות, שאלות ותשובות'],
+  ] }),
   Object.freeze({ id: 'forum', label: 'פורום בתי הספר', permissions: [
     ['forum.access', 'גישה לפורום'],
     ['forum.read', 'קריאת דיונים'],

@@ -16,6 +16,13 @@ test('gradebooks resolve to the tenant-scoped collection', () => {
   );
 });
 
+test('collective brain boards resolve to the tenant-scoped collection', () => {
+  assert.equal(
+    schoolCollectionPath('school_a', 'collectiveBrainBoards'),
+    'schools/school_a/collectiveBrainBoards',
+  );
+});
+
 test('unknown school resources fail closed', () => {
   assert.throws(
     () => schoolCollectionPath('school_a', 'notConfigured', 'nested'),

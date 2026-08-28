@@ -22,6 +22,7 @@ const ForumPage = lazy(() => import('./components/Forum/ForumPage'));
 const SupportPage = lazy(() => import('./components/Support/SupportPage'));
 const PlatformManagement = lazy(() => import('./components/Platform/PlatformManagement'));
 const ContactsPage = lazy(() => import('./components/Contacts/ContactsPage'));
+const CollectiveBrainPage = lazy(() => import('./components/CollectiveBrain/CollectiveBrainPage'));
 
 function ProtectedRoute({ children }) {
   const { currentUser, loading } = useAuth();
@@ -112,6 +113,7 @@ export default function App() {
               <Route path="files" element={<ApprovedRoute><SchoolRequiredRoute><FileManager /></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="teams" element={<ApprovedRoute><SchoolRequiredRoute><Teams /></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="contacts" element={<ApprovedRoute><SchoolRequiredRoute><ContactsPage /></SchoolRequiredRoute></ApprovedRoute>} />
+              <Route path="collective-brain" element={<ApprovedRoute><SchoolRequiredRoute><PageErrorBoundary><CollectiveBrainPage /></PageErrorBoundary></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="students" element={<ApprovedRoute><SchoolRequiredRoute><Students /></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="messages" element={<NonPlatformRoute><ApprovedRoute><Messages /></ApprovedRoute></NonPlatformRoute>} />
               <Route path="notifications" element={<NonPlatformRoute><Notifications /></NonPlatformRoute>} />
