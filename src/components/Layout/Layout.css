@@ -3,13 +3,21 @@
   display: flex;
   min-height: 100vh;
   direction: rtl;
+  gap: 12px;
+  padding: 12px;
+  background: var(--page-background);
 }
 
 .app-main {
   flex: 1;
-  background: var(--color-surface);
+  background: var(--page-background);
   overflow-x: hidden;
-  min-height: 100vh;
+  min-height: calc(100vh - 24px);
+  height: calc(100vh - 24px);
+  border: var(--panel-border);
+  border-radius: var(--panel-radius);
+  box-shadow: var(--panel-shadow);
+  overflow-y: auto;
 }
 
 .app-version {
@@ -33,13 +41,15 @@
 .sidebar {
   width: 240px;
   background: #fff;
-  border-left: 1px solid var(--color-border);
+  border: var(--panel-border);
+  border-radius: var(--panel-radius);
+  box-shadow: var(--panel-shadow-small);
   display: flex;
   flex-direction: column;
   transition: width 0.25s ease;
   position: sticky;
   top: 0;
-  height: 100vh;
+  height: calc(100vh - 24px);
   z-index: 50;
   flex-shrink: 0;
 }
@@ -53,7 +63,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 1rem;
-  border-bottom: 1px solid var(--color-surface-muted);
+  border-bottom: 1px solid var(--color-border);
   min-height: 56px;
 }
 
@@ -132,7 +142,7 @@
   align-items: center;
   gap: 0.7rem;
   padding: 0.6rem 0.75rem;
-  border-radius: 8px;
+  border-radius: 11px;
   color: var(--color-text-subtle);
   text-decoration: none;
   font-size: 0.85rem;
@@ -154,6 +164,7 @@
   background: var(--color-primary-soft);
   color: var(--color-primary);
   font-weight: 600;
+  box-shadow: inset -3px 0 0 var(--color-primary);
 }
 
 .sidebar-link--active:hover {
@@ -228,11 +239,18 @@
   justify-content: space-between;
   padding: 0.75rem 1.5rem;
   background: #fff;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border-strong);
   min-height: 52px;
   position: sticky;
   top: 0;
   z-index: 40;
+  box-shadow: 0 4px 14px rgb(30 43 56 / 5%);
+}
+
+@media (max-width: 768px) {
+  .app-layout { gap: 0; padding: 0; }
+  .app-main { min-height: 100vh; height: 100vh; border: 0; border-radius: 0; }
+  .sidebar { height: 100vh; border-radius: 0; border-block: 0; }
 }
 
 .header-title {

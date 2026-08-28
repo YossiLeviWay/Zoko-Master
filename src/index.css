@@ -106,8 +106,9 @@ a:hover {
 
 .page-content {
   flex: 1;
-  padding: 1rem 1.5rem;
+  padding: 1.25rem 1.5rem 2rem;
   overflow-y: auto;
+  background: var(--page-background);
 }
 
 .page-toolbar {
@@ -126,9 +127,28 @@ a:hover {
 /* ===== Cards ===== */
 .card {
   background: #fff;
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
+  border: var(--panel-border);
+  border-radius: var(--panel-radius-small);
   padding: 1rem;
+  box-shadow: var(--panel-shadow-small);
+}
+
+/* Shared visual hierarchy used by legacy and modern pages alike. */
+:where(.page-content, .dashboard-content, .settings-content, .staff-content) > :where(section, article):not(.task-group):not(.brain-preview-overlay) {
+  isolation: isolate;
+}
+
+:where(.modal, .modal-content, .task-edit-modal, .task-filter-drawer, .permissions-panel, .form-card) {
+  border: var(--panel-border);
+  border-radius: var(--panel-radius);
+  background: var(--color-surface-raised);
+  box-shadow: var(--panel-shadow);
+}
+
+:where(input, select, textarea):not([type='checkbox']):not([type='radio']):not([type='range']):focus {
+  border-color: var(--color-primary);
+  box-shadow: var(--focus-ring);
+  outline: none;
 }
 
 .form-card {
@@ -187,9 +207,10 @@ a:hover {
   width: 100%;
   border-collapse: collapse;
   background: #fff;
-  border-radius: 12px;
+  border-radius: var(--panel-radius-small);
   overflow: hidden;
-  border: 1px solid var(--color-border);
+  border: var(--panel-border);
+  box-shadow: var(--panel-shadow-small);
 }
 
 .data-table th {

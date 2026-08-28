@@ -3,10 +3,10 @@
   --brand-burgundy: #98133f;
   --brand-orange: #f4512c;
   --surface: #ffffff;
-  --page-background: #fafafa;
-  --text-primary: #171717;
-  --text-secondary: #666666;
-  --border-subtle: #e8e8e8;
+  --page-background: #f2f5f8;
+  --text-primary: #17202b;
+  --text-secondary: #52606d;
+  --border-subtle: #d9e0e7;
 
   --atid-orange: var(--brand-orange);
   --atid-burgundy: var(--brand-burgundy);
@@ -26,21 +26,27 @@
   --color-text-strong: var(--atid-ink);
   --color-text: var(--atid-ink);
   --color-text-secondary: var(--text-secondary);
-  --color-text-muted: #666666;
-  --color-text-subtle: #737373;
-  --color-text-faint: #8a8a8a;
+  --color-text-muted: #52606d;
+  --color-text-subtle: #637181;
+  --color-text-faint: #768596;
   --color-surface: var(--surface);
   --color-surface-muted: var(--page-background);
   --color-surface-raised: var(--surface);
   --color-border: var(--border-subtle);
-  --color-border-strong: #d4d4d4;
+  --color-border-strong: #b8c3cf;
+
+  --panel-radius: 18px;
+  --panel-radius-small: 14px;
+  --panel-shadow: 0 10px 32px rgb(30 43 56 / 8%);
+  --panel-shadow-small: 0 3px 12px rgb(30 43 56 / 7%);
+  --panel-border: 1px solid var(--color-border);
 
   --control-height: 44px;
   --control-height-small: 36px;
   --control-radius: 12px;
   --control-radius-small: 10px;
   --focus-ring: 0 0 0 3px rgb(252 80 41 / 22%);
-  --control-shadow: 0 1px 2px rgb(30 0 12 / 5%);
+  --control-shadow: 0 2px 5px rgb(30 43 56 / 7%);
 }
 
 :where(button, input, select, textarea) {
