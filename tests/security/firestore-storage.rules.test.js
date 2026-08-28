@@ -382,6 +382,43 @@ test('only a school manager may save institutional task-agent rules and playbook
   }, { merge: true }));
 });
 
+test('raw Zoki brain is manager-readable but all client writes are server-only', async () => {
+  const path = `schools/${SCHOOL_A}/settings/zoki_brain`;
+  const data = {
+    schoolId: SCHOOL_A,
+    instructions: 'השב בקצרה.',
+    entries: [{ id: 'trip_policy', title: 'נוהל טיולים', body: 'יש לקבל אישור מראש.', status: 'published', audience: { type: 'school' } }],
+    updatedBy: 'principal_a',
+    updatedAt: new Date('2026-08-28T10:00:00Z'),
+  };
+  await seedFirestore({
+    'users/principal_a': { ...user({ schoolId: SCHOOL_A, role: 'principal' }), uid: 'principal_a' },
+    'users/viewer_a': { ...user({ schoolId: SCHOOL_A }), uid: 'viewer_a' },
+    'users/viewer_b': { ...user({ schoolId: SCHOOL_B }), uid: 'viewer_b' },
+    [path]: data,
+  });
+
+  await assertSucceeds(getDoc(doc(context('principal_a').firestore(), path)));
+  await assertFails(getDoc(doc(context('viewer_a').firestore(), path)));
+  await assertFails(getDoc(doc(context('viewer_b').firestore(), path)));
+  await assertFails(setDoc(doc(context('principal_a').firestore(), path), { ...data, instructions: 'עקיפה ישירה' }, { merge: true }));
+  await assertFails(setDoc(doc(context('viewer_a').firestore(), path), { ...data, updatedBy: 'viewer_a' }, { merge: true }));
+});
+
+test('Zoki action receipts are opaque server-only idempotency records', async () => {
+  const path = `schools/${SCHOOL_A}/zokiActionReceipts/receipt_a`;
+  await seedFirestore({
+    'users/principal_a': { ...user({ schoolId: SCHOOL_A, role: 'principal' }), uid: 'principal_a' },
+    'users/viewer_a': { ...user({ schoolId: SCHOOL_A }), uid: 'viewer_a' },
+    [path]: { schoolId: SCHOOL_A, actorUid: 'viewer_a', action: 'task.create', taskId: 'task_a', requestId: 'request_a' },
+  });
+
+  await assertFails(getDoc(doc(context('principal_a').firestore(), path)));
+  await assertFails(getDoc(doc(context('viewer_a').firestore(), path)));
+  await assertFails(setDoc(doc(context('principal_a').firestore(), path), { taskId: 'changed' }, { merge: true }));
+  await assertFails(setDoc(doc(context('viewer_a').firestore(), path), { schoolId: SCHOOL_A, action: 'task.create' }));
+});
+
 test('task-agent memory is server-managed and personal profiles stay user scoped', async () => {
   await seedFirestore({
     'users/viewer_a': { ...user({ schoolId: SCHOOL_A }), uid: 'viewer_a' },

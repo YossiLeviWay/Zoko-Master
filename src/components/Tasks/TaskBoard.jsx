@@ -67,7 +67,6 @@ import ChatPanel from './ChatPanel';
 import InitiativePanel from './InitiativePanel';
 import CommunicationComposer from './CommunicationComposer';
 import CommunicationDashboard from './CommunicationDashboard';
-import TaskAssistantEntry from './TaskAssistantEntry';
 import TaskPatternReviewPanel from './TaskPatternReviewPanel';
 import TaskAssignmentBoard from './TaskAssignmentBoard';
 import {
@@ -286,7 +285,6 @@ export default function TaskBoard() {
   const canManageAssignments = permissions['tasks.manageAssignments'] || canAssignMandatory;
   const canManageTaskPermissions = permissions['tasks.managePermissions'] || canAssignMandatory;
   const canCreateCommunication = permissions['communications.create'] || isInitiativeManager;
-  const canUseTaskAssistant = permissions['tasks.useAssistant'] || isInitiativeManager;
   const communicationPermissions = {
     reassign: permissions['communications.reassign'] === true,
     close: permissions['communications.close'] === true,
@@ -323,11 +321,11 @@ export default function TaskBoard() {
   const [taskInvitations, setTaskInvitations] = useState([]);
   const [staff, setStaff] = useState([]);
   const [teams, setTeams] = useState([]);
-  const [roles, setRoles] = useState([]);
   const [taskAgentSettings, setTaskAgentSettings] = useState({ approvedRules: [], taskPlaybooks: [] });
   const [allFiles, setAllFiles] = useState([]);
   const [allFolders, setAllFolders] = useState([]);
   const [classes, setClasses] = useState([]);
+  const [assistantContextReady, setAssistantContextReady] = useState({ staff: false, teams: false, classes: false });
   const [holidays, setHolidays] = useState([]);
   const [academicYears, setAcademicYears] = useState([]);
   const [initiatives, setInitiatives] = useState([]);
@@ -511,6 +509,7 @@ export default function TaskBoard() {
 
   useEffect(() => {
     if (!schoolId) return;
+    setAssistantContextReady({ staff: false, teams: false, classes: false });
     async function loadStaff() {
       const finishStaffLoad = startTaskAssistantStage('staffLoad');
       const users = new Map();
@@ -533,6 +532,7 @@ export default function TaskBoard() {
         finishStaffLoad();
       }
       setStaff([...users.values()].filter(user => user.accountStatus !== 'pending'));
+      setAssistantContextReady(previous => ({ ...previous, staff: true }));
     }
     loadStaff();
     const finishTeamsLoad = startTaskAssistantStage('teamsLoad');
@@ -546,14 +546,9 @@ export default function TaskBoard() {
           const data = item.data();
           return { ...data, id: item.id, name: displayText(data.name, 'צוות'), memberIds: idList(data.memberIds) };
         }));
-        if (!teamsReady) { teamsReady = true; finishTeamsLoad(); }
+        if (!teamsReady) { teamsReady = true; finishTeamsLoad(); setAssistantContextReady(previous => ({ ...previous, teams: true })); }
       },
-      () => { setTeams([]); if (!teamsReady) { teamsReady = true; finishTeamsLoad(); } },
-    );
-    const unsubscribeRoles = onSnapshot(
-      schoolCollection(db, schoolId, 'roles'),
-      snapshot => setRoles(snapshot.docs.map(item => ({ id: item.id, ...item.data() })).filter(item => item.status !== 'archived')),
-      () => setRoles([]),
+      () => { setTeams([]); if (!teamsReady) { teamsReady = true; finishTeamsLoad(); setAssistantContextReady(previous => ({ ...previous, teams: true })); } },
     );
     const unsubscribeTaskAgentSettings = onSnapshot(
       schoolDoc(db, schoolId, 'settings', 'task_agent'),
@@ -586,9 +581,9 @@ export default function TaskBoard() {
       schoolCollection(db, schoolId, 'classes'),
       snapshot => {
         setClasses(snapshot.docs.map(item => ({ id: item.id, ...item.data() })).filter(item => item.status !== 'archived'));
-        if (!classesReady) { classesReady = true; finishClassesLoad(); }
+        if (!classesReady) { classesReady = true; finishClassesLoad(); setAssistantContextReady(previous => ({ ...previous, classes: true })); }
       },
-      () => { setClasses([]); if (!classesReady) { classesReady = true; finishClassesLoad(); } },
+      () => { setClasses([]); if (!classesReady) { classesReady = true; finishClassesLoad(); setAssistantContextReady(previous => ({ ...previous, classes: true })); } },
     );
     const unsubscribeHolidays = onSnapshot(
       schoolCollection(db, schoolId, 'holidays'),
@@ -597,7 +592,6 @@ export default function TaskBoard() {
     );
     return () => {
       unsubscribeTeams();
-      unsubscribeRoles();
       unsubscribeTaskAgentSettings();
       unsubscribeFiles();
       unsubscribeFolders();
@@ -670,51 +664,6 @@ export default function TaskBoard() {
   const viewTasks = useMemo(() => activeTab === 'dashboard' && workView !== 'plans'
     ? [...tabTasks, ...initiativeItems]
     : tabTasks, [activeTab, initiativeItems, tabTasks, workView]);
-
-  const taskAssistantSchoolContext = useMemo(() => ({
-    capabilities: { canAssign: canAssignTasks },
-    // These flags only limit the already-authorized data loaded by Firestore.
-    // They do not grant read or write access and cannot bypass security rules.
-    permissions: {
-      'tasks.useAssistant': true,
-      tasks_view: true,
-      staff_view: true,
-      teams_view: true,
-      classes_view: true,
-      calendar_view: true,
-      'initiatives.view': true,
-    },
-    sources: {
-      staff,
-      teams,
-      roles,
-      classes,
-      events: [],
-      holidays,
-      initiatives,
-      // Personal preferences are learned from the user's own task history.
-      // Other users' unapproved organizational patterns are never sent to Gemini.
-      tasks: [
-        ...personalTasks,
-        ...organizationTasks.filter(task => task.createdBy === uid),
-      ],
-      approvedRules: taskAgentSettings.approvedRules,
-      playbooks: taskAgentSettings.taskPlaybooks,
-    },
-  }), [
-    canAssignTasks,
-    classes,
-    holidays,
-    initiatives,
-    organizationTasks,
-    personalTasks,
-    roles,
-    staff,
-    taskAgentSettings.approvedRules,
-    taskAgentSettings.taskPlaybooks,
-    teams,
-    uid,
-  ]);
 
   const institutionalKnowledgeSnapshot = useMemo(() => ({
     school: {
@@ -931,6 +880,23 @@ export default function TaskBoard() {
     setShowForm(true);
     window.requestAnimationFrame(() => finishProposalDisplay());
   }
+
+  useEffect(() => {
+    const payload = location.state?.zokiTaskDraft;
+    if (payload?.proposal) {
+      if (!assistantContextReady.staff || !assistantContextReady.teams || !assistantContextReady.classes) return;
+      applyAssistantProposal(payload.proposal, payload.context || {});
+      navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+      return;
+    }
+    if (location.state?.openManualTask) {
+      openTaskForm(TASK_SCOPES.PERSONAL);
+      navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+    }
+    // The state is consumed once. The proposal resolver uses the authorized data
+    // already loaded by this page and never expands the user's permissions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assistantContextReady.classes, assistantContextReady.staff, assistantContextReady.teams, location.key]);
 
   function validateAssignment(value) {
     if (value.scope === TASK_SCOPES.ASSIGNED && value.assigneeIds.length < 1) return false;
@@ -1589,8 +1555,6 @@ export default function TaskBoard() {
             <label className="task-compact-search"><Search size={16} aria-hidden="true" /><span className="sr-only">חיפוש משימות</span><input value={searchText} onChange={event => setSearchText(event.target.value)} placeholder="חיפוש" /></label>
             <div className="task-dashboard-actions">{canManageAssignmentBoard && <button type="button" className="btn btn-secondary" onClick={() => setShowAssignmentBoard(true)}><Users size={16} /> ניהול הקצאות</button>}<button type="button" className="btn task-create-primary" onClick={() => openTaskForm(TASK_SCOPES.PERSONAL)}><Plus size={16} /> יצירה חדשה</button></div>
           </section>}
-
-          {!showAssignmentBoard && canUseTaskAssistant && <TaskAssistantEntry uid={uid} schoolId={schoolId} schoolContext={taskAssistantSchoolContext} onManual={() => openTaskForm(TASK_SCOPES.PERSONAL)} onProposal={applyAssistantProposal} />}
 
           {!showAssignmentBoard && <section className="task-action-metrics" aria-label="מה דורש טיפול">
             <button type="button" className={filterDate === 'today' ? 'active' : ''} onClick={() => openMetric('today')}><span>להיום</span><strong>{dashboardStats.today}</strong></button>

@@ -13,6 +13,7 @@ import {
   mandatoryTaskSchema,
   taskCollaboratorInvitationSchema,
   taskInvitationResponseSchema,
+  zokiTaskActionSchema,
 } from '../validation/schemas.js';
 
 function stableId(...parts) {
@@ -35,6 +36,21 @@ async function activeRecipients(schoolId, recipientIds) {
     throw permissionDenied();
   }
   return snapshots;
+}
+
+async function requireActiveTeams(schoolId, teamIds) {
+  const uniqueIds = [...new Set(teamIds.filter(Boolean))];
+  if (!uniqueIds.length) return;
+  const refs = uniqueIds.flatMap(teamId => [
+    adminDb.doc(`schools/${schoolId}/teams/${teamId}`),
+    adminDb.doc(`teams_${schoolId}/${teamId}`),
+  ]);
+  const snapshots = await adminDb.getAll(...refs);
+  for (let index = 0; index < uniqueIds.length; index += 1) {
+    const candidates = snapshots.slice(index * 2, index * 2 + 2);
+    const team = candidates.find(item => item.exists && item.data().status !== 'archived' && (!item.data().schoolId || item.data().schoolId === schoolId));
+    if (!team) throw permissionDenied();
+  }
 }
 
 function notification(batch, { userId, schoolId, title, body, link }) {
@@ -178,6 +194,93 @@ export async function createMandatoryTaskHandler(request) {
   return { ok: true, taskId: taskRef.id };
 }
 
+export async function executeZokiTaskHandler(request) {
+  const actor = await requireActor(request);
+  const input = zokiTaskActionSchema.parse(request.data);
+  await requireSchoolAccess(actor, input.schoolId);
+  const authority = await resolveActorRoleAuthority(actor, input.schoolId);
+  requireRoleAction(authority, 'tasks.useAssistant');
+  requireRoleAction(authority, 'tasks.create');
+  if (input.task.scope !== 'personal') requireRoleAction(authority, 'tasks.assign');
+  await enforceRateLimit({ uid: actor.uid, action: 'zokiTaskExecute', limit: 20, windowSeconds: 300 });
+
+  const participantIds = [...new Set([
+    ...input.task.assigneeIds,
+    ...input.task.workPlanSteps.flatMap(step => step.responsibleIds),
+  ])];
+  if (participantIds.length) await activeRecipients(input.schoolId, participantIds);
+  await requireActiveTeams(input.schoolId, [
+    input.task.teamId,
+    ...input.task.workPlanSteps.map(step => step.teamId),
+  ]);
+
+  const actionId = stableId(actor.uid, input.schoolId, input.requestId);
+  const taskId = `zoki_${actionId}`;
+  const receiptRef = adminDb.doc(`schools/${input.schoolId}/zokiActionReceipts/${actionId}`);
+  const taskRef = input.task.scope === 'personal'
+    ? adminDb.doc(`users/${actor.uid}/personalTasks/${taskId}`)
+    : adminDb.doc(`schools/${input.schoolId}/tasks/${taskId}`);
+  let created = false;
+  await adminDb.runTransaction(async transaction => {
+    const receipt = await transaction.get(receiptRef);
+    if (receipt.exists) return;
+    const common = {
+      schoolId: input.schoolId,
+      title: input.task.title,
+      description: input.task.description,
+      priority: input.task.priority,
+      status: 'todo',
+      dueDate: input.task.dueDate,
+      startDate: input.task.startDate,
+      endDate: input.task.endDate,
+      completionCriteria: input.task.completionCriteria,
+      workPlanSteps: input.task.workPlanSteps,
+      creationSource: 'zoki',
+      agentSessionId: input.task.agentSessionId,
+      createdBy: actor.uid,
+      createdByName: actor.data.fullName || '',
+      completedAt: null,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+    if (input.task.scope === 'personal') {
+      transaction.create(taskRef, {
+        ...common, scope: 'personal', ownerId: actor.uid, assigneeIds: [], participantIds: [], teamId: '', assigneeTeamId: '',
+      });
+    } else {
+      transaction.create(taskRef, {
+        ...common,
+        scope: input.task.scope,
+        ownerId: '',
+        assigneeType: input.task.scope === 'assigned' ? 'individual' : 'team',
+        assigneeIds: input.task.scope === 'assigned' ? input.task.assigneeIds : [],
+        participantIds,
+        teamId: input.task.scope === 'team' ? input.task.teamId : '',
+        assigneeTeamId: input.task.scope === 'team' ? input.task.teamId : '',
+      });
+      input.task.assigneeIds.forEach(userId => transaction.set(taskRef.collection('participants').doc(userId), {
+        userId, role: 'assignee', status: 'active', joinedAt: FieldValue.serverTimestamp(),
+      }));
+      input.task.assigneeIds.forEach(userId => transaction.set(adminDb.doc(`notifications/zoki_task_${actionId}_${userId}`), {
+        userId, schoolId: input.schoolId, title: 'משימה חדשה מזוקי', body: input.task.title,
+        link: `/tasks?task=${taskId}`, type: 'task', read: false, createdAt: FieldValue.serverTimestamp(),
+      }));
+    }
+    transaction.create(receiptRef, {
+      schoolId: input.schoolId, actorUid: actor.uid, action: 'task.create', taskId,
+      taskScope: input.task.scope, taskPath: taskRef.path, requestId: input.requestId,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    created = true;
+  });
+  if (created) await writeAuditLog({
+    actorUid: actor.uid, actorRole: actor.data.role || '', action: 'zoki.action.task.create',
+    targetType: 'task', targetId: taskId, schoolId: input.schoolId,
+    metadata: { taskScope: input.task.scope, participantCount: participantIds.length },
+  });
+  return { ok: true, taskId, created, route: `/tasks?task=${encodeURIComponent(taskId)}` };
+}
+
 async function safely(handler, request) {
   try {
     return await handler(request);
@@ -190,3 +293,4 @@ async function safely(handler, request) {
 export const inviteTaskCollaborators = onCall(CALLABLE_OPTIONS, request => safely(inviteTaskCollaboratorsHandler, request));
 export const respondTaskInvitation = onCall(CALLABLE_OPTIONS, request => safely(respondTaskInvitationHandler, request));
 export const createMandatoryTask = onCall(CALLABLE_OPTIONS, request => safely(createMandatoryTaskHandler, request));
+export const executeZokiTask = onCall(CALLABLE_OPTIONS, request => safely(executeZokiTaskHandler, request));

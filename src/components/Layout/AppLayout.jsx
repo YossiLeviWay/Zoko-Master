@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import AppVersion from './AppVersion';
+import ZokiLauncher from '../Zoki/ZokiLauncher';
 import './Layout.css';
 
 export default function AppLayout() {
@@ -10,6 +11,7 @@ export default function AppLayout() {
       <main className="app-main">
         <Outlet />
       </main>
+      <ZokiLauncher />
       <AppVersion />
     </div>
   );

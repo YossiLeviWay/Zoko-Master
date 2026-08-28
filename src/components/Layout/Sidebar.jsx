@@ -42,12 +42,14 @@ import {
   Brain
 } from 'lucide-react';
 import UserAvatar from '../Shared/UserAvatar';
+import zokiAvatar from '../../assets/zoki-avatar.png';
 import NavPermissionsPanel, { PATH_TO_PERMISSION as PATH_TO_PERMISSION_SIDEBAR } from '../Shared/NavPermissionsPanel';
 import { usePermissions } from '../../hooks/usePermissions';
 import './Layout.css';
 
 const NAV_ITEMS = [
   { path: '/', icon: Home, label: 'דשבורד', platformAllowed: true, primary: true },
+  { path: '/zoki', image: zokiAvatar, label: 'זוקי', requiresSchool: true, primary: true },
   { path: '/tasks', icon: CheckSquare, label: 'המשימות שלי', requiresSchool: true, permission: 'tasks_view', primary: true },
   { path: '/calendar', icon: Calendar, label: 'לוח שנה', requiresSchool: true, permission: 'calendar_view', primary: true },
   { path: '/staff', icon: Users, label: 'סגל וקהילה', requiresSchool: true, permission: 'staff_view' },
@@ -310,7 +312,7 @@ export default function Sidebar() {
                 } : {})}
               >
                 <span className="sidebar-icon-wrap">
-                  <item.icon size={20} />
+                  {item.image ? <img src={item.image} alt="" style={{ width: 25, height: 25, objectFit: 'contain' }} /> : <item.icon size={20} />}
                   {isNotifications && unreadCount > 0 && (
                     <span className="notif-badge">
                       {unreadCount > 99 ? '99+' : unreadCount}
@@ -398,7 +400,7 @@ export default function Sidebar() {
             {NAV_ITEMS.filter(item => !item.primary).filter(canSeeItem).map(item => (
               <div key={item.path} className="sidebar-link-wrapper" onContextMenu={event => handleNavContextMenu(event, item)}>
                 <NavLink to={item.path} className={({ isActive }) => `sidebar-link ${isActive ? 'sidebar-link--active' : ''}`} title={collapsed ? item.label : undefined}>
-                  <item.icon size={20} />
+                  {item.image ? <img src={item.image} alt="" style={{ width: 25, height: 25, objectFit: 'contain' }} /> : <item.icon size={20} />}
                   {!collapsed && <span>{item.label}</span>}
                 </NavLink>
               </div>

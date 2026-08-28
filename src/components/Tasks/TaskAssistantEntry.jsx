@@ -4,7 +4,7 @@ import { FIREBASE_AI_CONFIG } from '../../config/firebaseAi';
 import { taskAssistantErrorMessage } from '../../services/firebaseAiTaskService';
 import { draftTaskWithInstitutionalBrain } from '../../services/taskAgentBrainService';
 
-export default function TaskAssistantEntry({ uid, schoolId, schoolContext, onManual, onProposal }) {
+export default function TaskAssistantEntry({ uid, schoolId, schoolContext, contextLoading = false, onManual, onProposal }) {
   const [request, setRequest] = useState('');
   const [answer, setAnswer] = useState('');
   const [proposal, setProposal] = useState(null);
@@ -38,7 +38,7 @@ export default function TaskAssistantEntry({ uid, schoolId, schoolContext, onMan
     <div className="task-assistant-compose">
       <label className="sr-only" htmlFor="task-assistant-request">תיאור המשימה</label>
       <textarea id="task-assistant-request" value={request} onChange={event => setRequest(event.target.value)} maxLength={FIREBASE_AI_CONFIG.maxInputLength} rows={2} placeholder="למשל: הכנת מבחנים לשכבת ח׳ בחודש הבא" />
-      <div><button type="button" className="btn btn-primary" onClick={() => askAgent()} disabled={loading || request.trim().length < 3}><Bot size={16} /> {loading ? 'מכין הצעה…' : 'המשך עם הסוכן'}</button><button type="button" className="btn btn-link" onClick={onManual}>יצירה ידנית</button></div>
+      <div><button type="button" className="btn btn-primary" onClick={() => askAgent()} disabled={loading || contextLoading || request.trim().length < 3}><Bot size={16} /> {loading ? 'מכין הצעה…' : contextLoading ? 'טוען הקשר…' : 'המשך עם הסוכן'}</button><button type="button" className="btn btn-link" onClick={onManual}>יצירה ידנית</button></div>
     </div>
     {proposal?.followUpQuestion && <div className="task-assistant-question" role="status"><strong>{proposal.followUpQuestion}</strong><input value={answer} onChange={event => setAnswer(event.target.value)} maxLength={500} placeholder="תשובה קצרה" /><div><button type="button" className="btn btn-primary btn-sm" onClick={() => askAgent(proposal)} disabled={loading || !answer.trim()}>עדכון ההצעה</button><button type="button" className="btn btn-secondary btn-sm" onClick={() => onProposal(proposal, proposalMeta || { request })}>פתיחת הטיוטה</button></div></div>}
     {error && <div className="task-assistant-error" role="alert"><span>{error}</span><button type="button" className="btn btn-secondary btn-sm" onClick={onManual}>יצירה ידנית</button></div>}

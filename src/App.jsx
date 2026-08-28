@@ -23,6 +23,7 @@ const SupportPage = lazy(() => import('./components/Support/SupportPage'));
 const PlatformManagement = lazy(() => import('./components/Platform/PlatformManagement'));
 const ContactsPage = lazy(() => import('./components/Contacts/ContactsPage'));
 const CollectiveBrainPage = lazy(() => import('./components/CollectiveBrain/CollectiveBrainPage'));
+const ZokiPage = lazy(() => import('./components/Zoki/ZokiPage'));
 const PublicCollectiveBrainPage = lazy(() => import('./components/CollectiveBrain/PublicCollectiveBrainPage'));
 
 function ProtectedRoute({ children }) {
@@ -116,6 +117,7 @@ export default function App() {
               <Route path="teams" element={<ApprovedRoute><SchoolRequiredRoute><Teams /></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="contacts" element={<ApprovedRoute><SchoolRequiredRoute><ContactsPage /></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="collective-brain" element={<ApprovedRoute><SchoolRequiredRoute><PageErrorBoundary><CollectiveBrainPage /></PageErrorBoundary></SchoolRequiredRoute></ApprovedRoute>} />
+              <Route path="zoki" element={<ApprovedRoute><SchoolRequiredRoute><PageErrorBoundary><ZokiPage /></PageErrorBoundary></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="students" element={<ApprovedRoute><SchoolRequiredRoute><Students /></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="messages" element={<NonPlatformRoute><ApprovedRoute><Messages /></ApprovedRoute></NonPlatformRoute>} />
               <Route path="notifications" element={<NonPlatformRoute><Notifications /></NonPlatformRoute>} />

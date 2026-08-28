@@ -146,6 +146,30 @@ function roleScope(role) {
   return role.accessScope || { type: 'school', classIds: [] };
 }
 
+async function loadResourceAcls(schoolId, resource) {
+  if (!resource?.resourceType || !resource?.resourceId) return [];
+  const aclSnapshot = await adminDb.collection(`schools/${schoolId}/resourceAcls`)
+    .where('resourceType', '==', resource.resourceType)
+    .where('resourceId', '==', resource.resourceId)
+    .get();
+  const resourceAcls = aclSnapshot.docs.map(snapshot => ({ id: snapshot.id, ...snapshot.data() }));
+  if (resource.parentIds?.length) {
+    const parents = await Promise.all(resource.parentIds.slice(0, 10).map(parentId => (
+      adminDb.collection(`schools/${schoolId}/resourceAcls`)
+        .where('resourceType', '==', 'folder').where('resourceId', '==', parentId).get()
+    )));
+    parents.forEach(snapshot => snapshot.docs.forEach(item => resourceAcls.push({
+      id: item.id, ...item.data(), resourceType: resource.resourceType,
+      resourceId: resource.resourceId, inheritedFrom: item.data().resourceId,
+    })));
+  }
+  return resourceAcls;
+}
+
+export async function withResourcePermissionContext(context, resource) {
+  return { ...context, resourceAcls: await loadResourceAcls(context.schoolId, resource) };
+}
+
 export async function buildPermissionContext({ userId, schoolId, resource = null, now = Timestamp.now() }) {
   const userSnapshot = await adminDb.doc(`users/${userId}`).get();
   if (!userSnapshot.exists) return { schoolId, subject: null, capabilityGrants: [], resourceAcls: [] };
@@ -167,24 +191,7 @@ export async function buildPermissionContext({ userId, schoolId, resource = null
     }));
   });
 
-  let resourceAcls = [];
-  if (resource?.resourceType && resource?.resourceId) {
-    const aclSnapshot = await adminDb.collection(`schools/${schoolId}/resourceAcls`)
-      .where('resourceType', '==', resource.resourceType)
-      .where('resourceId', '==', resource.resourceId)
-      .get();
-    resourceAcls = aclSnapshot.docs.map(snapshot => ({ id: snapshot.id, ...snapshot.data() }));
-    if (resource.parentIds?.length) {
-      const parents = await Promise.all(resource.parentIds.slice(0, 10).map(parentId => (
-        adminDb.collection(`schools/${schoolId}/resourceAcls`)
-          .where('resourceType', '==', 'folder').where('resourceId', '==', parentId).get()
-      )));
-      parents.forEach(snapshot => snapshot.docs.forEach(item => resourceAcls.push({
-        id: item.id, ...item.data(), resourceType: resource.resourceType,
-        resourceId: resource.resourceId, inheritedFrom: item.data().resourceId,
-      })));
-    }
-  }
+  const resourceAcls = await loadResourceAcls(schoolId, resource);
 
   return {
     schoolId,

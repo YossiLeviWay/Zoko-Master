@@ -153,6 +153,64 @@ export const mandatoryTaskSchema = z.object({
   ...taskDetails,
 }).strict();
 
+export const zokiTaskActionSchema = z.object({
+  schoolId: id,
+  requestId: id,
+  confirm: z.literal(true),
+  task: z.object({
+    scope: z.enum(['personal', 'assigned', 'team']),
+    title: z.string().trim().min(1).max(200),
+    description: z.string().trim().max(5000).optional().default(''),
+    priority: z.enum(['low', 'medium', 'high']).optional().default('medium'),
+    dueDate: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal('')]).optional().default(''),
+    startDate: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal('')]).optional().default(''),
+    endDate: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal('')]).optional().default(''),
+    completionCriteria: z.string().trim().max(1000).optional().default(''),
+    workPlanSteps: z.array(unifiedTaskStepSchema).max(30).optional().default([]),
+    assigneeIds: z.array(id).max(1).optional().default([]).transform(values => [...new Set(values)]),
+    teamId: z.union([id, z.literal('')]).optional().default(''),
+    agentSessionId: z.string().trim().max(128).optional().default(''),
+  }).strict(),
+}).strict().superRefine((value, context) => {
+  if (value.task.scope === 'assigned' && value.task.assigneeIds.length !== 1) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['task', 'assigneeIds'], message: 'assigned task requires one recipient' });
+  }
+  if (value.task.scope === 'team' && !value.task.teamId) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['task', 'teamId'], message: 'team task requires a team' });
+  }
+  if (value.task.scope === 'personal' && (value.task.assigneeIds.length || value.task.teamId)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['task'], message: 'personal task cannot include an assignment' });
+  }
+});
+
+const gradeScore = z.union([
+  z.number().min(0).max(100),
+  z.string().trim().regex(/^\d{1,3}(?:\.\d{1,2})?$/u).refine(value => Number(value) <= 100),
+]);
+
+export const zokiGradeActionSchema = z.object({
+  schoolId: id,
+  requestId: id,
+  confirm: z.literal(true),
+  gradebookId: id,
+  studentId: id,
+  subjectId: id,
+  componentId: id,
+  score: gradeScore.transform(Number),
+  expectedPreviousScore: gradeScore.nullable(),
+}).strict();
+
+export const zokiStudentTransferActionSchema = z.object({
+  schoolId: id,
+  requestId: id,
+  confirm: z.literal(true),
+  studentId: id,
+  targetClassId: id,
+  expectedCurrentClassId: z.union([id, z.literal('')]),
+  effectiveDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
+  reason: z.string().trim().max(500).optional().default(''),
+}).strict();
+
 export const activeSchoolSchema = z.object({ schoolId: id }).strict();
 
 export const teamMembershipSchema = z.object({

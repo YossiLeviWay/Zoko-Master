@@ -16,8 +16,10 @@ export { createSchool, updateSchool, deleteSchool, assignInstitutionManager } fr
 export { createStaffInvitation, manageStaffInvitation, acceptStaffInvitation } from './callables/invitations.js';
 export { submitJoinRequest, reviewJoinRequest } from './callables/joinRequests.js';
 export { setActiveSchool, requestPublicPasswordReset } from './callables/auth.js';
-export { inviteTaskCollaborators, respondTaskInvitation, createMandatoryTask } from './callables/tasks.js';
+export { inviteTaskCollaborators, respondTaskInvitation, createMandatoryTask, executeZokiTask } from './callables/tasks.js';
 export { draftTaskWithAgent } from './callables/taskAgent.js';
+export { askZoki, getZokiTaskGuidance, saveZokiBrain } from './callables/zoki.js';
+export { executeZokiGrade, executeZokiStudentTransfer } from './callables/zokiActions.js';
 export { listTaskPatternCandidates, reviewTaskPattern } from './callables/taskPatterns.js';
 export {
   learnNestedOrganizationTaskCreated,

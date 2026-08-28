@@ -4245,12 +4245,14 @@ service cloud.firestore {
       }
 
       match /settings/{settingId} {
-        allow read: if canViewSchoolResource(schoolId);
-        allow create: if (
+        allow read: if settingId == 'zoki_brain'
+          ? canManageSchoolUsers(schoolId)
+          : canViewSchoolResource(schoolId);
+        allow create: if settingId != 'zoki_brain' && ((
             settingId == 'academic_years'
             && validAcademicYearSettings(schoolId, request.resource.data)
-          ) || canManageSchoolUsers(schoolId);
-        allow update: if (
+          ) || canManageSchoolUsers(schoolId));
+        allow update: if settingId != 'zoki_brain' && ((
             settingId == 'academic_years'
             && validAcademicYearSettings(schoolId, request.resource.data)
             && request.resource.data.createdBy == resource.data.createdBy
@@ -4258,8 +4260,12 @@ service cloud.firestore {
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
               'activeAcademicYearId', 'updatedBy', 'updatedAt'
             ])
-          ) || canManageSchoolUsers(schoolId);
+          ) || canManageSchoolUsers(schoolId));
         allow delete: if false;
+      }
+
+      match /zokiActionReceipts/{receiptId} {
+        allow read, create, update, delete: if false;
       }
 
       match /sheets/{sheetId} {
