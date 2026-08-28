@@ -67,12 +67,14 @@ function friendlyError(error) {
 
 function Modal({ title, children, onClose }) {
   const dialogRef = useRef(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     dialogRef.current?.querySelector('input, textarea, button')?.focus();
-    const onKey = event => { if (event.key === 'Escape') onClose(); };
+    const onKey = event => { if (event.key === 'Escape') onCloseRef.current(); };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, []);
   return (
     <div className="brain-modal-overlay" onMouseDown={event => event.target === event.currentTarget && onClose()}>
       <section ref={dialogRef} className="brain-modal" role="dialog" aria-modal="true" aria-label={title}>
