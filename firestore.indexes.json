@@ -97,6 +97,22 @@
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "embedding", "vectorConfig": { "dimension": 768, "flat": {} } }
       ]
+    },
+    {
+      "collectionGroup": "collectiveBrainBoards",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "audienceMode", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "collectiveBrainBoards",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "audienceUserIds", "arrayConfig": "CONTAINS" }
+      ]
     }
   ],
   "fieldOverrides": [

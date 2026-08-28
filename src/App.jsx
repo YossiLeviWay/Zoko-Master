@@ -23,6 +23,7 @@ const SupportPage = lazy(() => import('./components/Support/SupportPage'));
 const PlatformManagement = lazy(() => import('./components/Platform/PlatformManagement'));
 const ContactsPage = lazy(() => import('./components/Contacts/ContactsPage'));
 const CollectiveBrainPage = lazy(() => import('./components/CollectiveBrain/CollectiveBrainPage'));
+const PublicCollectiveBrainPage = lazy(() => import('./components/CollectiveBrain/PublicCollectiveBrainPage'));
 
 function ProtectedRoute({ children }) {
   const { currentUser, loading } = useAuth();
@@ -103,6 +104,7 @@ export default function App() {
           <Routes>
             <Route path="/login" element={<LoginRoute><Login /></LoginRoute>} />
             <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
+            <Route path="/brain/shared/:shareId" element={<PublicCollectiveBrainPage />} />
 
             <Route path="/" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
               <Route index element={<HomeRoute />} />

@@ -2,8 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   canContributeToCollectiveBrainBoard,
+  canReadCollectiveBrainBoard,
   cleanCollectiveBrainText,
   findOwnCollectiveBrainResponse,
+  findOwnCollectiveBrainResponses,
   normalizeCollectiveBrainBoard,
   sortCollectiveBrainBoards,
   sortCollectiveBrainResponses,
@@ -46,4 +48,12 @@ test('only open boards accept member contributions', () => {
   assert.equal(canContributeToCollectiveBrainBoard({ status: 'open' }), true);
   assert.equal(canContributeToCollectiveBrainBoard({ status: 'closed' }), false);
   assert.equal(canContributeToCollectiveBrainBoard({ status: 'archived' }), false);
+  assert.equal(canContributeToCollectiveBrainBoard({ status: 'open', maxResponsesPerUser: 2 }, 2), false);
+  assert.equal(canContributeToCollectiveBrainBoard({ status: 'open', maxResponsesPerUser: 2 }, 1), true);
+});
+
+test('restricted boards and multiple own responses are resolved explicitly', () => {
+  assert.equal(canReadCollectiveBrainBoard({ status: 'open', audienceMode: 'restricted', audienceUserIds: ['a'] }, 'a'), true);
+  assert.equal(canReadCollectiveBrainBoard({ status: 'open', audienceMode: 'restricted', audienceUserIds: ['a'] }, 'b'), false);
+  assert.equal(findOwnCollectiveBrainResponses([{ id: 'a_1', authorId: 'a' }, { id: 'a_2', authorId: 'a' }, { id: 'b_1', authorId: 'b' }], 'a').length, 2);
 });

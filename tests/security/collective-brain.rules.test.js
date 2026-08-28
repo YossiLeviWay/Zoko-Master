@@ -41,13 +41,22 @@ function user(uid, schoolId, extra = {}) {
   };
 }
 
-function board(status = 'open') {
+function board(status = 'open', extra = {}) {
   const now = Timestamp.fromDate(new Date('2026-08-28T08:00:00Z'));
   return {
     schoolId: SCHOOL_A,
     question: 'מה למדנו השבוע?',
     description: '',
     status,
+    schemaVersion: 2,
+    audienceMode: 'school',
+    audienceUserIds: [],
+    audienceTeamIds: [],
+    visibility: 'private',
+    publicShareId: '',
+    maxResponsesPerUser: 1,
+    responseSlots: ['1'],
+    linkedTaskIds: [],
     createdBy: 'manager_a',
     createdAt: now,
     updatedBy: 'manager_a',
@@ -56,16 +65,18 @@ function board(status = 'open') {
     archivedAt: status === 'archived' ? now : null,
     deletedBy: status === 'deleted' ? 'manager_a' : '',
     deletedAt: status === 'deleted' ? now : null,
+    ...extra,
   };
 }
 
-function response(authorId = 'member_a') {
+function response(authorId = 'member_a', responseIndex = 1) {
   const now = Timestamp.fromDate(new Date('2026-08-28T08:05:00Z'));
   return {
     schoolId: SCHOOL_A,
     boardId: 'board_a',
     authorId,
     authorName: authorId === 'member_a' ? 'חבר א' : authorId,
+    responseSlot: String(responseIndex),
     body: 'תשובה מקורית',
     status: 'active',
     createdAt: now,
@@ -109,6 +120,23 @@ test('active school members can read their board but another school cannot', asy
   await assertFails(getDoc(doc(context('outsider_b').firestore(), BOARD_PATH)));
 });
 
+test('a restricted board is readable only by its explicit audience and managers', async () => {
+  await seed({ [BOARD_PATH]: board('open', { audienceMode: 'restricted', audienceUserIds: ['member_a'] }) });
+  await assertSucceeds(getDoc(doc(context('member_a').firestore(), BOARD_PATH)));
+  await assertFails(getDoc(doc(context('member_b').firestore(), BOARD_PATH)));
+  await assertSucceeds(getDoc(doc(context('manager_a').firestore(), BOARD_PATH)));
+});
+
+test('restricted board queries must include the current member in the audience constraint', async () => {
+  await seed({ [BOARD_PATH]: board('open', { audienceMode: 'restricted', audienceUserIds: ['member_a'] }) });
+  const memberDb = context('member_a').firestore();
+  await assertSucceeds(getDocs(query(
+    collection(memberDb, `schools/${SCHOOL_A}/collectiveBrainBoards`),
+    where('status', '==', 'open'),
+    where('audienceUserIds', 'array-contains', 'member_a'),
+  )));
+});
+
 test('member list queries are constrained to visible board and response statuses', async () => {
   const memberDb = context('member_a').firestore();
   await seed({ [`${BOARD_PATH}/responses/member_a`]: response('member_a') });
@@ -136,6 +164,9 @@ test('only a brain manager can create a board', async () => {
     question: 'שאלה חדשה',
     description: '',
     status: 'open',
+    schemaVersion: 2,
+    audienceMode: 'school', audienceUserIds: [], audienceTeamIds: [],
+    visibility: 'private', publicShareId: '', maxResponsesPerUser: 1, responseSlots: ['1'], linkedTaskIds: [],
     createdBy: 'manager_a',
     createdAt: serverTimestamp(),
     updatedBy: 'manager_a',
@@ -146,8 +177,8 @@ test('only a brain manager can create a board', async () => {
   await assertFails(setDoc(doc(context('member_a').firestore(), `schools/${SCHOOL_A}/collectiveBrainBoards/member_board`), { ...payload, createdBy: 'member_a', updatedBy: 'member_a' }));
 });
 
-test('a member creates exactly one response in their own deterministic document', async () => {
-  const ownPath = `${BOARD_PATH}/responses/member_a`;
+test('a member creates only the configured number of responses in deterministic slots', async () => {
+  const ownPath = `${BOARD_PATH}/responses/member_a_1`;
   const payload = {
     ...response('member_a'),
     createdAt: serverTimestamp(),
@@ -156,10 +187,13 @@ test('a member creates exactly one response in their own deterministic document'
   await assertSucceeds(setDoc(doc(context('member_a').firestore(), ownPath), payload));
   await assertFails(setDoc(doc(context('member_a').firestore(), `${BOARD_PATH}/responses/another_id`), payload));
   await assertFails(setDoc(doc(context('member_a').firestore(), ownPath), { ...payload, body: 'תשובה נוספת' }));
+  await assertFails(setDoc(doc(context('member_a').firestore(), `${BOARD_PATH}/responses/member_a_2`), { ...payload, responseSlot: '2' }));
+  await seed({ [BOARD_PATH]: board('open', { maxResponsesPerUser: 2, responseSlots: ['1', '2'] }) });
+  await assertSucceeds(setDoc(doc(context('member_a').firestore(), `${BOARD_PATH}/responses/member_a_2`), { ...payload, responseSlot: '2' }));
 });
 
 test('a member edits only their body while a board is open', async () => {
-  const ownPath = `${BOARD_PATH}/responses/member_a`;
+  const ownPath = `${BOARD_PATH}/responses/member_a_1`;
   await seed({ [ownPath]: response('member_a') });
   await assertSucceeds(updateDoc(doc(context('member_a').firestore(), ownPath), {
     body: 'תשובה מעודכנת', updatedAt: serverTimestamp(), editedAt: serverTimestamp(),
@@ -173,8 +207,8 @@ test('a member edits only their body while a board is open', async () => {
 });
 
 test('members cannot edit another response and cannot edit after closure', async () => {
-  const otherPath = `${BOARD_PATH}/responses/member_b`;
-  const ownPath = `${BOARD_PATH}/responses/member_a`;
+  const otherPath = `${BOARD_PATH}/responses/member_b_1`;
+  const ownPath = `${BOARD_PATH}/responses/member_a_1`;
   await seed({ [otherPath]: response('member_b'), [ownPath]: response('member_a') });
   await assertFails(updateDoc(doc(context('member_a').firestore(), otherPath), {
     body: 'שינוי אסור', updatedAt: serverTimestamp(), editedAt: serverTimestamp(),
@@ -186,7 +220,7 @@ test('members cannot edit another response and cannot edit after closure', async
 });
 
 test('a brain manager can moderate, soft-delete and restore a response', async () => {
-  const ownPath = `${BOARD_PATH}/responses/member_a`;
+  const ownPath = `${BOARD_PATH}/responses/member_a_1`;
   await seed({ [ownPath]: response('member_a') });
   const managerDb = context('manager_a').firestore();
   await assertSucceeds(updateDoc(doc(managerDb, ownPath), {

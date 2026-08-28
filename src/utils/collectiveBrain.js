@@ -11,6 +11,9 @@ export const COLLECTIVE_BRAIN_STATUSES = Object.freeze([
   'deleted',
 ]);
 
+export const COLLECTIVE_BRAIN_AUDIENCES = Object.freeze(['school', 'restricted']);
+export const COLLECTIVE_BRAIN_VISIBILITIES = Object.freeze(['private', 'public']);
+
 export function cleanCollectiveBrainText(value, maxLength) {
   if (typeof value !== 'string') return '';
   return value.trim().slice(0, maxLength);
@@ -21,11 +24,22 @@ function timestampValue(value) {
 }
 
 export function normalizeCollectiveBrainBoard(item) {
+  const audienceMode = COLLECTIVE_BRAIN_AUDIENCES.includes(item?.audienceMode)
+    ? item.audienceMode : 'school';
   return {
     ...item,
     question: cleanCollectiveBrainText(item?.question, COLLECTIVE_BRAIN_LIMITS.question) || 'שאלה ללא כותרת',
     description: cleanCollectiveBrainText(item?.description, COLLECTIVE_BRAIN_LIMITS.description),
     status: COLLECTIVE_BRAIN_STATUSES.includes(item?.status) ? item.status : 'closed',
+    audienceMode,
+    audienceUserIds: Array.isArray(item?.audienceUserIds) ? item.audienceUserIds : [],
+    audienceTeamIds: Array.isArray(item?.audienceTeamIds) ? item.audienceTeamIds : [],
+    visibility: COLLECTIVE_BRAIN_VISIBILITIES.includes(item?.visibility) ? item.visibility : 'private',
+    publicShareId: typeof item?.publicShareId === 'string' ? item.publicShareId : '',
+    maxResponsesPerUser: Number.isInteger(item?.maxResponsesPerUser)
+      ? Math.min(20, Math.max(1, item.maxResponsesPerUser)) : 1,
+    responseSlots: Array.isArray(item?.responseSlots) ? item.responseSlots : ['1'],
+    linkedTaskIds: Array.isArray(item?.linkedTaskIds) ? item.linkedTaskIds : [],
   };
 }
 
@@ -48,6 +62,15 @@ export function findOwnCollectiveBrainResponse(items, uid) {
   return items.find(item => item.id === uid || item.authorId === uid) || null;
 }
 
-export function canContributeToCollectiveBrainBoard(board) {
-  return board?.status === 'open';
+export function findOwnCollectiveBrainResponses(items, uid) {
+  return items.filter(item => item.id === uid || item.authorId === uid);
+}
+
+export function canReadCollectiveBrainBoard(board, uid) {
+  if (!board || board.status === 'deleted') return false;
+  return board.audienceMode !== 'restricted' || board.audienceUserIds?.includes(uid);
+}
+
+export function canContributeToCollectiveBrainBoard(board, currentCount = 0) {
+  return board?.status === 'open' && currentCount < (board?.maxResponsesPerUser || 1);
 }

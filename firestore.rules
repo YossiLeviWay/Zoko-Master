@@ -539,7 +539,9 @@ service cloud.firestore {
 
     function collectiveBrainBoardFieldsValid(schoolId, data) {
       return data.keys().hasOnly([
-          'schoolId', 'question', 'description', 'status',
+          'schoolId', 'question', 'description', 'status', 'schemaVersion',
+          'audienceMode', 'audienceUserIds', 'audienceTeamIds',
+          'visibility', 'publicShareId', 'maxResponsesPerUser', 'responseSlots', 'linkedTaskIds',
           'createdBy', 'createdAt', 'updatedBy', 'updatedAt',
           'archivedBy', 'archivedAt', 'deletedBy', 'deletedAt'
         ])
@@ -550,6 +552,25 @@ service cloud.firestore {
         && data.description is string
         && data.description.size() <= 1500
         && data.status in ['open', 'closed', 'archived', 'deleted']
+        && data.schemaVersion == 2
+        && data.audienceMode in ['school', 'restricted']
+        && data.audienceUserIds is list
+        && data.audienceUserIds.size() <= 200
+        && data.audienceTeamIds is list
+        && data.audienceTeamIds.size() <= 50
+        && (data.audienceMode == 'school' || data.audienceUserIds.size() > 0)
+        && data.visibility in ['private', 'public']
+        && data.publicShareId is string
+        && data.publicShareId.size() <= 128
+        && (data.visibility == 'private' || data.publicShareId.size() > 20)
+        && data.maxResponsesPerUser is int
+        && data.maxResponsesPerUser >= 1
+        && data.maxResponsesPerUser <= 20
+        && data.responseSlots is list
+        && data.responseSlots.size() == data.maxResponsesPerUser
+        && data.responseSlots.size() <= 20
+        && data.linkedTaskIds is list
+        && data.linkedTaskIds.size() <= 50
         && data.createdBy is string
         && data.createdAt is timestamp
         && data.updatedBy is string
@@ -612,9 +633,34 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/schools/$(schoolId)/collectiveBrainBoards/$(boardId)).data.status == 'open';
     }
 
+    function isCollectiveBrainAudienceMember(schoolId, data) {
+      return isSchoolMember(schoolId)
+        && data.status != 'deleted'
+        && (
+          data.get('audienceMode', 'school') == 'school'
+          || request.auth.uid in data.get('audienceUserIds', [])
+        );
+    }
+
+    function canReadCollectiveBrainBoard(schoolId, data) {
+      return canManageCollectiveBrain(schoolId)
+        || isCollectiveBrainAudienceMember(schoolId, data);
+    }
+
+    function canReadCollectiveBrainBoardById(schoolId, boardId) {
+      let board = get(/databases/$(database)/documents/schools/$(schoolId)/collectiveBrainBoards/$(boardId)).data;
+      return isCollectiveBrainAudienceMember(schoolId, board);
+    }
+
+    function canContributeCollectiveBrainBoardById(schoolId, boardId) {
+      let board = get(/databases/$(database)/documents/schools/$(schoolId)/collectiveBrainBoards/$(boardId)).data;
+      return board.status == 'open' && isCollectiveBrainAudienceMember(schoolId, board);
+    }
+
     function collectiveBrainResponseFieldsValid(schoolId, boardId, data) {
       return data.keys().hasOnly([
           'schoolId', 'boardId', 'authorId', 'authorName', 'body', 'status',
+          'responseSlot',
           'createdAt', 'updatedAt', 'editedAt', 'moderatedBy', 'moderatedAt',
           'deletedBy', 'deletedAt'
         ])
@@ -625,6 +671,8 @@ service cloud.firestore {
         && data.authorName is string
         && data.authorName.size() > 0
         && data.authorName.size() <= 120
+        && data.get('responseSlot', '1') is string
+        && data.get('responseSlot', '1').size() <= 2
         && data.body is string
         && data.body.size() > 0
         && data.body.size() <= 2000
@@ -644,9 +692,12 @@ service cloud.firestore {
     }
 
     function validCollectiveBrainResponseCreate(schoolId, boardId, responseId, data) {
-      return isSchoolMember(schoolId)
-        && collectiveBrainBoardOpen(schoolId, boardId)
-        && responseId == request.auth.uid
+      let board = get(/databases/$(database)/documents/schools/$(schoolId)/collectiveBrainBoards/$(boardId)).data;
+      let slot = data.get('responseSlot', '1');
+      return board.status == 'open'
+        && isCollectiveBrainAudienceMember(schoolId, board)
+        && slot in board.get('responseSlots', ['1'])
+        && responseId == request.auth.uid + '_' + slot
         && collectiveBrainResponseFieldsValid(schoolId, boardId, data)
         && data.authorId == request.auth.uid
         && data.authorName == currentUser().get('fullName', 'משתמש')
@@ -661,9 +712,7 @@ service cloud.firestore {
     }
 
     function safeOwnCollectiveBrainResponseUpdate(schoolId, boardId, responseId) {
-      return isSchoolMember(schoolId)
-        && collectiveBrainBoardOpen(schoolId, boardId)
-        && responseId == request.auth.uid
+      return canContributeCollectiveBrainBoardById(schoolId, boardId)
         && resource.data.authorId == request.auth.uid
         && resource.data.status == 'active'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['body', 'updatedAt', 'editedAt'])
@@ -674,16 +723,39 @@ service cloud.firestore {
         && request.resource.data.editedAt == request.time;
     }
 
+    function safeOwnDeletedCollectiveBrainResponseReplacement(schoolId, boardId) {
+      return canContributeCollectiveBrainBoardById(schoolId, boardId)
+        && resource.data.authorId == request.auth.uid
+        && resource.data.status == 'deleted'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'body', 'status', 'createdAt', 'updatedAt', 'editedAt',
+          'moderatedBy', 'moderatedAt', 'deletedBy', 'deletedAt'
+        ])
+        && request.resource.data.body is string
+        && request.resource.data.body.size() > 0
+        && request.resource.data.body.size() <= 2000
+        && request.resource.data.status == 'active'
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.editedAt == null
+        && request.resource.data.moderatedBy == ''
+        && request.resource.data.moderatedAt == null
+        && request.resource.data.deletedBy == ''
+        && request.resource.data.deletedAt == null;
+    }
+
     function safeManagedCollectiveBrainResponseUpdate(schoolId, boardId) {
       let bodyChanged = request.resource.data.body != resource.data.body;
       let statusChanged = request.resource.data.status != resource.data.status;
       return canManageCollectiveBrain(schoolId)
-        && collectiveBrainResponseFieldsValid(schoolId, boardId, request.resource.data)
-        && request.resource.data.schoolId == resource.data.schoolId
-        && request.resource.data.boardId == resource.data.boardId
-        && request.resource.data.authorId == resource.data.authorId
-        && request.resource.data.authorName == resource.data.authorName
-        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'body', 'status', 'updatedAt', 'editedAt', 'moderatedBy',
+          'moderatedAt', 'deletedBy', 'deletedAt'
+        ])
+        && request.resource.data.body is string
+        && request.resource.data.body.size() > 0
+        && request.resource.data.body.size() <= 2000
+        && request.resource.data.status in ['active', 'deleted']
         && request.resource.data.updatedAt == request.time
         && (
           !bodyChanged
@@ -3112,11 +3184,7 @@ service cloud.firestore {
       }
 
       match /collectiveBrainBoards/{boardId} {
-        allow read: if canManageCollectiveBrain(schoolId)
-          || (
-            isSchoolMember(schoolId)
-            && resource.data.status != 'deleted'
-          );
+        allow read: if canReadCollectiveBrainBoard(schoolId, resource.data);
         allow create: if validCollectiveBrainBoardCreate(schoolId, request.resource.data);
         allow update: if safeCollectiveBrainBoardUpdate(schoolId);
         allow delete: if false;
@@ -3124,14 +3192,14 @@ service cloud.firestore {
         match /responses/{responseId} {
           allow read: if canManageCollectiveBrain(schoolId)
             || (
-              isSchoolMember(schoolId)
-              && resource.data.status == 'active'
-              && get(/databases/$(database)/documents/schools/$(schoolId)/collectiveBrainBoards/$(boardId)).data.status != 'deleted'
+              resource.data.status == 'active'
+              && canReadCollectiveBrainBoardById(schoolId, boardId)
             );
           allow create: if validCollectiveBrainResponseCreate(
             schoolId, boardId, responseId, request.resource.data
           );
           allow update: if safeOwnCollectiveBrainResponseUpdate(schoolId, boardId, responseId)
+            || safeOwnDeletedCollectiveBrainResponseReplacement(schoolId, boardId)
             || safeManagedCollectiveBrainResponseUpdate(schoolId, boardId);
           allow delete: if false;
         }

@@ -83,6 +83,11 @@ export {
 } from './callables/forum.js';
 export { createSupportTicket, updateSupportTicket } from './callables/support.js';
 export {
+  configureCollectiveBrainPublicAccess,
+  getPublicCollectiveBrainBoard,
+  submitPublicCollectiveBrainResponse,
+} from './callables/collectiveBrain.js';
+export {
   listPlatformInstitutions,
   listPlatformStaff,
   platformStaffAction,

@@ -4,15 +4,26 @@ import {
   ArchiveRestore,
   Brain,
   Check,
+  ClipboardList,
+  Copy,
   Edit3,
+  ExternalLink,
+  Globe2,
   Lock,
+  Maximize2,
   MessageSquareText,
+  Minimize2,
   Plus,
   RotateCcw,
   Save,
+  Settings2,
+  Share2,
   Trash2,
+  UserRound,
+  Users,
   X,
 } from 'lucide-react';
+import { collection, getDocs, query, where } from 'firebase/firestore';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePermissions } from '../../hooks/usePermissions';
 import { db } from '../../firebase';
@@ -29,10 +40,11 @@ import {
   updateCollectiveBrainBoard,
   updateOwnCollectiveBrainResponse,
 } from '../../services/firestore/collectiveBrainRepository';
+import { configureCollectiveBrainPublicAccess } from '../../services/adminUserService';
 import {
   canContributeToCollectiveBrainBoard,
   COLLECTIVE_BRAIN_LIMITS,
-  findOwnCollectiveBrainResponse,
+  findOwnCollectiveBrainResponses,
 } from '../../utils/collectiveBrain';
 import './CollectiveBrain.css';
 
@@ -61,6 +73,7 @@ function formatTime(value) {
 function friendlyError(error) {
   if (error?.message === 'QUESTION_REQUIRED') return 'יש להזין שאלה.';
   if (error?.message === 'RESPONSE_REQUIRED') return 'יש להזין תשובה.';
+  if (error?.message === 'AUDIENCE_REQUIRED') return 'יש לבחור לפחות איש צוות אחד שייחשף ללוח.';
   if (error?.code === 'permission-denied') return 'הפעולה נדחתה. ייתכן שהלוח נסגר או שההרשאה השתנתה.';
   return 'לא ניתן להשלים את הפעולה כרגע. נסו שוב.';
 }
@@ -86,6 +99,8 @@ function Modal({ title, children, onClose }) {
 }
 
 export default function CollectiveBrainPage() {
+  const pageRef = useRef(null);
+  const migratedBoardsRef = useRef(new Set());
   const { currentUser, userData, selectedSchool, isGlobalAdmin, isPrincipal } = useAuth();
   const { permissions, loading: permissionsLoading } = usePermissions();
   const schoolId = selectedSchool || userData?.schoolId;
@@ -101,8 +116,13 @@ export default function CollectiveBrainPage() {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [boardForm, setBoardForm] = useState(null);
+  const [staff, setStaff] = useState([]);
+  const [teams, setTeams] = useState([]);
+  const [tasks, setTasks] = useState([]);
+  const [shareInfo, setShareInfo] = useState(null);
+  const [immersive, setImmersive] = useState(false);
   const [responseDraft, setResponseDraft] = useState('');
-  const [editingOwn, setEditingOwn] = useState(false);
+  const [editingOwn, setEditingOwn] = useState(null);
   const [moderatingResponse, setModeratingResponse] = useState(null);
   const [showDeletedResponses, setShowDeletedResponses] = useState(false);
 
@@ -113,11 +133,62 @@ export default function CollectiveBrainPage() {
     setBoards([]);
     setSelectedBoardId('');
     return subscribeCollectiveBrainBoards({
-      db, schoolId, canManage,
-      onData: items => { setBoards(items); setLoading(false); },
+      db, schoolId, uid: currentUser?.uid, canManage,
+      onData: items => {
+        setBoards(items); setLoading(false);
+        if (canManage) items.filter(item => item.schemaVersion !== 2 && !migratedBoardsRef.current.has(item.id)).forEach(item => {
+          migratedBoardsRef.current.add(item.id);
+          updateCollectiveBrainBoard({
+            db, schoolId, boardId: item.id,
+            actor: { uid: currentUser?.uid }, question: item.question, description: item.description,
+            audienceMode: 'school', audienceUserIds: [], audienceTeamIds: [], visibility: 'private',
+            publicShareId: '', maxResponsesPerUser: 1, linkedTaskIds: [],
+          }).catch(() => migratedBoardsRef.current.delete(item.id));
+        });
+      },
       onError: () => { setError('לא ניתן לטעון את הלוחות.'); setLoading(false); },
     });
-  }, [canManage, permissionsLoading, schoolId]);
+  }, [canManage, currentUser?.uid, permissionsLoading, schoolId]);
+
+  useEffect(() => {
+    if (!schoolId || !canManage) return undefined;
+    let cancelled = false;
+    async function loadManagementOptions() {
+      const results = [];
+      const seen = new Set();
+      const [modernUsers, legacyUsers, nestedTeams, legacyTeams, nestedTasks, legacyTasks] = await Promise.allSettled([
+        getDocs(query(collection(db, 'users'), where('schoolIds', 'array-contains', schoolId))),
+        getDocs(query(collection(db, 'users'), where('schoolId', '==', schoolId))),
+        getDocs(collection(db, `schools/${schoolId}/teams`)),
+        getDocs(collection(db, `teams_${schoolId}`)),
+        getDocs(collection(db, `schools/${schoolId}/tasks`)),
+        getDocs(collection(db, `tasks_${schoolId}`)),
+      ]);
+      [modernUsers, legacyUsers].forEach(result => result.status === 'fulfilled' && result.value.docs.forEach(item => {
+        if (!seen.has(item.id) && item.data().accountStatus !== 'disabled') {
+          seen.add(item.id); results.push({ id: item.id, ...item.data() });
+        }
+      }));
+      const mergeDocs = entries => {
+        const map = new Map();
+        entries.forEach(result => result.status === 'fulfilled' && result.value.docs.forEach(item => map.set(item.id, { id: item.id, ...item.data() })));
+        return [...map.values()];
+      };
+      if (!cancelled) {
+        setStaff(results.sort((a, b) => (a.fullName || '').localeCompare(b.fullName || '', 'he')));
+        setTeams(mergeDocs([nestedTeams, legacyTeams]).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'he')));
+        setTasks(mergeDocs([nestedTasks, legacyTasks]).filter(item => item.status !== 'deleted'));
+      }
+    }
+    loadManagementOptions().catch(() => setError('חלק מאפשרויות הקהל והמשימות לא נטענו.'));
+    return () => { cancelled = true; };
+  }, [canManage, schoolId]);
+
+  useEffect(() => {
+    const onFullscreen = () => setImmersive(Boolean(document.fullscreenElement));
+    document.addEventListener('fullscreenchange', onFullscreen);
+    return () => document.removeEventListener('fullscreenchange', onFullscreen);
+  }, []);
 
   useEffect(() => {
     if (!schoolId) return undefined;
@@ -145,7 +216,7 @@ export default function CollectiveBrainPage() {
   useEffect(() => {
     setResponses([]);
     setResponseDraft('');
-    setEditingOwn(false);
+    setEditingOwn(null);
     setShowDeletedResponses(false);
     if (!schoolId || !selectedBoardId) return undefined;
     return subscribeCollectiveBrainResponses({
@@ -157,15 +228,15 @@ export default function CollectiveBrainPage() {
 
   const activeResponses = responses.filter(item => item.status === 'active');
   const deletedResponses = responses.filter(item => item.status === 'deleted');
-  const ownResponse = findOwnCollectiveBrainResponse(activeResponses, currentUser?.uid);
-  const canContribute = canContributeToCollectiveBrainBoard(selectedBoard);
+  const ownResponses = findOwnCollectiveBrainResponses(activeResponses, currentUser?.uid);
+  const canContribute = canContributeToCollectiveBrainBoard(selectedBoard, ownResponses.length);
 
   function openNewBoard() {
-    setBoardForm({ id: '', question: '', description: '' });
+    setBoardForm({ id: '', question: '', description: '', audienceMode: 'school', audienceUserIds: [], audienceTeamIds: [], visibility: 'private', publicShareId: '', maxResponsesPerUser: 1, linkedTaskIds: [] });
   }
 
   function openEditBoard(board) {
-    setBoardForm({ id: board.id, question: board.question, description: board.description || '' });
+    setBoardForm({ id: board.id, question: board.question, description: board.description || '', audienceMode: board.audienceMode || 'school', audienceUserIds: board.audienceUserIds || [], audienceTeamIds: board.audienceTeamIds || [], visibility: board.visibility || 'private', publicShareId: board.publicShareId || '', maxResponsesPerUser: board.maxResponsesPerUser || 1, linkedTaskIds: board.linkedTaskIds || [] });
   }
 
   async function saveBoard(event) {
@@ -177,12 +248,28 @@ export default function CollectiveBrainPage() {
     setSaving(true);
     setError('');
     try {
+      if (boardForm.audienceMode === 'restricted' && boardForm.audienceUserIds.length === 0) {
+        throw new Error('AUDIENCE_REQUIRED');
+      }
+      const existingBoard = boardForm.id ? boards.find(item => item.id === boardForm.id) : null;
+      const desiredPublic = boardForm.visibility === 'public';
+      const safeForm = {
+        ...boardForm,
+        visibility: existingBoard?.visibility === 'public' ? 'public' : 'private',
+        publicShareId: existingBoard?.publicShareId || '',
+      };
+      let boardId = boardForm.id;
       if (boardForm.id) {
-        await updateCollectiveBrainBoard({ db, schoolId, boardId: boardForm.id, actor, ...boardForm });
+        await updateCollectiveBrainBoard({ db, schoolId, boardId: boardForm.id, actor, ...safeForm });
       } else {
-        const id = await createCollectiveBrainBoard({ db, schoolId, actor, ...boardForm });
+        const id = await createCollectiveBrainBoard({ db, schoolId, actor, ...safeForm });
+        boardId = id;
         setSection('active');
         setSelectedBoardId(id);
+      }
+      if (desiredPublic || existingBoard?.visibility === 'public') {
+        const publicResult = await configureCollectiveBrainPublicAccess({ schoolId, boardId, enabled: desiredPublic });
+        if (desiredPublic) setShareInfo(publicResult);
       }
       setBoardForm(null);
     } catch (saveError) {
@@ -220,21 +307,75 @@ export default function CollectiveBrainPage() {
     setSaving(true);
     setError('');
     try {
-      if (ownResponse) {
-        await updateOwnCollectiveBrainResponse({ db, schoolId, boardId: selectedBoard.id, actor, body: responseDraft });
+      if (editingOwn) {
+        await updateOwnCollectiveBrainResponse({ db, schoolId, boardId: selectedBoard.id, responseId: editingOwn.id, actor, body: responseDraft });
       } else {
+        const used = new Set(ownResponses.map(item => Number.parseInt(item.responseSlot, 10) || 1));
+        const responseIndex = Array.from({ length: selectedBoard.maxResponsesPerUser || 1 }, (_, index) => index + 1).find(index => !used.has(index));
         await createCollectiveBrainResponse({
           db, schoolId, boardId: selectedBoard.id, actor,
-          authorName: actor.fullName, body: responseDraft,
+          authorName: actor.fullName, body: responseDraft, responseIndex,
         });
       }
       setResponseDraft('');
-      setEditingOwn(false);
+      setEditingOwn(null);
     } catch (saveError) {
       setError(friendlyError(saveError));
     } finally {
       setSaving(false);
     }
+  }
+
+  async function toggleFullscreen() {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen?.();
+      setImmersive(false);
+      return;
+    }
+    setImmersive(true);
+    await pageRef.current?.requestFullscreen?.().catch(() => undefined);
+  }
+
+  async function openShareLinks() {
+    if (!selectedBoard || saving) return;
+    setSaving(true);
+    setError('');
+    try {
+      const result = await configureCollectiveBrainPublicAccess({ schoolId, boardId: selectedBoard.id, enabled: true });
+      setShareInfo(result);
+    } catch (shareError) { setError(friendlyError(shareError)); }
+    finally { setSaving(false); }
+  }
+
+  function publicUrl(token = '') {
+    const root = `${window.location.origin}${window.location.pathname}#/brain/shared/${shareInfo?.shareId || selectedBoard?.publicShareId}`;
+    return token ? `${root}?participant=${encodeURIComponent(token)}` : root;
+  }
+
+  async function copyText(value) {
+    await navigator.clipboard.writeText(value);
+  }
+
+  function toggleAudienceUser(userId) {
+    setBoardForm(previous => ({
+      ...previous,
+      audienceUserIds: previous.audienceUserIds.includes(userId)
+        ? previous.audienceUserIds.filter(id => id !== userId)
+        : [...previous.audienceUserIds, userId],
+    }));
+  }
+
+  function toggleAudienceTeam(team) {
+    const selected = boardForm.audienceTeamIds.includes(team.id);
+    const teamMembers = Array.isArray(team.memberIds) ? team.memberIds : [];
+    setBoardForm(previous => ({
+      ...previous,
+      audienceMode: 'restricted',
+      audienceTeamIds: selected ? previous.audienceTeamIds.filter(id => id !== team.id) : [...previous.audienceTeamIds, team.id],
+      audienceUserIds: selected
+        ? previous.audienceUserIds.filter(id => !teamMembers.includes(id))
+        : [...new Set([...previous.audienceUserIds, ...teamMembers])],
+    }));
   }
 
   async function saveModeration(event) {
@@ -277,10 +418,10 @@ export default function CollectiveBrainPage() {
   }
 
   return (
-    <div className="brain-page" dir="rtl">
+    <div ref={pageRef} className={`brain-page ${immersive ? 'brain-page--immersive' : ''}`} dir="rtl">
       <header className="brain-page-header">
         <div className="brain-title"><span className="brain-title-icon"><Brain size={26} /></span><div><h1>מוח משותף</h1><p>אוספים יחד רעיונות, ניסיון ותובנות של כל אנשי המוסד</p></div></div>
-        {canManage && <button className="btn btn-primary" onClick={openNewBoard}><Plus size={16} /> לוח חדש</button>}
+        <div className="brain-header-actions">{selectedBoard && <button className="btn btn-secondary" onClick={toggleFullscreen}>{immersive ? <Minimize2 size={16} /> : <Maximize2 size={16} />} {immersive ? 'יציאה ממסך מלא' : 'מסך מלא'}</button>}{canManage && <button className="btn btn-primary" onClick={openNewBoard}><Plus size={16} /> לוח חדש</button>}</div>
       </header>
 
       {error && <div className="brain-alert" role="alert">{error}<button onClick={() => setError('')} aria-label="סגירה"><X size={15} /></button></div>}
@@ -306,7 +447,9 @@ export default function CollectiveBrainPage() {
           {!selectedBoard ? <div className="brain-empty-board"><Brain size={48} /><h2>בחרו לוח כדי להתחיל</h2><p>השאלות והתשובות של המוסד יוצגו כאן.</p></div> : <>
             <section className={`brain-question brain-question--${selectedBoard.status}`}>
               <div className="brain-question-topline"><span className="brain-status-badge">{selectedBoard.status === 'open' ? <Check size={13} /> : <Lock size={13} />}{STATUS_LABELS[selectedBoard.status]}</span>{canManage && <div className="brain-question-actions">
-                {selectedBoard.status !== 'deleted' && <button onClick={() => openEditBoard(selectedBoard)}><Edit3 size={14} /> עריכה</button>}
+                <button onClick={toggleFullscreen}>{immersive ? <Minimize2 size={14} /> : <Maximize2 size={14} />} {immersive ? 'יציאה' : 'מסך מלא'}</button>
+                {selectedBoard.status !== 'deleted' && <button onClick={() => openEditBoard(selectedBoard)}><Settings2 size={14} /> הגדרות</button>}
+                {selectedBoard.visibility === 'public' && <button onClick={openShareLinks}><Share2 size={14} /> שיתוף</button>}
                 {selectedBoard.status === 'open' && <button onClick={() => changeBoardStatus('closed')}><Lock size={14} /> סגירה</button>}
                 {selectedBoard.status === 'closed' && <button onClick={() => changeBoardStatus('open')}><RotateCcw size={14} /> פתיחה מחדש</button>}
                 {selectedBoard.status !== 'archived' && selectedBoard.status !== 'deleted' && <button onClick={() => changeBoardStatus('archived')}><Archive size={14} /> ארכוב</button>}
@@ -316,23 +459,25 @@ export default function CollectiveBrainPage() {
               </div>}</div>
               <h2>{selectedBoard.question}</h2>
               {selectedBoard.description && <p>{selectedBoard.description}</p>}
+              <div className="brain-board-meta"><span>{selectedBoard.visibility === 'public' ? <><Globe2 size={12} /> פומבי</> : <><Lock size={12} /> פרטי</>}</span><span>{selectedBoard.audienceMode === 'school' ? <><Users size={12} /> כל הצוות</> : <><UserRound size={12} /> {selectedBoard.audienceUserIds.length} משתתפים</>}</span><span><MessageSquareText size={12} /> עד {selectedBoard.maxResponsesPerUser || 1} תגובות לאדם</span>{selectedBoard.linkedTaskIds?.length > 0 && <span><ClipboardList size={12} /> {selectedBoard.linkedTaskIds.length} משימות מקושרות</span>}</div>
+              {selectedBoard.linkedTaskIds?.length > 0 && <div className="brain-linked-tasks">{selectedBoard.linkedTaskIds.map(taskId => { const task = tasks.find(item => item.id === taskId); return <a key={taskId} href={`#/tasks?task=${encodeURIComponent(taskId)}`}><ClipboardList size={12} /> {task?.title || 'פתיחת המשימה'} <ExternalLink size={11} /></a>; })}</div>}
               <small>נוצר ב־{formatTime(selectedBoard.createdAt)}</small>
             </section>
 
-            {canContribute && (!ownResponse || editingOwn) && <form className="brain-response-composer" onSubmit={saveOwnResponse}>
-              <label htmlFor="brain-own-response">{ownResponse ? 'עריכת התשובה שלי' : 'מה התשובה שלך?'}</label>
+            {(canContribute || editingOwn) && <form className="brain-response-composer" onSubmit={saveOwnResponse}>
+              <label htmlFor="brain-own-response">{editingOwn ? 'עריכת התגובה שלי' : 'מה התגובה שלך?'}</label>
               <textarea id="brain-own-response" value={responseDraft} onChange={event => setResponseDraft(event.target.value)} maxLength={COLLECTIVE_BRAIN_LIMITS.response} rows={4} placeholder="כתבו כאן את הרעיון או התובנה שלכם…" />
-              <div><span>{responseDraft.length}/{COLLECTIVE_BRAIN_LIMITS.response}</span><span className="brain-composer-actions">{ownResponse && <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setEditingOwn(false); setResponseDraft(''); }}>ביטול</button>}<button className="btn btn-primary btn-sm" disabled={saving || !responseDraft.trim()}><Save size={14} /> {saving ? 'שומר…' : 'שמירת תשובה'}</button></span></div>
+              <div><span>{responseDraft.length}/{COLLECTIVE_BRAIN_LIMITS.response}{!editingOwn && ` · תגובה ${ownResponses.length + 1} מתוך ${selectedBoard.maxResponsesPerUser || 1}`}</span><span className="brain-composer-actions">{editingOwn && <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setEditingOwn(null); setResponseDraft(''); }}>ביטול</button>}<button className="btn btn-primary btn-sm" disabled={saving || !responseDraft.trim()}><Save size={14} /> {saving ? 'שומר…' : 'שמירת תגובה'}</button></span></div>
             </form>}
 
-            {canContribute && ownResponse && !editingOwn && <div className="brain-own-banner"><Check size={16} /><span>התשובה שלך נמצאת בלוח.</span><button onClick={() => { setResponseDraft(ownResponse.body); setEditingOwn(true); }}><Edit3 size={14} /> עריכת התשובה שלי</button></div>}
-            {!canContribute && selectedBoard.status !== 'deleted' && <div className="brain-readonly-banner"><Lock size={16} /> הלוח פתוח לקריאה בלבד ולא ניתן להוסיף או לערוך תשובות.</div>}
+            {ownResponses.length > 0 && !editingOwn && <div className="brain-own-banner"><Check size={16} /><span>פרסמת {ownResponses.length} מתוך {selectedBoard.maxResponsesPerUser || 1} תגובות אפשריות.</span></div>}
+            {!canContribute && !editingOwn && selectedBoard.status !== 'deleted' && <div className="brain-readonly-banner"><Lock size={16} /> {selectedBoard.status !== 'open' ? 'הלוח פתוח לקריאה בלבד.' : 'הגעת למכסת התגובות שהוגדרה עבורך.'}</div>}
 
             <div className="brain-responses-heading"><div><h3>התשובות של הצוות</h3><span>{activeResponses.length} תשובות</span></div>{canManage && deletedResponses.length > 0 && <button className="btn btn-secondary btn-sm" onClick={() => setShowDeletedResponses(value => !value)}><Trash2 size={13} /> {showDeletedResponses ? 'הסתרת מחוקות' : `הצגת מחוקות (${deletedResponses.length})`}</button>}</div>
             {activeResponses.length === 0 ? <div className="brain-no-responses"><MessageSquareText size={36} /><p>עדיין אין תשובות בלוח הזה.</p></div> : <div className="brain-response-grid">{activeResponses.map((response, index) => <article key={response.id} className="brain-response-card">
               <div className="brain-response-card-top"><span className="brain-response-avatar">{response.authorName?.charAt(0) || '?'}</span><div><strong>{response.authorName || 'משתמש'}</strong><small>{formatTime(response.createdAt)}{response.editedAt ? ' · נערך' : ''}{response.moderatedAt ? ' על ידי מנהל' : ''}</small></div><span className="brain-response-number">#{index + 1}</span></div>
               <p>{response.body}</p>
-              {canManage && <div className="brain-response-actions"><button onClick={() => setModeratingResponse({ ...response })}><Edit3 size={13} /> עריכה</button><button className="danger" onClick={() => removeResponse(response)}><Trash2 size={13} /> מחיקה</button></div>}
+              {(canManage || (response.authorId === currentUser?.uid && selectedBoard.status === 'open')) && <div className="brain-response-actions">{response.authorId === currentUser?.uid && selectedBoard.status === 'open' && <button onClick={() => { setEditingOwn(response); setResponseDraft(response.body); }}><Edit3 size={13} /> עריכת התגובה שלי</button>}{canManage && <><button onClick={() => setModeratingResponse({ ...response })}><Edit3 size={13} /> עריכת מנהל</button><button className="danger" onClick={() => removeResponse(response)}><Trash2 size={13} /> מחיקה</button></>}</div>}
             </article>)}</div>}
 
             {canManage && showDeletedResponses && deletedResponses.length > 0 && <section className="brain-deleted-responses"><h3>תשובות שנמחקו</h3>{deletedResponses.map(response => <div key={response.id}><span><strong>{response.authorName}</strong> — {response.body}</span><button className="btn btn-secondary btn-sm" onClick={() => restoreResponse(response)}><RotateCcw size={13} /> שחזור</button></div>)}</section>}
@@ -343,8 +488,15 @@ export default function CollectiveBrainPage() {
       {boardForm && <Modal title={boardForm.id ? 'עריכת לוח' : 'יצירת לוח חדש'} onClose={() => !saving && setBoardForm(null)}><form className="brain-form" onSubmit={saveBoard}>
         <label>השאלה<input value={boardForm.question} onChange={event => setBoardForm(previous => ({ ...previous, question: event.target.value }))} maxLength={COLLECTIVE_BRAIN_LIMITS.question} placeholder="מה נרצה ללמוד יחד?" required /><small>{boardForm.question.length}/{COLLECTIVE_BRAIN_LIMITS.question}</small></label>
         <label>הסבר נוסף — אופציונלי<textarea value={boardForm.description} onChange={event => setBoardForm(previous => ({ ...previous, description: event.target.value }))} maxLength={COLLECTIVE_BRAIN_LIMITS.description} rows={5} placeholder="הקשר, הנחיות או נקודות שכדאי להתייחס אליהן" /><small>{boardForm.description.length}/{COLLECTIVE_BRAIN_LIMITS.description}</small></label>
+        <fieldset className="brain-settings-group"><legend>מי יכול לראות את הלוח?</legend><label className="brain-choice"><input type="radio" name="audience" checked={boardForm.audienceMode === 'school'} onChange={() => setBoardForm(previous => ({ ...previous, audienceMode: 'school', audienceUserIds: [], audienceTeamIds: [] }))} /><span><strong>כל אנשי הצוות</strong><small>הלוח יוצג לכל משתמש פעיל במוסד</small></span></label><label className="brain-choice"><input type="radio" name="audience" checked={boardForm.audienceMode === 'restricted'} onChange={() => setBoardForm(previous => ({ ...previous, audienceMode: 'restricted' }))} /><span><strong>אנשים וצוותים מסוימים</strong><small>רק מי שמסומן יוכל לראות ולהגיב</small></span></label>
+        {boardForm.audienceMode === 'restricted' && <div className="brain-audience-picker">{teams.length > 0 && <div><h4>הוספה לפי צוות</h4><div className="brain-chip-list">{teams.map(team => <button key={team.id} type="button" className={boardForm.audienceTeamIds.includes(team.id) ? 'selected' : ''} onClick={() => toggleAudienceTeam(team)}><Users size={13} /> {team.name || 'צוות'} ({team.memberIds?.length || 0})</button>)}</div></div>}<div><div className="brain-picker-title"><h4>האנשים החשופים ללוח ({boardForm.audienceUserIds.length})</h4><span><button type="button" onClick={() => setBoardForm(previous => ({ ...previous, audienceUserIds: staff.map(person => person.id) }))}>בחירת כולם</button><button type="button" onClick={() => setBoardForm(previous => ({ ...previous, audienceUserIds: [], audienceTeamIds: [] }))}>ניקוי</button></span></div><div className="brain-person-list">{staff.map(person => <label key={person.id}><input type="checkbox" checked={boardForm.audienceUserIds.includes(person.id)} onChange={() => toggleAudienceUser(person.id)} /><span>{person.fullName || person.email || 'איש צוות'}</span></label>)}</div></div></div>}</fieldset>
+        <div className="brain-form-row"><label>מכסת תגובות לכל אדם<input type="number" min="1" max="20" value={boardForm.maxResponsesPerUser} onChange={event => setBoardForm(previous => ({ ...previous, maxResponsesPerUser: Number(event.target.value) }))} /></label><label>מצב שיתוף<select value={boardForm.visibility} onChange={event => setBoardForm(previous => ({ ...previous, visibility: event.target.value }))}><option value="private">פרטי — בתוך האפליקציה</option><option value="public">פומבי — קישור חיצוני</option></select></label></div>
+        {boardForm.visibility === 'public' && <p className="brain-public-note"><Globe2 size={15} /> ייווצר קישור צפייה כללי וקישור אישי לכל משתתף מורשה. השם בקישור האישי נקבע מראש ואינו ניתן לשינוי.</p>}
+        <fieldset className="brain-settings-group"><legend>חיבור למשימות</legend><p className="brain-field-help">אפשר לבחור משימות קיימות שהוקצו לאדם או לצוות המתאימים.</p><div className="brain-task-picker">{tasks.length === 0 ? <span>אין משימות זמינות לחיבור.</span> : tasks.slice(0, 100).map(task => <label key={task.id}><input type="checkbox" checked={boardForm.linkedTaskIds.includes(task.id)} onChange={() => setBoardForm(previous => ({ ...previous, linkedTaskIds: previous.linkedTaskIds.includes(task.id) ? previous.linkedTaskIds.filter(id => id !== task.id) : [...previous.linkedTaskIds, task.id] }))} /><span>{task.title || 'משימה ללא כותרת'}</span></label>)}</div></fieldset>
         <footer><button type="button" className="btn btn-secondary" onClick={() => setBoardForm(null)}>ביטול</button><button className="btn btn-primary" disabled={saving || !boardForm.question.trim()}><Save size={15} /> {saving ? 'שומר…' : 'שמירת הלוח'}</button></footer>
       </form></Modal>}
+
+      {shareInfo && <Modal title="שיתוף הלוח" onClose={() => setShareInfo(null)}><div className="brain-share-panel"><p>קישור צפייה כללי — מי שמחזיק בו יכול לראות את הלוח, אך אינו יכול להגיב בשם אדם אחר.</p><div className="brain-share-row" dir="ltr"><input readOnly value={publicUrl()} /><button className="btn btn-secondary btn-sm" onClick={() => copyText(publicUrl())}><Copy size={14} /> העתקה</button><a className="btn btn-secondary btn-sm" href={publicUrl()} target="_blank" rel="noreferrer"><ExternalLink size={14} /></a></div><h3>קישורים אישיים לתגובה</h3><p>שלחו לכל איש צוות רק את הקישור שלו. הקישור קובע את שם הכותב ומאפשר תגובה ללא התחברות.</p><div className="brain-share-people">{shareInfo.participants?.map(person => <div key={person.userId}><span>{person.authorName}</span><button className="btn btn-secondary btn-sm" onClick={() => copyText(publicUrl(person.token))}><Copy size={13} /> העתקת קישור אישי</button></div>)}</div></div></Modal>}
 
       {moderatingResponse && <Modal title={`עריכת התשובה של ${moderatingResponse.authorName}`} onClose={() => !saving && setModeratingResponse(null)}><form className="brain-form" onSubmit={saveModeration}><label>תוכן התשובה<textarea value={moderatingResponse.body} onChange={event => setModeratingResponse(previous => ({ ...previous, body: event.target.value }))} maxLength={COLLECTIVE_BRAIN_LIMITS.response} rows={8} required /><small>{moderatingResponse.body.length}/{COLLECTIVE_BRAIN_LIMITS.response}</small></label><p className="brain-moderation-note">הכרטיס יסומן כתשובה שנערכה על ידי מנהל.</p><footer><button type="button" className="btn btn-secondary" onClick={() => setModeratingResponse(null)}>ביטול</button><button className="btn btn-primary" disabled={saving || !moderatingResponse.body.trim()}><Save size={15} /> שמירת השינוי</button></footer></form></Modal>}
     </div>
