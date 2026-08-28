@@ -257,7 +257,7 @@ export async function configureCollectiveBrainPublicAccess({
 
   batch.update(boardRef, {
     visibility: enabled ? 'public' : 'private',
-    publicShareId: enabled ? shareId : '',
+    publicShareId: shareId,
     updatedBy: actor.uid,
     updatedAt: serverTimestamp(),
   });
@@ -274,7 +274,7 @@ export async function configureCollectiveBrainPublicAccess({
 
   if (!enabled) {
     await batch.commit();
-    return { enabled: false, shareId: '', participants: [] };
+    return { enabled: false, shareId, participants: [] };
   }
 
   const existingSnapshot = existingShareId
@@ -315,44 +315,27 @@ export async function configureCollectiveBrainPublicAccess({
   return { enabled: true, shareId, participants: links };
 }
 
-export async function claimCollectiveBrainParticipant({ db, shareId, participantId, authUid }) {
-  if (!authUid || !participantId) return null;
-  const participantRef = doc(publicParticipantsCollection(db, shareId), participantId);
-  return runTransaction(db, async transaction => {
-    const snapshot = await transaction.get(participantRef);
-    if (!snapshot.exists() || snapshot.data().active !== true) throw new Error('INVALID_PARTICIPANT_LINK');
-    const participant = snapshot.data();
-    if (participant.claimedBy && participant.claimedBy !== authUid) throw new Error('PARTICIPANT_LINK_CLAIMED');
-    if (!participant.claimedBy) {
-      transaction.update(participantRef, {
-        claimedBy: authUid,
-        claimedAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-    }
-    return { id: snapshot.id, ...participant, claimedBy: authUid };
-  });
-}
-
-export async function loadPublicCollectiveBrainBoard({ db, shareId, participantId = '', authUid = '' }) {
+export async function loadPublicCollectiveBrainBoard({ db, shareId, participantId = '' }) {
   const shareSnapshot = await getDoc(publicShareDocument(db, shareId));
   if (!shareSnapshot.exists() || shareSnapshot.data().enabled !== true) throw new Error('BOARD_NOT_PUBLIC');
   const share = shareSnapshot.data();
   const boardRef = boardDocument(db, share.schoolId, share.boardId);
-  const participant = participantId
-    ? await claimCollectiveBrainParticipant({ db, shareId, participantId, authUid })
-    : null;
-  const [boardSnapshot, responsesSnapshot] = await Promise.all([
+  const [boardSnapshot, responsesSnapshot, participantsSnapshot] = await Promise.all([
     getDoc(boardRef),
     getDocs(query(responsesCollection(db, share.schoolId, share.boardId), where('status', '==', 'active'))),
+    getDocs(query(publicParticipantsCollection(db, shareId), where('active', '==', true))),
   ]);
   if (!boardSnapshot.exists()) throw new Error('BOARD_NOT_PUBLIC');
   const board = normalizeCollectiveBrainBoard({ id: boardSnapshot.id, ...boardSnapshot.data() });
   if (board.visibility !== 'public' || board.publicShareId !== shareId || board.status === 'deleted') throw new Error('BOARD_NOT_PUBLIC');
+  const participants = participantsSnapshot.docs
+    .map(item => ({ id: item.id, authorId: item.data().authorId, authorName: item.data().authorName }))
+    .sort((a, b) => a.authorName.localeCompare(b.authorName, 'he'));
   return {
     board,
     responses: sortCollectiveBrainResponses(responsesSnapshot.docs.map(item => ({ id: item.id, ...item.data() }))),
-    participant,
+    participants,
+    participant: participants.find(item => item.id === participantId) || null,
   };
 }
 
@@ -384,7 +367,7 @@ export function subscribePublicCollectiveBrainBoard({
 }
 
 export async function submitPublicCollectiveBrainResponse({
-  db, shareId, participantId, authUid, body,
+  db, shareId, participantId, body,
 }) {
   const shareRef = publicShareDocument(db, shareId);
   const participantRef = doc(publicParticipantsCollection(db, shareId), participantId);
@@ -399,7 +382,7 @@ export async function submitPublicCollectiveBrainResponse({
     const boardSnapshot = await transaction.get(boardRef);
     const board = boardSnapshot.data();
     if (!boardSnapshot.exists() || board.status !== 'open' || board.visibility !== 'public'
-      || board.publicShareId !== shareId || participant.active !== true || participant.claimedBy !== authUid) {
+      || board.publicShareId !== shareId || participant.active !== true) {
       throw new Error('PUBLIC_RESPONSE_DENIED');
     }
     let selectedSlot = 0;
@@ -431,4 +414,38 @@ export async function submitPublicCollectiveBrainResponse({
       deletedAt: null,
     });
   });
+}
+
+async function deleteReferencesInChunks(db, references, chunkSize = 400) {
+  for (let index = 0; index < references.length; index += chunkSize) {
+    const batch = writeBatch(db);
+    references.slice(index, index + chunkSize).forEach(reference => batch.delete(reference));
+    await batch.commit();
+  }
+}
+
+export async function permanentlyDeleteCollectiveBrainBoard({ db, schoolId, boardId, actor }) {
+  requireActor(actor);
+  const boardRef = boardDocument(db, schoolId, boardId);
+  const boardSnapshot = await getDoc(boardRef);
+  if (!boardSnapshot.exists()) return;
+  const board = boardSnapshot.data();
+  if (board.status !== 'deleted') throw new Error('BOARD_MUST_BE_IN_TRASH');
+
+  const [responsesSnapshot, legacyTokensSnapshot] = await Promise.all([
+    getDocs(responsesCollection(db, schoolId, boardId)),
+    getDocs(collection(boardRef, 'publicAccessTokens')),
+  ]);
+  await deleteReferencesInChunks(db, [
+    ...responsesSnapshot.docs.map(item => item.ref),
+    ...legacyTokensSnapshot.docs.map(item => item.ref),
+  ]);
+
+  if (board.publicShareId) {
+    const shareRef = publicShareDocument(db, board.publicShareId);
+    const participantsSnapshot = await getDocs(publicParticipantsCollection(db, board.publicShareId));
+    await deleteReferencesInChunks(db, participantsSnapshot.docs.map(item => item.ref));
+    await deleteReferencesInChunks(db, [shareRef]);
+  }
+  await deleteReferencesInChunks(db, [boardRef]);
 }

@@ -755,7 +755,6 @@ service cloud.firestore {
         && participant.schoolId == schoolId
         && participant.boardId == boardId
         && participant.shareId == data.publicShareId
-        && participant.claimedBy == request.auth.uid
         && data.authorId == participant.authorId
         && data.authorName == participant.authorName
         && slot in board.responseSlots
@@ -3225,11 +3224,7 @@ service cloud.firestore {
         let boardPath = /databases/$(database)/documents/schools/$(data.schoolId)/collectiveBrainBoards/$(data.boardId);
         return existsAfter(boardPath)
           && getAfter(boardPath).data.visibility == (data.enabled ? 'public' : 'private')
-          && (
-            data.enabled
-              ? getAfter(boardPath).data.publicShareId == shareId
-              : getAfter(boardPath).data.publicShareId == ''
-          );
+          && getAfter(boardPath).data.publicShareId == shareId;
       }
 
       allow get: if signedIn() && (
@@ -3250,7 +3245,9 @@ service cloud.firestore {
         && request.resource.data.updatedBy == request.auth.uid
         && request.resource.data.updatedAt == request.time
         && shareMatchesBoard(request.resource.data);
-      allow delete: if false;
+      allow delete: if canManageCollectiveBrain(resource.data.schoolId)
+        && exists(/databases/$(database)/documents/schools/$(resource.data.schoolId)/collectiveBrainBoards/$(resource.data.boardId))
+        && get(/databases/$(database)/documents/schools/$(resource.data.schoolId)/collectiveBrainBoards/$(resource.data.boardId)).data.status == 'deleted';
 
       match /participants/{participantId} {
         function parentShare() {
@@ -3293,7 +3290,12 @@ service cloud.firestore {
           canManageCollectiveBrain(resource.data.schoolId)
           || (resource.data.active == true && parentShare().enabled == true)
         );
-        allow list: if canManageCollectiveBrain(parentShare().schoolId);
+        allow list: if canManageCollectiveBrain(parentShare().schoolId)
+          || (
+            signedIn()
+            && parentShare().enabled == true
+            && resource.data.active == true
+          );
         allow create: if canManageCollectiveBrain(request.resource.data.schoolId)
           && validParticipant(request.resource.data)
           && request.resource.data.claimedBy == ''
@@ -3315,20 +3317,10 @@ service cloud.firestore {
             && request.resource.data.claimedAt == resource.data.claimedAt
             && request.resource.data.updatedBy == request.auth.uid
             && request.resource.data.updatedAt == request.time
-          )
-          || (
-            signedIn()
-            && resource.data.active == true
-            && parentShare().enabled == true
-            && resource.data.claimedBy == ''
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-              'claimedBy', 'claimedAt', 'updatedAt'
-            ])
-            && request.resource.data.claimedBy == request.auth.uid
-            && request.resource.data.claimedAt == request.time
-            && request.resource.data.updatedAt == request.time
           );
-        allow delete: if false;
+        allow delete: if canManageCollectiveBrain(resource.data.schoolId)
+          && exists(/databases/$(database)/documents/schools/$(resource.data.schoolId)/collectiveBrainBoards/$(resource.data.boardId))
+          && get(/databases/$(database)/documents/schools/$(resource.data.schoolId)/collectiveBrainBoards/$(resource.data.boardId)).data.status == 'deleted';
       }
     }
 
@@ -3378,7 +3370,8 @@ service cloud.firestore {
         allow read: if canReadCollectiveBrainBoard(schoolId, boardId, resource.data);
         allow create: if validCollectiveBrainBoardCreate(schoolId, request.resource.data);
         allow update: if safeCollectiveBrainBoardUpdate(schoolId);
-        allow delete: if false;
+        allow delete: if canManageCollectiveBrain(schoolId)
+          && resource.data.status == 'deleted';
 
         match /responses/{responseId} {
           allow read: if canManageCollectiveBrain(schoolId)
@@ -3394,7 +3387,15 @@ service cloud.firestore {
           allow update: if safeOwnCollectiveBrainResponseUpdate(schoolId, boardId, responseId)
             || safeOwnDeletedCollectiveBrainResponseReplacement(schoolId, boardId)
             || safeManagedCollectiveBrainResponseUpdate(schoolId, boardId);
-          allow delete: if false;
+          allow delete: if canManageCollectiveBrain(schoolId)
+            && get(/databases/$(database)/documents/schools/$(schoolId)/collectiveBrainBoards/$(boardId)).data.status == 'deleted';
+        }
+
+        match /publicAccessTokens/{tokenId} {
+          allow read: if canManageCollectiveBrain(schoolId);
+          allow create, update: if false;
+          allow delete: if canManageCollectiveBrain(schoolId)
+            && get(/databases/$(database)/documents/schools/$(schoolId)/collectiveBrainBoards/$(boardId)).data.status == 'deleted';
         }
       }
 

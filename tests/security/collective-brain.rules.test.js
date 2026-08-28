@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { after, before, beforeEach, test } from 'node:test';
+import assert from 'node:assert/strict';
 import {
   assertFails,
   assertSucceeds,
@@ -7,6 +8,7 @@ import {
 } from '@firebase/rules-unit-testing';
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -252,7 +254,7 @@ test('public board links require authentication but not a school membership', as
   await assertFails(getDoc(doc(environment.unauthenticatedContext().firestore(), BOARD_PATH)));
 });
 
-test('a personal public link is claimed once and fixes the staff identity', async () => {
+test('a shared public link lists approved staff and fixes the selected identity', async () => {
   const shareId = 'share_abcdefghijklmnopqrstuvwxyz';
   const participantId = 'participant_abcdefghijklmnopqrstuvwxyz';
   const sharePath = `collectiveBrainPublicShares/${shareId}`;
@@ -273,12 +275,11 @@ test('a personal public link is claimed once and fixes the staff identity', asyn
     },
   });
   const anonymousDb = context('anonymous_a').firestore();
-  await assertSucceeds(updateDoc(doc(anonymousDb, participantPath), {
-    claimedBy: 'anonymous_a', claimedAt: serverTimestamp(), updatedAt: serverTimestamp(),
-  }));
-  await assertFails(updateDoc(doc(context('anonymous_b').firestore(), participantPath), {
-    claimedBy: 'anonymous_b', claimedAt: serverTimestamp(), updatedAt: serverTimestamp(),
-  }));
+  const visibleParticipants = await assertSucceeds(getDocs(query(
+    collection(anonymousDb, `${sharePath}/participants`), where('active', '==', true),
+  )));
+  assert.equal(visibleParticipants.size, 1);
+  await assertFails(updateDoc(doc(anonymousDb, participantPath), { authorName: 'שם מזויף' }));
 
   const validPayload = {
     ...response('member_a'),
@@ -315,11 +316,40 @@ test('a manager can publish and revoke a share atomically', async () => {
 
   const revoke = writeBatch(managerDb);
   revoke.update(doc(managerDb, BOARD_PATH), {
-    visibility: 'private', publicShareId: '',
+    visibility: 'private', publicShareId: shareId,
     updatedBy: 'manager_a', updatedAt: serverTimestamp(),
   });
   revoke.update(doc(managerDb, `collectiveBrainPublicShares/${shareId}`), {
     enabled: false, updatedBy: 'manager_a', updatedAt: serverTimestamp(),
   });
   await assertSucceeds(revoke.commit());
+});
+
+test('only a manager can permanently delete a board and its children from trash', async () => {
+  const shareId = 'share_abcdefghijklmnopqrstuvwxyz';
+  const participantId = 'participant_abcdefghijklmnopqrstuvwxyz';
+  const responsePath = `${BOARD_PATH}/responses/member_a_1`;
+  const participantPath = `collectiveBrainPublicShares/${shareId}/participants/${participantId}`;
+  await seed({
+    [BOARD_PATH]: board('deleted', { visibility: 'private', publicShareId: shareId }),
+    [responsePath]: response('member_a'),
+    [`collectiveBrainPublicShares/${shareId}`]: {
+      enabled: false, schoolId: SCHOOL_A, boardId: 'board_a',
+      createdBy: 'manager_a', createdAt: Timestamp.now(),
+      updatedBy: 'manager_a', updatedAt: Timestamp.now(), schemaVersion: 1,
+    },
+    [participantPath]: {
+      schoolId: SCHOOL_A, boardId: 'board_a', shareId,
+      authorId: 'member_a', authorName: 'חבר א', active: true,
+      claimedBy: '', claimedAt: null,
+      createdBy: 'manager_a', createdAt: Timestamp.now(),
+      updatedBy: 'manager_a', updatedAt: Timestamp.now(), schemaVersion: 1,
+    },
+  });
+  await assertFails(deleteDoc(doc(context('member_a').firestore(), BOARD_PATH)));
+  const managerDb = context('manager_a').firestore();
+  await assertSucceeds(deleteDoc(doc(managerDb, responsePath)));
+  await assertSucceeds(deleteDoc(doc(managerDb, participantPath)));
+  await assertSucceeds(deleteDoc(doc(managerDb, `collectiveBrainPublicShares/${shareId}`)));
+  await assertSucceeds(deleteDoc(doc(managerDb, BOARD_PATH)));
 });

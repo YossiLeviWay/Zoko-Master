@@ -33,6 +33,7 @@ import {
   configureCollectiveBrainPublicAccess,
   deleteCollectiveBrainResponse,
   moderateCollectiveBrainResponse,
+  permanentlyDeleteCollectiveBrainBoard,
   restoreCollectiveBrainResponse,
   setCollectiveBrainBoardStatus,
   subscribeCollectiveBrainBoards,
@@ -362,9 +363,9 @@ export default function CollectiveBrainPage() {
     finally { setSaving(false); }
   }
 
-  function publicUrl(token = '') {
+  function publicUrl() {
     const root = `${window.location.origin}${window.location.pathname}#/brain/shared/${shareInfo?.shareId || selectedBoard?.publicShareId}`;
-    return token ? `${root}?participant=${encodeURIComponent(token)}` : root;
+    return root;
   }
 
   async function copyText(value) {
@@ -428,6 +429,25 @@ export default function CollectiveBrainPage() {
     finally { setSaving(false); }
   }
 
+  async function permanentlyDeleteBoard() {
+    if (!selectedBoard || selectedBoard.status !== 'deleted' || saving) return;
+    const confirmed = window.confirm('למחוק את הלוח לצמיתות? כל התשובות וקישורי השיתוף יימחקו ולא ניתן יהיה לשחזר אותם.');
+    if (!confirmed) return;
+    setSaving(true);
+    setError('');
+    try {
+      await permanentlyDeleteCollectiveBrainBoard({
+        db, schoolId, boardId: selectedBoard.id, actor,
+      });
+      setSelectedBoardId('');
+      window.alert('הלוח, התשובות וקישורי השיתוף נמחקו לצמיתות ולא ניתן לשחזר אותם.');
+    } catch (deleteError) {
+      setError(friendlyError(deleteError));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (permissionsLoading || loading) {
     return <div className="brain-page"><div className="brain-loading"><Brain size={36} /><p>טוען את המוח המשותף…</p></div></div>;
   }
@@ -470,7 +490,7 @@ export default function CollectiveBrainPage() {
                 {selectedBoard.status !== 'archived' && selectedBoard.status !== 'deleted' && <button onClick={() => changeBoardStatus('archived')}><Archive size={14} /> ארכוב</button>}
                 {selectedBoard.status === 'archived' && <button onClick={() => changeBoardStatus('open')}><ArchiveRestore size={14} /> שחזור ופתיחה</button>}
                 {selectedBoard.status !== 'deleted' && <button className="danger" onClick={() => changeBoardStatus('deleted')}><Trash2 size={14} /> מחיקה</button>}
-                {selectedBoard.status === 'deleted' && <button onClick={() => changeBoardStatus('open')}><RotateCcw size={14} /> שחזור</button>}
+                {selectedBoard.status === 'deleted' && <><button onClick={() => changeBoardStatus('open')}><RotateCcw size={14} /> שחזור</button><button className="danger" onClick={permanentlyDeleteBoard}><Trash2 size={14} /> מחיקה לצמיתות</button></>}
               </div>}</div>
               <h2>{selectedBoard.question}</h2>
               {selectedBoard.description && <p>{selectedBoard.description}</p>}
@@ -506,12 +526,12 @@ export default function CollectiveBrainPage() {
         <fieldset className="brain-settings-group"><legend>מי יכול לראות את הלוח?</legend><label className="brain-choice"><input type="radio" name="audience" checked={boardForm.audienceMode === 'school'} onChange={() => setBoardForm(previous => ({ ...previous, audienceMode: 'school', audienceUserIds: [], audienceTeamIds: [] }))} /><span><strong>כל אנשי הצוות</strong><small>הלוח יוצג לכל משתמש פעיל במוסד</small></span></label><label className="brain-choice"><input type="radio" name="audience" checked={boardForm.audienceMode === 'restricted'} onChange={() => setBoardForm(previous => ({ ...previous, audienceMode: 'restricted' }))} /><span><strong>אנשים וצוותים מסוימים</strong><small>רק מי שמסומן יוכל לראות ולהגיב</small></span></label>
         {boardForm.audienceMode === 'restricted' && <div className="brain-audience-picker">{teams.length > 0 && <div><h4>הוספה לפי צוות</h4><div className="brain-chip-list">{teams.map(team => <button key={team.id} type="button" className={boardForm.audienceTeamIds.includes(team.id) ? 'selected' : ''} onClick={() => toggleAudienceTeam(team)}><Users size={13} /> {team.name || 'צוות'} ({team.memberIds?.length || 0})</button>)}</div></div>}<div><div className="brain-picker-title"><h4>האנשים החשופים ללוח ({boardForm.audienceUserIds.length})</h4><span><button type="button" onClick={() => setBoardForm(previous => ({ ...previous, audienceUserIds: staff.map(person => person.id) }))}>בחירת כולם</button><button type="button" onClick={() => setBoardForm(previous => ({ ...previous, audienceUserIds: [], audienceTeamIds: [] }))}>ניקוי</button></span></div><div className="brain-person-list">{staff.map(person => <label key={person.id}><input type="checkbox" checked={boardForm.audienceUserIds.includes(person.id)} onChange={() => toggleAudienceUser(person.id)} /><span>{person.fullName || person.email || 'איש צוות'}</span></label>)}</div></div></div>}</fieldset>
         <div className="brain-form-row"><label>מכסת תגובות לכל אדם<input type="number" min="1" max="20" value={boardForm.maxResponsesPerUser} onChange={event => setBoardForm(previous => ({ ...previous, maxResponsesPerUser: Number(event.target.value) }))} /></label><label>מצב שיתוף<select value={boardForm.visibility} onChange={event => setBoardForm(previous => ({ ...previous, visibility: event.target.value }))}><option value="private">פרטי — בתוך האפליקציה</option><option value="public">פומבי — קישור חיצוני</option></select></label></div>
-        {boardForm.visibility === 'public' && <p className="brain-public-note"><Globe2 size={15} /> ייווצר קישור צפייה כללי וקישור אישי לכל משתתף מורשה. השם בקישור האישי נקבע מראש ואינו ניתן לשינוי.</p>}
+        {boardForm.visibility === 'public' && <p className="brain-public-note"><Globe2 size={15} /> ייווצר קישור אחד לכל המשתתפים. כל אדם יבחר את שמו מתוך רשימת אנשי הסגל שהוגדרה ללוח.</p>}
         <fieldset className="brain-settings-group"><legend>חיבור למשימות</legend><p className="brain-field-help">אפשר לבחור משימות קיימות שהוקצו לאדם או לצוות המתאימים.</p><div className="brain-task-picker">{tasks.length === 0 ? <span>אין משימות זמינות לחיבור.</span> : tasks.slice(0, 100).map(task => <label key={task.id}><input type="checkbox" checked={boardForm.linkedTaskIds.includes(task.id)} onChange={() => setBoardForm(previous => ({ ...previous, linkedTaskIds: previous.linkedTaskIds.includes(task.id) ? previous.linkedTaskIds.filter(id => id !== task.id) : [...previous.linkedTaskIds, task.id] }))} /><span>{task.title || 'משימה ללא כותרת'}</span></label>)}</div></fieldset>
         <footer><button type="button" className="btn btn-secondary" onClick={() => setBoardForm(null)}>ביטול</button><button className="btn btn-primary" disabled={saving || !boardForm.question.trim()}><Save size={15} /> {saving ? 'שומר…' : 'שמירת הלוח'}</button></footer>
       </form></Modal>}
 
-      {shareInfo && <Modal title="שיתוף הלוח" onClose={() => setShareInfo(null)}><div className="brain-share-panel"><p>קישור צפייה כללי — מי שמחזיק בו יכול לראות את הלוח, אך אינו יכול להגיב בשם אדם אחר.</p><div className="brain-share-row" dir="ltr"><input readOnly value={publicUrl()} /><button className="btn btn-secondary btn-sm" onClick={() => copyText(publicUrl())}><Copy size={14} /> העתקה</button><a className="btn btn-secondary btn-sm" href={publicUrl()} target="_blank" rel="noreferrer"><ExternalLink size={14} /></a></div><h3>קישורים אישיים לתגובה</h3><p>שלחו לכל איש צוות רק את הקישור שלו. הקישור קובע את שם הכותב ומאפשר תגובה ללא התחברות.</p><div className="brain-share-people">{shareInfo.participants?.map(person => <div key={person.userId}><span>{person.authorName}</span><button className="btn btn-secondary btn-sm" onClick={() => copyText(publicUrl(person.token))}><Copy size={13} /> העתקת קישור אישי</button></div>)}</div></div></Modal>}
+      {shareInfo && <Modal title="שיתוף הלוח" onClose={() => setShareInfo(null)}><div className="brain-share-panel"><p>זהו הקישור האחיד לכל המשתתפים. לאחר הפתיחה כל אדם יבחר את שמו מתוך {shareInfo.participants?.length || 0} אנשי הסגל שהוגדרו ללוח ויוכל להגיב לפי המכסה שנקבעה.</p><div className="brain-share-row" dir="ltr"><input readOnly value={publicUrl()} /><button className="btn btn-secondary btn-sm" onClick={() => copyText(publicUrl())}><Copy size={14} /> העתקת הקישור</button><a className="btn btn-secondary btn-sm" href={publicUrl()} target="_blank" rel="noreferrer"><ExternalLink size={14} /></a></div><p className="brain-public-note"><UserRound size={15} /> אין צורך לנהל קישור נפרד לכל אדם. מומלץ להזכיר למשתתפים לבחור את שמם בלבד.</p></div></Modal>}
 
       {moderatingResponse && <Modal title={`עריכת התשובה של ${moderatingResponse.authorName}`} onClose={() => !saving && setModeratingResponse(null)}><form className="brain-form" onSubmit={saveModeration}><label>תוכן התשובה<textarea value={moderatingResponse.body} onChange={event => setModeratingResponse(previous => ({ ...previous, body: event.target.value }))} maxLength={COLLECTIVE_BRAIN_LIMITS.response} rows={8} required /><small>{moderatingResponse.body.length}/{COLLECTIVE_BRAIN_LIMITS.response}</small></label><p className="brain-moderation-note">הכרטיס יסומן כתשובה שנערכה על ידי מנהל.</p><footer><button type="button" className="btn btn-secondary" onClick={() => setModeratingResponse(null)}>ביטול</button><button className="btn btn-primary" disabled={saving || !moderatingResponse.body.trim()}><Save size={15} /> שמירת השינוי</button></footer></form></Modal>}
     </div>
