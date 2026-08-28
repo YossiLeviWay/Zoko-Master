@@ -30,6 +30,7 @@ import { db } from '../../firebase';
 import {
   createCollectiveBrainBoard,
   createCollectiveBrainResponse,
+  configureCollectiveBrainPublicAccess,
   deleteCollectiveBrainResponse,
   moderateCollectiveBrainResponse,
   restoreCollectiveBrainResponse,
@@ -40,7 +41,6 @@ import {
   updateCollectiveBrainBoard,
   updateOwnCollectiveBrainResponse,
 } from '../../services/firestore/collectiveBrainRepository';
-import { configureCollectiveBrainPublicAccess } from '../../services/adminUserService';
 import {
   canContributeToCollectiveBrainBoard,
   COLLECTIVE_BRAIN_LIMITS,
@@ -231,6 +231,15 @@ export default function CollectiveBrainPage() {
   const ownResponses = findOwnCollectiveBrainResponses(activeResponses, currentUser?.uid);
   const canContribute = canContributeToCollectiveBrainBoard(selectedBoard, ownResponses.length);
 
+  function publicParticipantsFor(boardLike) {
+    const allowed = boardLike?.audienceMode === 'restricted'
+      ? new Set(boardLike.audienceUserIds || [])
+      : null;
+    return staff
+      .filter(person => !allowed || allowed.has(person.id))
+      .map(person => ({ ...person, fullName: person.fullName || person.email || 'איש צוות' }));
+  }
+
   function openNewBoard() {
     setBoardForm({ id: '', question: '', description: '', audienceMode: 'school', audienceUserIds: [], audienceTeamIds: [], visibility: 'private', publicShareId: '', maxResponsesPerUser: 1, linkedTaskIds: [] });
   }
@@ -268,7 +277,10 @@ export default function CollectiveBrainPage() {
         setSelectedBoardId(id);
       }
       if (desiredPublic || existingBoard?.visibility === 'public') {
-        const publicResult = await configureCollectiveBrainPublicAccess({ schoolId, boardId, enabled: desiredPublic });
+        const publicResult = await configureCollectiveBrainPublicAccess({
+          db, schoolId, boardId, actor, enabled: desiredPublic,
+          participants: publicParticipantsFor(boardForm),
+        });
         if (desiredPublic) setShareInfo(publicResult);
       }
       setBoardForm(null);
@@ -341,7 +353,10 @@ export default function CollectiveBrainPage() {
     setSaving(true);
     setError('');
     try {
-      const result = await configureCollectiveBrainPublicAccess({ schoolId, boardId: selectedBoard.id, enabled: true });
+      const result = await configureCollectiveBrainPublicAccess({
+        db, schoolId, boardId: selectedBoard.id, actor, enabled: true,
+        participants: publicParticipantsFor(selectedBoard),
+      });
       setShareInfo(result);
     } catch (shareError) { setError(friendlyError(shareError)); }
     finally { setSaving(false); }

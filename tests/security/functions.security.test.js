@@ -45,11 +45,6 @@ import {
 } from '../../functions/src/callables/permissions.js';
 import { adminAuth, adminDb, Timestamp } from '../../functions/src/services/firebaseAdmin.js';
 import { acceptInvitationToken } from '../../functions/src/services/invitations.js';
-import {
-  configureCollectiveBrainPublicAccessHandler,
-  getPublicCollectiveBrainBoardHandler,
-  submitPublicCollectiveBrainResponseHandler,
-} from '../../functions/src/callables/collectiveBrain.js';
 
 const SCHOOL_A = 'school_a';
 const SCHOOL_B = 'school_b';
@@ -95,53 +90,6 @@ test('privileged functions reject unauthenticated and cross-school actors', asyn
     role: 'viewer',
     schoolId: SCHOOL_B,
   })), error => error.code === 'permission-denied');
-});
-
-test('public brain links bind responses to a server-approved staff identity', async () => {
-  await seedUser('principal_a', SCHOOL_A, 'principal', { fullName: 'Manager A' });
-  await seedUser('staff_a', SCHOOL_A, 'viewer', { fullName: 'מורה א' });
-  await adminDb.doc(`schools/${SCHOOL_A}/collectiveBrainBoards/board_public`).set({
-    schoolId: SCHOOL_A,
-    question: 'מה כדאי לשפר?',
-    description: '',
-    status: 'open',
-    audienceMode: 'restricted',
-    audienceUserIds: ['staff_a'],
-    audienceTeamIds: [],
-    visibility: 'private',
-    publicShareId: '',
-    maxResponsesPerUser: 2,
-    responseSlots: ['1', '2'],
-    linkedTaskIds: [],
-  });
-  const configured = await configureCollectiveBrainPublicAccessHandler(actorRequest('principal_a', {
-    schoolId: SCHOOL_A, boardId: 'board_public', enabled: true,
-  }));
-  assert.equal(configured.enabled, true);
-  assert.equal(configured.participants.length, 1);
-  const participantToken = configured.participants[0].token;
-
-  const publicBoard = await getPublicCollectiveBrainBoardHandler({ auth: null, data: {
-    shareId: configured.shareId, participantToken,
-  } });
-  assert.equal(publicBoard.participant.authorName, 'מורה א');
-  await submitPublicCollectiveBrainResponseHandler({ auth: null, data: {
-    shareId: configured.shareId, participantToken, body: 'תגובה חופשית',
-  } });
-  const saved = await adminDb.doc(`schools/${SCHOOL_A}/collectiveBrainBoards/board_public/responses/staff_a_public_1`).get();
-  assert.equal(saved.data().authorId, 'staff_a');
-  assert.equal(saved.data().authorName, 'מורה א');
-  assert.equal(saved.data().body, 'תגובה חופשית');
-  await assert.rejects(submitPublicCollectiveBrainResponseHandler({ auth: null, data: {
-    shareId: configured.shareId, participantToken: 'not-a-valid-personal-token', body: 'התחזות',
-  } }), error => error.code === 'permission-denied');
-
-  await configureCollectiveBrainPublicAccessHandler(actorRequest('principal_a', {
-    schoolId: SCHOOL_A, boardId: 'board_public', enabled: false,
-  }));
-  await assert.rejects(getPublicCollectiveBrainBoardHandler({ auth: null, data: {
-    shareId: configured.shareId,
-  } }), error => error.code === 'not-found');
 });
 
 test('communication agent is server-authorized, tenant-scoped and audit-only until confirmation', async () => {

@@ -642,14 +642,28 @@ service cloud.firestore {
         );
     }
 
-    function canReadCollectiveBrainBoard(schoolId, data) {
+    function isPublicCollectiveBrainBoard(schoolId, boardId, data) {
+      let sharePath = /databases/$(database)/documents/collectiveBrainPublicShares/$(data.get('publicShareId', ''));
+      return signedIn()
+        && data.status != 'deleted'
+        && data.get('visibility', 'private') == 'public'
+        && data.get('publicShareId', '').size() > 20
+        && exists(sharePath)
+        && get(sharePath).data.enabled == true
+        && get(sharePath).data.schoolId == schoolId
+        && get(sharePath).data.boardId == boardId;
+    }
+
+    function canReadCollectiveBrainBoard(schoolId, boardId, data) {
       return canManageCollectiveBrain(schoolId)
-        || isCollectiveBrainAudienceMember(schoolId, data);
+        || isCollectiveBrainAudienceMember(schoolId, data)
+        || isPublicCollectiveBrainBoard(schoolId, boardId, data);
     }
 
     function canReadCollectiveBrainBoardById(schoolId, boardId) {
       let board = get(/databases/$(database)/documents/schools/$(schoolId)/collectiveBrainBoards/$(boardId)).data;
-      return isCollectiveBrainAudienceMember(schoolId, board);
+      return isCollectiveBrainAudienceMember(schoolId, board)
+        || isPublicCollectiveBrainBoard(schoolId, boardId, board);
     }
 
     function canContributeCollectiveBrainBoardById(schoolId, boardId) {
@@ -660,7 +674,7 @@ service cloud.firestore {
     function collectiveBrainResponseFieldsValid(schoolId, boardId, data) {
       return data.keys().hasOnly([
           'schoolId', 'boardId', 'authorId', 'authorName', 'body', 'status',
-          'responseSlot',
+          'responseSlot', 'submissionSource', 'publicShareId', 'publicParticipantId',
           'createdAt', 'updatedAt', 'editedAt', 'moderatedBy', 'moderatedAt',
           'deletedBy', 'deletedAt'
         ])
@@ -673,6 +687,17 @@ service cloud.firestore {
         && data.authorName.size() <= 120
         && data.get('responseSlot', '1') is string
         && data.get('responseSlot', '1').size() <= 2
+        && (
+          !data.keys().hasAny(['submissionSource', 'publicShareId', 'publicParticipantId'])
+          || (
+            data.keys().hasAll(['submissionSource', 'publicShareId', 'publicParticipantId'])
+            && data.submissionSource == 'public_link'
+            && data.publicShareId is string
+            && data.publicShareId.size() > 20
+            && data.publicParticipantId is string
+            && data.publicParticipantId.size() > 20
+          )
+        )
         && data.body is string
         && data.body.size() > 0
         && data.body.size() <= 2000
@@ -699,8 +724,44 @@ service cloud.firestore {
         && slot in board.get('responseSlots', ['1'])
         && responseId == request.auth.uid + '_' + slot
         && collectiveBrainResponseFieldsValid(schoolId, boardId, data)
+        && !data.keys().hasAny(['submissionSource', 'publicShareId', 'publicParticipantId'])
         && data.authorId == request.auth.uid
         && data.authorName == currentUser().get('fullName', 'משתמש')
+        && data.status == 'active'
+        && data.createdAt == request.time
+        && data.updatedAt == request.time
+        && data.editedAt == null
+        && data.moderatedBy == ''
+        && data.moderatedAt == null
+        && data.deletedBy == ''
+        && data.deletedAt == null;
+    }
+
+    function validPublicCollectiveBrainResponseCreate(schoolId, boardId, responseId, data) {
+      let board = get(/databases/$(database)/documents/schools/$(schoolId)/collectiveBrainBoards/$(boardId)).data;
+      let sharePath = /databases/$(database)/documents/collectiveBrainPublicShares/$(data.publicShareId);
+      let participantPath = /databases/$(database)/documents/collectiveBrainPublicShares/$(data.publicShareId)/participants/$(data.publicParticipantId);
+      let participant = get(participantPath).data;
+      let slot = data.responseSlot;
+      return signedIn()
+        && board.status == 'open'
+        && isPublicCollectiveBrainBoard(schoolId, boardId, board)
+        && exists(sharePath)
+        && exists(participantPath)
+        && get(sharePath).data.enabled == true
+        && get(sharePath).data.schoolId == schoolId
+        && get(sharePath).data.boardId == boardId
+        && participant.active == true
+        && participant.schoolId == schoolId
+        && participant.boardId == boardId
+        && participant.shareId == data.publicShareId
+        && participant.claimedBy == request.auth.uid
+        && data.authorId == participant.authorId
+        && data.authorName == participant.authorName
+        && slot in board.responseSlots
+        && responseId == participant.authorId + '_' + slot
+        && collectiveBrainResponseFieldsValid(schoolId, boardId, data)
+        && data.submissionSource == 'public_link'
         && data.status == 'active'
         && data.createdAt == request.time
         && data.updatedAt == request.time
@@ -3141,6 +3202,136 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /collectiveBrainPublicShares/{shareId} {
+      function validShare(data) {
+        return data.keys().hasOnly([
+            'enabled', 'schoolId', 'boardId', 'createdBy', 'createdAt',
+            'updatedBy', 'updatedAt', 'schemaVersion'
+          ])
+          && data.enabled is bool
+          && data.schoolId is string
+          && data.schoolId.size() > 0
+          && data.boardId is string
+          && data.boardId.size() > 0
+          && data.createdBy is string
+          && data.createdBy.size() > 0
+          && data.createdAt is timestamp
+          && data.updatedBy is string
+          && data.updatedAt is timestamp
+          && data.schemaVersion == 1;
+      }
+
+      function shareMatchesBoard(data) {
+        let boardPath = /databases/$(database)/documents/schools/$(data.schoolId)/collectiveBrainBoards/$(data.boardId);
+        return existsAfter(boardPath)
+          && getAfter(boardPath).data.visibility == (data.enabled ? 'public' : 'private')
+          && (
+            data.enabled
+              ? getAfter(boardPath).data.publicShareId == shareId
+              : getAfter(boardPath).data.publicShareId == ''
+          );
+      }
+
+      allow get: if signedIn() && (
+        resource.data.enabled == true || canManageCollectiveBrain(resource.data.schoolId)
+      );
+      allow list: if false;
+      allow create: if canManageCollectiveBrain(request.resource.data.schoolId)
+        && validShare(request.resource.data)
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedAt == request.time
+        && shareMatchesBoard(request.resource.data);
+      allow update: if canManageCollectiveBrain(resource.data.schoolId)
+        && validShare(request.resource.data)
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.boardId == resource.data.boardId
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedAt == request.time
+        && shareMatchesBoard(request.resource.data);
+      allow delete: if false;
+
+      match /participants/{participantId} {
+        function parentShare() {
+          return get(/databases/$(database)/documents/collectiveBrainPublicShares/$(shareId)).data;
+        }
+
+        function parentShareAfter() {
+          return getAfter(/databases/$(database)/documents/collectiveBrainPublicShares/$(shareId)).data;
+        }
+
+        function validParticipant(data) {
+          let userPath = /databases/$(database)/documents/users/$(data.authorId);
+          return data.keys().hasOnly([
+              'schoolId', 'boardId', 'shareId', 'authorId', 'authorName', 'active',
+              'claimedBy', 'claimedAt', 'createdBy', 'createdAt',
+              'updatedBy', 'updatedAt', 'schemaVersion'
+            ])
+            && data.schoolId == parentShareAfter().schoolId
+            && data.boardId == parentShareAfter().boardId
+            && data.shareId == shareId
+            && data.authorId is string
+            && data.authorId.size() > 0
+            && data.authorName is string
+            && data.authorName.size() > 0
+            && data.authorName.size() <= 120
+            && data.active is bool
+            && data.claimedBy is string
+            && (data.claimedAt == null || data.claimedAt is timestamp)
+            && data.createdBy is string
+            && data.createdAt is timestamp
+            && data.updatedBy is string
+            && data.updatedAt is timestamp
+            && data.schemaVersion == 1
+            && exists(userPath)
+            && get(userPath).data.get('accountStatus', 'active') == 'active'
+            && userBelongsToSchool(get(userPath).data, data.schoolId);
+        }
+
+        allow get: if signedIn() && (
+          canManageCollectiveBrain(resource.data.schoolId)
+          || (resource.data.active == true && parentShare().enabled == true)
+        );
+        allow list: if canManageCollectiveBrain(parentShare().schoolId);
+        allow create: if canManageCollectiveBrain(request.resource.data.schoolId)
+          && validParticipant(request.resource.data)
+          && request.resource.data.claimedBy == ''
+          && request.resource.data.claimedAt == null
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.updatedBy == request.auth.uid
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedAt == request.time;
+        allow update: if (
+            canManageCollectiveBrain(resource.data.schoolId)
+            && validParticipant(request.resource.data)
+            && request.resource.data.schoolId == resource.data.schoolId
+            && request.resource.data.boardId == resource.data.boardId
+            && request.resource.data.shareId == resource.data.shareId
+            && request.resource.data.authorId == resource.data.authorId
+            && request.resource.data.createdBy == resource.data.createdBy
+            && request.resource.data.createdAt == resource.data.createdAt
+            && request.resource.data.claimedBy == resource.data.claimedBy
+            && request.resource.data.claimedAt == resource.data.claimedAt
+            && request.resource.data.updatedBy == request.auth.uid
+            && request.resource.data.updatedAt == request.time
+          )
+          || (
+            signedIn()
+            && resource.data.active == true
+            && parentShare().enabled == true
+            && resource.data.claimedBy == ''
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'claimedBy', 'claimedAt', 'updatedAt'
+            ])
+            && request.resource.data.claimedBy == request.auth.uid
+            && request.resource.data.claimedAt == request.time
+            && request.resource.data.updatedAt == request.time
+          );
+        allow delete: if false;
+      }
+    }
+
     match /schools/{schoolId} {
       allow read: if isPlatformAdmin() || isSchoolMember(schoolId);
       allow create, update, delete: if false;
@@ -3184,7 +3375,7 @@ service cloud.firestore {
       }
 
       match /collectiveBrainBoards/{boardId} {
-        allow read: if canReadCollectiveBrainBoard(schoolId, resource.data);
+        allow read: if canReadCollectiveBrainBoard(schoolId, boardId, resource.data);
         allow create: if validCollectiveBrainBoardCreate(schoolId, request.resource.data);
         allow update: if safeCollectiveBrainBoardUpdate(schoolId);
         allow delete: if false;
@@ -3196,8 +3387,10 @@ service cloud.firestore {
               && canReadCollectiveBrainBoardById(schoolId, boardId)
             );
           allow create: if validCollectiveBrainResponseCreate(
-            schoolId, boardId, responseId, request.resource.data
-          );
+              schoolId, boardId, responseId, request.resource.data
+            ) || validPublicCollectiveBrainResponseCreate(
+              schoolId, boardId, responseId, request.resource.data
+            );
           allow update: if safeOwnCollectiveBrainResponseUpdate(schoolId, boardId, responseId)
             || safeOwnDeletedCollectiveBrainResponseReplacement(schoolId, boardId)
             || safeManagedCollectiveBrainResponseUpdate(schoolId, boardId);

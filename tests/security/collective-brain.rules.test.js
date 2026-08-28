@@ -16,6 +16,7 @@ import {
   Timestamp,
   updateDoc,
   where,
+  writeBatch,
 } from 'firebase/firestore';
 
 const PROJECT_ID = 'demo-zoko-security';
@@ -235,4 +236,90 @@ test('a brain manager can moderate, soft-delete and restore a response', async (
     status: 'active', deletedBy: '', deletedAt: null, updatedAt: serverTimestamp(),
     moderatedBy: 'manager_a', moderatedAt: serverTimestamp(),
   }));
+});
+
+test('public board links require authentication but not a school membership', async () => {
+  const shareId = 'share_abcdefghijklmnopqrstuvwxyz';
+  await seed({
+    [BOARD_PATH]: board('open', { visibility: 'public', publicShareId: shareId }),
+    [`collectiveBrainPublicShares/${shareId}`]: {
+      enabled: true, schoolId: SCHOOL_A, boardId: 'board_a',
+      createdBy: 'manager_a', createdAt: Timestamp.now(),
+      updatedBy: 'manager_a', updatedAt: Timestamp.now(), schemaVersion: 1,
+    },
+  });
+  await assertSucceeds(getDoc(doc(context('anonymous_viewer').firestore(), BOARD_PATH)));
+  await assertFails(getDoc(doc(environment.unauthenticatedContext().firestore(), BOARD_PATH)));
+});
+
+test('a personal public link is claimed once and fixes the staff identity', async () => {
+  const shareId = 'share_abcdefghijklmnopqrstuvwxyz';
+  const participantId = 'participant_abcdefghijklmnopqrstuvwxyz';
+  const sharePath = `collectiveBrainPublicShares/${shareId}`;
+  const participantPath = `${sharePath}/participants/${participantId}`;
+  await seed({
+    [BOARD_PATH]: board('open', { visibility: 'public', publicShareId: shareId, maxResponsesPerUser: 2, responseSlots: ['1', '2'] }),
+    [sharePath]: {
+      enabled: true, schoolId: SCHOOL_A, boardId: 'board_a',
+      createdBy: 'manager_a', createdAt: Timestamp.now(),
+      updatedBy: 'manager_a', updatedAt: Timestamp.now(), schemaVersion: 1,
+    },
+    [participantPath]: {
+      schoolId: SCHOOL_A, boardId: 'board_a', shareId,
+      authorId: 'member_a', authorName: 'חבר א', active: true,
+      claimedBy: '', claimedAt: null,
+      createdBy: 'manager_a', createdAt: Timestamp.now(),
+      updatedBy: 'manager_a', updatedAt: Timestamp.now(), schemaVersion: 1,
+    },
+  });
+  const anonymousDb = context('anonymous_a').firestore();
+  await assertSucceeds(updateDoc(doc(anonymousDb, participantPath), {
+    claimedBy: 'anonymous_a', claimedAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  }));
+  await assertFails(updateDoc(doc(context('anonymous_b').firestore(), participantPath), {
+    claimedBy: 'anonymous_b', claimedAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  }));
+
+  const validPayload = {
+    ...response('member_a'),
+    submissionSource: 'public_link', publicShareId: shareId, publicParticipantId: participantId,
+    createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  };
+  await assertSucceeds(setDoc(doc(anonymousDb, `${BOARD_PATH}/responses/member_a_1`), validPayload));
+  await assertFails(setDoc(doc(anonymousDb, `${BOARD_PATH}/responses/member_a_2`), {
+    ...validPayload, authorId: 'member_b', authorName: 'חבר ב', responseSlot: '2',
+  }));
+});
+
+test('a manager can publish and revoke a share atomically', async () => {
+  const shareId = 'share_abcdefghijklmnopqrstuvwxyz';
+  const managerDb = context('manager_a').firestore();
+  const publish = writeBatch(managerDb);
+  publish.update(doc(managerDb, BOARD_PATH), {
+    visibility: 'public', publicShareId: shareId,
+    updatedBy: 'manager_a', updatedAt: serverTimestamp(),
+  });
+  publish.set(doc(managerDb, `collectiveBrainPublicShares/${shareId}`), {
+    enabled: true, schoolId: SCHOOL_A, boardId: 'board_a',
+    createdBy: 'manager_a', createdAt: Timestamp.fromDate(new Date('2026-08-28T08:00:00Z')),
+    updatedBy: 'manager_a', updatedAt: serverTimestamp(), schemaVersion: 1,
+  });
+  publish.set(doc(managerDb, `collectiveBrainPublicShares/${shareId}/participants/participant_abcdefghijklmnopqrstuvwxyz`), {
+    schoolId: SCHOOL_A, boardId: 'board_a', shareId,
+    authorId: 'member_a', authorName: 'חבר א', active: true,
+    claimedBy: '', claimedAt: null,
+    createdBy: 'manager_a', createdAt: serverTimestamp(),
+    updatedBy: 'manager_a', updatedAt: serverTimestamp(), schemaVersion: 1,
+  });
+  await assertSucceeds(publish.commit());
+
+  const revoke = writeBatch(managerDb);
+  revoke.update(doc(managerDb, BOARD_PATH), {
+    visibility: 'private', publicShareId: '',
+    updatedBy: 'manager_a', updatedAt: serverTimestamp(),
+  });
+  revoke.update(doc(managerDb, `collectiveBrainPublicShares/${shareId}`), {
+    enabled: false, updatedBy: 'manager_a', updatedAt: serverTimestamp(),
+  });
+  await assertSucceeds(revoke.commit());
 });

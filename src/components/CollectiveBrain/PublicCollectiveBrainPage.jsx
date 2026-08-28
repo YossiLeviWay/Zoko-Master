@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Brain, Check, Lock, RefreshCw, Save } from 'lucide-react';
+import { signInAnonymously } from 'firebase/auth';
 import { useParams, useSearchParams } from 'react-router-dom';
 import {
-  getPublicCollectiveBrainBoard,
+  loadPublicCollectiveBrainBoard,
+  subscribePublicCollectiveBrainBoard,
   submitPublicCollectiveBrainResponse,
-} from '../../services/adminUserService';
+} from '../../services/firestore/collectiveBrainRepository';
+import { auth, db } from '../../firebase';
 import { COLLECTIVE_BRAIN_LIMITS } from '../../utils/collectiveBrain';
 import './CollectiveBrain.css';
 
 function formatTime(value) {
   if (!value) return '';
-  return new Intl.DateTimeFormat('he-IL', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value));
+  const date = value?.toDate ? value.toDate() : value?.seconds ? new Date(value.seconds * 1000) : new Date(value);
+  return new Intl.DateTimeFormat('he-IL', { dateStyle: 'short', timeStyle: 'short' }).format(date);
 }
 
 export default function PublicCollectiveBrainPage() {
@@ -28,7 +32,10 @@ export default function PublicCollectiveBrainPage() {
     setLoading(true);
     setError('');
     try {
-      setData(await getPublicCollectiveBrainBoard({ shareId, participantToken }));
+      const user = auth.currentUser || (await signInAnonymously(auth)).user;
+      setData(await loadPublicCollectiveBrainBoard({
+        db, shareId, participantId: participantToken, authUid: user.uid,
+      }));
     } catch {
       setError('הקישור אינו פעיל או שהלוח אינו פומבי עוד.');
     } finally { setLoading(false); }
@@ -36,11 +43,20 @@ export default function PublicCollectiveBrainPage() {
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    const interval = window.setInterval(() => {
-      getPublicCollectiveBrainBoard({ shareId, participantToken }).then(setData).catch(() => undefined);
-    }, 12000);
-    return () => window.clearInterval(interval);
-  }, [participantToken, shareId]);
+    if (!data?.board?.schoolId || !data?.board?.id) return undefined;
+    return subscribePublicCollectiveBrainBoard({
+      db,
+      schoolId: data.board.schoolId,
+      boardId: data.board.id,
+      shareId,
+      onBoard: board => setData(previous => previous ? { ...previous, board } : previous),
+      onResponses: responses => setData(previous => previous ? { ...previous, responses } : previous),
+      onError: () => {
+        setData(null);
+        setError('הלוח אינו פומבי עוד או שהקישור בוטל.');
+      },
+    });
+  }, [data?.board?.id, data?.board?.schoolId, shareId]);
 
   async function submit(event) {
     event.preventDefault();
@@ -48,20 +64,23 @@ export default function PublicCollectiveBrainPage() {
     setSaving(true);
     setError('');
     try {
-      await submitPublicCollectiveBrainResponse({ shareId, participantToken, body });
+      const user = auth.currentUser || (await signInAnonymously(auth)).user;
+      await submitPublicCollectiveBrainResponse({
+        db, shareId, participantId: participantToken, authUid: user.uid, body,
+      });
       setBody('');
       setSaved(true);
       await load();
     } catch (submitError) {
-      const reason = submitError?.details?.reason || submitError?.customData?.details?.reason;
-      setError(reason === 'response-limit' ? 'הגעת למכסת התגובות שהוגדרה עבורך.' : 'לא ניתן לשמור. ייתכן שהלוח ננעל או שהקישור האישי אינו תקף.');
+      setError(submitError?.message === 'RESPONSE_LIMIT' ? 'הגעת למכסת התגובות שהוגדרה עבורך.' : 'לא ניתן לשמור. ייתכן שהלוח ננעל או שהקישור האישי אינו תקף.');
     } finally { setSaving(false); }
   }
 
   if (loading) return <div className="brain-public-page" dir="rtl"><div className="brain-loading"><Brain size={42} /><p>טוען את הלוח…</p></div></div>;
   if (!data?.board) return <div className="brain-public-page" dir="rtl"><div className="brain-public-error"><Lock size={38} /><h1>הלוח אינו זמין</h1><p>{error}</p></div></div>;
   const { board, participant, responses } = data;
-  const remaining = participant ? Math.max(0, board.maxResponsesPerUser - participant.responseCount) : 0;
+  const participantResponses = participant ? responses.filter(response => response.authorId === participant.authorId).length : 0;
+  const remaining = participant ? Math.max(0, board.maxResponsesPerUser - participantResponses) : 0;
 
   return <div className="brain-public-page" dir="rtl">
     <header className="brain-public-brand"><Brain size={22} /><strong>מוח משותף</strong><button onClick={load}><RefreshCw size={15} /> רענון</button></header>
