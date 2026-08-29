@@ -6,7 +6,7 @@ import {
 } from '../../functions/src/callables/memberships.js';
 import { createNotificationsHandler } from '../../functions/src/callables/notifications.js';
 import { draftCommunicationWithAgentHandler } from '../../functions/src/callables/communicationAgent.js';
-import { askZokiHandler, getZokiTaskGuidanceHandler, saveZokiBrainHandler } from '../../functions/src/callables/zoki.js';
+import { askZokiHandler, getZokiTaskGuidanceHandler, saveZokiBrainHandler, syncZokiConversationHandler } from '../../functions/src/callables/zoki.js';
 import {
   executeZokiAttendanceHandler,
   executeZokiCalendarEventHandler,
@@ -580,6 +580,27 @@ test('Zoki task agent receives only published brain rules for its audience', asy
   assert.equal(JSON.stringify(result).includes('כלל חסוי'), false);
   assert.equal(JSON.stringify(result).includes('טיוטה'), false);
   assert.equal(JSON.stringify(result).includes('הוראת ניהול פנימית'), false);
+});
+
+test('Zoki conversation persistence is bound to the signed-in user and school', async () => {
+  await seedUser('teacher_a', SCHOOL_A, 'viewer');
+  const state = {
+    messages: [{ id: 'user_1', role: 'user', text: 'איפה הקובץ שלי?' }],
+    pendingTask: null,
+    taskActionResult: null,
+    taskAgentTurn: null,
+  };
+  const saved = await syncZokiConversationHandler(actorRequest('teacher_a', { schoolId: SCHOOL_A, operation: 'save', state }));
+  assert.equal(saved.saved, true);
+  const loaded = await syncZokiConversationHandler(actorRequest('teacher_a', { schoolId: SCHOOL_A, operation: 'load' }));
+  assert.deepEqual(loaded.state, state);
+  await assert.rejects(
+    syncZokiConversationHandler(actorRequest('teacher_a', { schoolId: SCHOOL_B, operation: 'load' })),
+    error => error.code === 'permission-denied',
+  );
+  const ended = await syncZokiConversationHandler(actorRequest('teacher_a', { schoolId: SCHOOL_A, operation: 'end' }));
+  assert.equal(ended.ended, true);
+  assert.equal((await adminDb.doc(`schools/${SCHOOL_A}/zokiConversations/teacher_a`).get()).exists, false);
 });
 
 test('Zoki executes a confirmed task once and rechecks creation and assignment permissions on the server', async () => {

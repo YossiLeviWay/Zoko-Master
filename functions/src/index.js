@@ -18,7 +18,7 @@ export { submitJoinRequest, reviewJoinRequest } from './callables/joinRequests.j
 export { setActiveSchool, requestPublicPasswordReset } from './callables/auth.js';
 export { inviteTaskCollaborators, respondTaskInvitation, createMandatoryTask, executeZokiTask } from './callables/tasks.js';
 export { draftTaskWithAgent } from './callables/taskAgent.js';
-export { askZoki, getZokiTaskGuidance, saveZokiBrain } from './callables/zoki.js';
+export { askZoki, getZokiTaskGuidance, saveZokiBrain, syncZokiConversation } from './callables/zoki.js';
 export {
   executeZokiAttendance,
   executeZokiCalendarEvent,

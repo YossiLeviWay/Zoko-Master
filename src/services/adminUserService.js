@@ -59,6 +59,7 @@ export const draftTaskWithAgent = callable('draftTaskWithAgent');
 export const askZoki = callable('askZoki');
 export const getZokiTaskGuidance = callable('getZokiTaskGuidance');
 export const saveZokiBrainSettings = callable('saveZokiBrain');
+export const syncZokiConversation = callable('syncZokiConversation');
 export const listTaskPatternCandidates = callable('listTaskPatternCandidates');
 export const reviewTaskPattern = callable('reviewTaskPattern');
 export const createCustomRole = callable('createCustomRole');

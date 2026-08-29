@@ -1,17 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getDocs } from 'firebase/firestore';
-import { BookOpen, Bot, CheckCircle2, ExternalLink, Pencil, Plus, Save, Send, Settings2, ShieldCheck, Sparkles, Trash2, X } from 'lucide-react';
+import { BookOpen, CheckCircle2, CircleStop, ExternalLink, Minus, Pencil, Plus, Save, Send, Settings2, ShieldCheck, Trash2, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { db } from '../../firebase.js';
-import { askZoki, callableReason, executeZokiAttendance, executeZokiCalendarEvent, executeZokiCalendarEventCancel, executeZokiCalendarEventUpdate, executeZokiContact, executeZokiDirectPermission, executeZokiGrade, executeZokiResourceAccess, executeZokiResourceCreate, executeZokiResourceMove, executeZokiResourceRename, executeZokiRoleAssignment, executeZokiStudentNote, executeZokiStudentTrack, executeZokiStudentTransfer, executeZokiTask, executeZokiTaskAssignment, executeZokiTaskDetails, executeZokiTaskStatus, executeZokiTeamCreate, executeZokiTeamManager, executeZokiTeamMembership, fileTrashAction } from '../../services/adminUserService.js';
+import { askZoki, callableReason, executeZokiAttendance, executeZokiCalendarEvent, executeZokiCalendarEventCancel, executeZokiCalendarEventUpdate, executeZokiContact, executeZokiDirectPermission, executeZokiGrade, executeZokiResourceAccess, executeZokiResourceCreate, executeZokiResourceMove, executeZokiResourceRename, executeZokiRoleAssignment, executeZokiStudentNote, executeZokiStudentTrack, executeZokiStudentTransfer, executeZokiTask, executeZokiTaskAssignment, executeZokiTaskDetails, executeZokiTaskStatus, executeZokiTeamCreate, executeZokiTeamManager, executeZokiTeamMembership, fileTrashAction, syncZokiConversation } from '../../services/adminUserService.js';
 import { saveZokiBrain, subscribeZokiBrain } from '../../services/firestore/zokiBrainRepository.js';
 import { listSchoolStaff } from '../../services/firestore/classStudentRepository.js';
 import { schoolCollection } from '../../services/firestore/paths.js';
 import { useTaskAssistantContext } from '../../hooks/useTaskAssistantContext.js';
-import TaskAssistantEntry from '../Tasks/TaskAssistantEntry.jsx';
-import TaskPatternReviewPanel from '../Tasks/TaskPatternReviewPanel.jsx';
-import Header from '../Layout/Header.jsx';
+import { taskAssistantErrorMessage } from '../../services/firebaseAiTaskService.js';
+import { draftTaskWithInstitutionalBrain } from '../../services/taskAgentBrainService.js';
 import zokiAvatar from '../../assets/zoki-avatar-minimal.svg';
 import './Zoki.css';
 
@@ -35,7 +34,7 @@ function taskDetailValue(field, value) {
 
 function errorMessage(error) {
   const reason = callableReason(error);
-  if (reason === 'zoki-not-configured') return 'זוקי עדיין אינו מחובר למודל ה-AI בסביבת השרת.';
+  if (reason === 'zoki-not-configured') return 'העוזר אינו זמין כרגע. מנהל המערכת קיבל הנחיה לטפל בכך.';
   if (reason === 'permission-denied') return 'אין לך הרשאה לקבל את המידע הזה.';
   if (reason === 'resource-exhausted') return 'נשלחו הרבה שאלות בזמן קצר. אפשר לנסות שוב בעוד כמה דקות.';
   return 'לא הצלחתי לענות כרגע. אפשר לנסות שוב.';
@@ -78,17 +77,20 @@ function zokiTaskAction(proposal, context) {
   };
 }
 
-export default function ZokiPage() {
-  const { userData, currentUser, selectedSchool, availableSchools, isPrincipal, isGlobalAdmin } = useAuth();
+const TASK_CREATION_REQUEST = /(?:צור|צרי|תיצור|תיצרי|פתח|פתחי|תפתח|תפתחי|הכן|הכיני|תכין|תכיני|בנה|בני|תבנה|תבני)\s+(?:לי\s+)?משימה|(?:אני\s+רוצה|צריך|צריכה)\s+(?:ליצור|לפתוח|להכין)\s+משימה/u;
+const END_CONVERSATION_REQUEST = /^(?:סיים|סיימי|לסיים|סיום)\s+(?:את\s+)?השיחה[.!]?$/u;
+
+export default function ZokiPage({ embedded = false, onMinimize = () => undefined }) {
+  const { userData, currentUser, selectedSchool, isPrincipal, isGlobalAdmin } = useAuth();
   const navigate = useNavigate();
   const schoolId = selectedSchool || userData?.schoolId;
   const canManage = isPrincipal() || isGlobalAdmin();
-  const [mode, setMode] = useState('ask');
   const [question, setQuestion] = useState('');
   const [messages, setMessages] = useState([]);
+  const [conversationReady, setConversationReady] = useState(false);
+  const [taskAgentTurn, setTaskAgentTurn] = useState(null);
   const [loading, setLoading] = useState(false);
   const [brainOpen, setBrainOpen] = useState(false);
-  const [taskKnowledgeOpen, setTaskKnowledgeOpen] = useState(false);
   const [brain, setBrain] = useState({ instructions: '', entries: [] });
   const [brainDraft, setBrainDraft] = useState({ instructions: '', entries: [] });
   const [savingBrain, setSavingBrain] = useState(false);
@@ -101,46 +103,57 @@ export default function ZokiPage() {
   const [taskActionResult, setTaskActionResult] = useState(null);
   const endRef = useRef(null);
   const { schoolContext: taskAssistantSchoolContext, loading: taskAssistantContextLoading } = useTaskAssistantContext();
-  const taskKnowledgeSnapshot = useMemo(() => {
-    const sources = taskAssistantSchoolContext?.sources || {};
-    const staff = Array.isArray(sources.staff) ? sources.staff : [];
-    const teams = Array.isArray(sources.teams) ? sources.teams : [];
-    const classes = Array.isArray(sources.classes) ? sources.classes : [];
-    const initiatives = Array.isArray(sources.initiatives) ? sources.initiatives : [];
-    const tasks = Array.isArray(sources.tasks) ? sources.tasks : [];
-    return {
-      school: {
-        id: schoolId,
-        name: availableSchools?.find(item => item.id === schoolId)?.name || schoolId,
-      },
-      staff: staff.map(item => ({
-        id: item.uid || item.id,
-        name: item.fullName || item.name || '',
-        jobTitle: item.jobTitle || item.roleName || '',
-        teams: teams.filter(team => team.memberIds?.includes(item.uid || item.id)).map(team => team.name || ''),
-        classes: classes.filter(entry => [entry.teacherId, entry.homeroomTeacherId, ...(entry.staffIds || [])].includes(item.uid || item.id)).map(entry => entry.name || entry.title || ''),
-      })),
-      units: [
-        ...teams.map(item => ({ type: 'צוות', name: item.name || '', owners: [], summary: item.description || '' })),
-        ...classes.map(item => ({ type: 'כיתה', name: item.name || item.title || '', owners: [], summary: item.grade || item.gradeLevel || '' })),
-        ...initiatives.map(item => ({ type: 'תכנית', name: item.title || '', owners: [], summary: item.description || item.summary || '' })),
-        ...tasks.map(item => ({ type: 'משימה', name: item.title || '', owners: [], summary: item.description || '' })),
-      ],
-      calendar: [...(sources.events || []), ...(sources.holidays || [])].map(item => ({
-        date: item.startDate || item.date || '', range: item.endDate || '', title: item.name || item.title || '', summary: item.description || '',
-      })),
-      documents: (sources.files || []).map(item => ({
-        name: item.name || '', domain: item.type || item.category || '',
-        summary: String(item.content || item.text || item.description || item.summary || '').slice(0, 4000),
-      })),
-      patterns: sources.approvedRules || [],
-    };
-  }, [availableSchools, schoolId, taskAssistantSchoolContext]);
+  const conversationKey = useMemo(() => currentUser?.uid && schoolId
+    ? `zoko-master:zoki-conversation:v2:${currentUser.uid}:${schoolId}` : '', [currentUser?.uid, schoolId]);
 
   useEffect(() => {
     if (!schoolId || !canManage) return undefined;
     return subscribeZokiBrain({ db, schoolId, onData: value => { setBrain(value); setBrainDraft(value); }, onError: () => undefined });
   }, [canManage, schoolId]);
+
+  useEffect(() => {
+    let active = true;
+    setConversationReady(false);
+    setMessages([]);
+    setPendingTask(null);
+    setTaskActionResult(null);
+    setTaskAgentTurn(null);
+    if (!conversationKey) return undefined;
+    let localState = null;
+    try {
+      localState = JSON.parse(localStorage.getItem(conversationKey) || 'null');
+    } catch {
+      localStorage.removeItem(conversationKey);
+    }
+    const applyState = state => {
+      if (!active || !state || !Array.isArray(state.messages)) return;
+      setMessages(state.messages.slice(-60));
+      setPendingTask(state.pendingTask || null);
+      setTaskActionResult(state.taskActionResult || null);
+      setTaskAgentTurn(state.taskAgentTurn || null);
+    };
+    applyState(localState);
+    syncZokiConversation({ schoolId, operation: 'load' })
+      .then(result => applyState(result?.state))
+      .catch(() => undefined)
+      .finally(() => { if (active) setConversationReady(true); });
+    return () => { active = false; };
+  }, [conversationKey, schoolId]);
+
+  useEffect(() => {
+    if (!conversationReady || !conversationKey) return;
+    const state = { messages: messages.slice(-60), pendingTask, taskActionResult, taskAgentTurn };
+    try {
+      localStorage.setItem(conversationKey, JSON.stringify(state));
+    } catch {
+      // The conversation remains available for the current session if browser storage is full.
+    }
+    if (!messages.length && !pendingTask && !taskActionResult && !taskAgentTurn) return undefined;
+    const timer = window.setTimeout(() => {
+      syncZokiConversation({ schoolId, operation: 'save', state }).catch(() => undefined);
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [conversationKey, conversationReady, messages, pendingTask, schoolId, taskActionResult, taskAgentTurn]);
 
   useEffect(() => {
     if (!schoolId || !canManage) return undefined;
@@ -173,13 +186,64 @@ export default function ZokiPage() {
     return firstName ? `היי ${firstName}, איך אפשר לעזור?` : 'היי, איך אפשר לעזור?';
   }, [userData?.fullName]);
 
+  function finishConversation({ minimize = false } = {}) {
+    setQuestion('');
+    setMessages([]);
+    setPendingTask(null);
+    setTaskActionResult(null);
+    setTaskAgentTurn(null);
+    if (conversationKey) localStorage.removeItem(conversationKey);
+    if (schoolId) syncZokiConversation({ schoolId, operation: 'end' }).catch(() => undefined);
+    if (minimize) onMinimize();
+  }
+
+  async function submitTaskRequest(nextQuestion) {
+    const existingTurn = taskAgentTurn;
+    const request = existingTurn?.request || nextQuestion;
+    const result = await draftTaskWithInstitutionalBrain({
+      uid: currentUser?.uid,
+      schoolId,
+      request,
+      currentProposal: existingTurn?.proposal || null,
+      answer: existingTurn ? nextQuestion : '',
+      schoolContext: taskAssistantSchoolContext,
+    });
+    const context = {
+      request,
+      sessionId: result.sessionId,
+      capabilities: result.capabilities,
+      degraded: result.degraded,
+    };
+    if (result.proposal?.followUpQuestion) {
+      setTaskAgentTurn({ request, proposal: result.proposal, context });
+      setMessages(previous => [...previous, {
+        id: `zoki_${Date.now()}`, role: 'zoki', text: result.proposal.followUpQuestion,
+      }]);
+      return;
+    }
+    setTaskAgentTurn(null);
+    openTaskProposal(result.proposal, context);
+    setMessages(previous => [...previous, {
+      id: `zoki_${Date.now()}`, role: 'zoki', text: 'הכנתי הצעת משימה. בדקו את הפרטים ואשרו רק אם הכול נכון.',
+    }]);
+  }
+
   async function submitQuestion(text = question) {
     const nextQuestion = text.trim();
     if (!nextQuestion || loading || !schoolId) return;
+    if (END_CONVERSATION_REQUEST.test(nextQuestion)) {
+      finishConversation();
+      return;
+    }
     setQuestion('');
     setMessages(previous => [...previous, { id: `user_${Date.now()}`, role: 'user', text: nextQuestion }]);
     setLoading(true);
     try {
+      if (taskAgentTurn || TASK_CREATION_REQUEST.test(nextQuestion)) {
+        if (taskAssistantContextLoading) throw Object.assign(new Error('context-loading'), { code: 'context-loading' });
+        await submitTaskRequest(nextQuestion);
+        return;
+      }
       const history = messages.slice(-8).filter(message => !message.error).map(message => ({
         role: message.role === 'user' ? 'user' : 'assistant',
         text: message.text,
@@ -194,7 +258,8 @@ export default function ZokiPage() {
         actionProposal: result.actionProposal ? { ...result.actionProposal, requestId: actionRequestId } : null,
       }]);
     } catch (error) {
-      setMessages(previous => [...previous, { id: `error_${Date.now()}`, role: 'zoki', error: true, text: errorMessage(error) }]);
+      const isTaskError = taskAgentTurn || TASK_CREATION_REQUEST.test(nextQuestion);
+      setMessages(previous => [...previous, { id: `error_${Date.now()}`, role: 'zoki', error: true, text: isTaskError ? taskAssistantErrorMessage(error) : errorMessage(error) }]);
     } finally {
       setLoading(false);
     }
@@ -736,7 +801,7 @@ export default function ZokiPage() {
     try {
       const entries = await saveZokiBrain({ db, schoolId, actorId: currentUser.uid, instructions: brainDraft.instructions, entries: brainDraft.entries });
       setBrainDraft(previous => ({ ...previous, entries }));
-      setBrainMessage('המוח של זוקי נשמר. מידע שפורסם זמין מיד לצוות המורשה.');
+      setBrainMessage('ההגדרות נשמרו. מידע שפורסם זמין מיד לצוות המורשה.');
     } catch {
       setBrainMessage('לא ניתן לשמור. בדקו שיש לך הרשאת מנהל מוסד.');
     } finally {
@@ -778,20 +843,18 @@ export default function ZokiPage() {
     }
   }
 
-  return <div className="page zoki-page">
-    <Header title="זוקי" />
-    <div className="page-content zoki-shell">
-      <header className="zoki-hero">
-        <div className="zoki-identity"><img src={zokiAvatar} alt="זוקי" /><div><span><Sparkles size={15} /> הסוכן הבית־ספרי</span><h1>{greeting}</h1><p>מידע, הכוונה ויצירת משימות—תמיד בהתאם להרשאות שלך.</p></div></div>
-        {canManage && <button type="button" className="btn btn-secondary" onClick={() => setBrainOpen(true)}><Settings2 size={16} /> ניהול המוח של זוקי</button>}
+  return <div className={embedded ? 'zoki-floating-layer' : 'page zoki-page'}>
+    <div className={embedded ? 'zoki-window' : 'page-content zoki-shell'}>
+      <header className="zoki-window-header">
+        <div><img src={zokiAvatar} alt="" /><span><strong>{greeting}</strong><small>מידע ופעולות במקום אחד, לפי ההרשאות שלך</small></span></div>
+        <nav aria-label="פעולות שיחה">
+          {canManage && <button type="button" onClick={() => setBrainOpen(true)} aria-label="הגדרות העוזר" title="הגדרות העוזר"><Settings2 size={18} /></button>}
+          {messages.length > 0 && <button type="button" className="zoki-end-conversation" onClick={() => finishConversation()} title="סיום ומחיקת השיחה"><CircleStop size={17} /><span>סיום שיחה</span></button>}
+          {embedded && <button type="button" onClick={onMinimize} aria-label="מזעור" title="מזעור"><Minus size={20} /></button>}
+        </nav>
       </header>
 
-      <div className="zoki-mode-switch" role="tablist" aria-label="סוג העזרה">
-        <button type="button" role="tab" aria-selected={mode === 'ask'} className={mode === 'ask' ? 'active' : ''} onClick={() => setMode('ask')}><Bot size={17} /> שאלה ומידע</button>
-        <button type="button" role="tab" aria-selected={mode === 'task'} className={mode === 'task' ? 'active' : ''} onClick={() => setMode('task')}><Sparkles size={17} /> יצירת משימה</button>
-      </div>
-
-      {mode === 'ask' ? <section className="zoki-chat" aria-label="שיחה עם זוקי">
+      <section className="zoki-chat" aria-label="שיחה עם העוזר">
         <div className="zoki-messages" aria-live="polite">
           {messages.length === 0 && <div className="zoki-empty"><img src={zokiAvatar} alt="" /><h2>אפשר לשאול אותי על כל מה שנמצא במערכת</h2><p>אם המידע אינו בהרשאה שלך, לא אחשוף אם הוא קיים.</p><div>{STARTERS.map(starter => <button type="button" key={starter} onClick={() => submitQuestion(starter)}>{starter}</button>)}</div></div>}
           {messages.map(message => <article key={message.id} className={`zoki-message zoki-message--${message.role}${message.error ? ' is-error' : ''}`}>
@@ -823,30 +886,27 @@ export default function ZokiPage() {
               {message.sources?.length > 0 && <footer><span><BookOpen size={13} /> מקורות</span>{message.sources.map(item => <button type="button" key={item.id} onClick={() => navigate(item.route)}>{item.label}<ExternalLink size={12} /></button>)}</footer>}
             </div>
           </article>)}
+          {taskActionResult?.ok && <div className="zoki-task-result is-success" role="status"><CheckCircle2 size={20} /><div><strong>המשימה נוצרה בהצלחה</strong><span>היא נשמרה פעם אחת בלבד.</span></div><button type="button" className="btn btn-secondary btn-sm" onClick={() => navigate(taskActionResult.route)}>פתיחת המשימה</button></div>}
+          {taskActionResult && !taskActionResult.ok && <div className="zoki-task-result is-error" role="alert"><ShieldCheck size={20} /><span>{taskActionResult.message}</span></div>}
+          {pendingTask && <article className="zoki-task-confirmation"><header><span><ShieldCheck size={15} /> ממתין לאישור</span><h3>{pendingTask.proposal.title || 'משימה חדשה'}</h3></header><p>{pendingTask.proposal.description || 'ללא תיאור נוסף.'}</p><dl><div><dt>עדיפות</dt><dd>{pendingTask.proposal.priority === 'high' ? 'גבוהה' : pendingTask.proposal.priority === 'low' ? 'נמוכה' : 'רגילה'}</dd></div><div><dt>תאריך יעד</dt><dd>{pendingTask.action?.dueDate || 'לא נקבע'}</dd></div><div><dt>סוג</dt><dd>{pendingTask.action?.scope === 'assigned' ? 'משימה מוקצית' : pendingTask.action?.scope === 'team' ? 'משימת צוות' : pendingTask.action?.scope === 'personal' ? 'משימה אישית' : 'נדרשים פרטים נוספים'}</dd></div></dl><footer>{pendingTask.action && <button type="button" className="btn btn-primary" disabled={executingTask} onClick={confirmTaskCreation}><CheckCircle2 size={16} /> {executingTask ? 'יוצר…' : 'אישור ויצירת המשימה'}</button>}<button type="button" className="btn btn-secondary" onClick={editTaskProposal}><Pencil size={16} /> עריכת הפרטים</button><button type="button" className="btn btn-link" onClick={() => setPendingTask(null)}>ביטול</button></footer>{!pendingTask.action && <small>כדי להקצות לאדם או לצוות, יש לבחור יעד מדויק בטופס המלא.</small>}</article>}
           {loading && <article className="zoki-message zoki-message--zoki"><img src={zokiAvatar} alt="" /><div className="zoki-thinking"><span /><span /><span /></div></article>}
           <div ref={endRef} />
         </div>
-        <form className="zoki-composer" onSubmit={event => { event.preventDefault(); submitQuestion(); }}><label className="sr-only" htmlFor="zoki-question">שאלה לזוקי</label><textarea id="zoki-question" value={question} onChange={event => setQuestion(event.target.value)} maxLength={2000} rows={2} placeholder="שאלו את זוקי על תלמידים, ציונים, קבצים, נהלים או איך עושים משהו…" onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submitQuestion(); } }} /><button type="submit" disabled={loading || question.trim().length < 2} aria-label="שליחה"><Send size={19} /></button><small><ShieldCheck size={13} /> התשובה מוגבלת להרשאות שלך</small></form>
-      </section> : <section className="zoki-task-mode"><div className="zoki-task-intro"><h2>ספרו לזוקי מה צריך לקדם</h2><p>זוקי ינסח משימה ויציג את הפרטים לאישור. דבר לא יישמר לפני לחיצה מפורשת.</p></div>
-        {taskActionResult?.ok && <div className="zoki-task-result is-success" role="status"><CheckCircle2 size={20} /><div><strong>המשימה נוצרה בהצלחה</strong><span>זוקי שמר אותה פעם אחת בלבד.</span></div><button type="button" className="btn btn-secondary btn-sm" onClick={() => navigate(taskActionResult.route)}>פתיחת המשימה</button></div>}
-        {taskActionResult && !taskActionResult.ok && <div className="zoki-task-result is-error" role="alert"><ShieldCheck size={20} /><span>{taskActionResult.message}</span></div>}
-        {pendingTask && <article className="zoki-task-confirmation"><header><span><ShieldCheck size={15} /> ממתין לאישור</span><h3>{pendingTask.proposal.title || 'משימה חדשה'}</h3></header><p>{pendingTask.proposal.description || 'ללא תיאור נוסף.'}</p><dl><div><dt>עדיפות</dt><dd>{pendingTask.proposal.priority === 'high' ? 'גבוהה' : pendingTask.proposal.priority === 'low' ? 'נמוכה' : 'רגילה'}</dd></div><div><dt>תאריך יעד</dt><dd>{pendingTask.action?.dueDate || 'לא נקבע'}</dd></div><div><dt>סוג</dt><dd>{pendingTask.action?.scope === 'assigned' ? 'משימה מוקצית' : pendingTask.action?.scope === 'team' ? 'משימת צוות' : pendingTask.action?.scope === 'personal' ? 'משימה אישית' : 'נדרשים פרטים נוספים'}</dd></div></dl><footer>{pendingTask.action && <button type="button" className="btn btn-primary" disabled={executingTask} onClick={confirmTaskCreation}><CheckCircle2 size={16} /> {executingTask ? 'יוצר…' : 'אישור ויצירת המשימה'}</button>}<button type="button" className="btn btn-secondary" onClick={editTaskProposal}><Pencil size={16} /> עריכת כל הפרטים</button><button type="button" className="btn btn-link" onClick={() => setPendingTask(null)}>ביטול</button></footer>{!pendingTask.action && <small>כדי להקצות משימה לאדם או לצוות, יש לבחור את היעד המדויק בטופס המלא.</small>}</article>}
-        <TaskAssistantEntry uid={currentUser?.uid} schoolId={schoolId} schoolContext={taskAssistantSchoolContext} contextLoading={taskAssistantContextLoading} onManual={() => navigate('/tasks', { state: { openManualTask: true } })} onProposal={openTaskProposal} />
-      </section>}
+        <form className="zoki-composer" onSubmit={event => { event.preventDefault(); submitQuestion(); }}><label className="sr-only" htmlFor="zoki-question">כתיבה לעוזר</label><textarea id="zoki-question" value={question} onChange={event => setQuestion(event.target.value)} maxLength={2000} rows={2} placeholder="אפשר לשאול, לבקש פעולה או ליצור משימה…" onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submitQuestion(); } }} /><button type="submit" disabled={loading || question.trim().length < 2} aria-label="שליחה"><Send size={19} /></button><small><ShieldCheck size={13} /> מידע ופעולות מוגבלים להרשאות שלך</small></form>
+      </section>
     </div>
 
     {brainOpen && <div className="zoki-brain-overlay" onClick={() => setBrainOpen(false)}><aside className="zoki-brain-panel" role="dialog" aria-modal="true" aria-labelledby="zoki-brain-title" onClick={event => event.stopPropagation()}>
-      <header><div><span><Settings2 size={15} /> פאנל מנהל</span><h2 id="zoki-brain-title">המוח של זוקי</h2><p>הוראות וידע בית־ספרי שזוקי יציג לצוות.</p></div><button type="button" onClick={() => setBrainOpen(false)} aria-label="סגירה"><X size={20} /></button></header>
-      <div className="zoki-brain-body"><section className="zoki-agent-knowledge"><div><Sparkles size={18} /><span><strong>למידת משימות וידע מוסדי</strong><small>סקירת דפוסים, מקורות, גרסאות וסנכרון המוח הפרטי של זוקי.</small></span></div><button type="button" className="btn btn-secondary btn-sm" onClick={() => { setBrainOpen(false); setTaskKnowledgeOpen(true); }}>פתיחת ניהול הלמידה</button></section><label>הוראות קבועות לזוקי<textarea rows={5} maxLength={8000} value={brainDraft.instructions} onChange={event => setBrainDraft(previous => ({ ...previous, instructions: event.target.value }))} placeholder="לדוגמה: בכל שאלה על טיולים יש להפנות תחילה לנוהל הבטיחות…" /></label>
+      <header><div><span><Settings2 size={15} /> הגדרות מנהל</span><h2 id="zoki-brain-title">הוראות וידע לצוות</h2><p>כאן מגדירים בקצרה מה העוזר צריך לדעת ואיך לפעול.</p></div><button type="button" onClick={() => setBrainOpen(false)} aria-label="סגירה"><X size={20} /></button></header>
+      <div className="zoki-brain-body"><label>הנחיות כלליות<textarea rows={4} maxLength={8000} value={brainDraft.instructions} onChange={event => setBrainDraft(previous => ({ ...previous, instructions: event.target.value }))} placeholder="לדוגמה: בשאלות על טיולים יש להפנות תחילה לנוהל הבטיחות…" /></label>
         <div className="zoki-knowledge-head"><div><h3>נהלים, כללים ומידע</h3><span>{brainDraft.entries.length} פריטים</span></div><button type="button" className="btn btn-secondary btn-sm" onClick={() => setBrainDraft(previous => ({ ...previous, entries: [...previous.entries, { ...EMPTY_ENTRY, id: `knowledge_${Date.now()}` }] }))}><Plus size={14} /> הוספת פריט</button></div>
         {brainDraft.entries.length === 0 && <div className="zoki-no-knowledge">עדיין לא הוזן ידע בית־ספרי.</div>}
-        {brainDraft.entries.map((entry, index) => <article className="zoki-knowledge-card" key={entry.id || index}><div><label>כותרת<input value={entry.title} maxLength={160} onChange={event => updateEntry(index, 'title', event.target.value)} placeholder="שם הנוהל או הכלל" /></label><label>קטגוריה<input value={entry.category} maxLength={80} onChange={event => updateEntry(index, 'category', event.target.value)} /></label></div><label>תוכן<textarea rows={5} value={entry.body} maxLength={6000} onChange={event => updateEntry(index, 'body', event.target.value)} placeholder="המידע שזוקי צריך לדעת…" /></label><footer><label>מצב<select value={entry.status} onChange={event => updateEntry(index, 'status', event.target.value)}><option value="published">מפורסם</option><option value="draft">טיוטה</option></select></label><label>קהל<select value={entry.audience?.type || 'school'} onChange={event => updateEntry(index, 'audience', { type: event.target.value, roleIds: [], userIds: [] })}><option value="school">כל צוות בית הספר</option><option value="roles">תפקידים מסוימים</option><option value="users">משתמשים מסוימים</option></select></label><label>בתוקף עד<input type="date" value={entry.validUntil || ''} onChange={event => updateEntry(index, 'validUntil', event.target.value)} /></label><button type="button" className="zoki-delete-entry" onClick={() => setBrainDraft(previous => ({ ...previous, entries: previous.entries.filter((_, itemIndex) => itemIndex !== index) }))} aria-label="מחיקת הפריט"><Trash2 size={16} /></button></footer>
+        {brainDraft.entries.map((entry, index) => <article className="zoki-knowledge-card" key={entry.id || index}><label>כותרת<input value={entry.title} maxLength={160} onChange={event => updateEntry(index, 'title', event.target.value)} placeholder="שם הנוהל או הכלל" /></label><label>תוכן<textarea rows={4} value={entry.body} maxLength={6000} onChange={event => updateEntry(index, 'body', event.target.value)} placeholder="המידע שהעוזר צריך לדעת…" /></label><details className="zoki-knowledge-advanced"><summary>אפשרויות מתקדמות</summary><footer><label>קטגוריה<input value={entry.category} maxLength={80} onChange={event => updateEntry(index, 'category', event.target.value)} /></label><label>מצב<select value={entry.status} onChange={event => updateEntry(index, 'status', event.target.value)}><option value="published">מפורסם</option><option value="draft">טיוטה</option></select></label><label>קהל<select value={entry.audience?.type || 'school'} onChange={event => updateEntry(index, 'audience', { type: event.target.value, roleIds: [], userIds: [] })}><option value="school">כל צוות בית הספר</option><option value="roles">תפקידים מסוימים</option><option value="users">משתמשים מסוימים</option></select></label><label>בתוקף עד<input type="date" value={entry.validUntil || ''} onChange={event => updateEntry(index, 'validUntil', event.target.value)} /></label></footer>
           {entry.audience?.type === 'roles' && <fieldset className="zoki-audience-picker"><legend>אילו תפקידים יוכלו לקבל את המידע?</legend>{audienceLoading ? <span>טוען תפקידים…</span> : audienceRoles.length > 0 ? <div>{audienceRoles.map(role => <label key={role.id}><input type="checkbox" checked={(entry.audience.roleIds || []).includes(role.id)} onChange={() => toggleAudienceEntry(index, 'roleIds', role.id)} /> {displayName(role, 'תפקיד')}</label>)}</div> : <span>לא נמצאו תפקידים מוגדרים.</span>}</fieldset>}
-          {entry.audience?.type === 'users' && <fieldset className="zoki-audience-picker"><legend>אילו אנשי צוות יוכלו לקבל את המידע?</legend>{audienceLoading ? <span>טוען אנשי צוות…</span> : audienceStaff.length > 0 ? <div>{audienceStaff.map(staff => <label key={staff.id}><input type="checkbox" checked={(entry.audience.userIds || []).includes(staff.id)} onChange={() => toggleAudienceEntry(index, 'userIds', staff.id)} /> {displayName(staff, 'איש צוות')}</label>)}</div> : <span>לא נמצאו אנשי צוות פעילים.</span>}</fieldset>}
+          {entry.audience?.type === 'users' && <fieldset className="zoki-audience-picker"><legend>אילו אנשי צוות יוכלו לקבל את המידע?</legend>{audienceLoading ? <span>טוען אנשי צוות…</span> : audienceStaff.length > 0 ? <div>{audienceStaff.map(staff => <label key={staff.id}><input type="checkbox" checked={(entry.audience.userIds || []).includes(staff.id)} onChange={() => toggleAudienceEntry(index, 'userIds', staff.id)} /> {displayName(staff, 'איש צוות')}</label>)}</div> : <span>לא נמצאו אנשי צוות פעילים.</span>}</fieldset>}</details><button type="button" className="zoki-delete-entry" onClick={() => setBrainDraft(previous => ({ ...previous, entries: previous.entries.filter((_, itemIndex) => itemIndex !== index) }))}><Trash2 size={15} /> מחיקת הפריט</button>
         </article>)}
       </div>
-      <footer className="zoki-brain-actions">{brainMessage && <span>{brainMessage}</span>}<button type="button" className="btn btn-secondary" onClick={() => { setBrainDraft(brain); setBrainOpen(false); }}>ביטול</button><button type="button" className="btn btn-primary" disabled={savingBrain} onClick={persistBrain}><Save size={16} /> {savingBrain ? 'שומר…' : 'שמירת המוח'}</button></footer>
+      <footer className="zoki-brain-actions">{brainMessage && <span>{brainMessage}</span>}<button type="button" className="btn btn-secondary" onClick={() => { setBrainDraft(brain); setBrainOpen(false); }}>ביטול</button><button type="button" className="btn btn-primary" disabled={savingBrain} onClick={persistBrain}><Save size={16} /> {savingBrain ? 'שומר…' : 'שמירת ההגדרות'}</button></footer>
     </aside></div>}
-    {taskKnowledgeOpen && <TaskPatternReviewPanel schoolId={schoolId} knowledgeSnapshot={taskKnowledgeSnapshot} onClose={() => { setTaskKnowledgeOpen(false); setBrainOpen(true); }} />}
   </div>;
 }

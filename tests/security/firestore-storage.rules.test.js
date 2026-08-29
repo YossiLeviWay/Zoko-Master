@@ -419,6 +419,20 @@ test('Zoki action receipts are opaque server-only idempotency records', async ()
   await assertFails(setDoc(doc(context('viewer_a').firestore(), path), { schoolId: SCHOOL_A, action: 'task.create' }));
 });
 
+test('Zoki conversation history is private and server-managed', async () => {
+  const path = `schools/${SCHOOL_A}/zokiConversations/viewer_a`;
+  await seedFirestore({
+    'users/viewer_a': { ...user({ schoolId: SCHOOL_A }), uid: 'viewer_a' },
+    'users/principal_a': { ...user({ schoolId: SCHOOL_A, role: 'principal' }), uid: 'principal_a' },
+    [path]: { schoolId: SCHOOL_A, userId: 'viewer_a', state: { messages: [{ id: 'm1', role: 'user', text: 'שאלה פרטית' }] } },
+  });
+
+  await assertFails(getDoc(doc(context('viewer_a').firestore(), path)));
+  await assertFails(getDoc(doc(context('principal_a').firestore(), path)));
+  await assertFails(setDoc(doc(context('viewer_a').firestore(), path), { state: { messages: [] } }, { merge: true }));
+  await assertFails(deleteDoc(doc(context('viewer_a').firestore(), path)));
+});
+
 test('task-agent memory is server-managed and personal profiles stay user scoped', async () => {
   await seedFirestore({
     'users/viewer_a': { ...user({ schoolId: SCHOOL_A }), uid: 'viewer_a' },

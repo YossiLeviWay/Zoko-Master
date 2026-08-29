@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
   <title id="title">זוקי</title>
-  <desc id="desc">סמל מינימליסטי של דחפור חכם עם הילה</desc>
+  <desc id="desc">סמל מינימליסטי של דחפור</desc>
   <defs>
     <linearGradient id="zoki-yellow" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#ffd447"/>
@@ -10,23 +10,11 @@
       <stop offset="0" stop-color="#454957"/>
       <stop offset="1" stop-color="#242630"/>
     </linearGradient>
-    <filter id="zoki-glow" x="-120%" y="-120%" width="340%" height="340%">
-      <feGaussianBlur stdDeviation="2.2" result="blur"/>
-      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
   </defs>
-
-  <g fill="none" stroke-linecap="round" stroke-width="6" filter="url(#zoki-glow)">
-    <path d="M35 25l8-3" stroke="#18c5cf"/>
-    <path d="M82 22l7 4" stroke="#870335"/>
-    <path d="M108 53l2 7" stroke="#18c5cf"/>
-    <path d="M88 105l-7 3" stroke="#870335"/>
-    <path d="M27 91l-5-6" stroke="#18c5cf"/>
-  </g>
 
   <path d="M35 76V55c0-4 3-7 7-7h17c3 0 5 2 6 5l4 10h8c5 0 8 3 8 8v5z" fill="url(#zoki-yellow)"/>
   <path d="M44 55h13c2 0 3 1 4 3l3 10H44z" fill="#30333e"/>
   <rect x="30" y="73" width="58" height="20" rx="10" fill="url(#zoki-track)"/>
   <path d="M91 75l7-13c1-2 4-2 5 1l5 22c1 3-1 5-4 5H92c-3 0-5-3-4-6z" fill="url(#zoki-yellow)"/>
-  <circle cx="76" cy="68" r="3.2" fill="#18d4df" filter="url(#zoki-glow)"/>
+  <circle cx="76" cy="68" r="3.2" fill="#18d4df"/>
 </svg>

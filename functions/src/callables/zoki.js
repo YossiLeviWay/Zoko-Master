@@ -21,6 +21,23 @@ const inputSchema = z.object({
   history: z.array(historyItemSchema).max(8).optional().default([]),
 }).strict();
 const schoolInputSchema = z.object({ schoolId: z.string().trim().min(1).max(128) }).strict();
+const conversationMessageSchema = z.object({
+  id: z.string().trim().min(1).max(128),
+  role: z.enum(['user', 'zoki']),
+  text: z.string().max(5000).default(''),
+  error: z.boolean().optional(),
+}).passthrough();
+const conversationStateSchema = z.object({
+  messages: z.array(conversationMessageSchema).max(60),
+  pendingTask: z.unknown().nullable().optional(),
+  taskActionResult: z.unknown().nullable().optional(),
+  taskAgentTurn: z.unknown().nullable().optional(),
+}).strict();
+const conversationInputSchema = z.discriminatedUnion('operation', [
+  z.object({ schoolId: z.string().trim().min(1).max(128), operation: z.literal('load') }).strict(),
+  z.object({ schoolId: z.string().trim().min(1).max(128), operation: z.literal('save'), state: conversationStateSchema }).strict(),
+  z.object({ schoolId: z.string().trim().min(1).max(128), operation: z.literal('end') }).strict(),
+]);
 const brainAudienceSchema = z.object({
   type: z.enum(['school', 'roles', 'users']),
   roleIds: z.array(z.string().trim().min(1).max(128)).max(50).default([]),
@@ -689,6 +706,30 @@ export async function getZokiTaskGuidanceHandler(request) {
   return loadZokiTaskGuidance({ actor, schoolId: input.schoolId });
 }
 
+export async function syncZokiConversationHandler(request) {
+  const actor = await requireActor(request);
+  const input = conversationInputSchema.parse(request.data);
+  authorizeSchool(actor, input.schoolId);
+  const ref = adminDb.doc(`schools/${input.schoolId}/zokiConversations/${actor.uid}`);
+  if (input.operation === 'load') {
+    const snapshot = await ref.get();
+    return { state: snapshot.exists ? (snapshot.data().state || null) : null };
+  }
+  if (input.operation === 'end') {
+    await ref.delete();
+    return { ended: true };
+  }
+  const serialized = JSON.stringify(input.state);
+  if (Buffer.byteLength(serialized, 'utf8') > 350_000) throw permissionDenied();
+  await ref.set({
+    schoolId: input.schoolId,
+    userId: actor.uid,
+    state: JSON.parse(serialized),
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+  return { saved: true };
+}
+
 async function validateBrainAudience(schoolId, entries) {
   const roleIds = [...new Set(entries.flatMap(entry => entry.audience.type === 'roles' ? entry.audience.roleIds : []))];
   const userIds = [...new Set(entries.flatMap(entry => entry.audience.type === 'users' ? entry.audience.userIds : []))];
@@ -755,4 +796,8 @@ export const getZokiTaskGuidance = onCall(CALLABLE_OPTIONS, async request => {
 export const saveZokiBrain = onCall(CALLABLE_OPTIONS, async request => {
   try { return await saveZokiBrainHandler(request); }
   catch (error) { logger.error('Zoki brain update failed.', { code: error?.code || 'unknown' }); throw toPublicError(error); }
+});
+export const syncZokiConversation = onCall(CALLABLE_OPTIONS, async request => {
+  try { return await syncZokiConversationHandler(request); }
+  catch (error) { logger.error('Zoki conversation sync failed.', { code: error?.code || 'unknown' }); throw toPublicError(error); }
 });
