@@ -78,7 +78,7 @@ function policyField(acl, denied = false) {
   return `${prefix}${suffix}`;
 }
 
-async function rebuildAclPolicy(schoolId, resourceType, resourceId) {
+export async function rebuildAclPolicy(schoolId, resourceType, resourceId) {
   const snapshot = await adminDb.collection(`schools/${schoolId}/resourceAcls`)
     .where('resourceType', '==', resourceType).where('resourceId', '==', resourceId).get();
   const levels = ['view', 'comment', 'edit', 'manage'];
@@ -89,7 +89,11 @@ async function rebuildAclPolicy(schoolId, resourceType, resourceId) {
       deniedUsers: [], deniedTeams: [], deniedRoles: [], deniedClasses: [],
     };
   });
-  snapshot.docs.map(item => item.data()).filter(item => item.active !== false).forEach(acl => {
+  snapshot.docs.map(item => item.data()).filter(item => {
+    if (item.active === false) return false;
+    const expiresAt = item.expiresAt?.toMillis?.() || (item.expiresAt ? Date.parse(item.expiresAt) : 0);
+    return !expiresAt || expiresAt > Date.now();
+  }).forEach(acl => {
     policy.configured = true;
     const field = policyField(acl, acl.explicitDeny === true);
     const targetLevels = acl.explicitDeny === true

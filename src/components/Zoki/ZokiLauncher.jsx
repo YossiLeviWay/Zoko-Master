@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext.jsx';
-import zokiAvatar from '../../assets/zoki-avatar.png';
+import zokiAvatar from '../../assets/zoki-avatar-minimal.svg';
 import './Zoki.css';
 
 export default function ZokiLauncher() {

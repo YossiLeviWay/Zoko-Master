@@ -49,7 +49,7 @@ import {
   updateTaskAssignee,
   updateTaskStatus,
 } from '../../services/firestore/taskRepository';
-import { schoolCollection, schoolDoc } from '../../services/firestore/paths';
+import { schoolCollection } from '../../services/firestore/paths';
 import { subscribeAcademicYears } from '../../services/firestore/academicYearRepository';
 import { subscribeInitiatives } from '../../services/firestore/initiativeRepository';
 import { createNotification, createNotifications } from '../../utils/notifications';
@@ -67,7 +67,6 @@ import ChatPanel from './ChatPanel';
 import InitiativePanel from './InitiativePanel';
 import CommunicationComposer from './CommunicationComposer';
 import CommunicationDashboard from './CommunicationDashboard';
-import TaskPatternReviewPanel from './TaskPatternReviewPanel';
 import TaskAssignmentBoard from './TaskAssignmentBoard';
 import {
   markCommunicationReminderNotified,
@@ -267,7 +266,7 @@ function idList(value) {
 }
 
 export default function TaskBoard() {
-  const { userData, selectedSchool, currentUser, availableSchools } = useAuth();
+  const { userData, selectedSchool, currentUser } = useAuth();
   const { permissions } = usePermissions();
   const navigate = useNavigate();
   const location = useLocation();
@@ -321,7 +320,6 @@ export default function TaskBoard() {
   const [taskInvitations, setTaskInvitations] = useState([]);
   const [staff, setStaff] = useState([]);
   const [teams, setTeams] = useState([]);
-  const [taskAgentSettings, setTaskAgentSettings] = useState({ approvedRules: [], taskPlaybooks: [] });
   const [allFiles, setAllFiles] = useState([]);
   const [allFolders, setAllFolders] = useState([]);
   const [classes, setClasses] = useState([]);
@@ -369,7 +367,6 @@ export default function TaskBoard() {
   const [initiativeDetailOpen, setInitiativeDetailOpen] = useState(false);
   const [communicationTask, setCommunicationTask] = useState(null);
   const [communicationReturnTo, setCommunicationReturnTo] = useState('');
-  const [showPatternReview, setShowPatternReview] = useState(false);
   const [contextTaskMenu, setContextTaskMenu] = useState(null);
   const [showAssignmentBoard, setShowAssignmentBoard] = useState(false);
   const [assignmentSavingKey, setAssignmentSavingKey] = useState('');
@@ -390,18 +387,17 @@ export default function TaskBoard() {
   }
 
   useEffect(() => {
-    if (!showFilters && !showForm && !showPatternReview && !contextTaskMenu && !showAssignmentBoard) return undefined;
+    if (!showFilters && !showForm && !contextTaskMenu && !showAssignmentBoard) return undefined;
     const closeTransientPanels = event => {
       if (event.key !== 'Escape') return;
       setShowFilters(false);
       setShowForm(false);
-      setShowPatternReview(false);
       setContextTaskMenu(null);
       setShowAssignmentBoard(false);
     };
     window.addEventListener('keydown', closeTransientPanels);
     return () => window.removeEventListener('keydown', closeTransientPanels);
-  }, [showFilters, showForm, showPatternReview, contextTaskMenu, showAssignmentBoard]);
+  }, [showFilters, showForm, contextTaskMenu, showAssignmentBoard]);
 
   useEffect(() => {
     if (!location.state?.communicationContext) return;
@@ -550,17 +546,6 @@ export default function TaskBoard() {
       },
       () => { setTeams([]); if (!teamsReady) { teamsReady = true; finishTeamsLoad(); setAssistantContextReady(previous => ({ ...previous, teams: true })); } },
     );
-    const unsubscribeTaskAgentSettings = onSnapshot(
-      schoolDoc(db, schoolId, 'settings', 'task_agent'),
-      snapshot => {
-        const data = snapshot.data() || {};
-        setTaskAgentSettings({
-          approvedRules: Array.isArray(data.approvedRules) ? data.approvedRules : [],
-          taskPlaybooks: Array.isArray(data.taskPlaybooks) ? data.taskPlaybooks : [],
-        });
-      },
-      () => setTaskAgentSettings({ approvedRules: [], taskPlaybooks: [] }),
-    );
     const unsubscribeFiles = onSnapshot(
       schoolCollection(db, schoolId, 'files'),
       snapshot => setAllFiles(snapshot.docs.map(item => {
@@ -592,7 +577,6 @@ export default function TaskBoard() {
     );
     return () => {
       unsubscribeTeams();
-      unsubscribeTaskAgentSettings();
       unsubscribeFiles();
       unsubscribeFolders();
       unsubscribeClasses();
@@ -664,34 +648,6 @@ export default function TaskBoard() {
   const viewTasks = useMemo(() => activeTab === 'dashboard' && workView !== 'plans'
     ? [...tabTasks, ...initiativeItems]
     : tabTasks, [activeTab, initiativeItems, tabTasks, workView]);
-
-  const institutionalKnowledgeSnapshot = useMemo(() => ({
-    school: {
-      id: schoolId,
-      name: availableSchools?.find(item => item.id === schoolId)?.name || schoolId,
-    },
-    staff: staff.map(item => ({
-      id: item.uid || item.id,
-      name: item.fullName || item.name || '',
-      jobTitle: item.jobTitle || item.roleName || '',
-      teams: teams.filter(team => team.memberIds?.includes(item.uid || item.id)).map(team => team.name),
-      classes: classes.filter(entry => [entry.teacherId, entry.homeroomTeacherId, ...(entry.staffIds || [])].includes(item.uid || item.id)).map(entry => entry.name || entry.title),
-    })),
-    units: [
-      ...teams.map(item => ({ type: 'צוות', name: item.name, owners: (item.leaderIds || []).map(id => staff.find(member => (member.uid || member.id) === id)?.fullName).filter(Boolean), summary: item.description || '' })),
-      ...classes.map(item => ({ type: 'כיתה', name: item.name || item.title, owners: [item.teacherName || item.homeroomTeacherName].filter(Boolean), summary: item.grade || item.gradeLevel || '' })),
-      ...initiatives.map(item => ({ type: 'תכנית', name: item.title, owners: [staff.find(member => (member.uid || member.id) === item.ownerId)?.fullName].filter(Boolean), summary: item.description || item.summary || '' })),
-      ...[...personalTasks, ...organizationTasks].map(item => ({
-        type: 'משימה',
-        name: item.title,
-        owners: (item.assigneeIds || [item.assigneeId]).map(id => staff.find(member => (member.uid || member.id) === id)?.fullName).filter(Boolean),
-        summary: [item.description, ...(item.steps || item.subtasks || []).map(step => step.title || step.name || step)].filter(Boolean).join(' · '),
-      })),
-    ],
-    calendar: holidays.map(item => ({ date: item.startDate || item.date, range: item.endDate ? `${item.startDate}–${item.endDate}` : '', title: item.name || item.title, summary: item.description || '' })),
-    documents: allFiles.map(item => ({ name: item.name, domain: item.type || item.category || '', summary: item.content || item.text || item.description || item.summary || '' })),
-    patterns: taskAgentSettings.approvedRules || [],
-  }), [allFiles, availableSchools, classes, holidays, initiatives, organizationTasks, personalTasks, schoolId, staff, taskAgentSettings.approvedRules, teams]);
 
   const filteredTasks = useMemo(() => viewTasks.filter(task => {
     const complete = isTaskComplete(task);
@@ -1563,7 +1519,7 @@ export default function TaskBoard() {
           </section>}
 
           {!showAssignmentBoard && <section className="task-view-layer" aria-label="בחירת תצוגה">
-            <div className="task-view-tools"><button type="button" className="task-filter-trigger" onClick={() => setShowFilters(true)} aria-label={`פתיחת מסננים${activeFilterCount ? `, ${activeFilterCount} פעילים` : ''}`}><Filter size={15} /> סינון{activeFilterCount > 0 && <span>{activeFilterCount}</span>}</button><details className="task-tools-menu"><summary aria-label="כלים נוספים"><MoreHorizontal size={17} /> כלים</summary><div>{canManageAssignmentBoard && <button type="button" onClick={() => setShowAssignmentBoard(true)}><Users size={14} /> ניהול הקצאות</button>}{isInitiativeManager && <button type="button" onClick={() => setShowPatternReview(true)}><Sparkles size={14} /> למידת הסוכן</button>}{canCreateCommunication && <button type="button" onClick={() => openCommunicationContext({ type: 'general', id: 'task_panel', label: 'פאנל המשימות' })}><MailPlus size={14} /> מייל ומעקב חדש</button>}<button type="button" onClick={() => setActiveTab('communications')}><MailPlus size={14} /> מרכז מיילים ומעקבים</button><button type="button" onClick={() => setActiveTab('invitations')}><Users size={14} /> הזמנות ושיתופים{dashboardStats.waiting > 0 ? ` (${dashboardStats.waiting})` : ''}</button></div></details></div>
+            <div className="task-view-tools"><button type="button" className="task-filter-trigger" onClick={() => setShowFilters(true)} aria-label={`פתיחת מסננים${activeFilterCount ? `, ${activeFilterCount} פעילים` : ''}`}><Filter size={15} /> סינון{activeFilterCount > 0 && <span>{activeFilterCount}</span>}</button><details className="task-tools-menu"><summary aria-label="כלים נוספים"><MoreHorizontal size={17} /> כלים</summary><div>{canManageAssignmentBoard && <button type="button" onClick={() => setShowAssignmentBoard(true)}><Users size={14} /> ניהול הקצאות</button>}{canCreateCommunication && <button type="button" onClick={() => openCommunicationContext({ type: 'general', id: 'task_panel', label: 'פאנל המשימות' })}><MailPlus size={14} /> מייל ומעקב חדש</button>}<button type="button" onClick={() => setActiveTab('communications')}><MailPlus size={14} /> מרכז מיילים ומעקבים</button><button type="button" onClick={() => setActiveTab('invitations')}><Users size={14} /> הזמנות ושיתופים{dashboardStats.waiting > 0 ? ` (${dashboardStats.waiting})` : ''}</button></div></details></div>
           </section>}
 
           {!showAssignmentBoard && workView !== 'plans' && <section className="task-work-list-head" aria-label="מסננים פעילים">
@@ -1577,7 +1533,7 @@ export default function TaskBoard() {
           <div className="card form-card" role="dialog" aria-modal="true" aria-labelledby="task-create-title" onClick={event => event.stopPropagation()}>
             <form onSubmit={handleCreate} className="task-form">
               <header className="task-unified-form-head"><div><h2 id="task-create-title">משימה חדשה</h2></div><button type="button" className="icon-btn" onClick={() => setShowForm(false)} aria-label="סגירת טופס היצירה"><X size={18} /></button></header>
-              {assistantMeta && <div className="task-assistant-proposal-note" title={assistantMeta.reasoningSummary || 'הצעה לפי ההקשר המוסדי'}><Sparkles size={16} /><strong>הסוכן מילא הצעה שאפשר לשנות</strong><span>{assistantMeta.capabilities?.collaborationMode === 'invite' ? 'השמות המוצעים יקבלו הזמנה לשיתוף' : 'השיוכים ניתנים לעריכה'}</span>{assistantMeta.holidayName && <span className="task-date-warning">המועד חופף ל־{assistantMeta.holidayName}</span>}</div>}
+              {assistantMeta && <div className="task-assistant-proposal-note" title={assistantMeta.reasoningSummary || 'הצעה לפי ההקשר המוסדי'}><Sparkles size={16} /><strong>זוקי מילא הצעה שאפשר לשנות</strong><span>{assistantMeta.capabilities?.collaborationMode === 'invite' ? 'השמות המוצעים יקבלו הזמנה לשיתוף' : 'השיוכים ניתנים לעריכה'}</span>{assistantMeta.holidayName && <span className="task-date-warning">המועד חופף ל־{assistantMeta.holidayName}</span>}</div>}
               {renderFormFields(form, setForm)}
               <div className="form-actions"><button className="btn btn-primary" type="submit" disabled={saving}>{saving ? 'יוצר…' : 'יצירת המשימה'}</button><button className="btn btn-secondary" type="button" onClick={() => setShowForm(false)}>ביטול</button></div>
             </form>
@@ -1660,8 +1616,6 @@ export default function TaskBoard() {
           <footer><button type="button" className="btn btn-secondary" onClick={clearAllFilters}>נקה הכול</button><button type="button" className="btn btn-primary" onClick={() => setShowFilters(false)}>הצגת התוצאות</button></footer>
         </section>
       </div>}
-
-      {showPatternReview && <TaskPatternReviewPanel schoolId={schoolId} knowledgeSnapshot={institutionalKnowledgeSnapshot} onClose={() => setShowPatternReview(false)} />}
 
       {contextTaskMenu && <div className="task-context-menu-backdrop" onPointerDown={() => setContextTaskMenu(null)}>
         <div className="task-context-menu" role="menu" aria-label={`ניהול ${contextTaskMenu.task.title}`} style={{ left: contextTaskMenu.x, top: contextTaskMenu.y }} onPointerDown={event => event.stopPropagation()}>

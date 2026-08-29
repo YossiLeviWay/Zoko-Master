@@ -10,7 +10,7 @@ import { subscribeOrganizationTasks, subscribePersonalTasks } from '../services/
 import { getZokiTaskGuidance } from '../services/adminUserService.js';
 
 const emptySources = () => ({
-  staff: [], teams: [], roles: [], classes: [], events: [], holidays: [], initiatives: [], tasks: [], approvedRules: [], playbooks: [],
+  staff: [], teams: [], roles: [], classes: [], events: [], holidays: [], initiatives: [], tasks: [], files: [], approvedRules: [], playbooks: [],
 });
 
 function uniqueIds(value) {
@@ -121,6 +121,10 @@ export function useTaskAssistantContext() {
       db, schoolId, uid, teamIds: assignedTeamIds, canViewAll: canViewAllInitiatives,
       onData: initiatives => patch({ initiatives }), onError: () => patch({ initiatives: [] }),
     }));
+
+    if (manager) track(getDocs(schoolCollection(db, schoolId, 'files')).then(snapshot => patch({
+      files: snapshot.docs.map(item => ({ id: item.id, ...item.data() })),
+    })).catch(() => patch({ files: [] })));
 
     let personalTasks = [];
     let organizationTasks = [];

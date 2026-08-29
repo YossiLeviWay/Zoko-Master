@@ -183,6 +183,45 @@ export const zokiTaskActionSchema = z.object({
   }
 });
 
+export const zokiTaskStatusActionSchema = z.object({
+  schoolId: id,
+  requestId: id,
+  confirm: z.literal(true),
+  taskId: id,
+  storageMode: z.enum(['personal', 'nested', 'legacy']),
+  status: z.enum(['todo', 'in_progress', 'done']),
+  expectedStatus: z.enum(['todo', 'in_progress', 'done', 'completed']),
+}).strict();
+
+export const zokiTaskAssignmentActionSchema = z.object({
+  schoolId: id,
+  requestId: id,
+  confirm: z.literal(true),
+  taskId: id,
+  storageMode: z.enum(['nested', 'legacy']),
+  userId: id,
+  action: z.enum(['add', 'remove']),
+  expectedCurrentlyAssigned: z.boolean(),
+  expectedAssigneeIds: z.array(id).max(50).transform(values => [...new Set(values)].sort()),
+}).strict();
+
+const zokiTaskDetails = z.object({
+  title: z.string().trim().min(1).max(200),
+  description: z.string().trim().max(5000),
+  priority: z.enum(['low', 'medium', 'high']),
+  dueDate: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal('')]),
+}).strict();
+
+export const zokiTaskDetailsActionSchema = z.object({
+  schoolId: id,
+  requestId: id,
+  confirm: z.literal(true),
+  taskId: id,
+  storageMode: z.enum(['personal', 'nested', 'legacy']),
+  expected: zokiTaskDetails,
+  task: zokiTaskDetails,
+}).strict();
+
 const gradeScore = z.union([
   z.number().min(0).max(100),
   z.string().trim().regex(/^\d{1,3}(?:\.\d{1,2})?$/u).refine(value => Number(value) <= 100),
@@ -209,6 +248,216 @@ export const zokiStudentTransferActionSchema = z.object({
   expectedCurrentClassId: z.union([id, z.literal('')]),
   effectiveDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
   reason: z.string().trim().max(500).optional().default(''),
+}).strict();
+
+export const zokiRoleAssignmentActionSchema = z.object({
+  schoolId: id,
+  requestId: id,
+  confirm: z.literal(true),
+  userId: id,
+  roleId: id,
+  action: z.enum(['assign', 'remove']),
+  expectedCurrentlyAssigned: z.boolean(),
+}).strict();
+
+export const zokiDirectPermissionActionSchema = z.object({
+  schoolId: id,
+  requestId: id,
+  confirm: z.literal(true),
+  userId: id,
+  permissionKey: z.enum(PERMISSION_KEYS),
+  action: z.enum(['grant', 'revoke']),
+  expectedCurrentlyEnabled: z.boolean(),
+}).strict();
+
+export const zokiResourceAccessActionSchema = z.object({
+  schoolId: id,
+  requestId: id,
+  confirm: z.literal(true),
+  userId: id,
+  resourceType: z.enum(['file', 'folder']),
+  resourceId: id,
+  action: z.enum(['grant', 'deny', 'remove']),
+  accessLevel: z.enum(['view', 'comment', 'edit', 'manage']),
+  expectedDirectState: z.enum(['none', 'grant:view', 'grant:comment', 'grant:edit', 'grant:manage', 'deny']),
+}).strict();
+
+export const zokiResourceRenameActionSchema = z.object({
+  schoolId: id,
+  requestId: id,
+  confirm: z.literal(true),
+  resourceType: z.enum(['file', 'folder']),
+  resourceId: id,
+  expectedName: z.string().trim().min(1).max(160),
+  newName: z.string().trim().min(1).max(160).refine(value => !/[\\/\u0000-\u001f]/u.test(value) && !['.', '..'].includes(value)),
+}).strict().refine(value => value.expectedName !== value.newName, {
+  path: ['newName'], message: 'New resource name must be different',
+});
+
+export const zokiResourceCreateActionSchema = z.object({
+  schoolId: id,
+  requestId: id,
+  confirm: z.literal(true),
+  kind: z.enum(['folder', 'document', 'spreadsheet']),
+  name: z.string().trim().min(1).max(160).refine(value => !/[\\/\u0000-\u001f]/u.test(value) && !['.', '..'].includes(value)),
+  folderId: z.union([id, z.literal('')]).optional().default(''),
+  visibility: z.enum(['all', 'principal_only']).optional().default('all'),
+}).strict().superRefine((value, context) => {
+  if (value.kind === 'folder' && value.folderId) {
+    context.addIssue({ code: 'custom', path: ['folderId'], message: 'Folders are created at root' });
+  }
+  if (value.kind !== 'folder' && !value.folderId) {
+    context.addIssue({ code: 'custom', path: ['folderId'], message: 'Files require a folder' });
+  }
+  if (value.kind !== 'folder' && value.visibility !== 'all') {
+    context.addIssue({ code: 'custom', path: ['visibility'], message: 'File visibility comes from its folder' });
+  }
+});
+
+export const zokiResourceMoveActionSchema = z.object({
+  schoolId: id,
+  requestId: id,
+  confirm: z.literal(true),
+  fileId: id,
+  expectedName: z.string().trim().min(1).max(160),
+  expectedFolderId: z.union([id, z.literal('')]),
+  targetFolderId: id,
+}).strict().refine(value => value.expectedFolderId !== value.targetFolderId, {
+  path: ['targetFolderId'], message: 'Target folder must be different',
+});
+
+export const zokiStudentTrackActionSchema = z.object({
+  schoolId: id,
+  requestId: id,
+  confirm: z.literal(true),
+  studentId: id,
+  trackId: id,
+  action: z.enum(['add', 'remove']),
+  expectedCurrentlyAssigned: z.boolean(),
+}).strict();
+
+export const zokiAttendanceActionSchema = z.object({
+  schoolId: id,
+  requestId: id,
+  confirm: z.literal(true),
+  fileId: id,
+  studentId: id,
+  dateKey: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
+  statusId: id,
+  expectedPreviousStatusId: z.union([id, z.literal('')]),
+}).strict();
+
+export const zokiStudentNoteActionSchema = z.object({
+  schoolId: id,
+  requestId: id,
+  confirm: z.literal(true),
+  studentId: id,
+  expectedClassId: id,
+  content: z.string().trim().min(1).max(2000),
+  type: z.enum(['general', 'academic', 'behavior', 'welfare']),
+  visibility: z.enum(['class_staff', 'school_admin']),
+}).strict();
+
+export const zokiCalendarEventActionSchema = z.object({
+  schoolId: id,
+  requestId: id,
+  confirm: z.literal(true),
+  title: z.string().trim().min(1).max(160),
+  description: z.string().trim().max(2000).optional().default(''),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
+  time: z.union([z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/u), z.literal('')]).optional().default(''),
+  category: z.string().trim().min(1).max(80),
+  color: z.enum(['#fecdd3', '#fed7aa', '#fef08a', '#bbf7d0', '#99f6e4', '#bae6fd', '#c4b5fd', '#e9d5ff', '#eadfe2', '#ffffff']),
+  visibleTo: z.union([z.literal('all'), z.array(id).min(1).max(50).transform(values => [...new Set(values)])]),
+  editableBy: z.array(id).max(50).optional().default([]).transform(values => [...new Set(values)]),
+}).strict();
+
+export const zokiCalendarEventUpdateActionSchema = z.object({
+  schoolId: id,
+  requestId: id,
+  confirm: z.literal(true),
+  eventId: id,
+  expectedVersion: z.string().regex(/^[a-f0-9]{32}$/u),
+  title: z.string().trim().min(1).max(160),
+  description: z.string().trim().max(2000).optional().default(''),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
+  time: z.union([z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/u), z.literal('')]).optional().default(''),
+  category: z.string().trim().min(1).max(80),
+  color: z.enum(['#fecdd3', '#fed7aa', '#fef08a', '#bbf7d0', '#99f6e4', '#bae6fd', '#c4b5fd', '#e9d5ff', '#eadfe2', '#ffffff']),
+  visibleTo: z.union([z.literal('all'), z.array(id).min(1).max(50).transform(values => [...new Set(values)])]),
+  editableBy: z.array(id).max(50).optional().default([]).transform(values => [...new Set(values)]),
+}).strict();
+
+export const zokiCalendarEventCancelActionSchema = z.object({
+  schoolId: id,
+  requestId: id,
+  confirm: z.literal(true),
+  eventId: id,
+  expectedVersion: z.string().regex(/^[a-f0-9]{32}$/u),
+}).strict();
+
+export const zokiContactActionSchema = z.object({
+  schoolId: id,
+  requestId: id,
+  confirm: z.literal(true),
+  scope: z.enum(['private', 'institutional']),
+  fullName: z.string().trim().min(1).max(160),
+  organization: z.string().trim().max(160).optional().default(''),
+  jobTitle: z.string().trim().max(120).optional().default(''),
+  primaryEmail: z.string().trim().email().max(320),
+  additionalEmails: z.array(z.string().trim().email().max(320)).max(9).optional().default([])
+    .transform(values => [...new Set(values.map(value => value.toLowerCase()))]),
+  phone: z.string().trim().max(40).optional().default(''),
+  category: z.string().trim().max(80).optional().default(''),
+  tags: z.array(z.string().trim().min(1).max(50)).max(20).optional().default([])
+    .transform(values => [...new Set(values)]),
+  notes: z.string().trim().max(2000).optional().default(''),
+  visibility: z.enum(['institution', 'responsible_staff']).optional().default('institution'),
+  ownerStaffIds: z.array(id).max(50).optional().default([]).transform(values => [...new Set(values)]),
+}).strict().superRefine((value, context) => {
+  if (value.scope === 'institutional' && !value.organization && !value.category) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['organization'], message: 'institutional contact requires organization or category' });
+  }
+  if (value.scope === 'private' && value.ownerStaffIds.length > 0) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['ownerStaffIds'], message: 'private contact cannot assign responsible staff' });
+  }
+});
+
+export const zokiTeamMembershipActionSchema = z.object({
+  schoolId: id,
+  requestId: id,
+  confirm: z.literal(true),
+  userId: id,
+  teamId: id,
+  action: z.enum(['add', 'remove']),
+  expectedCurrentlyMember: z.boolean(),
+}).strict();
+
+export const zokiTeamManagerActionSchema = z.object({
+  schoolId: id,
+  requestId: id,
+  confirm: z.literal(true),
+  userId: id,
+  teamId: id,
+  action: z.enum(['assign', 'remove']),
+  expectedCurrentlyManager: z.boolean(),
+}).strict();
+
+const zokiTeamList = z.array(z.string().trim().min(1).max(120)).max(20)
+  .optional().default([]).transform(values => [...new Set(values)]);
+
+export const zokiTeamCreateActionSchema = z.object({
+  schoolId: id,
+  requestId: id,
+  confirm: z.literal(true),
+  name: z.string().trim().min(2).max(120),
+  description: z.string().trim().max(500).optional().default(''),
+  responsibilityAreas: zokiTeamList,
+  keywords: zokiTeamList,
+  aliases: zokiTeamList,
+  supportingRoles: zokiTeamList,
+  typicalTaskTypes: zokiTeamList,
+  memberIds: z.array(id).max(7).optional().default([]).transform(values => [...new Set(values)]),
 }).strict();
 
 export const activeSchoolSchema = z.object({ schoolId: id }).strict();
@@ -663,9 +912,15 @@ export const fileTrashActionSchema = z.object({
   resourceId: id,
   action: z.enum(['trash', 'restore', 'purge']),
   confirmPermanent: z.literal(true).optional(),
+  requestId: id.optional(),
+  expectedName: z.string().trim().min(1).max(160).optional(),
+  source: z.literal('zoki').optional(),
 }).strict().superRefine((value, context) => {
   if (value.action === 'purge' && value.confirmPermanent !== true) {
     context.addIssue({ code: 'custom', path: ['confirmPermanent'], message: 'Permanent deletion requires confirmation' });
+  }
+  if (value.source === 'zoki' && (!value.requestId || !value.expectedName || !['trash', 'restore'].includes(value.action))) {
+    context.addIssue({ code: 'custom', path: ['source'], message: 'Zoki recycle action requires request, name and a recoverable action' });
   }
 });
 

@@ -7,7 +7,29 @@ import {
 import { createNotificationsHandler } from '../../functions/src/callables/notifications.js';
 import { draftCommunicationWithAgentHandler } from '../../functions/src/callables/communicationAgent.js';
 import { askZokiHandler, getZokiTaskGuidanceHandler, saveZokiBrainHandler } from '../../functions/src/callables/zoki.js';
-import { executeZokiGradeHandler, executeZokiStudentTransferHandler } from '../../functions/src/callables/zokiActions.js';
+import {
+  executeZokiAttendanceHandler,
+  executeZokiCalendarEventHandler,
+  executeZokiCalendarEventCancelHandler,
+  executeZokiCalendarEventUpdateHandler,
+  executeZokiContactHandler,
+  executeZokiDirectPermissionHandler,
+  executeZokiGradeHandler,
+  executeZokiRoleAssignmentHandler,
+  executeZokiResourceAccessHandler,
+  executeZokiResourceCreateHandler,
+  executeZokiResourceMoveHandler,
+  executeZokiResourceRenameHandler,
+  executeZokiStudentNoteHandler,
+  executeZokiStudentTrackHandler,
+  executeZokiStudentTransferHandler,
+  executeZokiTeamMembershipHandler,
+  executeZokiTeamCreateHandler,
+  executeZokiTeamManagerHandler,
+  executeZokiTaskStatusHandler,
+  executeZokiTaskAssignmentHandler,
+  executeZokiTaskDetailsHandler,
+} from '../../functions/src/callables/zokiActions.js';
 import { createSchoolHandler, updateSchoolHandler } from '../../functions/src/callables/schools.js';
 import { setActiveSchoolHandler } from '../../functions/src/callables/auth.js';
 import {
@@ -48,6 +70,7 @@ import {
 } from '../../functions/src/callables/permissions.js';
 import { adminAuth, adminDb, Timestamp } from '../../functions/src/services/firebaseAdmin.js';
 import { acceptInvitationToken } from '../../functions/src/services/invitations.js';
+import { calendarEventVersion } from '../../functions/src/services/calendarEventState.js';
 
 const SCHOOL_A = 'school_a';
 const SCHOOL_B = 'school_b';
@@ -604,6 +627,234 @@ test('Zoki executes a confirmed task once and rechecks creation and assignment p
   );
 });
 
+test('Zoki changes an exact task status only for its owner, assignee, participant or an all-task editor', async () => {
+  await seedUser('task_owner', SCHOOL_A, 'viewer', { permissions: { 'tasks.viewOwn': true } });
+  await seedUser('task_assignee', SCHOOL_A, 'viewer');
+  await seedUser('task_outsider', SCHOOL_A, 'viewer', { permissions: { 'tasks.viewOwn': true } });
+  await seedUser('task_editor', SCHOOL_A, 'viewer', { permissions: { 'tasks.viewAll': true, 'tasks.editAll': true } });
+  await adminDb.doc('users/task_owner/personalTasks/personal_a').set({
+    schoolId: SCHOOL_A, scope: 'personal', ownerId: 'task_owner', createdBy: 'task_owner',
+    title: 'הכנת סיכום אישי', status: 'todo', assigneeIds: [],
+  });
+  const organizationTask = {
+    schoolId: SCHOOL_A, scope: 'assigned', assigneeType: 'individual', assigneeIds: ['task_assignee'],
+    participantIds: [], createdBy: 'task_editor', title: 'הכנת דוח נוכחות', status: 'todo',
+  };
+  await adminDb.doc(`schools/${SCHOOL_A}/tasks/task_a`).set(organizationTask);
+  await adminDb.doc(`tasks_${SCHOOL_A}/task_a`).set(organizationTask);
+
+  async function proposedTaskStatus(uid, question, title, status) {
+    const result = await askZokiHandler(actorRequest(uid, { schoolId: SCHOOL_A, question }), {
+      apiKey: 'server-test-key', model: 'test-model',
+      fetchImpl: async (_url, options) => {
+        const body = JSON.parse(options.body);
+        const context = JSON.parse(body.contents[0].parts[0].text);
+        const task = context.authorizedSources.find(item => ['task', 'personal_task'].includes(item.type)
+          && item.fields.title === title && item.fields.canUpdateStatus === true);
+        return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({
+          answer: task ? 'הכנתי שינוי מצב שממתין לאישור.' : 'לא נמצאה משימה מורשית מתאימה.',
+          sourceIds: task ? [task.id] : [], followUpQuestion: null,
+          actionProposal: task ? { type: 'task_status_change', taskSourceId: task.id, status } : null,
+        }) }] } }] }) };
+      },
+    });
+    return result.actionProposal;
+  }
+
+  const personal = await proposedTaskStatus('task_owner', 'סיים את המשימה הכנת סיכום אישי', 'הכנת סיכום אישי', 'done');
+  assert.deepEqual({ taskId: personal.taskId, storageMode: personal.storageMode, expectedStatus: personal.expectedStatus, status: personal.status }, {
+    taskId: 'personal_a', storageMode: 'personal', expectedStatus: 'todo', status: 'done',
+  });
+  const personalPayload = {
+    schoolId: SCHOOL_A, requestId: 'task_status_personal_1', confirm: true,
+    taskId: personal.taskId, storageMode: personal.storageMode, expectedStatus: personal.expectedStatus, status: personal.status,
+  };
+  assert.equal((await executeZokiTaskStatusHandler(actorRequest('task_owner', personalPayload))).executed, true);
+  assert.equal((await executeZokiTaskStatusHandler(actorRequest('task_owner', personalPayload))).executed, false);
+  assert.equal((await adminDb.doc('users/task_owner/personalTasks/personal_a').get()).data().status, 'done');
+
+  const assigned = await proposedTaskStatus('task_assignee', 'התחל את המשימה הכנת דוח נוכחות', 'הכנת דוח נוכחות', 'in_progress');
+  assert.equal(assigned.taskId, 'task_a');
+  assert.equal(await proposedTaskStatus('task_outsider', 'התחל את המשימה הכנת דוח נוכחות', 'הכנת דוח נוכחות', 'in_progress'), null);
+  const assignedPayload = {
+    schoolId: SCHOOL_A, requestId: 'task_status_assigned_1', confirm: true,
+    taskId: assigned.taskId, storageMode: assigned.storageMode, expectedStatus: assigned.expectedStatus, status: assigned.status,
+  };
+  await assert.rejects(executeZokiTaskStatusHandler(actorRequest('task_outsider', assignedPayload)), error => error.code === 'permission-denied');
+  assert.equal((await executeZokiTaskStatusHandler(actorRequest('task_assignee', assignedPayload))).executed, true);
+  assert.equal((await adminDb.doc(`schools/${SCHOOL_A}/tasks/task_a`).get()).data().status, 'in_progress');
+  assert.equal((await adminDb.doc(`tasks_${SCHOOL_A}/task_a`).get()).data().status, 'in_progress');
+
+  const stale = await proposedTaskStatus('task_editor', 'סיים את המשימה הכנת דוח נוכחות', 'הכנת דוח נוכחות', 'done');
+  await adminDb.doc(`schools/${SCHOOL_A}/tasks/task_a`).update({ status: 'todo' });
+  await assert.rejects(executeZokiTaskStatusHandler(actorRequest('task_editor', {
+    schoolId: SCHOOL_A, requestId: 'task_status_stale', confirm: true,
+    taskId: stale.taskId, storageMode: stale.storageMode, expectedStatus: stale.expectedStatus, status: stale.status,
+  })), error => error.details?.reason === 'task-status-changed');
+  const audits = await adminDb.collection('auditLogs').where('action', '==', 'zoki.action.task.status.update').get();
+  assert.equal(audits.size, 2);
+  assert.equal(JSON.stringify(audits.docs.map(item => item.data())).includes('הכנת'), false);
+});
+
+test('Zoki adds and removes one exact task assignee with separate assignment authorities and stale-state protection', async () => {
+  await seedUser('task_assigner', SCHOOL_A, 'viewer', { permissions: {
+    'tasks.viewAll': true, 'tasks.assign': true, 'staff.view': true,
+  } });
+  await seedUser('task_assignment_manager', SCHOOL_A, 'viewer', { permissions: {
+    'tasks.viewAll': true, 'tasks.manageAssignments': true, 'staff.view': true,
+  } });
+  await seedUser('task_assignment_outsider', SCHOOL_A, 'viewer', { permissions: {
+    'tasks.viewAll': true, 'staff.view': true,
+  } });
+  await seedUser('task_new_owner', SCHOOL_A, 'viewer');
+  const task = {
+    schoolId: SCHOOL_A, scope: 'assigned', assigneeType: 'individual', assigneeIds: [], participantIds: [],
+    createdBy: 'task_assigner', title: 'איסוף אישורי טיול', status: 'todo',
+  };
+  await adminDb.doc(`schools/${SCHOOL_A}/tasks/assignment_task`).set(task);
+  await adminDb.doc(`tasks_${SCHOOL_A}/assignment_task`).set(task);
+
+  async function proposedAssignment(uid, question, operation) {
+    const result = await askZokiHandler(actorRequest(uid, { schoolId: SCHOOL_A, question }), {
+      apiKey: 'server-test-key', model: 'test-model',
+      fetchImpl: async (_url, options) => {
+        const body = JSON.parse(options.body);
+        const context = JSON.parse(body.contents[0].parts[0].text);
+        const taskSource = context.authorizedSources.find(item => item.type === 'task' && item.fields.id === 'assignment_task');
+        const staffSource = context.authorizedSources.find(item => item.type === 'staff' && item.fields.id === 'task_new_owner');
+        return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({
+          answer: taskSource && staffSource ? 'הכנתי שינוי אחראי שממתין לאישור.' : 'לא נמצא צירוף מורשה.',
+          sourceIds: [taskSource?.id, staffSource?.id].filter(Boolean), followUpQuestion: null,
+          actionProposal: taskSource && staffSource
+            ? { type: 'task_assignment_change', taskSourceId: taskSource.id, staffSourceId: staffSource.id, operation }
+            : null,
+        }) }] } }] }) };
+      },
+    });
+    return result.actionProposal;
+  }
+
+  const add = await proposedAssignment('task_assigner', 'הקצה את המשימה איסוף אישורי טיול ל-task_new_owner', 'add');
+  assert.deepEqual({ taskId: add.taskId, userId: add.userId, operation: add.operation, expectedAssigneeIds: add.expectedAssigneeIds }, {
+    taskId: 'assignment_task', userId: 'task_new_owner', operation: 'add', expectedAssigneeIds: [],
+  });
+  const addPayload = {
+    schoolId: SCHOOL_A, requestId: 'task_assignment_add_1', confirm: true,
+    taskId: add.taskId, storageMode: add.storageMode, userId: add.userId, action: add.operation,
+    expectedCurrentlyAssigned: add.expectedCurrentlyAssigned, expectedAssigneeIds: add.expectedAssigneeIds,
+  };
+  await assert.rejects(executeZokiTaskAssignmentHandler(actorRequest('task_assignment_outsider', addPayload)), error => error.code === 'permission-denied');
+  assert.equal((await executeZokiTaskAssignmentHandler(actorRequest('task_assigner', addPayload))).executed, true);
+  assert.equal((await executeZokiTaskAssignmentHandler(actorRequest('task_assigner', addPayload))).executed, false);
+  for (const path of [`schools/${SCHOOL_A}/tasks/assignment_task`, `tasks_${SCHOOL_A}/assignment_task`]) {
+    const saved = (await adminDb.doc(path).get()).data();
+    assert.deepEqual(saved.assigneeIds, ['task_new_owner']);
+    assert.deepEqual(saved.participantIds, ['task_new_owner']);
+  }
+  assert.equal((await adminDb.doc(`notifications/zoki_task_assignment_${createHash('sha256').update(['task_assigner', SCHOOL_A, 'task_assignment_add_1'].join('\u0000')).digest('hex').slice(0, 40)}`).get()).exists, true);
+
+  assert.equal(await proposedAssignment('task_assigner', 'הסר את task_new_owner מהמשימה איסוף אישורי טיול', 'remove'), null);
+  const remove = await proposedAssignment('task_assignment_manager', 'הסר את task_new_owner מהמשימה איסוף אישורי טיול', 'remove');
+  const removePayload = {
+    schoolId: SCHOOL_A, requestId: 'task_assignment_remove_1', confirm: true,
+    taskId: remove.taskId, storageMode: remove.storageMode, userId: remove.userId, action: remove.operation,
+    expectedCurrentlyAssigned: remove.expectedCurrentlyAssigned, expectedAssigneeIds: remove.expectedAssigneeIds,
+  };
+  await adminDb.doc(`schools/${SCHOOL_A}/tasks/assignment_task`).update({ assigneeIds: ['task_new_owner', 'another_user'] });
+  await assert.rejects(executeZokiTaskAssignmentHandler(actorRequest('task_assignment_manager', {
+    ...removePayload, requestId: 'task_assignment_stale',
+  })), error => error.details?.reason === 'task-assignees-changed');
+  await adminDb.doc(`schools/${SCHOOL_A}/tasks/assignment_task`).update({ assigneeIds: ['task_new_owner'] });
+  assert.equal((await executeZokiTaskAssignmentHandler(actorRequest('task_assignment_manager', removePayload))).executed, true);
+  assert.deepEqual((await adminDb.doc(`schools/${SCHOOL_A}/tasks/assignment_task`).get()).data().assigneeIds, []);
+  assert.deepEqual((await adminDb.doc(`tasks_${SCHOOL_A}/assignment_task`).get()).data().assigneeIds, []);
+  const audits = await adminDb.collection('auditLogs').where('targetId', '==', 'assignment_task').get();
+  assert.equal(audits.size, 2);
+  assert.equal(JSON.stringify(audits.docs.map(item => item.data())).includes('איסוף אישורי'), false);
+});
+
+test('Zoki edits only explicitly named task details for the personal owner or an all-task editor', async () => {
+  await seedUser('task_details_owner', SCHOOL_A, 'viewer', { permissions: { 'tasks.viewOwn': true } });
+  await seedUser('task_details_editor', SCHOOL_A, 'viewer', { permissions: { 'tasks.viewAll': true, 'tasks.editAll': true } });
+  await seedUser('task_details_assignee', SCHOOL_A, 'viewer');
+  await adminDb.doc('users/task_details_owner/personalTasks/details_personal').set({
+    schoolId: SCHOOL_A, scope: 'personal', ownerId: 'task_details_owner', createdBy: 'task_details_owner',
+    title: 'הכנת מצגת', description: 'טיוטה ראשונה', priority: 'medium', dueDate: '2026-09-01', status: 'todo',
+  });
+  const organizationTask = {
+    schoolId: SCHOOL_A, scope: 'assigned', assigneeType: 'individual', assigneeIds: ['task_details_assignee'], participantIds: [],
+    createdBy: 'task_details_editor', title: 'בדיקת ציוד', description: 'בדיקת ציוד מעבדה', priority: 'low', dueDate: '2026-09-02', status: 'todo',
+  };
+  await adminDb.doc(`schools/${SCHOOL_A}/tasks/details_org`).set(organizationTask);
+  await adminDb.doc(`tasks_${SCHOOL_A}/details_org`).set(organizationTask);
+
+  async function proposedDetails(uid, question, taskId, next) {
+    const result = await askZokiHandler(actorRequest(uid, { schoolId: SCHOOL_A, question }), {
+      apiKey: 'server-test-key', model: 'test-model',
+      fetchImpl: async (_url, options) => {
+        const body = JSON.parse(options.body);
+        const context = JSON.parse(body.contents[0].parts[0].text);
+        const source = context.authorizedSources.find(item => ['task', 'personal_task'].includes(item.type)
+          && item.fields.id === taskId && item.fields.canEditDetails === true);
+        return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({
+          answer: source ? 'הכנתי עריכת משימה שממתינה לאישור.' : 'אין משימה מורשית לעריכה.',
+          sourceIds: source ? [source.id] : [], followUpQuestion: null,
+          actionProposal: source ? {
+            type: 'task_details_update', taskSourceId: source.id,
+            title: next.title ?? source.fields.title, description: next.description ?? source.fields.description,
+            priority: next.priority ?? source.fields.priority, dueDate: next.dueDate ?? source.fields.dueDate,
+          } : null,
+        }) }] } }] }) };
+      },
+    });
+    return result.actionProposal;
+  }
+
+  const personal = await proposedDetails(
+    'task_details_owner', 'שנה את כותרת המשימה הכנת מצגת לכותרת הכנת מצגת הנהלה',
+    'details_personal', { title: 'הכנת מצגת הנהלה' },
+  );
+  assert.deepEqual(personal.changedFields, ['title']);
+  const personalPayload = {
+    schoolId: SCHOOL_A, requestId: 'task_details_personal_1', confirm: true,
+    taskId: personal.taskId, storageMode: personal.storageMode, expected: personal.expected, task: personal.task,
+  };
+  assert.equal((await executeZokiTaskDetailsHandler(actorRequest('task_details_owner', personalPayload))).executed, true);
+  assert.equal((await executeZokiTaskDetailsHandler(actorRequest('task_details_owner', personalPayload))).executed, false);
+  assert.equal((await adminDb.doc('users/task_details_owner/personalTasks/details_personal').get()).data().title, 'הכנת מצגת הנהלה');
+
+  assert.equal(await proposedDetails(
+    'task_details_assignee', 'עדכן את העדיפות של המשימה בדיקת ציוד לגבוהה',
+    'details_org', { priority: 'high' },
+  ), null);
+  const organization = await proposedDetails(
+    'task_details_editor', 'עדכן את העדיפות של המשימה בדיקת ציוד לגבוהה ואת תאריך היעד ל-2026-09-05',
+    'details_org', { priority: 'high', dueDate: '2026-09-05' },
+  );
+  assert.deepEqual(organization.changedFields.sort(), ['dueDate', 'priority']);
+  const organizationPayload = {
+    schoolId: SCHOOL_A, requestId: 'task_details_org_1', confirm: true,
+    taskId: organization.taskId, storageMode: organization.storageMode,
+    expected: organization.expected, task: organization.task,
+  };
+  await assert.rejects(executeZokiTaskDetailsHandler(actorRequest('task_details_assignee', organizationPayload)), error => error.code === 'permission-denied');
+  await adminDb.doc(`schools/${SCHOOL_A}/tasks/details_org`).update({ dueDate: '2026-09-03' });
+  await assert.rejects(executeZokiTaskDetailsHandler(actorRequest('task_details_editor', {
+    ...organizationPayload, requestId: 'task_details_stale',
+  })), error => error.details?.reason === 'task-details-changed');
+  await adminDb.doc(`schools/${SCHOOL_A}/tasks/details_org`).update({ dueDate: '2026-09-02' });
+  assert.equal((await executeZokiTaskDetailsHandler(actorRequest('task_details_editor', organizationPayload))).executed, true);
+  for (const path of [`schools/${SCHOOL_A}/tasks/details_org`, `tasks_${SCHOOL_A}/details_org`]) {
+    const saved = (await adminDb.doc(path).get()).data();
+    assert.equal(saved.priority, 'high');
+    assert.equal(saved.dueDate, '2026-09-05');
+  }
+  const audits = await adminDb.collection('auditLogs').where('action', '==', 'zoki.action.task.details.update').get();
+  assert.equal(audits.size, 2);
+  assert.equal(JSON.stringify(audits.docs.map(item => item.data())).includes('מצגת'), false);
+  assert.equal(JSON.stringify(audits.docs.map(item => item.data())).includes('מעבדה'), false);
+});
+
 test('Zoki proposes and executes an exact grade change only with edit permission, confirmation and an unchanged prior value', async () => {
   await seedUser('grade_editor', SCHOOL_A, 'viewer', { permissions: { 'students.view': true, 'grades.view': true, 'grades.edit': true } });
   await seedUser('grade_viewer', SCHOOL_A, 'viewer', { permissions: { 'students.view': true, 'grades.view': true } });
@@ -747,6 +998,1309 @@ test('Zoki transfers one student atomically only to an authorized class in the s
   const audits = await adminDb.collection('auditLogs').where('action', '==', 'zoki.action.student.transferClass').get();
   assert.equal(audits.size, 1);
   assert.equal(JSON.stringify(audits.docs[0].data()).includes('בקשת משפחה סודית'), false);
+});
+
+test('Zoki assigns an existing role only after confirmation and through the established role authority', async () => {
+  await seedUser('principal_a', SCHOOL_A, 'principal');
+  await seedUser('role_viewer', SCHOOL_A, 'viewer', { permissions: { 'staff.view': true, 'roles.view': true } });
+  await seedUser('target_staff', SCHOOL_A, 'viewer', { fullName: 'דנה לוי' });
+  await adminAuth.createUser({ uid: 'target_staff', email: 'zoki-role-target@example.test' });
+  createdAuthUsers.add('target_staff');
+  await adminDb.doc(`schools/${SCHOOL_A}/roleDefinitions/grade_viewer_role`).set({
+    schoolId: SCHOOL_A,
+    name: 'צפייה בציונים',
+    description: 'גישה לקריאת ציונים בלבד',
+    permissions: { 'students.view': true, 'grades.view': true },
+    delegatedPermissionKeys: [],
+    accessScope: { type: 'school', classIds: [] },
+    delegable: false,
+    protected: false,
+    status: 'active',
+  });
+
+  async function proposedRoleAssignment(uid) {
+    const result = await askZokiHandler(actorRequest(uid, {
+      schoolId: SCHOOL_A, question: 'הקצה לדנה לוי את תפקיד צפייה בציונים',
+    }), {
+      apiKey: 'server-test-key', model: 'test-model',
+      fetchImpl: async (_url, options) => {
+        const body = JSON.parse(options.body);
+        const context = JSON.parse(body.contents[0].parts[0].text);
+        const staff = context.authorizedSources.find(item => item.type === 'staff' && item.fields.name === 'דנה לוי');
+        const role = context.authorizedSources.find(item => item.type === 'role' && item.fields.name === 'צפייה בציונים');
+        return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({
+          answer: 'הכנתי שינוי תפקיד שממתין לאישור.',
+          sourceIds: [staff?.id, role?.id].filter(Boolean), followUpQuestion: null,
+          actionProposal: staff && role ? {
+            type: 'role_assignment', staffSourceId: staff.id, roleSourceId: role.id, operation: 'assign',
+          } : null,
+        }) }] } }] }) };
+      },
+    });
+    return result.actionProposal;
+  }
+
+  const proposal = await proposedRoleAssignment('principal_a');
+  assert.deepEqual({
+    userId: proposal.userId, roleId: proposal.roleId, operation: proposal.operation,
+    expectedCurrentlyAssigned: proposal.expectedCurrentlyAssigned,
+  }, {
+    userId: 'target_staff', roleId: 'grade_viewer_role', operation: 'assign',
+    expectedCurrentlyAssigned: false,
+  });
+  assert.equal(await proposedRoleAssignment('role_viewer'), null);
+
+  const payload = {
+    schoolId: SCHOOL_A, requestId: 'role_action_1', confirm: true,
+    userId: 'target_staff', roleId: 'grade_viewer_role', action: 'assign',
+    expectedCurrentlyAssigned: false,
+  };
+  await assert.rejects(executeZokiRoleAssignmentHandler(actorRequest('role_viewer', payload)), error => error.code === 'permission-denied');
+  const first = await executeZokiRoleAssignmentHandler(actorRequest('principal_a', payload));
+  const repeated = await executeZokiRoleAssignmentHandler(actorRequest('principal_a', payload));
+  assert.equal(first.executed, true);
+  assert.equal(repeated.executed, false);
+  const target = (await adminDb.doc('users/target_staff').get()).data();
+  assert.deepEqual(target.customRoleAssignments[SCHOOL_A], ['grade_viewer_role']);
+  assert.equal(target.rolePermissionsBySchool[SCHOOL_A]['grades.view'], true);
+
+  await assert.rejects(executeZokiRoleAssignmentHandler(actorRequest('principal_a', {
+    ...payload, requestId: 'role_action_stale', action: 'remove', expectedCurrentlyAssigned: false,
+  })), error => error.code === 'aborted');
+  const audits = await adminDb.collection('auditLogs').where('action', '==', 'zoki.action.role.assign').get();
+  assert.equal(audits.size, 1);
+  assert.equal(JSON.stringify(audits.docs[0].data()).includes('צפייה בציונים'), false);
+});
+
+test('Zoki grants and revokes one exact staff permission while preserving aliases and unrelated settings', async () => {
+  await seedUser('principal_a', SCHOOL_A, 'principal');
+  await seedUser('permission_viewer', SCHOOL_A, 'viewer', { permissions: { 'staff.view': true } });
+  await seedUser('target_staff', SCHOOL_A, 'viewer', {
+    fullName: 'דנה לוי',
+    permissions: { tasks_view: true, legacy_setting: true },
+  });
+  await seedUser('protected_manager', SCHOOL_A, 'principal', { fullName: 'מנהל מוגן' });
+
+  async function proposedPermission(uid, targetName = 'דנה לוי') {
+    const result = await askZokiHandler(actorRequest(uid, {
+      schoolId: SCHOOL_A, question: `תן ל${targetName} הרשאת עריכת לוח השנה`,
+    }), {
+      apiKey: 'server-test-key', model: 'test-model',
+      fetchImpl: async (_url, options) => {
+        const body = JSON.parse(options.body);
+        const context = JSON.parse(body.contents[0].parts[0].text);
+        const staff = context.authorizedSources.find(item => item.type === 'staff' && item.fields.name === targetName);
+        const permission = context.authorizedSources.find(item => item.type === 'permission' && item.fields.key === 'calendar.edit');
+        return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({
+          answer: 'הכנתי שינוי הרשאה שממתין לאישור.',
+          sourceIds: [staff?.id, permission?.id].filter(Boolean), followUpQuestion: null,
+          actionProposal: staff && permission ? {
+            type: 'direct_permission_change', staffSourceId: staff.id,
+            permissionSourceId: permission.id, operation: 'grant',
+          } : null,
+        }) }] } }] }) };
+      },
+    });
+    return result.actionProposal;
+  }
+
+  const proposal = await proposedPermission('principal_a');
+  assert.deepEqual({
+    userId: proposal.userId,
+    permissionKey: proposal.permissionKey,
+    operation: proposal.operation,
+    expectedCurrentlyEnabled: proposal.expectedCurrentlyEnabled,
+  }, {
+    userId: 'target_staff',
+    permissionKey: 'calendar.edit',
+    operation: 'grant',
+    expectedCurrentlyEnabled: false,
+  });
+  assert.equal(await proposedPermission('permission_viewer'), null);
+  assert.equal(await proposedPermission('principal_a', 'מנהל מוגן'), null);
+
+  const grantPayload = {
+    schoolId: SCHOOL_A, requestId: 'permission_action_grant', confirm: true,
+    userId: 'target_staff', permissionKey: 'calendar.edit', action: 'grant',
+    expectedCurrentlyEnabled: false,
+  };
+  await assert.rejects(
+    executeZokiDirectPermissionHandler(actorRequest('permission_viewer', grantPayload)),
+    error => error.code === 'permission-denied',
+  );
+  const granted = await executeZokiDirectPermissionHandler(actorRequest('principal_a', grantPayload));
+  const repeated = await executeZokiDirectPermissionHandler(actorRequest('principal_a', grantPayload));
+  assert.equal(granted.executed, true);
+  assert.equal(repeated.executed, false);
+  let permissions = (await adminDb.doc('users/target_staff').get()).data().permissions;
+  assert.equal(permissions['calendar.edit'], true);
+  assert.equal(permissions.calendar_edit, true);
+  assert.equal(permissions.tasks_view, true);
+  assert.equal(permissions.legacy_setting, true);
+
+  await assert.rejects(executeZokiDirectPermissionHandler(actorRequest('principal_a', {
+    ...grantPayload, requestId: 'permission_action_stale', action: 'revoke', expectedCurrentlyEnabled: false,
+  })), error => error.code === 'aborted');
+  const revoked = await executeZokiDirectPermissionHandler(actorRequest('principal_a', {
+    ...grantPayload, requestId: 'permission_action_revoke', action: 'revoke', expectedCurrentlyEnabled: true,
+  }));
+  assert.equal(revoked.executed, true);
+  permissions = (await adminDb.doc('users/target_staff').get()).data().permissions;
+  assert.equal(permissions['calendar.edit'], false);
+  assert.equal(permissions.calendar_edit, false);
+  assert.equal(permissions.tasks_view, true);
+  assert.equal(permissions.legacy_setting, true);
+
+  await assert.rejects(executeZokiDirectPermissionHandler(actorRequest('principal_a', {
+    ...grantPayload, requestId: 'permission_action_protected', userId: 'protected_manager',
+  })), error => error.code === 'permission-denied');
+  const audits = await adminDb.collection('auditLogs').where('targetType', '==', 'staffPermission').get();
+  assert.equal(audits.size, 2);
+  const auditText = JSON.stringify(audits.docs.map(item => item.data()));
+  assert.equal(auditText.includes('דנה לוי'), false);
+  assert.equal(auditText.includes('עריכת אירועים'), false);
+});
+
+test('Zoki manages exact file access with explicit deny, rule removal and materialized policy updates', async () => {
+  await seedUser('principal_a', SCHOOL_A, 'principal');
+  await seedUser('acl_manager', SCHOOL_A, 'viewer', { permissions: {
+    'staff.view': true, 'files.view': true, 'files.managePermissions': true,
+  } });
+  await seedUser('file_viewer', SCHOOL_A, 'viewer', { permissions: {
+    'staff.view': true, 'files.view': true,
+  } });
+  await seedUser('target_staff', SCHOOL_A, 'viewer', {
+    fullName: 'דנה לוי', permissions: { 'files.view': true },
+  });
+  await seedUser('protected_manager', SCHOOL_A, 'principal', { fullName: 'מנהל מוגן' });
+  await adminDb.doc(`schools/${SCHOOL_A}/files/safety_policy`).set({
+    schoolId: SCHOOL_A, name: 'תקנון בטיחות', fileType: 'document', status: 'active',
+  });
+  await adminDb.doc(`schools/${SCHOOL_A}/folders/procedures_folder`).set({
+    schoolId: SCHOOL_A, name: 'נהלים', status: 'active',
+  });
+
+  async function proposedResourceAccess(uid) {
+    const result = await askZokiHandler(actorRequest(uid, {
+      schoolId: SCHOOL_A, question: 'תן לדנה לוי הרשאת עריכה לקובץ תקנון בטיחות',
+    }), {
+      apiKey: 'server-test-key', model: 'test-model',
+      fetchImpl: async (_url, options) => {
+        const body = JSON.parse(options.body);
+        const context = JSON.parse(body.contents[0].parts[0].text);
+        const staff = context.authorizedSources.find(item => item.type === 'staff' && item.fields.name === 'דנה לוי');
+        const file = context.authorizedSources.find(item => item.type === 'file' && item.fields.name === 'תקנון בטיחות');
+        return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({
+          answer: 'הכנתי שינוי גישה לקובץ שממתין לאישור.',
+          sourceIds: [staff?.id, file?.id].filter(Boolean), followUpQuestion: null,
+          actionProposal: staff && file ? {
+            type: 'resource_access_change', staffSourceId: staff.id,
+            resourceSourceId: file.id, operation: 'grant', accessLevel: 'edit',
+          } : null,
+        }) }] } }] }) };
+      },
+    });
+    return result.actionProposal;
+  }
+
+  const proposal = await proposedResourceAccess('acl_manager');
+  assert.deepEqual({
+    userId: proposal.userId, resourceType: proposal.resourceType, resourceId: proposal.resourceId,
+    operation: proposal.operation, accessLevel: proposal.accessLevel,
+    expectedDirectState: proposal.expectedDirectState,
+  }, {
+    userId: 'target_staff', resourceType: 'file', resourceId: 'safety_policy',
+    operation: 'grant', accessLevel: 'edit', expectedDirectState: 'none',
+  });
+  assert.equal(await proposedResourceAccess('file_viewer'), null);
+
+  const folderProposal = await askZokiHandler(actorRequest('acl_manager', {
+    schoolId: SCHOOL_A, question: 'חסום לדנה לוי גישה לתיקייה נהלים',
+  }), {
+    apiKey: 'server-test-key', model: 'test-model',
+    fetchImpl: async (_url, options) => {
+      const body = JSON.parse(options.body);
+      const context = JSON.parse(body.contents[0].parts[0].text);
+      const staff = context.authorizedSources.find(item => item.type === 'staff' && item.fields.name === 'דנה לוי');
+      const folder = context.authorizedSources.find(item => item.type === 'folder' && item.fields.name === 'נהלים');
+      return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({
+        answer: 'הכנתי חסימת תיקייה שממתינה לאישור.',
+        sourceIds: [staff?.id, folder?.id].filter(Boolean), followUpQuestion: null,
+        actionProposal: staff && folder ? {
+          type: 'resource_access_change', staffSourceId: staff.id,
+          resourceSourceId: folder.id, operation: 'deny', accessLevel: 'view',
+        } : null,
+      }) }] } }] }) };
+    },
+  });
+  assert.deepEqual({
+    resourceType: folderProposal.actionProposal?.resourceType,
+    resourceId: folderProposal.actionProposal?.resourceId,
+    operation: folderProposal.actionProposal?.operation,
+    expectedDirectState: folderProposal.actionProposal?.expectedDirectState,
+  }, {
+    resourceType: 'folder', resourceId: 'procedures_folder', operation: 'deny', expectedDirectState: 'none',
+  });
+
+  const grantPayload = {
+    schoolId: SCHOOL_A, requestId: 'resource_access_grant', confirm: true,
+    userId: 'target_staff', resourceType: 'file', resourceId: 'safety_policy',
+    action: 'grant', accessLevel: 'edit', expectedDirectState: 'none',
+  };
+  await assert.rejects(
+    executeZokiResourceAccessHandler(actorRequest('file_viewer', grantPayload)),
+    error => error.code === 'permission-denied',
+  );
+  const granted = await executeZokiResourceAccessHandler(actorRequest('acl_manager', grantPayload));
+  const repeated = await executeZokiResourceAccessHandler(actorRequest('acl_manager', grantPayload));
+  assert.equal(granted.executed, true);
+  assert.equal(repeated.executed, false);
+  let aclSnapshot = await adminDb.collection(`schools/${SCHOOL_A}/resourceAcls`)
+    .where('resourceType', '==', 'file').where('resourceId', '==', 'safety_policy').get();
+  assert.equal(aclSnapshot.size, 1);
+  assert.equal(aclSnapshot.docs[0].data().principalId, 'target_staff');
+  assert.equal(aclSnapshot.docs[0].data().accessLevel, 'edit');
+  assert.equal(aclSnapshot.docs[0].data().explicitDeny, false);
+  let policy = (await adminDb.doc(`schools/${SCHOOL_A}/resourceAclPolicies/file_safety_policy`).get()).data();
+  assert.deepEqual(policy.edit.allowedUsers, ['target_staff']);
+
+  await assert.rejects(executeZokiResourceAccessHandler(actorRequest('acl_manager', {
+    ...grantPayload, requestId: 'resource_access_stale', action: 'deny', expectedDirectState: 'none',
+  })), error => error.code === 'aborted');
+  const denied = await executeZokiResourceAccessHandler(actorRequest('acl_manager', {
+    ...grantPayload, requestId: 'resource_access_deny', action: 'deny', accessLevel: 'view',
+    expectedDirectState: 'grant:edit',
+  }));
+  assert.equal(denied.executed, true);
+  aclSnapshot = await adminDb.collection(`schools/${SCHOOL_A}/resourceAcls`)
+    .where('resourceType', '==', 'file').where('resourceId', '==', 'safety_policy').get();
+  assert.equal(aclSnapshot.docs[0].data().explicitDeny, true);
+  policy = (await adminDb.doc(`schools/${SCHOOL_A}/resourceAclPolicies/file_safety_policy`).get()).data();
+  assert.deepEqual(policy.view.deniedUsers, ['target_staff']);
+  assert.deepEqual(policy.edit.allowedUsers, []);
+
+  const removed = await executeZokiResourceAccessHandler(actorRequest('acl_manager', {
+    ...grantPayload, requestId: 'resource_access_remove', action: 'remove', accessLevel: 'view',
+    expectedDirectState: 'deny',
+  }));
+  assert.equal(removed.executed, true);
+  aclSnapshot = await adminDb.collection(`schools/${SCHOOL_A}/resourceAcls`)
+    .where('resourceType', '==', 'file').where('resourceId', '==', 'safety_policy').get();
+  assert.equal(aclSnapshot.docs[0].data().active, false);
+  policy = (await adminDb.doc(`schools/${SCHOOL_A}/resourceAclPolicies/file_safety_policy`).get()).data();
+  assert.equal(policy.configured, false);
+
+  const folderDenied = await executeZokiResourceAccessHandler(actorRequest('acl_manager', {
+    schoolId: SCHOOL_A, requestId: 'resource_access_folder_deny', confirm: true,
+    userId: 'target_staff', resourceType: 'folder', resourceId: 'procedures_folder',
+    action: 'deny', accessLevel: 'view', expectedDirectState: 'none',
+  }));
+  assert.equal(folderDenied.executed, true);
+  const folderPolicy = (await adminDb.doc(`schools/${SCHOOL_A}/resourceAclPolicies/folder_procedures_folder`).get()).data();
+  assert.deepEqual(folderPolicy.view.deniedUsers, ['target_staff']);
+
+  await assert.rejects(executeZokiResourceAccessHandler(actorRequest('principal_a', {
+    ...grantPayload, requestId: 'resource_access_protected', userId: 'protected_manager',
+  })), error => error.code === 'permission-denied');
+  const audits = await adminDb.collection('auditLogs').where('targetType', '==', 'resourceAccess').get();
+  assert.equal(audits.size, 4);
+  const auditText = JSON.stringify(audits.docs.map(item => item.data()));
+  assert.equal(auditText.includes('דנה לוי'), false);
+  assert.equal(auditText.includes('תקנון בטיחות'), false);
+});
+
+test('Zoki creates exact empty folders and in-app documents once in both stores', async () => {
+  await seedUser('resource_creator', SCHOOL_A, 'viewer', { permissions: {
+    'files.view': true, 'files.create': true,
+  } });
+  await seedUser('resource_viewer', SCHOOL_A, 'viewer', { permissions: { 'files.view': true } });
+
+  async function proposedCreation(uid, question, kind, name, folderName = '') {
+    const result = await askZokiHandler(actorRequest(uid, { schoolId: SCHOOL_A, question }), {
+      apiKey: 'server-test-key', model: 'test-model',
+      fetchImpl: async (_url, options) => {
+        const body = JSON.parse(options.body);
+        const context = JSON.parse(body.contents[0].parts[0].text);
+        const config = context.authorizedSources.find(item => item.type === 'file_create_config');
+        const folder = context.authorizedSources.find(item => item.type === 'folder' && item.fields.name === folderName);
+        const actionable = config && (kind === 'folder' || folder);
+        return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({
+          answer: 'הכנתי פריט חדש שממתין לאישור.',
+          sourceIds: [config?.id, folder?.id].filter(Boolean), followUpQuestion: null,
+          actionProposal: actionable ? {
+            type: 'resource_create', configSourceId: config.id, kind, name,
+            folderSourceId: kind === 'folder' ? null : folder.id, visibility: 'all',
+          } : null,
+        }) }] } }] }) };
+      },
+    });
+    return result.actionProposal;
+  }
+
+  const folderProposal = await proposedCreation(
+    'resource_creator', 'צור תיקייה חדשה בשם נהלי בטיחות', 'folder', 'נהלי בטיחות'
+  );
+  assert.deepEqual({ kind: folderProposal.kind, name: folderProposal.name, visibility: folderProposal.visibility }, {
+    kind: 'folder', name: 'נהלי בטיחות', visibility: 'all',
+  });
+  assert.equal(await proposedCreation(
+    'resource_viewer', 'צור תיקייה חדשה בשם נהלי בטיחות', 'folder', 'נהלי בטיחות'
+  ), null);
+  const folderPayload = {
+    schoolId: SCHOOL_A, requestId: 'resource_create_folder_1', confirm: true,
+    kind: 'folder', name: folderProposal.name, folderId: '', visibility: folderProposal.visibility,
+  };
+  await assert.rejects(executeZokiResourceCreateHandler(actorRequest('resource_viewer', folderPayload)), error => error.code === 'permission-denied');
+  const createdFolder = await executeZokiResourceCreateHandler(actorRequest('resource_creator', folderPayload));
+  assert.equal(createdFolder.executed, true);
+  assert.equal((await executeZokiResourceCreateHandler(actorRequest('resource_creator', folderPayload))).executed, false);
+  const [nestedFolder, legacyFolder] = await Promise.all([
+    adminDb.doc(`schools/${SCHOOL_A}/folders/${createdFolder.resourceId}`).get(),
+    adminDb.doc(`folders_${SCHOOL_A}/${createdFolder.resourceId}`).get(),
+  ]);
+  assert.equal(nestedFolder.data().name, 'נהלי בטיחות');
+  assert.equal(legacyFolder.data().visibility, 'all');
+  await assert.rejects(executeZokiResourceCreateHandler(actorRequest('resource_creator', {
+    ...folderPayload, requestId: 'resource_create_folder_duplicate',
+  })), error => error.details?.reason === 'resource-name-exists');
+
+  const documentProposal = await proposedCreation(
+    'resource_creator', 'צור מסמך חדש בשם נוהל יציאה בתוך תיקיית נהלי בטיחות',
+    'document', 'נוהל יציאה', 'נהלי בטיחות'
+  );
+  assert.deepEqual({ kind: documentProposal.kind, name: documentProposal.name, folderId: documentProposal.folderId }, {
+    kind: 'document', name: 'נוהל יציאה', folderId: createdFolder.resourceId,
+  });
+  const documentPayload = {
+    schoolId: SCHOOL_A, requestId: 'resource_create_document_1', confirm: true,
+    kind: 'document', name: documentProposal.name, folderId: documentProposal.folderId, visibility: 'all',
+  };
+  const createdDocument = await executeZokiResourceCreateHandler(actorRequest('resource_creator', documentPayload));
+  assert.equal(createdDocument.executed, true);
+  const [nestedDocument, legacyDocument] = await Promise.all([
+    adminDb.doc(`schools/${SCHOOL_A}/files/${createdDocument.resourceId}`).get(),
+    adminDb.doc(`files_${SCHOOL_A}/${createdDocument.resourceId}`).get(),
+  ]);
+  assert.equal(nestedDocument.data().content, '<p></p>');
+  assert.equal(legacyDocument.data().folderId, createdFolder.resourceId);
+  const audits = await adminDb.collection('auditLogs').where('action', '==', 'zoki.action.resource.create').get();
+  assert.equal(audits.size, 2);
+  const auditText = JSON.stringify(audits.docs.map(item => item.data()));
+  assert.equal(auditText.includes('נהלי בטיחות'), false);
+  assert.equal(auditText.includes('נוהל יציאה'), false);
+});
+
+test('Zoki renames and recycles exact resources with dual-store and stale-state protection', async () => {
+  await seedUser('resource_editor', SCHOOL_A, 'viewer', { permissions: {
+    'files.view': true, 'files.edit': true, 'files.delete': true,
+  } });
+  await seedUser('resource_reader', SCHOOL_A, 'viewer', { permissions: { 'files.view': true } });
+  const originFolder = { schoolId: SCHOOL_A, name: 'נהלים ישנים', visibility: 'all' };
+  const targetFolder = { schoolId: SCHOOL_A, name: 'נהלים בתוקף', visibility: 'all' };
+  const file = { schoolId: SCHOOL_A, name: 'נוהל טיולים ישן', fileType: 'document', folderId: 'old_policies', content: 'תוכן פנימי' };
+  await Promise.all([
+    adminDb.doc(`schools/${SCHOOL_A}/folders/old_policies`).set(originFolder),
+    adminDb.doc(`folders_${SCHOOL_A}/old_policies`).set(originFolder),
+    adminDb.doc(`schools/${SCHOOL_A}/folders/active_policies`).set(targetFolder),
+    adminDb.doc(`folders_${SCHOOL_A}/active_policies`).set(targetFolder),
+    adminDb.doc(`schools/${SCHOOL_A}/files/trip_policy`).set(file),
+    adminDb.doc(`files_${SCHOOL_A}/trip_policy`).set(file),
+  ]);
+
+  async function proposedResourceMutation(uid, question, type) {
+    const result = await askZokiHandler(actorRequest(uid, { schoolId: SCHOOL_A, question }), {
+      apiKey: 'server-test-key', model: 'test-model',
+      fetchImpl: async (_url, options) => {
+        const body = JSON.parse(options.body);
+        const context = JSON.parse(body.contents[0].parts[0].text);
+        const source = context.authorizedSources.find(item => item.type === 'file' && item.fields.id === 'trip_policy');
+        const target = context.authorizedSources.find(item => item.type === 'folder' && item.fields.id === 'active_policies');
+        return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({
+          answer: 'הכנתי פעולה שממתינה לאישור.',
+          sourceIds: [source?.id, type === 'resource_move' ? target?.id : null].filter(Boolean), followUpQuestion: null,
+          actionProposal: source && (type !== 'resource_move' || target) ? (type === 'resource_move' ? {
+            type, fileSourceId: source.id, targetFolderSourceId: target.id,
+          } : {
+            type, resourceSourceId: source.id,
+            ...(type === 'resource_rename' ? { newName: 'נוהל טיולים מעודכן' } : {}),
+          }) : null,
+        }) }] } }] }) };
+      },
+    });
+    return result.actionProposal;
+  }
+
+  const rename = await proposedResourceMutation(
+    'resource_editor', 'שנה את השם של הקובץ נוהל טיולים ישן לשם נוהל טיולים מעודכן', 'resource_rename'
+  );
+  assert.deepEqual({ type: rename.type, resourceId: rename.resourceId, currentName: rename.currentName, newName: rename.newName }, {
+    type: 'resource_rename', resourceId: 'trip_policy', currentName: 'נוהל טיולים ישן', newName: 'נוהל טיולים מעודכן',
+  });
+  assert.equal(await proposedResourceMutation(
+    'resource_reader', 'שנה את השם של הקובץ נוהל טיולים ישן לשם נוהל טיולים מעודכן', 'resource_rename'
+  ), null);
+  const renamePayload = {
+    schoolId: SCHOOL_A, requestId: 'resource_rename_1', confirm: true,
+    resourceType: 'file', resourceId: 'trip_policy', expectedName: rename.currentName, newName: rename.newName,
+  };
+  await assert.rejects(executeZokiResourceRenameHandler(actorRequest('resource_reader', renamePayload)), error => error.code === 'permission-denied');
+  assert.equal((await executeZokiResourceRenameHandler(actorRequest('resource_editor', renamePayload))).executed, true);
+  assert.equal((await executeZokiResourceRenameHandler(actorRequest('resource_editor', renamePayload))).executed, false);
+  const [nestedRenamed, legacyRenamed] = await Promise.all([
+    adminDb.doc(`schools/${SCHOOL_A}/files/trip_policy`).get(),
+    adminDb.doc(`files_${SCHOOL_A}/trip_policy`).get(),
+  ]);
+  assert.equal(nestedRenamed.data().name, 'נוהל טיולים מעודכן');
+  assert.equal(legacyRenamed.data().name, 'נוהל טיולים מעודכן');
+  await assert.rejects(executeZokiResourceRenameHandler(actorRequest('resource_editor', {
+    ...renamePayload, requestId: 'resource_rename_stale', newName: 'שם אחר',
+  })), error => error.details?.reason === 'resource-changed');
+
+  const trash = await proposedResourceMutation(
+    'resource_editor', 'העבר את הקובץ נוהל טיולים מעודכן לסל המחזור', 'resource_trash'
+  );
+  assert.equal(trash.resourceName, 'נוהל טיולים מעודכן');
+  const trashPayload = {
+    schoolId: SCHOOL_A, resourceType: 'file', resourceId: 'trip_policy', action: 'trash',
+    source: 'zoki', requestId: 'resource_trash_1', expectedName: trash.resourceName,
+  };
+  await assert.rejects(fileTrashActionHandler(actorRequest('resource_reader', trashPayload)), error => error.code === 'permission-denied');
+  await assert.rejects(fileTrashActionHandler(actorRequest('resource_editor', {
+    ...trashPayload, requestId: 'resource_trash_stale', expectedName: 'שם ישן',
+  })), error => error.details?.reason === 'resource-changed');
+  assert.equal((await fileTrashActionHandler(actorRequest('resource_editor', trashPayload))).executed, true);
+  assert.equal((await fileTrashActionHandler(actorRequest('resource_editor', trashPayload))).executed, false);
+  const [nestedTrashed, legacyTrashed] = await Promise.all([
+    adminDb.doc(`schools/${SCHOOL_A}/files/trip_policy`).get(),
+    adminDb.doc(`files_${SCHOOL_A}/trip_policy`).get(),
+  ]);
+  assert.ok(nestedTrashed.data().trashedAt);
+  assert.ok(legacyTrashed.data().trashedAt);
+  const restore = await proposedResourceMutation(
+    'resource_editor', 'שחזר את הקובץ נוהל טיולים מעודכן מסל המחזור', 'resource_restore'
+  );
+  assert.equal(restore.resourceName, 'נוהל טיולים מעודכן');
+  const restorePayload = {
+    schoolId: SCHOOL_A, resourceType: 'file', resourceId: 'trip_policy', action: 'restore',
+    source: 'zoki', requestId: 'resource_restore_1', expectedName: restore.resourceName,
+  };
+  assert.equal((await fileTrashActionHandler(actorRequest('resource_editor', restorePayload))).executed, true);
+  assert.equal((await fileTrashActionHandler(actorRequest('resource_editor', restorePayload))).executed, false);
+  assert.equal((await adminDb.doc(`schools/${SCHOOL_A}/files/trip_policy`).get()).data().trashedAt, undefined);
+  assert.equal((await adminDb.doc(`files_${SCHOOL_A}/trip_policy`).get()).data().trashedAt, undefined);
+
+  const move = await proposedResourceMutation(
+    'resource_editor', 'העבר את הקובץ נוהל טיולים מעודכן אל תיקיית נהלים בתוקף', 'resource_move'
+  );
+  assert.deepEqual({ fileId: move.fileId, expectedFolderId: move.expectedFolderId, targetFolderId: move.targetFolderId }, {
+    fileId: 'trip_policy', expectedFolderId: 'old_policies', targetFolderId: 'active_policies',
+  });
+  const movePayload = {
+    schoolId: SCHOOL_A, requestId: 'resource_move_1', confirm: true,
+    fileId: move.fileId, expectedName: move.fileName,
+    expectedFolderId: move.expectedFolderId, targetFolderId: move.targetFolderId,
+  };
+  assert.equal((await executeZokiResourceMoveHandler(actorRequest('resource_editor', movePayload))).executed, true);
+  assert.equal((await executeZokiResourceMoveHandler(actorRequest('resource_editor', movePayload))).executed, false);
+  assert.equal((await adminDb.doc(`schools/${SCHOOL_A}/files/trip_policy`).get()).data().folderId, 'active_policies');
+  assert.equal((await adminDb.doc(`files_${SCHOOL_A}/trip_policy`).get()).data().folderId, 'active_policies');
+  await assert.rejects(executeZokiResourceMoveHandler(actorRequest('resource_editor', {
+    ...movePayload, requestId: 'resource_move_stale', expectedFolderId: 'wrong_folder', targetFolderId: 'old_policies',
+  })), error => error.details?.reason === 'resource-changed');
+  const audits = await adminDb.collection('auditLogs').where('targetId', '==', 'trip_policy').get();
+  assert.equal(audits.docs.some(item => item.data().action === 'zoki.action.resource.rename'), true);
+  assert.equal(audits.docs.some(item => item.data().action === 'zoki.action.resource.restore'), true);
+  assert.equal(audits.docs.some(item => item.data().action === 'zoki.action.resource.move'), true);
+  assert.equal(JSON.stringify(audits.docs.map(item => item.data())).includes('נוהל טיולים'), false);
+});
+
+test('Zoki changes one student track atomically and keeps the active enrollment synchronized', async () => {
+  await seedUser('track_editor', SCHOOL_A, 'viewer', { permissions: {
+    'students.view': true, 'students.managePrograms': true,
+  } });
+  await seedUser('track_viewer', SCHOOL_A, 'viewer', { permissions: { 'students.view': true } });
+  await adminDb.doc(`schools/${SCHOOL_A}/students/student_a`).set({
+    schoolId: SCHOOL_A, fullName: 'נועה כהן', classId: 'class_a', className: 'כיתה א1',
+    academicYearId: 'year_2026', currentEnrollmentId: 'student_a__year_2026',
+    trackIds: [], status: 'active',
+  });
+  await adminDb.doc(`schools/${SCHOOL_A}/studentEnrollments/student_a__year_2026`).set({
+    schoolId: SCHOOL_A, studentId: 'student_a', academicYearId: 'year_2026',
+    classId: 'class_a', majorIds: [], enrollmentStatus: 'active',
+  });
+  await adminDb.doc(`schools/${SCHOOL_A}/tracks/robotics`).set({
+    schoolId: SCHOOL_A, name: 'רובוטיקה', description: 'מגמת רובוטיקה', status: 'active',
+  });
+
+  async function proposedTrackChange(uid) {
+    const result = await askZokiHandler(actorRequest(uid, {
+      schoolId: SCHOOL_A, question: 'הוסף את נועה כהן למגמת רובוטיקה',
+    }), {
+      apiKey: 'server-test-key', model: 'test-model',
+      fetchImpl: async (_url, options) => {
+        const body = JSON.parse(options.body);
+        const context = JSON.parse(body.contents[0].parts[0].text);
+        const student = context.authorizedSources.find(item => item.type === 'student' && item.fields.fullName === 'נועה כהן');
+        const track = context.authorizedSources.find(item => item.type === 'track' && item.fields.name === 'רובוטיקה');
+        return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({
+          answer: 'הכנתי שינוי מגמה שממתין לאישור.',
+          sourceIds: [student?.id, track?.id].filter(Boolean), followUpQuestion: null,
+          actionProposal: student && track ? {
+            type: 'student_track_change', studentSourceId: student.id, trackSourceId: track.id, operation: 'add',
+          } : null,
+        }) }] } }] }) };
+      },
+    });
+    return result.actionProposal;
+  }
+
+  const proposal = await proposedTrackChange('track_editor');
+  assert.deepEqual({
+    studentId: proposal.studentId, trackId: proposal.trackId, operation: proposal.operation,
+    expectedCurrentlyAssigned: proposal.expectedCurrentlyAssigned,
+  }, { studentId: 'student_a', trackId: 'robotics', operation: 'add', expectedCurrentlyAssigned: false });
+  assert.equal(await proposedTrackChange('track_viewer'), null);
+
+  const payload = {
+    schoolId: SCHOOL_A, requestId: 'student_track_1', confirm: true,
+    studentId: 'student_a', trackId: 'robotics', action: 'add', expectedCurrentlyAssigned: false,
+  };
+  await assert.rejects(executeZokiStudentTrackHandler(actorRequest('track_viewer', payload)), error => error.code === 'permission-denied');
+  const first = await executeZokiStudentTrackHandler(actorRequest('track_editor', payload));
+  const repeated = await executeZokiStudentTrackHandler(actorRequest('track_editor', payload));
+  assert.equal(first.executed, true);
+  assert.equal(repeated.executed, false);
+  assert.deepEqual((await adminDb.doc(`schools/${SCHOOL_A}/students/student_a`).get()).data().trackIds, ['robotics']);
+  assert.deepEqual((await adminDb.doc(`schools/${SCHOOL_A}/studentEnrollments/student_a__year_2026`).get()).data().majorIds, ['robotics']);
+  const history = await adminDb.collection(`schools/${SCHOOL_A}/students/student_a/history`).get();
+  assert.equal(history.size, 1);
+  assert.equal(history.docs[0].data().type, 'track_added');
+  await assert.rejects(executeZokiStudentTrackHandler(actorRequest('track_editor', {
+    ...payload, requestId: 'student_track_stale', action: 'remove', expectedCurrentlyAssigned: false,
+  })), error => error.code === 'aborted');
+  const audits = await adminDb.collection('auditLogs').where('action', '==', 'zoki.action.student.track.add').get();
+  assert.equal(audits.size, 1);
+  assert.equal(JSON.stringify(audits.docs[0].data()).includes('רובוטיקה'), false);
+});
+
+test('Zoki updates one exact attendance cell only with edit permission and unchanged source data', async () => {
+  await seedUser('attendance_editor', SCHOOL_A, 'viewer', { permissions: {
+    attendance_view: true, attendance_edit: true,
+  } });
+  await seedUser('attendance_viewer', SCHOOL_A, 'viewer', { permissions: { attendance_view: true } });
+  await seedUser('teacher_a', SCHOOL_A, 'viewer');
+  await adminDb.doc(`schools/${SCHOOL_A}/classes/class_a`).set({
+    schoolId: SCHOOL_A, name: 'כיתה א', status: 'active', teacherId: 'teacher_a',
+  });
+  await adminDb.doc(`schools/${SCHOOL_A}/students/student_a`).set({
+    schoolId: SCHOOL_A, fullName: 'נועה כהן', classId: 'class_a', className: 'כיתה א', status: 'active',
+  });
+  const filePath = `schools/${SCHOOL_A}/files/attendance_a`;
+  await adminDb.doc(filePath).set({
+    schoolId: SCHOOL_A, name: 'נוכחות כיתה א', fileType: 'attendance', classId: 'class_a',
+    status: 'active', setupStatus: 'ready', dateRange: { start: '2026-09-01', end: '2026-09-30' },
+  });
+  await adminDb.doc(`${filePath}/attendanceMembers/student_a`).set({
+    schoolId: SCHOOL_A, fileId: 'attendance_a', classId: 'class_a', studentId: 'student_a', included: true,
+  });
+  await adminDb.doc(`${filePath}/attendanceDays/2026-09-03`).set({
+    schoolId: SCHOOL_A, fileId: 'attendance_a', dateKey: '2026-09-03', scheduled: true, blocked: false,
+  });
+  await adminDb.doc(`${filePath}/attendanceLegend/present`).set({
+    schoolId: SCHOOL_A, fileId: 'attendance_a', label: 'נוכחות', shortCode: '✓',
+    type: 'status', attendanceEffect: 'present', active: true,
+  });
+  await adminDb.doc(`${filePath}/attendanceLegend/absent`).set({
+    schoolId: SCHOOL_A, fileId: 'attendance_a', label: 'לא הגיע', shortCode: 'ל',
+    type: 'status', attendanceEffect: 'absent', active: true,
+  });
+  const recordPath = `${filePath}/attendanceRecords/student_a__2026-09-03`;
+  await adminDb.doc(recordPath).set({
+    schoolId: SCHOOL_A, fileId: 'attendance_a', classId: 'class_a', studentId: 'student_a',
+    dateKey: '2026-09-03', primaryStatusId: 'present', actionIds: ['follow_up'], note: 'הערה קיימת',
+  });
+
+  async function proposedAttendance(uid) {
+    const result = await askZokiHandler(actorRequest(uid, {
+      schoolId: SCHOOL_A, question: 'סמן את נועה כהן כחסרה בתאריך 2026-09-03',
+    }), {
+      apiKey: 'server-test-key', model: 'test-model',
+      fetchImpl: async (_url, options) => {
+        const body = JSON.parse(options.body);
+        const context = JSON.parse(body.contents[0].parts[0].text);
+        const attendance = context.authorizedSources.find(item => item.type === 'attendance');
+        return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({
+          answer: 'הכנתי עדכון נוכחות שממתין לאישור.',
+          sourceIds: attendance ? [attendance.id] : [], followUpQuestion: null,
+          actionProposal: attendance ? {
+            type: 'attendance_update', attendanceSourceId: attendance.id,
+            dateKey: '2026-09-03', statusId: 'absent',
+          } : null,
+        }) }] } }] }) };
+      },
+    });
+    return result.actionProposal;
+  }
+
+  const proposal = await proposedAttendance('attendance_editor');
+  assert.deepEqual({
+    fileId: proposal.fileId, studentId: proposal.studentId, dateKey: proposal.dateKey,
+    statusId: proposal.statusId, expectedPreviousStatusId: proposal.expectedPreviousStatusId,
+  }, {
+    fileId: 'attendance_a', studentId: 'student_a', dateKey: '2026-09-03',
+    statusId: 'absent', expectedPreviousStatusId: 'present',
+  });
+  assert.equal((await proposedAttendance('teacher_a')).studentId, 'student_a');
+  assert.equal(await proposedAttendance('attendance_viewer'), null);
+
+  const payload = {
+    schoolId: SCHOOL_A, requestId: 'attendance_action_1', confirm: true,
+    fileId: 'attendance_a', studentId: 'student_a', dateKey: '2026-09-03',
+    statusId: 'absent', expectedPreviousStatusId: 'present',
+  };
+  await assert.rejects(executeZokiAttendanceHandler(actorRequest('attendance_viewer', payload)), error => error.code === 'permission-denied');
+  const first = await executeZokiAttendanceHandler(actorRequest('attendance_editor', payload));
+  const repeated = await executeZokiAttendanceHandler(actorRequest('attendance_editor', payload));
+  assert.equal(first.executed, true);
+  assert.equal(repeated.executed, false);
+  const record = (await adminDb.doc(recordPath).get()).data();
+  assert.equal(record.primaryStatusId, 'absent');
+  assert.deepEqual(record.actionIds, ['follow_up']);
+  assert.equal(record.note, 'הערה קיימת');
+  const history = await adminDb.collection(`${filePath}/attendanceHistory`).get();
+  assert.equal(history.size, 1);
+  assert.equal(history.docs[0].data().previous.primaryStatusId, 'present');
+  await assert.rejects(executeZokiAttendanceHandler(actorRequest('attendance_editor', {
+    ...payload, requestId: 'attendance_action_stale', statusId: 'present', expectedPreviousStatusId: 'present',
+  })), error => error.code === 'aborted');
+  await adminDb.doc(`${filePath}/attendanceDays/2026-09-03`).update({ blocked: true });
+  await assert.rejects(executeZokiAttendanceHandler(actorRequest('attendance_editor', {
+    ...payload, requestId: 'attendance_action_blocked', statusId: 'present', expectedPreviousStatusId: 'absent',
+  })), error => error.code === 'permission-denied');
+  const audits = await adminDb.collection('auditLogs').where('action', '==', 'zoki.action.attendance.update').get();
+  assert.equal(audits.size, 1);
+  const auditText = JSON.stringify(audits.docs[0].data());
+  assert.equal(auditText.includes('לא הגיע'), false);
+  assert.equal(auditText.includes('הערה קיימת'), false);
+});
+
+test('Zoki creates one structured student note only after source-bound confirmation and current class authorization', async () => {
+  await seedUser('note_editor', SCHOOL_A, 'viewer', { permissions: {
+    'students.view': true, 'students.addNotes': true,
+  } });
+  await seedUser('note_viewer', SCHOOL_A, 'viewer', { permissions: { 'students.view': true } });
+  await adminDb.doc(`schools/${SCHOOL_A}/classes/class_a`).set({
+    schoolId: SCHOOL_A, name: 'כיתה א', status: 'active',
+  });
+  await adminDb.doc(`schools/${SCHOOL_A}/students/student_a`).set({
+    schoolId: SCHOOL_A, fullName: 'נועה כהן', classId: 'class_a', className: 'כיתה א', status: 'active',
+  });
+
+  async function proposedNote(uid) {
+    const result = await askZokiHandler(actorRequest(uid, {
+      schoolId: SCHOOL_A, question: 'הוסף לנועה כהן הערה לימודית לצוות הכיתה: השתתפה היטב בדיון והגישה את העבודה בזמן',
+    }), {
+      apiKey: 'server-test-key', model: 'test-model',
+      fetchImpl: async (_url, options) => {
+        const body = JSON.parse(options.body);
+        const context = JSON.parse(body.contents[0].parts[0].text);
+        const student = context.authorizedSources.find(item => item.type === 'student' && item.fields.fullName === 'נועה כהן');
+        return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({
+          answer: 'הכנתי הערה לימודית שממתינה לאישור.',
+          sourceIds: student ? [student.id] : [], followUpQuestion: null,
+          actionProposal: student ? {
+            type: 'student_note_create', studentSourceId: student.id,
+            content: 'השתתפה היטב בדיון והגישה את העבודה בזמן',
+            noteType: 'academic', visibility: 'class_staff',
+          } : null,
+        }) }] } }] }) };
+      },
+    });
+    return result.actionProposal;
+  }
+
+  const proposal = await proposedNote('note_editor');
+  assert.deepEqual({
+    studentId: proposal.studentId, expectedClassId: proposal.expectedClassId,
+    content: proposal.content, noteType: proposal.noteType, visibility: proposal.visibility,
+  }, {
+    studentId: 'student_a', expectedClassId: 'class_a',
+    content: 'השתתפה היטב בדיון והגישה את העבודה בזמן', noteType: 'academic', visibility: 'class_staff',
+  });
+  assert.equal(await proposedNote('note_viewer'), null);
+
+  const payload = {
+    schoolId: SCHOOL_A, requestId: 'student_note_1', confirm: true,
+    studentId: 'student_a', expectedClassId: 'class_a',
+    content: proposal.content, type: 'academic', visibility: 'class_staff',
+  };
+  await assert.rejects(executeZokiStudentNoteHandler(actorRequest('note_viewer', payload)), error => error.code === 'permission-denied');
+  const first = await executeZokiStudentNoteHandler(actorRequest('note_editor', payload));
+  const repeated = await executeZokiStudentNoteHandler(actorRequest('note_editor', payload));
+  assert.equal(first.executed, true);
+  assert.equal(repeated.executed, false);
+  const notes = await adminDb.collection(`schools/${SCHOOL_A}/students/student_a/notes`).get();
+  assert.equal(notes.size, 1);
+  assert.equal(notes.docs[0].data().content, proposal.content);
+  assert.equal(notes.docs[0].data().type, 'academic');
+  assert.equal(notes.docs[0].data().visibility, 'class_staff');
+
+  await adminDb.doc(`schools/${SCHOOL_A}/classes/class_b`).set({ schoolId: SCHOOL_A, name: 'כיתה ב', status: 'active' });
+  await adminDb.doc(`schools/${SCHOOL_A}/students/student_a`).update({ classId: 'class_b', className: 'כיתה ב' });
+  await assert.rejects(executeZokiStudentNoteHandler(actorRequest('note_editor', {
+    ...payload, requestId: 'student_note_stale',
+  })), error => error.code === 'aborted');
+  const audits = await adminDb.collection('auditLogs').where('action', '==', 'zoki.action.student.note.create').get();
+  assert.equal(audits.size, 1);
+  const auditText = JSON.stringify(audits.docs[0].data());
+  assert.equal(auditText.includes('השתתפה היטב'), false);
+  assert.equal(auditText.includes('academic'), false);
+});
+
+test('Zoki creates one calendar event for exact current categories and teams with dual-store compatibility', async () => {
+  await seedUser('calendar_creator', SCHOOL_A, 'viewer', { permissions: {
+    'calendar.view': true, 'calendar.create': true,
+  } });
+  await seedUser('calendar_viewer', SCHOOL_A, 'viewer', { permissions: { 'calendar.view': true } });
+  await adminDb.doc(`schools/${SCHOOL_A}/categories/trips`).set({ schoolId: SCHOOL_A, name: 'טיולים' });
+  await adminDb.doc(`schools/${SCHOOL_A}/teams/trips_team`).set({
+    schoolId: SCHOOL_A, name: 'צוות טיולים', status: 'active', memberIds: ['calendar_creator'],
+  });
+
+  async function proposedEvent(uid) {
+    const result = await askZokiHandler(actorRequest(uid, {
+      schoolId: SCHOOL_A,
+      question: 'צור אירוע בשם תדריך טיול בתאריך 2026-10-12 בשעה 14:30, בקטגוריית טיולים, גלוי וניתן לעריכה לצוות טיולים. תיאור: מעבר על נוהל הבטיחות',
+    }), {
+      apiKey: 'server-test-key', model: 'test-model',
+      fetchImpl: async (_url, options) => {
+        const body = JSON.parse(options.body);
+        const context = JSON.parse(body.contents[0].parts[0].text);
+        const config = context.authorizedSources.find(item => item.type === 'calendar_config');
+        const team = config?.fields.teams.find(item => item.name === 'צוות טיולים');
+        return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({
+          answer: 'הכנתי אירוע שממתין לאישור.',
+          sourceIds: config ? [config.id] : [], followUpQuestion: null,
+          actionProposal: config && team ? {
+            type: 'calendar_event_create', configSourceId: config.id,
+            title: 'תדריך טיול', description: 'מעבר על נוהל הבטיחות',
+            date: '2026-10-12', time: '14:30', category: 'טיולים', color: '#bae6fd',
+            visibleTo: [team.id], editableBy: [team.id],
+          } : null,
+        }) }] } }] }) };
+      },
+    });
+    return result.actionProposal;
+  }
+
+  const proposal = await proposedEvent('calendar_creator');
+  assert.deepEqual({
+    title: proposal.title, date: proposal.date, time: proposal.time, category: proposal.category,
+    visibleTo: proposal.visibleTo, editableBy: proposal.editableBy,
+  }, {
+    title: 'תדריך טיול', date: '2026-10-12', time: '14:30', category: 'טיולים',
+    visibleTo: ['trips_team'], editableBy: ['trips_team'],
+  });
+  assert.equal(await proposedEvent('calendar_viewer'), null);
+
+  const payload = {
+    schoolId: SCHOOL_A, requestId: 'calendar_event_1', confirm: true,
+    title: proposal.title, description: proposal.description, date: proposal.date, time: proposal.time,
+    category: proposal.category, color: proposal.color,
+    visibleTo: proposal.visibleTo, editableBy: proposal.editableBy,
+  };
+  await assert.rejects(executeZokiCalendarEventHandler(actorRequest('calendar_viewer', payload)), error => error.code === 'permission-denied');
+  const first = await executeZokiCalendarEventHandler(actorRequest('calendar_creator', payload));
+  const repeated = await executeZokiCalendarEventHandler(actorRequest('calendar_creator', payload));
+  assert.equal(first.executed, true);
+  assert.equal(repeated.executed, false);
+  const [nested, legacy] = await Promise.all([
+    adminDb.doc(`schools/${SCHOOL_A}/events/${first.eventId}`).get(),
+    adminDb.doc(`events_${SCHOOL_A}/${first.eventId}`).get(),
+  ]);
+  assert.equal(nested.exists, true);
+  assert.equal(legacy.exists, true);
+  assert.equal(nested.data().title, 'תדריך טיול');
+  assert.equal(legacy.data().date, '2026-10-12');
+  assert.equal(legacy.data().year, 2026);
+  assert.equal(legacy.data().month, 9);
+  assert.deepEqual(legacy.data().visibleTo, ['trips_team']);
+
+  await adminDb.doc(`schools/${SCHOOL_A}/teams/trips_team`).update({ status: 'archived' });
+  await assert.rejects(executeZokiCalendarEventHandler(actorRequest('calendar_creator', {
+    ...payload, requestId: 'calendar_event_stale_team',
+  })), error => error.details?.reason === 'calendar-team-changed');
+  await assert.rejects(executeZokiCalendarEventHandler(actorRequest('calendar_creator', {
+    ...payload, requestId: 'calendar_event_bad_date', date: '2026-02-30',
+  })), error => error.details?.reason === 'invalid-calendar-date');
+  const audits = await adminDb.collection('auditLogs').where('action', '==', 'zoki.action.calendar.event.create').get();
+  assert.equal(audits.size, 1);
+  const auditText = JSON.stringify(audits.docs[0].data());
+  assert.equal(auditText.includes('תדריך טיול'), false);
+  assert.equal(auditText.includes('נוהל הבטיחות'), false);
+  assert.equal(auditText.includes('צוות טיולים'), false);
+});
+
+test('Zoki updates and cancels an exact calendar event with stale-state protection', async () => {
+  await seedUser('calendar_editor', SCHOOL_A, 'viewer', { permissions: {
+    'calendar.view': true, 'calendar.edit': true,
+  } });
+  await seedUser('calendar_read_only', SCHOOL_A, 'viewer', { permissions: { 'calendar.view': true } });
+  await adminDb.doc(`schools/${SCHOOL_A}/categories/general`).set({ schoolId: SCHOOL_A, name: 'כללי' });
+  const initial = {
+    schoolId: SCHOOL_A, title: 'ישיבת צוות אוגוסט', description: 'סדר יום פנימי',
+    date: '2026-08-30', time: '09:00', category: 'כללי', color: '#bae6fd',
+    visibleTo: 'all', editableBy: [], year: 2026, month: 7,
+  };
+  await Promise.all([
+    adminDb.doc(`schools/${SCHOOL_A}/events/team_august`).set(initial),
+    adminDb.doc(`events_${SCHOOL_A}/team_august`).set(initial),
+  ]);
+
+  async function proposedMutation(question, type) {
+    return askZokiHandler(actorRequest('calendar_editor', { schoolId: SCHOOL_A, question }), {
+      apiKey: 'server-test-key', model: 'test-model',
+      fetchImpl: async (_url, options) => {
+        const body = JSON.parse(options.body);
+        const context = JSON.parse(body.contents[0].parts[0].text);
+        const event = context.authorizedSources.find(item => item.type === 'calendar_event' && item.fields.id === 'team_august');
+        const config = context.authorizedSources.find(item => item.type === 'calendar_config');
+        const actionProposal = type === 'calendar_event_update' && event && config ? {
+          type, eventSourceId: event.id, configSourceId: config.id,
+          title: event.fields.title, description: event.fields.description,
+          date: '2026-08-31', time: '10:30', category: event.fields.category,
+          color: event.fields.color, visibleTo: event.fields.visibleTo, editableBy: event.fields.editableBy,
+        } : type === 'calendar_event_cancel' && event ? { type, eventSourceId: event.id } : null;
+        return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({
+          answer: 'הכנתי שינוי שממתין לאישור.',
+          sourceIds: [event?.id, config?.id].filter(Boolean), followUpQuestion: null, actionProposal,
+        }) }] } }] }) };
+      },
+    });
+  }
+
+  const update = (await proposedMutation(
+    'שנה את אירוע ישיבת צוות אוגוסט ל-2026-08-31 בשעה 10:30', 'calendar_event_update'
+  )).actionProposal;
+  assert.equal(update.type, 'calendar_event_update');
+  assert.equal(update.expectedVersion, calendarEventVersion(initial, 'team_august'));
+  const updatePayload = {
+    schoolId: SCHOOL_A, requestId: 'calendar_update_1', confirm: true,
+    eventId: update.eventId, expectedVersion: update.expectedVersion,
+    title: update.title, description: update.description, date: update.date, time: update.time,
+    category: update.category, color: update.color, visibleTo: update.visibleTo, editableBy: update.editableBy,
+  };
+  await assert.rejects(executeZokiCalendarEventUpdateHandler(actorRequest('calendar_read_only', updatePayload)), error => error.code === 'permission-denied');
+  assert.equal((await executeZokiCalendarEventUpdateHandler(actorRequest('calendar_editor', updatePayload))).executed, true);
+  assert.equal((await executeZokiCalendarEventUpdateHandler(actorRequest('calendar_editor', updatePayload))).executed, false);
+  const legacyAfterUpdate = await adminDb.doc(`events_${SCHOOL_A}/team_august`).get();
+  assert.equal(legacyAfterUpdate.data().date, '2026-08-31');
+  assert.equal(legacyAfterUpdate.data().time, '10:30');
+  await assert.rejects(executeZokiCalendarEventUpdateHandler(actorRequest('calendar_editor', {
+    ...updatePayload, requestId: 'calendar_update_stale', time: '11:00',
+  })), error => error.details?.reason === 'calendar-event-changed');
+
+  const cancel = (await proposedMutation('בטל את אירוע ישיבת צוות אוגוסט', 'calendar_event_cancel')).actionProposal;
+  assert.equal(cancel.type, 'calendar_event_cancel');
+  await adminDb.doc(`events_${SCHOOL_A}/team_august`).update({ description: 'שינוי מקביל' });
+  await assert.rejects(executeZokiCalendarEventCancelHandler(actorRequest('calendar_editor', {
+    schoolId: SCHOOL_A, requestId: 'calendar_cancel_stale', confirm: true,
+    eventId: cancel.eventId, expectedVersion: cancel.expectedVersion,
+  })), error => error.details?.reason === 'calendar-event-changed');
+  const currentLegacy = await adminDb.doc(`events_${SCHOOL_A}/team_august`).get();
+  const cancelPayload = {
+    schoolId: SCHOOL_A, requestId: 'calendar_cancel_1', confirm: true, eventId: cancel.eventId,
+    expectedVersion: calendarEventVersion(currentLegacy.data(), cancel.eventId),
+  };
+  assert.equal((await executeZokiCalendarEventCancelHandler(actorRequest('calendar_editor', cancelPayload))).executed, true);
+  assert.equal((await executeZokiCalendarEventCancelHandler(actorRequest('calendar_editor', cancelPayload))).executed, false);
+  const [nestedAfterCancel, legacyAfterCancel] = await Promise.all([
+    adminDb.doc(`schools/${SCHOOL_A}/events/team_august`).get(),
+    adminDb.doc(`events_${SCHOOL_A}/team_august`).get(),
+  ]);
+  assert.equal(nestedAfterCancel.exists, false);
+  assert.equal(legacyAfterCancel.exists, false);
+  const audits = await adminDb.collection('auditLogs').where('targetId', '==', 'team_august').get();
+  assert.equal(audits.docs.some(item => item.data().action === 'zoki.action.calendar.event.update'), true);
+  assert.equal(audits.docs.some(item => item.data().action === 'zoki.action.calendar.event.cancel'), true);
+  assert.equal(JSON.stringify(audits.docs.map(item => item.data())).includes('סדר יום פנימי'), false);
+});
+
+test('Zoki creates private and authorized institutional contacts once without exposing contact data in audit', async () => {
+  await seedUser('contact_creator', SCHOOL_A, 'viewer', { permissions: {
+    'contacts.view': true, 'contacts.create': true, 'staff.view': true,
+  } });
+  await seedUser('contact_viewer', SCHOOL_A, 'viewer');
+  await seedUser('contact_owner', SCHOOL_A, 'viewer', { fullName: 'רות מנהלת קשרי קהילה' });
+
+  async function proposedContact(uid, scope) {
+    const institutional = scope === 'institutional';
+    const result = await askZokiHandler(actorRequest(uid, {
+      schoolId: SCHOOL_A,
+      question: institutional
+        ? 'צור איש קשר מוסדי בשם יעל ישראלי, מייל yael@example.test, ארגון מרכז קהילתי, טלפון 03-5551234, אחראית רות מנהלת קשרי קהילה'
+        : 'צור איש קשר פרטי בשם דנה לוי עם מייל dana@example.test',
+    }), {
+      apiKey: 'server-test-key', model: 'test-model',
+      fetchImpl: async (_url, options) => {
+        const body = JSON.parse(options.body);
+        const context = JSON.parse(body.contents[0].parts[0].text);
+        const config = context.authorizedSources.find(item => item.type === 'contact_config');
+        const owner = config?.fields.responsibleStaff.find(item => item.name === 'רות מנהלת קשרי קהילה');
+        const permitted = config?.fields.scopes.includes(scope);
+        return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({
+          answer: permitted ? 'הכנתי איש קשר שממתין לאישור.' : 'אין הרשאה ליצירת איש קשר מוסדי.',
+          sourceIds: config ? [config.id] : [], followUpQuestion: null,
+          actionProposal: permitted ? {
+            type: 'contact_create', configSourceId: config.id, scope,
+            fullName: institutional ? 'יעל ישראלי' : 'דנה לוי',
+            organization: institutional ? 'מרכז קהילתי' : '', jobTitle: '',
+            primaryEmail: institutional ? 'yael@example.test' : 'dana@example.test', additionalEmails: [],
+            phone: institutional ? '03-5551234' : '', category: institutional ? 'קהילה' : '', tags: [], notes: '',
+            visibility: institutional ? 'responsible_staff' : 'institution',
+            ownerStaffIds: institutional && owner ? [owner.id] : [],
+          } : null,
+        }) }] } }] }) };
+      },
+    });
+    return result.actionProposal;
+  }
+
+  const institutionalProposal = await proposedContact('contact_creator', 'institutional');
+  assert.deepEqual({
+    scope: institutionalProposal.scope, fullName: institutionalProposal.fullName,
+    primaryEmail: institutionalProposal.primaryEmail, ownerStaffIds: institutionalProposal.ownerStaffIds,
+  }, {
+    scope: 'institutional', fullName: 'יעל ישראלי', primaryEmail: 'yael@example.test',
+    ownerStaffIds: ['contact_owner'],
+  });
+  assert.equal(await proposedContact('contact_viewer', 'institutional'), null);
+
+  const institutionalPayload = {
+    schoolId: SCHOOL_A, requestId: 'contact_institutional_1', confirm: true,
+    scope: institutionalProposal.scope, fullName: institutionalProposal.fullName,
+    organization: institutionalProposal.organization, jobTitle: institutionalProposal.jobTitle,
+    primaryEmail: institutionalProposal.primaryEmail, additionalEmails: institutionalProposal.additionalEmails,
+    phone: institutionalProposal.phone, category: institutionalProposal.category,
+    tags: institutionalProposal.tags, notes: institutionalProposal.notes,
+    visibility: institutionalProposal.visibility, ownerStaffIds: institutionalProposal.ownerStaffIds,
+  };
+  await assert.rejects(executeZokiContactHandler(actorRequest('contact_viewer', institutionalPayload)), error => error.code === 'permission-denied');
+  const first = await executeZokiContactHandler(actorRequest('contact_creator', institutionalPayload));
+  const repeated = await executeZokiContactHandler(actorRequest('contact_creator', institutionalPayload));
+  assert.equal(first.executed, true);
+  assert.equal(repeated.executed, false);
+  const institutional = await adminDb.doc(`schools/${SCHOOL_A}/contactDirectory/institutional/items/${first.contactId}`).get();
+  assert.equal(institutional.exists, true);
+  assert.equal(institutional.data().primaryEmail, 'yael@example.test');
+  assert.deepEqual(institutional.data().ownerStaffIds, ['contact_owner']);
+  assert.equal(institutional.data().visibility, 'responsible_staff');
+
+  const privateProposal = await proposedContact('contact_viewer', 'private');
+  const privateResult = await executeZokiContactHandler(actorRequest('contact_viewer', {
+    schoolId: SCHOOL_A, requestId: 'contact_private_1', confirm: true,
+    scope: privateProposal.scope, fullName: privateProposal.fullName, organization: '', jobTitle: '',
+    primaryEmail: privateProposal.primaryEmail, additionalEmails: [], phone: '', category: '', tags: [], notes: '',
+    visibility: 'institution', ownerStaffIds: [],
+  }));
+  const privateContact = await adminDb.doc(`users/contact_viewer/contactDirectory/private/items/${privateResult.contactId}`).get();
+  assert.equal(privateContact.exists, true);
+  assert.equal(privateContact.data().ownerId, 'contact_viewer');
+
+  await assert.rejects(executeZokiContactHandler(actorRequest('contact_creator', {
+    ...institutionalPayload, requestId: 'contact_duplicate',
+  })), error => error.details?.reason === 'duplicate-contact');
+  await adminDb.doc('users/contact_owner').update({ accountStatus: 'disabled' });
+  await assert.rejects(executeZokiContactHandler(actorRequest('contact_creator', {
+    ...institutionalPayload, requestId: 'contact_stale_owner', primaryEmail: 'new@example.test',
+  })), error => error.details?.reason === 'contact-staff-changed');
+
+  const audits = await adminDb.collection('auditLogs').where('action', '==', 'zoki.action.contact.create').get();
+  assert.equal(audits.size, 2);
+  const auditText = JSON.stringify(audits.docs.map(item => item.data()));
+  assert.equal(auditText.includes('יעל ישראלי'), false);
+  assert.equal(auditText.includes('yael@example.test'), false);
+  assert.equal(auditText.includes('דנה לוי'), false);
+  assert.equal(auditText.includes('dana@example.test'), false);
+});
+
+test('Zoki changes exact team membership for team editors and team managers with stale-state protection', async () => {
+  await seedUser('team_editor', SCHOOL_A, 'viewer', { permissions: {
+    teams_view: true, teams_edit: true, 'staff.view': true,
+  } });
+  await seedUser('team_manager', SCHOOL_A, 'viewer', { fullName: 'מנהלת צוות', permissions: { 'staff.view': true } });
+  await seedUser('team_viewer', SCHOOL_A, 'viewer', { permissions: { teams_view: true, 'staff.view': true } });
+  await seedUser('team_target', SCHOOL_A, 'viewer', { fullName: 'ליאור כהן', teamIds: [], teamIdsBySchool: { [SCHOOL_A]: [] } });
+  await adminAuth.createUser({ uid: 'team_target', email: 'team-target@example.test' });
+  createdAuthUsers.add('team_target');
+  const teamRecord = {
+    schoolId: SCHOOL_A, name: 'צוות פדגוגי', memberIds: [], managerIds: ['team_manager'], status: 'active',
+  };
+  await Promise.all([
+    adminDb.doc(`teams_${SCHOOL_A}/pedagogy`).set(teamRecord),
+    adminDb.doc(`schools/${SCHOOL_A}/teams/pedagogy`).set(teamRecord),
+  ]);
+
+  async function proposedMembership(uid, operation) {
+    const result = await askZokiHandler(actorRequest(uid, {
+      schoolId: SCHOOL_A,
+      question: operation === 'add' ? 'הוסף את ליאור כהן לצוות הפדגוגי' : 'הסר את ליאור כהן מהצוות הפדגוגי',
+    }), {
+      apiKey: 'server-test-key', model: 'test-model',
+      fetchImpl: async (_url, options) => {
+        const body = JSON.parse(options.body);
+        const context = JSON.parse(body.contents[0].parts[0].text);
+        const staff = context.authorizedSources.find(item => item.type === 'staff' && item.fields.name === 'ליאור כהן');
+        const team = context.authorizedSources.find(item => item.type === 'team' && item.fields.name === 'צוות פדגוגי');
+        return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({
+          answer: staff && team?.fields.canManage ? 'הכנתי שינוי בהרכב הצוות שממתין לאישור.' : 'אין הרשאה לשינוי הצוות.',
+          sourceIds: [staff?.id, team?.id].filter(Boolean), followUpQuestion: null,
+          actionProposal: staff && team?.fields.canManage ? {
+            type: 'team_membership_change', staffSourceId: staff.id, teamSourceId: team.id, operation,
+          } : null,
+        }) }] } }] }) };
+      },
+    });
+    return result.actionProposal;
+  }
+
+  const addProposal = await proposedMembership('team_editor', 'add');
+  assert.deepEqual({
+    userId: addProposal.userId, teamId: addProposal.teamId,
+    operation: addProposal.operation, expectedCurrentlyMember: addProposal.expectedCurrentlyMember,
+  }, { userId: 'team_target', teamId: 'pedagogy', operation: 'add', expectedCurrentlyMember: false });
+  assert.equal(await proposedMembership('team_viewer', 'add'), null);
+
+  const addPayload = {
+    schoolId: SCHOOL_A, requestId: 'team_membership_add_1', confirm: true,
+    userId: addProposal.userId, teamId: addProposal.teamId,
+    action: addProposal.operation, expectedCurrentlyMember: addProposal.expectedCurrentlyMember,
+  };
+  await assert.rejects(executeZokiTeamMembershipHandler(actorRequest('team_viewer', addPayload)), error => error.code === 'permission-denied');
+  const added = await executeZokiTeamMembershipHandler(actorRequest('team_editor', addPayload));
+  const repeatedAdd = await executeZokiTeamMembershipHandler(actorRequest('team_editor', addPayload));
+  assert.equal(added.executed, true);
+  assert.equal(repeatedAdd.executed, false);
+  const [teamAfterAdd, nestedTeamAfterAdd, userAfterAdd] = await Promise.all([
+    adminDb.doc(`teams_${SCHOOL_A}/pedagogy`).get(), adminDb.doc(`schools/${SCHOOL_A}/teams/pedagogy`).get(),
+    adminDb.doc('users/team_target').get(),
+  ]);
+  assert.deepEqual(teamAfterAdd.data().memberIds, ['team_target']);
+  assert.deepEqual(nestedTeamAfterAdd.data().memberIds, ['team_target']);
+  assert.deepEqual(userAfterAdd.data().teamIds, ['pedagogy']);
+  assert.deepEqual(userAfterAdd.data().teamIdsBySchool[SCHOOL_A], ['pedagogy']);
+  const notification = await adminDb.doc(`notifications/zoki_team_${createHash('sha256').update(['team_editor', SCHOOL_A, 'team_membership_add_1'].join('\u0000')).digest('hex').slice(0, 40)}`).get();
+  assert.equal(notification.exists, true);
+  assert.equal(notification.data().userId, 'team_target');
+
+  const removeProposal = await proposedMembership('team_manager', 'remove');
+  assert.equal(removeProposal.expectedCurrentlyMember, true);
+  const removePayload = {
+    schoolId: SCHOOL_A, requestId: 'team_membership_remove_1', confirm: true,
+    userId: removeProposal.userId, teamId: removeProposal.teamId,
+    action: removeProposal.operation, expectedCurrentlyMember: removeProposal.expectedCurrentlyMember,
+  };
+  const removed = await executeZokiTeamMembershipHandler(actorRequest('team_manager', removePayload));
+  const repeatedRemove = await executeZokiTeamMembershipHandler(actorRequest('team_manager', removePayload));
+  assert.equal(removed.executed, true);
+  assert.equal(repeatedRemove.executed, false);
+  assert.deepEqual((await adminDb.doc(`teams_${SCHOOL_A}/pedagogy`).get()).data().memberIds, []);
+
+  await adminDb.doc(`teams_${SCHOOL_A}/pedagogy`).update({ memberIds: ['team_target'] });
+  await assert.rejects(executeZokiTeamMembershipHandler(actorRequest('team_editor', {
+    ...addPayload, requestId: 'team_membership_stale',
+  })), error => error.details?.reason === 'team-membership-changed');
+  const audits = await adminDb.collection('auditLogs').where('targetType', '==', 'teamMembership').get();
+  assert.equal(audits.size, 2);
+  const auditText = JSON.stringify(audits.docs.map(item => item.data()));
+  assert.equal(auditText.includes('ליאור כהן'), false);
+  assert.equal(auditText.includes('צוות פדגוגי'), false);
+});
+
+test('Zoki creates one synchronized team with exact initial members and dual-store compatibility', async () => {
+  await seedUser('team_creator', SCHOOL_A, 'viewer', { permissions: {
+    teams_view: true, teams_edit: true, 'staff.view': true,
+  }, fullName: 'יוצרת הצוות' });
+  await seedUser('team_create_viewer', SCHOOL_A, 'viewer', { permissions: { teams_view: true, 'staff.view': true } });
+  await seedUser('team_member_a', SCHOOL_A, 'viewer', { fullName: 'איילת לוי', teamIds: [], teamIdsBySchool: { [SCHOOL_A]: [] } });
+  await seedUser('team_member_b', SCHOOL_A, 'viewer', { fullName: 'נועם כהן', teamIds: [], teamIdsBySchool: { [SCHOOL_A]: [] } });
+
+  async function proposedTeam(uid) {
+    const result = await askZokiHandler(actorRequest(uid, {
+      schoolId: SCHOOL_A,
+      question: 'צור צוות בשם צוות חדשנות. תיאור: קידום יוזמות דיגיטליות. תחומי אחריות: פדגוגיה דיגיטלית. משימות שכיחות: הטמעת כלים. צרף את איילת לוי ואת נועם כהן',
+    }), {
+      apiKey: 'server-test-key', model: 'test-model',
+      fetchImpl: async (_url, options) => {
+        const body = JSON.parse(options.body);
+        const context = JSON.parse(body.contents[0].parts[0].text);
+        const config = context.authorizedSources.find(item => item.type === 'team_config');
+        const members = ['איילת לוי', 'נועם כהן'].map(name => (
+          context.authorizedSources.find(item => item.type === 'staff' && item.fields.name === name)
+        )).filter(Boolean);
+        return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({
+          answer: config ? 'הכנתי צוות חדש שממתין לאישור.' : 'אין הרשאה ליצור צוות.',
+          sourceIds: config ? [config.id, ...members.map(item => item.id)] : [], followUpQuestion: null,
+          actionProposal: config && members.length === 2 ? {
+            type: 'team_create', configSourceId: config.id, name: 'צוות חדשנות',
+            description: 'קידום יוזמות דיגיטליות', responsibilityAreas: ['פדגוגיה דיגיטלית'],
+            keywords: ['חדשנות'], aliases: [], supportingRoles: [], typicalTaskTypes: ['הטמעת כלים'],
+            memberSourceIds: members.map(item => item.id),
+          } : null,
+        }) }] } }] }) };
+      },
+    });
+    return result.actionProposal;
+  }
+
+  const proposal = await proposedTeam('team_creator');
+  assert.deepEqual({
+    name: proposal.name, responsibilityAreas: proposal.responsibilityAreas,
+    memberIds: proposal.memberIds, memberLabels: proposal.memberLabels,
+  }, {
+    name: 'צוות חדשנות', responsibilityAreas: ['פדגוגיה דיגיטלית'],
+    memberIds: ['team_member_a', 'team_member_b'], memberLabels: ['איילת לוי', 'נועם כהן'],
+  });
+  assert.equal(await proposedTeam('team_create_viewer'), null);
+
+  const payload = {
+    schoolId: SCHOOL_A, requestId: 'team_create_1', confirm: true,
+    name: proposal.name, description: proposal.description,
+    responsibilityAreas: proposal.responsibilityAreas, keywords: proposal.keywords,
+    aliases: proposal.aliases, supportingRoles: proposal.supportingRoles,
+    typicalTaskTypes: proposal.typicalTaskTypes, memberIds: proposal.memberIds,
+  };
+  await assert.rejects(executeZokiTeamCreateHandler(actorRequest('team_create_viewer', payload)), error => error.code === 'permission-denied');
+  const first = await executeZokiTeamCreateHandler(actorRequest('team_creator', payload));
+  const repeated = await executeZokiTeamCreateHandler(actorRequest('team_creator', payload));
+  assert.equal(first.executed, true);
+  assert.equal(repeated.executed, false);
+  const [nested, legacy, memberA, memberB] = await Promise.all([
+    adminDb.doc(`schools/${SCHOOL_A}/teams/${first.teamId}`).get(),
+    adminDb.doc(`teams_${SCHOOL_A}/${first.teamId}`).get(),
+    adminDb.doc('users/team_member_a').get(), adminDb.doc('users/team_member_b').get(),
+  ]);
+  assert.equal(nested.exists, true);
+  assert.equal(legacy.exists, true);
+  assert.equal(nested.data().name, 'צוות חדשנות');
+  assert.deepEqual(legacy.data().memberIds, ['team_member_a', 'team_member_b']);
+  assert.deepEqual(legacy.data().managerIds, ['team_creator']);
+  assert.equal(memberA.data().teamIds.includes(first.teamId), true);
+  assert.equal(memberB.data().teamIdsBySchool[SCHOOL_A].includes(first.teamId), true);
+  const notifications = await adminDb.collection('notifications').where('schoolId', '==', SCHOOL_A).get();
+  assert.equal(notifications.size, 2);
+  assert.deepEqual(notifications.docs.map(item => item.data().userId).sort(), ['team_member_a', 'team_member_b']);
+
+  await assert.rejects(executeZokiTeamCreateHandler(actorRequest('team_creator', {
+    ...payload, requestId: 'team_create_duplicate',
+  })), error => error.details?.reason === 'team-name-exists');
+  await adminDb.doc('users/team_member_b').update({ accountStatus: 'disabled' });
+  await assert.rejects(executeZokiTeamCreateHandler(actorRequest('team_creator', {
+    ...payload, requestId: 'team_create_stale_member', name: 'צוות חדשנות נוסף',
+  })), error => error.details?.reason === 'team-staff-changed');
+  const audits = await adminDb.collection('auditLogs').where('action', '==', 'zoki.action.team.create').get();
+  assert.equal(audits.size, 1);
+  const auditText = JSON.stringify(audits.docs[0].data());
+  assert.equal(auditText.includes('צוות חדשנות'), false);
+  assert.equal(auditText.includes('איילת לוי'), false);
+  assert.equal(auditText.includes('נועם כהן'), false);
+  assert.equal(auditText.includes('פדגוגיה דיגיטלית'), false);
+});
+
+test('Zoki appoints and removes exact team managers while preserving one manager and both team stores', async () => {
+  await seedUser('team_manager_editor', SCHOOL_A, 'viewer', { permissions: {
+    teams_view: true, teams_edit: true, 'staff.view': true,
+  } });
+  await seedUser('team_manager_actor', SCHOOL_A, 'viewer', { fullName: 'מנהל קיים', permissions: { 'staff.view': true } });
+  await seedUser('team_manager_target', SCHOOL_A, 'viewer', { fullName: 'שירה לוי' });
+  await seedUser('team_manager_outsider', SCHOOL_A, 'viewer', { fullName: 'אורי כהן' });
+  await seedUser('team_manager_viewer', SCHOOL_A, 'viewer', { permissions: { teams_view: true, 'staff.view': true } });
+  await Promise.all(['team_manager_actor', 'team_manager_target', 'team_manager_outsider'].map(async uid => {
+    await adminAuth.createUser({ uid, email: `${uid}@example.test` });
+    createdAuthUsers.add(uid);
+  }));
+  const team = {
+    schoolId: SCHOOL_A, name: 'צוות קהילה', status: 'active',
+    memberIds: ['team_manager_actor', 'team_manager_target'], managerIds: ['team_manager_actor'],
+  };
+  await Promise.all([
+    adminDb.doc(`teams_${SCHOOL_A}/community`).set(team),
+    adminDb.doc(`schools/${SCHOOL_A}/teams/community`).set(team),
+  ]);
+
+  async function proposedManager(uid, operation, targetName = 'שירה לוי') {
+    const result = await askZokiHandler(actorRequest(uid, {
+      schoolId: SCHOOL_A,
+      question: operation === 'assign'
+        ? `מנה את ${targetName} למנהלת צוות קהילה`
+        : `הסר את ${targetName} מניהול צוות קהילה`,
+    }), {
+      apiKey: 'server-test-key', model: 'test-model',
+      fetchImpl: async (_url, options) => {
+        const body = JSON.parse(options.body);
+        const context = JSON.parse(body.contents[0].parts[0].text);
+        const staff = context.authorizedSources.find(item => item.type === 'staff' && item.fields.name === targetName);
+        const teamSource = context.authorizedSources.find(item => item.type === 'team' && item.fields.name === 'צוות קהילה');
+        return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({
+          answer: staff && teamSource?.fields.canManage ? 'הכנתי שינוי מנהל צוות שממתין לאישור.' : 'אין הרשאה.',
+          sourceIds: [staff?.id, teamSource?.id].filter(Boolean), followUpQuestion: null,
+          actionProposal: staff && teamSource?.fields.canManage ? {
+            type: 'team_manager_change', staffSourceId: staff.id, teamSourceId: teamSource.id, operation,
+          } : null,
+        }) }] } }] }) };
+      },
+    });
+    return result.actionProposal;
+  }
+
+  const assignProposal = await proposedManager('team_manager_editor', 'assign');
+  assert.deepEqual({
+    userId: assignProposal.userId, teamId: assignProposal.teamId,
+    operation: assignProposal.operation, expectedCurrentlyManager: assignProposal.expectedCurrentlyManager,
+  }, { userId: 'team_manager_target', teamId: 'community', operation: 'assign', expectedCurrentlyManager: false });
+  assert.equal(await proposedManager('team_manager_viewer', 'assign'), null);
+  assert.equal(await proposedManager('team_manager_editor', 'assign', 'אורי כהן'), null);
+
+  const assignPayload = {
+    schoolId: SCHOOL_A, requestId: 'team_manager_assign_1', confirm: true,
+    userId: assignProposal.userId, teamId: assignProposal.teamId,
+    action: assignProposal.operation, expectedCurrentlyManager: assignProposal.expectedCurrentlyManager,
+  };
+  await assert.rejects(executeZokiTeamManagerHandler(actorRequest('team_manager_viewer', assignPayload)), error => error.code === 'permission-denied');
+  const assigned = await executeZokiTeamManagerHandler(actorRequest('team_manager_editor', assignPayload));
+  const repeatedAssign = await executeZokiTeamManagerHandler(actorRequest('team_manager_editor', assignPayload));
+  assert.equal(assigned.executed, true);
+  assert.equal(repeatedAssign.executed, false);
+  const [legacyAssigned, nestedAssigned] = await Promise.all([
+    adminDb.doc(`teams_${SCHOOL_A}/community`).get(), adminDb.doc(`schools/${SCHOOL_A}/teams/community`).get(),
+  ]);
+  assert.deepEqual(legacyAssigned.data().managerIds, ['team_manager_actor', 'team_manager_target']);
+  assert.deepEqual(nestedAssigned.data().managerIds, ['team_manager_actor', 'team_manager_target']);
+
+  const removeProposal = await proposedManager('team_manager_actor', 'remove');
+  const removePayload = {
+    schoolId: SCHOOL_A, requestId: 'team_manager_remove_1', confirm: true,
+    userId: removeProposal.userId, teamId: removeProposal.teamId,
+    action: removeProposal.operation, expectedCurrentlyManager: removeProposal.expectedCurrentlyManager,
+  };
+  const removed = await executeZokiTeamManagerHandler(actorRequest('team_manager_actor', removePayload));
+  assert.equal(removed.executed, true);
+  assert.deepEqual((await adminDb.doc(`teams_${SCHOOL_A}/community`).get()).data().managerIds, ['team_manager_actor']);
+  assert.deepEqual((await adminDb.doc(`schools/${SCHOOL_A}/teams/community`).get()).data().managerIds, ['team_manager_actor']);
+  assert.equal(await proposedManager('team_manager_editor', 'remove', 'מנהל קיים'), null);
+  await assert.rejects(executeZokiTeamManagerHandler(actorRequest('team_manager_editor', {
+    ...removePayload, requestId: 'team_manager_last', userId: 'team_manager_actor', expectedCurrentlyManager: true,
+  })), error => error.details?.reason === 'team-last-manager');
+
+  await adminDb.doc(`teams_${SCHOOL_A}/community`).update({ managerIds: ['team_manager_actor', 'team_manager_target'] });
+  await assert.rejects(executeZokiTeamManagerHandler(actorRequest('team_manager_editor', {
+    ...assignPayload, requestId: 'team_manager_stale',
+  })), error => error.details?.reason === 'team-managers-changed');
+  const audits = await adminDb.collection('auditLogs').where('targetType', '==', 'teamManager').get();
+  assert.equal(audits.size, 2);
+  const auditText = JSON.stringify(audits.docs.map(item => item.data()));
+  assert.equal(auditText.includes('שירה לוי'), false);
+  assert.equal(auditText.includes('צוות קהילה'), false);
 });
 
 test('Zoki brain updates are manager-only, audience-validated and audited without content', async () => {

@@ -12,6 +12,7 @@ import {
   restoreBrainVersion,
   syncInstitutionalBrain,
 } from '../../services/taskAgentBrainService';
+import './Tasks.css';
 
 const emptyBrain = { markdown: '', sha: '' };
 

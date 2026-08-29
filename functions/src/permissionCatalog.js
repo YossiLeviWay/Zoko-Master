@@ -202,6 +202,76 @@ export const LEGACY_PERMISSION_KEYS = Object.freeze([
   'schools_manage', 'settings_edit',
 ]);
 
+// Direct permission changes made by Zoki update the modern capability and its
+// legacy UI alias together. This keeps older navigation checks and newer
+// server-side authorization decisions in agreement.
+export const PERMISSION_COMPATIBILITY_ALIASES = Object.freeze({
+  'calendar.view': Object.freeze(['calendar_view']),
+  'calendar.edit': Object.freeze(['calendar_edit']),
+  'tasks.viewOwn': Object.freeze(['tasks_view']),
+  'tasks.editAll': Object.freeze(['tasks_edit']),
+  'tasks.assign': Object.freeze(['tasks_assign']),
+  'staff.view': Object.freeze(['staff_view']),
+  'staff.edit': Object.freeze(['staff_edit']),
+  'staff.remove': Object.freeze(['staff_delete']),
+  'files.view': Object.freeze(['files_view']),
+  'files.create': Object.freeze(['files_upload']),
+  'files.delete': Object.freeze(['files_delete']),
+  'classes.view': Object.freeze(['classes_view']),
+  'classes.create': Object.freeze(['classes_create']),
+  'classes.update': Object.freeze(['classes_update']),
+  'classes.archive': Object.freeze(['classes_archive']),
+  'classes.assignTeacher': Object.freeze(['classes_assign_teacher']),
+  'students.view': Object.freeze(['students_view']),
+  'students.create': Object.freeze(['students_create']),
+  'students.edit': Object.freeze(['students_edit']),
+  'students.update': Object.freeze(['students_update']),
+  'students.archive': Object.freeze(['students_archive']),
+  'students.transferClass': Object.freeze(['students_transfer_class']),
+  'students.managePrograms': Object.freeze(['students_manage_programs']),
+  'students.addNotes': Object.freeze(['students_add_notes']),
+  'students.viewSensitiveNotes': Object.freeze(['students_view_notes']),
+  'institution.settings': Object.freeze(['settings_edit']),
+});
+
+const LEGACY_DIRECT_PERMISSION_LABELS = Object.freeze({
+  categories_view: ['קטגוריות לוח שנה', 'צפייה בקטגוריות'],
+  categories_edit: ['קטגוריות לוח שנה', 'עריכת קטגוריות'],
+  teams_view: ['צוותים', 'צפייה בצוותים'],
+  teams_edit: ['צוותים', 'ניהול צוותים'],
+  messages_send: ['הודעות', 'שליחת הודעות'],
+  messages_delete: ['הודעות', 'מחיקת הודעות'],
+  holidays_view: ['חופשות וחגים', 'צפייה בחופשות ובחגים'],
+  holidays_edit: ['חופשות וחגים', 'עריכת חופשות וחגים'],
+  data_mapping_view: ['מיפוי נתונים', 'צפייה במיפוי נתונים'],
+  data_mapping_edit: ['מיפוי נתונים', 'עריכת מיפוי נתונים'],
+  attendance_create: ['נוכחות', 'יצירת גיליון נוכחות'],
+  attendance_view: ['נוכחות', 'צפייה בנוכחות'],
+  attendance_edit: ['נוכחות', 'עריכת נוכחות'],
+  attendance_manage_legend: ['נוכחות', 'ניהול מקרא נוכחות'],
+  attendance_manage_dates: ['נוכחות', 'ניהול תאריכי נוכחות'],
+  attendance_block_days: ['נוכחות', 'חסימת ימי נוכחות'],
+  schools_manage: ['ניהול המוסד', 'ניהול מוסדות'],
+});
+
+const compatibilityAliasKeys = new Set(Object.values(PERMISSION_COMPATIBILITY_ALIASES).flat());
+
+export const DIRECT_PERMISSION_DEFINITIONS = Object.freeze([
+  ...PERMISSION_GROUPS.flatMap(group => group.permissions.map(([key, label]) => Object.freeze({
+    key,
+    label,
+    group: group.label,
+    keys: Object.freeze([key, ...(PERMISSION_COMPATIBILITY_ALIASES[key] || [])]),
+  }))),
+  ...Object.entries(LEGACY_DIRECT_PERMISSION_LABELS)
+    .filter(([key]) => !compatibilityAliasKeys.has(key))
+    .map(([key, [group, label]]) => Object.freeze({ key, label, group, keys: Object.freeze([key]) })),
+]);
+
+export function directPermissionDefinition(permissionKey) {
+  return DIRECT_PERMISSION_DEFINITIONS.find(item => item.key === permissionKey) || null;
+}
+
 export const ALL_PERMISSION_KEYS = Object.freeze([
   ...new Set([...LEGACY_PERMISSION_KEYS, ...GRANULAR_PERMISSION_KEYS]),
 ]);

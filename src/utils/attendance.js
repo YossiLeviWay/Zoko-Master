@@ -90,7 +90,7 @@ export function buildScheduledDays({ startDate, endDate, studyDays = [] }) {
 export function attendanceRecordId(studentId, dateKey) {
   if (!studentId || !/^[A-Za-z0-9_-]{1,128}$/.test(studentId)) throw new Error('INVALID_STUDENT_ID');
   parseDateKey(dateKey);
-  return `${studentId}_${dateKey}`;
+  return `${studentId}__${dateKey}`;
 }
 
 function memberRequiredOnDate(member, dateKey) {

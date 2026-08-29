@@ -42,7 +42,7 @@ import {
   Brain
 } from 'lucide-react';
 import UserAvatar from '../Shared/UserAvatar';
-import zokiAvatar from '../../assets/zoki-avatar.png';
+import zokiAvatar from '../../assets/zoki-avatar-minimal.svg';
 import NavPermissionsPanel, { PATH_TO_PERMISSION as PATH_TO_PERMISSION_SIDEBAR } from '../Shared/NavPermissionsPanel';
 import { usePermissions } from '../../hooks/usePermissions';
 import './Layout.css';

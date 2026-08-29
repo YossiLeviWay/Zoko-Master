@@ -1,6 +1,9 @@
 import { adminDb } from './firebaseAdmin.js';
 import { buildPermissionContext, evaluatePermission, scopeAllows, withResourcePermissionContext } from './permissionEngine.js';
 import { extractAuthorizedFileText, selectRelevantText } from './zokiFileText.js';
+import { resolveActorRoleAuthority } from './roleAuthorization.js';
+import { DIRECT_PERMISSION_DEFINITIONS } from '../permissionCatalog.js';
+import { calendarEventVersion, normalizeCalendarEvent } from './calendarEventState.js';
 
 const clean = (value, max = 240) => typeof value === 'string' ? value.trim().slice(0, max) : '';
 const list = value => Array.isArray(value) ? value.slice(0, 30) : [];
@@ -32,6 +35,19 @@ async function collectionDocuments(paths, limit = 1000) {
   snapshots.filter(Boolean).forEach(snapshot => snapshot.docs.forEach(item => {
     if (!merged.has(item.id)) merged.set(item.id, { id: item.id, ...item.data() });
   }));
+  return [...merged.values()];
+}
+
+async function organizationTaskDocuments(schoolId, limit = 2000) {
+  const [nested, legacy] = await Promise.all([
+    adminDb.collection(`schools/${schoolId}/tasks`).limit(limit).get().catch(() => null),
+    adminDb.collection(`tasks_${schoolId}`).limit(limit).get().catch(() => null),
+  ]);
+  const merged = new Map();
+  (nested?.docs || []).forEach(item => merged.set(item.id, { id: item.id, ...item.data(), _storageMode: 'nested' }));
+  (legacy?.docs || []).forEach(item => {
+    if (!merged.has(item.id)) merged.set(item.id, { id: item.id, ...item.data(), _storageMode: 'legacy' });
+  });
   return [...merged.values()];
 }
 
@@ -77,18 +93,44 @@ function source(type, item, label, route, fields) {
   return { id: `${type}:${item.id}`, type, label, route, fields };
 }
 
+function directUserAccess(resourceAcls = []) {
+  return resourceAcls.filter(acl => {
+    if (acl.active === false || acl.inheritedFrom || acl.principalType !== 'user') return false;
+    const expiresAt = acl.expiresAt?.toMillis?.() || (acl.expiresAt ? Date.parse(acl.expiresAt) : 0);
+    return !expiresAt || expiresAt > Date.now();
+  }).map(acl => ({
+    userId: clean(acl.principalId, 128),
+    accessLevel: clean(acl.accessLevel, 20) || 'view',
+    explicitDeny: acl.explicitDeny === true,
+  })).filter(item => item.userId).slice(0, 100);
+}
+
 const INTENTS = Object.freeze({
   staff: /מורה|מורים|צוות|סגל|תפקיד|רכז|מנהלת|מנהל/u,
   classes: /כיתה|כיתות|שכבה|לומד|לומדת|שיבוץ/u,
   students: /תלמיד|תלמידה|תלמידים|תלמידות|לומד|לומדת/u,
   files: /קובץ|קבצים|מסמך|מסמכים|תיקייה/u,
+  fileRename: /(?:שנה|שני|עדכן|עדכני|החלף|החליפי).{0,80}(?:שם).{0,120}(?:קובץ|מסמך|תיקי(?:יה|יה))|(?:קובץ|מסמך|תיקי(?:יה|יה)).{0,120}(?:שינוי|לשנות|להחליף).{0,60}(?:שם)/u,
+  fileTrash: /(?:העבר|העבירי).{0,100}(?:קובץ|מסמך|תיקי(?:יה|יה)).{0,80}(?:לסל|למחזור)|(?:מחק|מחקי).{0,100}(?:קובץ|מסמך|תיקי(?:יה|יה))|(?:קובץ|מסמך|תיקי(?:יה|יה)).{0,100}(?:למחוק|לסל המחזור)/u,
+  fileCreate: /(?:צור|צרי|פתח|פתחי|הוסף|הוסיפי).{0,140}(?:קובץ|מסמך|גיליון|תיקי(?:יה|יה))|(?:קובץ|מסמך|גיליון|תיקי(?:יה|יה)).{0,140}(?:ליצור|לפתוח|להוסיף)/u,
+  fileRestore: /(?:שחזר|שחזרי|החזר|החזירי).{0,120}(?:קובץ|מסמך|תיקי(?:יה|יה))|(?:קובץ|מסמך|תיקי(?:יה|יה)).{0,120}(?:לשחזר|להחזיר).{0,60}(?:מהסל|מסל המחזור)?/u,
+  fileMove: /(?:העבר|העבירי|הזז|הזיזי).{0,120}(?:קובץ|מסמך).{0,120}(?:לתיקי(?:יה|יה)|אל תיקי(?:יה|יה))|(?:קובץ|מסמך).{0,120}(?:להעביר|להזיז).{0,120}(?:לתיקי(?:יה|יה)|אל תיקי(?:יה|יה))/u,
   grades: /ציון|ציונים|מבחן|הערכה/u,
   gradeAction: /(?:הזן|הכנס|עדכן|שנה|קבע|תן|רשום).{0,100}(?:ציון|ציונים|מבחן|הערכה)|(?:ציון|ציונים).{0,100}(?:להזין|להכניס|לעדכן|לשנות|לקבוע|לרשום)/u,
-  attendance: /נוכחות|חיסור|חיסורים|איחור|איחורים|נעדר|נעדרה|הגיע|הגיעה|נכח|נכחה/u,
+  attendance: /נוכחות|חיסור|חיסורים|חסר|חסרה|חסרים|חסרות|איחור|איחורים|נעדר|נעדרה|הגיע|הגיעה|נכח|נכחה/u,
+  attendanceAction: /(?:סמן|סמני|עדכן|עדכני|רשום|רשמי|קבע|קבעי).{0,120}(?:נוכחות|חיסור|חסר|חסרה|איחור|נעדר|נוכח|הגיע|מחלה)|(?:נוכחות|חיסור|חסר|חסרה|איחור).{0,120}(?:לסמן|לעדכן|לרשום|לקבוע)/u,
   tasks: /משימה|משימות|אחראי|לבצע|מה יש לי היום|מה עליי לעשות|מה צריך לעשות|הזמנה למשימה|הצעת משימה/u,
-  organization: /צוות|צוותים|תפקיד|תפקידים|אחריות|אחראי|רכז/u,
+  taskStatusAction: /(?:סמן|סמני|עדכן|עדכני|העבר|העבירי|התחל|התחילי|השלם|השלימי|סיים|סיימי|פתח|פתחי).{0,140}(?:משימה|מטלה)|(?:משימה|מטלה).{0,140}(?:להתחיל|להשלים|לסיים|לפתוח מחדש|בביצוע|הושלמה|בוצעה)/u,
+  taskAssignmentAction: /(?:הקצה|הקצי|שייך|שייכי|הוסף|הוסיפי|צרף|צרפי|הסר|הסירי|בטל|בטלי).{0,160}(?:משימה|מטלה|אחראי)|(?:משימה|מטלה|אחראי).{0,160}(?:להקצות|לשייך|להוסיף|לצרף|להסיר|לבטל)/u,
+  taskDetailsAction: /(?:עדכן|עדכני|שנה|שני|ערוך|ערכי|דחה|דחי|הקדם|הקדימי).{0,160}(?:משימה|מטלה|כותרת|תיאור|עדיפות|תאריך יעד|מועד)|(?:משימה|מטלה).{0,160}(?:לעדכן|לשנות|לערוך|לדחות|להקדים|עדיפות|תאריך יעד|מועד)/u,
+  organization: /צוות|צוותים|תפקיד|תפקידים|הרשאה|הרשאות|גישה|אחריות|אחראי|רכז/u,
   calendar: /לוח|אירוע|אירועים|תאריך|מועד|חופשה|חג|מה יש לי היום|מה יש היום|מחר|השבוע/u,
+  calendarCreate: /(?:צור|צרי|הוסף|הוסיפי|קבע|קבעי|פתח|פתחי|שמור|שמרי).{0,120}(?:אירוע|פגישה|מועד|לוח)|(?:אירוע|פגישה|מועד).{0,120}(?:ליצור|להוסיף|לקבוע|לפתוח|לשמור)/u,
+  calendarUpdate: /(?:עדכן|עדכני|שנה|שני|הזז|הזיזי|דחה|דחי|הקדם|הקדימי|ערוך|ערכי).{0,160}(?:אירוע|פגישה|מועד)|(?:אירוע|פגישה|מועד).{0,160}(?:לעדכן|לשנות|להזיז|לדחות|להקדים|לערוך)/u,
+  calendarCancel: /(?:בטל|בטלי|מחק|מחקי|הסר|הסירי).{0,160}(?:אירוע|פגישה|מועד)|(?:אירוע|פגישה|מועד).{0,160}(?:לבטל|למחוק|להסיר)/u,
   contacts: /איש קשר|אנשי קשר|טלפון|דוא[״"]?ל|מייל|כתובת/u,
+  contactCreate: /(?:צור|צרי|הוסף|הוסיפי|שמור|שמרי).{0,120}(?:איש קשר|אנשי קשר)|(?:איש קשר).{0,120}(?:ליצור|להוסיף|לשמור)/u,
+  institutionalContactCreate: /(?:צור|צרי|הוסף|הוסיפי|שמור|שמרי).{0,160}(?:איש קשר).{0,80}(?:מוסדי|בית[־ -]?ספרי)|(?:איש קשר).{0,80}(?:מוסדי|בית[־ -]?ספרי).{0,160}(?:ליצור|להוסיף|לשמור)/u,
   initiatives: /תכנית|תכניות|תוכנית|תוכניות|יוזמה|מיזם|אבן דרך/u,
   personalFile: /תיק אישי|הסמכה|הסמכות|ניסיון|מיומנות|המלצה/u,
   cv: /קורות (?:ה)?חיים|קו[״"]ח/u,
@@ -101,10 +143,18 @@ const INTENTS = Object.freeze({
   support: /פניית (?:ה)?תמיכה|פניות (?:ה)?תמיכה|קריאת שירות|תקלה שדיווחתי|פנייה שפתחתי/u,
   collectiveBrain: /מוח משותף|שאלה לצוות|שאלות לצוות|תשובות הצוות|איסוף תשובות/u,
   dataMapping: /מיפוי נתונים|טבלת מיפוי|גיליון מיפוי/u,
-  academic: /שנת לימודים|שנה לימודית|מגמה|מגמות|מסלול/u,
+  academic: /שנת לימודים|שנה לימודית|מגמ(?:ה|ת|ות)|מסלול/u,
   studentHistory: /היסטוריית תלמיד|היסטוריה של|שינוי כיתה|מעבר כיתה|שיבוץ קודם|הערה|הערות/u,
   studentSensitive: /מספר זהות|תעודת זהות|פרטי זיהוי|טלפון[^\n]{0,80}תלמיד|טלפון[^\n]{0,80}הורה/u,
   studentTransfer: /(?:העבר|העביר|שבץ|שבצי|שנה|שני).{0,120}(?:כיתה|לכיתה|שיבוץ)|(?:מעבר|העברה|שינוי שיבוץ).{0,120}(?:כיתה|תלמיד)/u,
+  studentTrackAction: /(?:הוסף|הוסיפי|שייך|שייכי|העבר|העביר|הסר|הסירי).{0,120}(?:מגמ(?:ה|ת|ות)|מסלול)|(?:מגמ(?:ה|ת|ות)|מסלול).{0,120}(?:להוסיף|לשייך|להעביר|להסיר)/u,
+  studentNoteAction: /(?:הוסף|הוסיפי|כתוב|כתבי|רשום|רשמי|צור|צרי|שמור|שמרי).{0,120}(?:הערה|תיעוד)|(?:הערה|תיעוד).{0,120}(?:להוסיף|לכתוב|לרשום|ליצור|לשמור)/u,
+  roleAssignment: /(?:תן|תני|הקצה|הקצי|שייך|שייכי|הוסף|הוסיפי|הסר|הסירי|בטל|בטלי).{0,120}(?:תפקיד|הרשאה|גישה)|(?:תפקיד|הרשאה|גישה).{0,120}(?:לתת|להקצות|לשייך|להוסיף|להסיר|לבטל)/u,
+  permissionAction: /(?:תן|תני|אפשר|אפשרי|הענק|העניקי|הוסף|הוסיפי|הסר|הסירי|בטל|בטלי|חסום|חסמי).{0,140}(?:הרשא(?:ה|ת|ות)|גיש(?:ה|ת)|צפיי(?:ה|ת)|עריכ(?:ה|ת)|ניהול|יציר(?:ה|ת))|(?:הרשא(?:ה|ת|ות)|גיש(?:ה|ת)|צפיי(?:ה|ת)|עריכ(?:ה|ת)|ניהול|יציר(?:ה|ת)).{0,140}(?:לתת|לאפשר|להעניק|להוסיף|להסיר|לבטל|לחסום)/u,
+  resourcePermissionAction: /(?:(?:תן|תני|אפשר|אפשרי|הענק|העניקי|הסר|הסירי|בטל|בטלי|חסום|חסמי|מנע|מנעי).{0,180}(?:קובץ|מסמך|תיקי(?:יה|יה|ות))|(?:קובץ|מסמך|תיקי(?:יה|יה|ות)).{0,180}(?:גישה|הרשא(?:ה|ת)|צפיי(?:ה|ת)|עריכ(?:ה|ת)|ניהול|חסום|חסמי|מנע|מנעי))/u,
+  teamMembershipAction: /(?:הוסף|הוסיפי|צרף|צרפי|שייך|שייכי|הסר|הסירי|הוצא|הוציאי).{0,120}(?:לצוות|מהצוות|צוות)|(?:צוות).{0,120}(?:להוסיף|לצרף|לשייך|להסיר|להוציא)/u,
+  teamManagerAction: /(?:מנה|מני|הפוך|הפכי|קבע|קבעי|הסר|הסירי).{0,140}(?:מנהל|מנהלת|ניהול).{0,80}(?:צוות)|(?:מנהל|מנהלת|ניהול).{0,100}(?:צוות).{0,120}(?:למנות|להפוך|לקבוע|להסיר)/u,
+  teamCreate: /(?:צור|צרי|פתח|פתחי|הקם|הקימי).{0,120}(?:צוות)|(?:צוות).{0,120}(?:ליצור|לפתוח|להקים)/u,
   managerialAudit: /יומן פעילות|יומן מערכת|לוג פעילות|לוגים|היסטוריית כניסות|כניסות למערכת|מי נכנס|פעולות מערכת/u,
 });
 
@@ -144,7 +194,7 @@ function publicGuide(question) {
     { id: 'calendar', match: /לוח|אירוע|תאריך|מועד/u, label: 'לוח שנה', route: '/calendar', text: 'במסך לוח שנה רואים אירועים ומועדים. בעלי הרשאת עריכה יכולים ליצור או לשנות אירוע; קטגוריות מנוהלות במסך קטגוריות.' },
     { id: 'holidays', match: /חופשה|חג|יום חסום/u, label: 'חופשות וחגים', route: '/holidays', text: 'במסך חופשות וחגים רואים את הימים הרשמיים והחריגים. שינוי או חסימת יום דורשים הרשאה מתאימה.' },
     { id: 'staff', match: /סגל|מורה|עובד|איש צוות/u, label: 'סגל וקהילה', route: '/staff', text: 'במסך סגל וקהילה מחפשים איש צוות, רואים את תפקידיו ומנהלים שיוך והרשאות בהתאם לסמכות המשתמש.' },
-    { id: 'permissions', match: /הרשאה|גישה|תפקיד/u, label: 'תפקידים והרשאות', route: '/staff', text: 'מנהל מוסד פותח את מסך סגל וקהילה ואת מנהל התפקידים, מגדיר יכולות והיקף גישה ואז משייך את התפקיד לאנשי צוות. זוקי אינו משנה הרשאות בשלב הראשון.' },
+    { id: 'permissions', match: /הרשאה|גישה|תפקיד/u, label: 'תפקידים והרשאות', route: '/staff', text: 'מנהל מוסד מגדיר תפקידים והיקפי גישה במסך סגל וקהילה. זוקי יכול להקצות או להסיר תפקיד קיים מאיש צוות רק לאחר תצוגה מקדימה, אישור מפורש ובדיקת סמכות מחודשת.' },
     { id: 'teams', match: /צוות|צוותים/u, label: 'ניהול צוותים', route: '/teams', text: 'במסך צוותים יוצרים צוות, מגדירים מנהלים וחברים ומעדכנים תחומי אחריות. הפעולות זמינות לפי הרשאת ניהול צוותים.' },
     { id: 'contacts', match: /איש קשר|אנשי קשר|טלפון|מייל/u, label: 'אנשי קשר', route: '/contacts', text: 'במסך אנשי קשר מוסיפים איש קשר פרטי או מוסדי, מחפשים לפי שם ופותחים את היסטוריית המעקב המורשית.' },
     { id: 'messages', match: /הודעה|שיחה|צ[׳']אט/u, label: 'הודעות', route: '/messages', text: 'במסך הודעות בוחרים שיחה קיימת או פותחים שיחה עם איש צוות. רק משתתפי השיחה יכולים לקרוא את תוכנה.' },
@@ -188,6 +238,15 @@ export async function loadZokiTaskGuidance({ actor, schoolId }) {
 
 export async function loadZokiContext({ actor, schoolId, question, imageTextExtractor }) {
   const permissionContext = await buildPermissionContext({ userId: actor.uid, schoolId });
+  const roleAuthority = await resolveActorRoleAuthority(actor, schoolId);
+  const canAssignRoles = roleAuthority.unrestricted
+    || roleAuthority.permissions.has('roles.assign')
+    || roleAuthority.permissions.has('staff.assignRoles');
+  const canManageDirectPermissions = roleAuthority.unrestricted;
+  const canManageResourcePermissions = managerSubject(permissionContext)
+    || decision(permissionContext, 'files.managePermissions').allowed;
+  const canProposeResourcePermissions = canManageResourcePermissions
+    && decision(permissionContext, 'files.view').allowed;
   const sources = publicGuide(question);
   const denied = [];
   const addDenied = (kind, capability) => { if (requested(question, kind)) denied.push({ kind, capability }); };
@@ -198,18 +257,20 @@ export async function loadZokiContext({ actor, schoolId, question, imageTextExtr
     { title: clean(entry.title, 120), body: clean(entry.body, 1600), category: clean(entry.category, 80), validUntil: clean(entry.validUntil, 20) },
   )));
 
-  if (requested(question, 'staff')) {
+  if (requested(question, 'staff') || requested(question, 'roleAssignment')
+    || requested(question, 'permissionAction') || requested(question, 'resourcePermissionAction')
+    || requested(question, 'taskAssignmentAction')) {
     const permission = decision(permissionContext, 'staff.view');
     if (!permission.allowed) addDenied('staff', 'staff.view');
     else {
       const [staffItems, teams, roles] = await Promise.all([
         schoolUsers(schoolId),
-        collectionDocuments([`schools/${schoolId}/teams`, `teams_${schoolId}`]),
+        collectionDocuments([`teams_${schoolId}`, `schools/${schoolId}/teams`]),
         collectionDocuments([`schools/${schoolId}/roleDefinitions`, `roles_${schoolId}`]),
       ]);
       const teamNames = new Map(teams.map(item => [item.id, clean(item.name || item.title, 120)]));
       const roleNames = new Map(roles.map(item => [item.id, clean(item.name || item.title, 120)]));
-      const canInspectPermissions = managerSubject(permissionContext) || decision(permissionContext, 'staff.assignRoles').allowed;
+      const canInspectPermissions = managerSubject(permissionContext) || canAssignRoles;
       const staff = staffItems.filter(item => !['disabled', 'pending', 'deleting'].includes(item.accountStatus)).map(item => {
         const teamIds = list(item.teamIdsBySchool?.[schoolId] || item.teamIds);
         const roleIds = list(item.customRoleAssignments?.[schoolId] || item.customRoleIds);
@@ -220,9 +281,10 @@ export async function loadZokiContext({ actor, schoolId, question, imageTextExtr
           systemRole: clean(item.rolesBySchool?.[schoolId] || item.role, 60),
           teamNames: teamIds.map(id => teamNames.get(id)).filter(Boolean),
           roleNames: roleIds.map(id => roleNames.get(id)).filter(Boolean),
+          ...(canInspectPermissions ? { roleIds } : {}),
           classIds: list(item.classIdsBySchool?.[schoolId] || item.classIds),
           accountStatus: clean(item.accountStatus, 40),
-          ...(canInspectPermissions ? { enabledPermissions: Object.entries(item.permissions || {}).filter(([, enabled]) => enabled === true).map(([key]) => key).slice(0, 100) } : {}),
+          ...(canInspectPermissions ? { enabledPermissions: Object.entries(item.permissions || {}).filter(([, enabled]) => enabled === true).map(([key]) => key).slice(0, 200) } : {}),
         };
       });
       relevant(staff, question, 15)
@@ -230,27 +292,73 @@ export async function loadZokiContext({ actor, schoolId, question, imageTextExtr
     }
   }
 
+  if (requested(question, 'permissionAction')) {
+    if (!canManageDirectPermissions) addDenied('permissionAction', 'staff.edit');
+    else {
+      relevant(DIRECT_PERMISSION_DEFINITIONS.map(item => ({
+        id: item.key,
+        key: item.key,
+        keys: item.keys,
+        name: item.label,
+        group: item.group,
+      })), question, 15).forEach(item => sources.push(source(
+        'permission', item, item.name || 'הרשאה', '/staff', item,
+      )));
+    }
+  }
+
   if (requested(question, 'organization')) {
     const teamsPermission = decision(permissionContext, 'teams_view');
+    const teamsEditPermission = decision(permissionContext, 'teams_edit');
     const rolesPermission = decision(permissionContext, 'roles.view');
-    if (!teamsPermission.allowed && !rolesPermission.allowed) addDenied('organization', 'teams_view');
-    if (teamsPermission.allowed) {
-      const teams = await collectionDocuments([`schools/${schoolId}/teams`, `teams_${schoolId}`]);
-      relevant(teams.map(item => ({ id: item.id, name: clean(item.name || item.title, 120), description: clean(item.description || item.responsibility, 600), memberIds: list(item.memberIds), managerIds: list(item.managerIds || item.leaderIds) })), question, 12)
+    const canManageAllTeams = managerSubject(permissionContext) || teamsEditPermission.allowed;
+    if (!teamsPermission.allowed && !rolesPermission.allowed && !requested(question, 'teamMembershipAction') && !requested(question, 'teamManagerAction') && !requested(question, 'teamCreate')) addDenied('organization', 'teams_view');
+    if (requested(question, 'teamCreate') && !canManageAllTeams) addDenied('teamCreate', 'teams_edit');
+    if (teamsPermission.allowed || requested(question, 'teamMembershipAction') || requested(question, 'teamManagerAction') || requested(question, 'teamCreate')) {
+      const teams = await collectionDocuments([`teams_${schoolId}`, `schools/${schoolId}/teams`]);
+      const visibleTeams = teamsPermission.allowed || canManageAllTeams
+        ? teams : teams.filter(item => list(item.managerIds || item.leaderIds).includes(actor.uid));
+      relevant(visibleTeams.map(item => ({
+        id: item.id, name: clean(item.name || item.title, 120), description: clean(item.description || item.responsibility, 600),
+        memberIds: list(item.memberIds), managerIds: list(item.managerIds || item.leaderIds),
+        canManage: canManageAllTeams || list(item.managerIds || item.leaderIds).includes(actor.uid),
+      })), question, 12)
         .forEach(item => sources.push(source('team', item, item.name || 'צוות', '/teams', item)));
+      if (requested(question, 'teamMembershipAction') && !canManageAllTeams
+        && !visibleTeams.some(item => list(item.managerIds || item.leaderIds).includes(actor.uid))) {
+        addDenied('teamMembershipAction', 'teams_edit');
+      }
+      if (requested(question, 'teamManagerAction') && !canManageAllTeams
+        && !visibleTeams.some(item => list(item.managerIds || item.leaderIds).includes(actor.uid))) {
+        addDenied('teamManagerAction', 'teams_edit');
+      }
+      if (requested(question, 'teamCreate') && canManageAllTeams) {
+        sources.push(source('team_config', { id: 'team_create' }, 'הגדרות יצירת צוות', '/teams', {
+          existingNames: teams.map(item => clean(item.name || item.title, 120)).filter(Boolean).slice(0, 300),
+        }));
+      }
     }
-    if (rolesPermission.allowed) {
+    if (rolesPermission.allowed || (requested(question, 'roleAssignment') && canAssignRoles)) {
       const roles = await collectionDocuments([`schools/${schoolId}/roleDefinitions`, `roles_${schoolId}`]);
-      relevant(roles.filter(item => item.status !== 'archived').map(item => ({ id: item.id, name: clean(item.name || item.title, 120), description: clean(item.description, 600), responsibilityAreas: list(item.responsibilityAreas), commonTaskTypes: list(item.commonTaskTypes) })), question, 12)
+      relevant(roles.filter(item => item.status !== 'archived' && item.protected !== true).map(item => ({
+        id: item.id, name: clean(item.name || item.title, 120), description: clean(item.description, 600),
+        responsibilityAreas: list(item.responsibilityAreas), commonTaskTypes: list(item.commonTaskTypes),
+        permissions: canAssignRoles
+          ? Object.entries(item.permissions || {}).filter(([, enabled]) => enabled === true).map(([key]) => key).slice(0, 100)
+          : [],
+        accessScope: item.accessScope || item.scopes || { type: 'school', classIds: [] },
+        delegable: item.delegable === true,
+      })), question, 12)
         .forEach(item => sources.push(source('role', item, item.name || 'תפקיד', '/staff', item)));
     }
   }
 
   const classesPermission = decision(permissionContext, 'classes.view');
   const studentsPermission = decision(permissionContext, 'students.view');
-  const classesRaw = requested(question, 'classes') || requested(question, 'students') || requested(question, 'grades') || requested(question, 'attendance') || requested(question, 'studentHistory') || requested(question, 'studentSensitive') || requested(question, 'studentTransfer')
+  const classesRaw = requested(question, 'classes') || requested(question, 'students') || requested(question, 'grades') || requested(question, 'attendance') || requested(question, 'studentHistory') || requested(question, 'studentSensitive') || requested(question, 'studentTransfer') || requested(question, 'studentTrackAction') || requested(question, 'studentNoteAction')
     || requested(question, 'personalFile') || requested(question, 'cv') || requested(question, 'outcomes')
     ? await collectionDocuments([`schools/${schoolId}/classes`, `classes_${schoolId}`]) : [];
+  const taughtClassIds = new Set(classesRaw.filter(item => item.teacherId === actor.uid).map(item => item.id));
   const allowedClasses = classesRaw.filter(item => decision(permissionContext, 'classes.view', { classId: item.id }).allowed);
   if (requested(question, 'classes') || requested(question, 'studentTransfer')) {
     if (!classesPermission.allowed) addDenied('classes', 'classes.view');
@@ -263,12 +371,26 @@ export async function loadZokiContext({ actor, schoolId, question, imageTextExtr
   }
 
   let matchedStudents = [];
-  if (requested(question, 'students') || requested(question, 'grades') || requested(question, 'attendance') || requested(question, 'studentHistory') || requested(question, 'studentSensitive') || requested(question, 'studentTransfer')
+  if (requested(question, 'students') || requested(question, 'grades') || requested(question, 'attendance') || requested(question, 'studentHistory') || requested(question, 'studentSensitive') || requested(question, 'studentTransfer') || requested(question, 'studentTrackAction') || requested(question, 'studentNoteAction')
     || requested(question, 'personalFile') || requested(question, 'cv') || requested(question, 'outcomes')) {
-    if (!studentsPermission.allowed) addDenied('students', 'students.view');
+    const attendanceStudentAccess = requested(question, 'attendance') && (
+      decision(permissionContext, 'attendance.view').allowed
+      || decision(permissionContext, 'attendance.edit').allowed
+      || decision(permissionContext, 'attendance_edit').allowed
+      || taughtClassIds.size > 0
+    );
+    if (!studentsPermission.allowed && !attendanceStudentAccess) addDenied('students', 'students.view');
     else {
       const students = await collectionDocuments([`schools/${schoolId}/students`, `students_${schoolId}`], 2500);
-      const basicMatches = relevant(students.filter(item => decision(permissionContext, 'students.view', { classId: item.classId }).allowed).map(item => ({
+      const basicMatches = relevant(students.filter(item => (
+        decision(permissionContext, 'students.view', { classId: item.classId }).allowed
+        || (requested(question, 'attendance') && (
+          decision(permissionContext, 'attendance.view', { classId: item.classId }).allowed
+          || decision(permissionContext, 'attendance.edit', { classId: item.classId }).allowed
+          || decision(permissionContext, 'attendance_edit', { classId: item.classId }).allowed
+          || taughtClassIds.has(item.classId)
+        ))
+      )).map(item => ({
         id: item.id,
         fullName: clean(item.fullName || `${item.firstName || ''} ${item.lastName || ''}`, 120),
         classId: clean(item.classId, 128), className: clean(item.className, 120), gradeLevel: clean(item.gradeLevel, 40),
@@ -295,7 +417,7 @@ export async function loadZokiContext({ actor, schoolId, question, imageTextExtr
           legacyIdNumber: undefined,
         };
       }));
-      if (requested(question, 'students') || requested(question, 'studentTransfer')) matchedStudents.forEach(item => sources.push(source('student', item, item.fullName || 'תלמיד', `/students?student=${encodeURIComponent(item.id)}`, item)));
+      if (requested(question, 'students') || requested(question, 'studentTransfer') || requested(question, 'studentTrackAction') || requested(question, 'studentNoteAction')) matchedStudents.forEach(item => sources.push(source('student', item, item.fullName || 'תלמיד', `/students?student=${encodeURIComponent(item.id)}`, item)));
     }
   }
 
@@ -303,6 +425,18 @@ export async function loadZokiContext({ actor, schoolId, question, imageTextExtr
     && !decision(permissionContext, 'students.transferClass').allowed
     && !decision(permissionContext, 'students_transfer_class').allowed) {
     addDenied('studentTransfer', 'students.transferClass');
+  }
+
+  if (requested(question, 'studentTrackAction')
+    && !decision(permissionContext, 'students.managePrograms').allowed
+    && !decision(permissionContext, 'students_manage_programs').allowed) {
+    addDenied('studentTrackAction', 'students.managePrograms');
+  }
+
+  if (requested(question, 'studentNoteAction')
+    && !decision(permissionContext, 'students.addNotes').allowed
+    && !decision(permissionContext, 'students_add_notes').allowed) {
+    addDenied('studentNoteAction', 'students.addNotes');
   }
 
   if (requested(question, 'studentHistory') && studentsPermission.allowed) {
@@ -346,43 +480,80 @@ export async function loadZokiContext({ actor, schoolId, question, imageTextExtr
 
   if (requested(question, 'files')) {
     const permission = decision(permissionContext, 'files.view');
+    const canDeleteFiles = decision(permissionContext, 'files.delete').allowed;
+    const canCreateResources = decision(permissionContext, 'files.create').allowed;
+    if (requested(question, 'resourcePermissionAction') && !canProposeResourcePermissions) {
+      addDenied('resourcePermissionAction', 'files.managePermissions');
+    }
     if (!permission.allowed) addDenied('files', 'files.view');
     else {
       const files = relevant(await collectionDocuments([`schools/${schoolId}/files`, `files_${schoolId}`], 1500), question, 12);
       const visibleFiles = [];
+      const fileContexts = new Map();
       for (const item of files) {
         const fileContext = await withResourcePermissionContext(permissionContext, { resourceType: 'file', resourceId: item.id, parentIds: [item.folderId].filter(Boolean) });
         const filePermission = resourceDecision(fileContext, 'files.view', { resourceType: 'file', resourceId: item.id, classId: item.classId });
         if (!filePermission.allowed) continue;
+        fileContexts.set(item.id, fileContext);
         visibleFiles.push(item);
       }
       const allFolders = await collectionDocuments([`schools/${schoolId}/folders`, `folders_${schoolId}`], 1500);
       const requestedFolderIds = new Set(visibleFiles.map(item => item.folderId).filter(Boolean));
       const folderCandidatesById = new Map(allFolders.filter(item => requestedFolderIds.has(item.id)).map(item => [item.id, item]));
-      if (/תיקי/u.test(question)) relevant(allFolders, question, 12).forEach(item => folderCandidatesById.set(item.id, item));
+      if (/תיקי/u.test(question) || requested(question, 'fileCreate') || requested(question, 'fileMove')) {
+        relevant(allFolders, question, 12).forEach(item => folderCandidatesById.set(item.id, item));
+      }
       const folderCandidates = [...folderCandidatesById.values()];
       const visibleFolders = [];
+      const folderContexts = new Map();
       for (const folder of folderCandidates) {
         const folderContext = await withResourcePermissionContext(permissionContext, { resourceType: 'folder', resourceId: folder.id });
-        if (resourceDecision(folderContext, 'files.view', { resourceType: 'folder', resourceId: folder.id, classId: folder.classId }).allowed) visibleFolders.push(folder);
+        if (resourceDecision(folderContext, 'files.view', { resourceType: 'folder', resourceId: folder.id, classId: folder.classId }).allowed) {
+          folderContexts.set(folder.id, folderContext);
+          visibleFolders.push(folder);
+        }
       }
       const folderNames = new Map(visibleFolders.map(folder => [folder.id, clean(folder.name || folder.title, 160)]));
-      const fileTexts = await Promise.all(visibleFiles.slice(0, 8).map((item, index) => extractAuthorizedFileText({
-        file: item, schoolId, question,
-        // OCR is intentionally bounded: at most three already-authorized files
-        // per question may be sent to the document-reading model.
-        imageTextExtractor: index < 3 ? imageTextExtractor : undefined,
-      })));
+      const fileTexts = await Promise.all(visibleFiles.slice(0, 8).map((item, index) => (
+        item.trashedAt ? Promise.resolve('') : extractAuthorizedFileText({
+          file: item, schoolId, question,
+          // OCR is intentionally bounded: at most three already-authorized files
+          // per question may be sent to the document-reading model.
+          imageTextExtractor: index < 3 ? imageTextExtractor : undefined,
+        })
+      )));
       visibleFiles.forEach((item, index) => {
+        const itemContext = fileContexts.get(item.id);
+        const canRename = resourceDecision(itemContext, 'files.edit', {
+          resourceType: 'file', resourceId: item.id, classId: item.classId,
+        }).allowed;
         sources.push(source('file', item, clean(item.name, 160) || 'קובץ', `/files?file=${encodeURIComponent(item.id)}`, {
+          id: item.id, resourceType: 'file', folderId: clean(item.folderId, 128), parentIds: [item.folderId].filter(Boolean),
           name: clean(item.name, 160), fileType: clean(item.fileType || item.type, 100), folderName: folderNames.get(item.folderId) || '',
           className: clean(item.className, 120), description: clean(item.description, 500),
           text: fileTexts[index] || '', updatedAt: item.updatedAt || item.lastModified || null,
+          trashed: Boolean(item.trashedAt), canRename: canRename && !item.trashedAt,
+          canTrash: canDeleteFiles && !item.trashedAt,
+          canRestore: canDeleteFiles && Boolean(item.trashedAt), canMove: canRename && !item.trashedAt,
+          ...(canProposeResourcePermissions ? { directUserAccess: directUserAccess(fileContexts.get(item.id)?.resourceAcls) } : {}),
         }));
       });
-      visibleFolders.forEach(folder => sources.push(source('folder', folder, clean(folder.name || folder.title, 160) || 'תיקייה', `/files?folder=${encodeURIComponent(folder.id)}`, {
-        name: clean(folder.name || folder.title, 160), className: clean(folder.className, 120), visibility: clean(folder.visibility, 60),
-      })));
+      visibleFolders.forEach(folder => {
+        const folderContext = folderContexts.get(folder.id);
+        const canRename = resourceDecision(folderContext, 'files.edit', {
+          resourceType: 'folder', resourceId: folder.id, classId: folder.classId,
+        }).allowed;
+        sources.push(source('folder', folder, clean(folder.name || folder.title, 160) || 'תיקייה', `/files?folder=${encodeURIComponent(folder.id)}`, {
+          id: folder.id, resourceType: 'folder', parentIds: [],
+          name: clean(folder.name || folder.title, 160), className: clean(folder.className, 120), visibility: clean(folder.visibility, 60),
+          trashed: Boolean(folder.trashedAt), canRename: canRename && !folder.trashedAt,
+          canTrash: canDeleteFiles && !folder.trashedAt,
+          canRestore: canDeleteFiles && Boolean(folder.trashedAt),
+          canMoveInto: canRename && !folder.trashedAt,
+          canCreateWithin: canCreateResources && !folder.trashedAt,
+          ...(canProposeResourcePermissions ? { directUserAccess: directUserAccess(folderContext?.resourceAcls) } : {}),
+        }));
+      });
       const visibleFileIds = new Set(visibleFiles.map(item => item.id));
       const history = await collectionDocuments([`schools/${schoolId}/fileHistory`, `file_history_${schoolId}`], 200);
       relevant(history.filter(item => visibleFileIds.has(item.fileId)).map(item => ({
@@ -390,36 +561,88 @@ export async function loadZokiContext({ actor, schoolId, question, imageTextExtr
         timestamp: item.timestamp || item.createdAt || null, summary: clean(item.summary, 300),
         changes: list(item.changes).map(change => ({ cell: clean(change.cell, 20), oldValue: clean(change.oldValue, 120), newValue: clean(change.newValue, 120) })),
       })), question, 6).forEach(item => sources.push(source('file_history', item, `היסטוריית ${item.fileName || 'קובץ'}`, `/files?file=${encodeURIComponent(item.fileId)}`, item)));
+      if (requested(question, 'fileCreate') && canCreateResources) {
+        sources.push(source('file_create_config', { id: 'resource_create' }, 'אפשרויות יצירת קבצים ותיקיות', '/files', {
+          kinds: ['folder', 'document', 'spreadsheet'],
+          folderVisibilities: ['all', 'principal_only'],
+          canCreateFolder: true,
+        }));
+      }
+      if (requested(question, 'fileCreate') && !canCreateResources) addDenied('fileCreate', 'files.create');
     }
   }
 
   if (requested(question, 'calendar')) {
     const permission = decision(permissionContext, 'calendar.view');
-    if (!permission.allowed) addDenied('calendar', 'calendar.view');
-    else {
+    const createPermission = decision(permissionContext, 'calendar.create');
+    const editPermission = decision(permissionContext, 'calendar.edit');
+    const legacyEditPermission = decision(permissionContext, 'calendar_edit');
+    const canCreateCalendarEvent = createPermission.allowed || editPermission.allowed || legacyEditPermission.allowed;
+    const canEditCalendarEvent = editPermission.allowed || legacyEditPermission.allowed;
+    if (requested(question, 'calendarCreate') && !canCreateCalendarEvent) addDenied('calendarCreate', 'calendar.create');
+    if ((requested(question, 'calendarUpdate') || requested(question, 'calendarCancel')) && !canEditCalendarEvent) addDenied('calendarEdit', 'calendar.edit');
+    if (!permission.allowed && !canCreateCalendarEvent) addDenied('calendar', 'calendar.view');
+    if (permission.allowed) {
       const items = await collectionDocuments([
         `schools/${schoolId}/events`, `events_${schoolId}`,
         `schools/${schoolId}/holidays`, `holidays_${schoolId}`,
       ]);
-      relevant(items.map(item => ({ id: item.id, title: clean(item.title || item.name, 160), startDate: clean(item.startDate || item.date, 30), endDate: clean(item.endDate, 30), description: clean(item.description, 700), classId: clean(item.classId, 128) })), question, 15)
+      relevant(items.map(item => ({ id: item.id, title: clean(item.title || item.name, 160), startDate: clean(item.startDate || item.date, 30), endDate: clean(item.endDate, 30), description: clean(item.description, 700), classId: clean(item.classId, 128), raw: item })), question, 15)
         .filter(item => decision(permissionContext, 'calendar.view', { classId: item.classId }).allowed)
-        .forEach(item => sources.push(source('calendar', item, item.title || 'אירוע', '/calendar', item)));
+        .forEach(item => {
+          const normalized = normalizeCalendarEvent(item.raw, item.id);
+          const actionable = !item.endDate && canEditCalendarEvent;
+          sources.push(source(actionable ? 'calendar_event' : 'calendar', item, item.title || 'אירוע', '/calendar', {
+            ...normalized, endDate: item.endDate, classId: item.classId,
+            canEdit: actionable, version: actionable ? calendarEventVersion(item.raw, item.id) : '',
+          }));
+        });
+    }
+    if ((requested(question, 'calendarCreate') && canCreateCalendarEvent)
+      || (requested(question, 'calendarUpdate') && canEditCalendarEvent)) {
+      const [categories, teams] = await Promise.all([
+        collectionDocuments([`schools/${schoolId}/categories`, `categories_${schoolId}`], 100),
+        collectionDocuments([`teams_${schoolId}`, `schools/${schoolId}/teams`], 200),
+      ]);
+      const categoryNames = [...new Set(categories.map(item => clean(item.name || item.title, 80)).filter(Boolean))];
+      sources.push(source('calendar_config', { id: 'event_create' }, 'הגדרות יצירת אירוע', '/calendar', {
+        categories: categoryNames.length ? categoryNames : ['כללי'],
+        teams: teams.filter(item => item.status !== 'archived').map(item => ({ id: item.id, name: clean(item.name || item.title, 120) })).filter(item => item.name).slice(0, 100),
+        colors: ['#fecdd3', '#fed7aa', '#fef08a', '#bbf7d0', '#99f6e4', '#bae6fd', '#c4b5fd', '#e9d5ff', '#eadfe2', '#ffffff'],
+      }));
     }
   }
 
   if (requested(question, 'contacts') && !requested(question, 'students') && !requested(question, 'studentSensitive')) {
-    const permission = decision(permissionContext, 'contacts.view');
-    if (!permission.allowed) addDenied('contacts', 'contacts.view');
-    else {
-      const institutional = await collectionDocuments([`schools/${schoolId}/contactDirectory/institutional/items`]);
-      const privateItems = await collectionDocuments([`users/${actor.uid}/contactDirectory/private/items`]);
+    const viewPermission = decision(permissionContext, 'contacts.view');
+    const createPermission = decision(permissionContext, 'contacts.create');
+    if (!viewPermission.allowed && !requested(question, 'contactCreate')) addDenied('contacts', 'contacts.view');
+    if (!createPermission.allowed) addDenied('institutionalContactCreate', 'contacts.create');
+    const [institutional, privateItems] = await Promise.all([
+      viewPermission.allowed
+        ? collectionDocuments([`schools/${schoolId}/contactDirectory/institutional/items`])
+        : Promise.resolve([]),
+      collectionDocuments([`users/${actor.uid}/contactDirectory/private/items`]),
+    ]);
+    if (viewPermission.allowed || privateItems.length) {
       const visibleInstitutional = institutional.filter(item => item.visibility === 'institution'
         || item.createdBy === actor.uid || list(item.ownerStaffIds).includes(actor.uid)
         || decision(permissionContext, 'contacts.viewSharedHistory').allowed);
       relevant([...visibleInstitutional, ...privateItems].filter(item => item.archived !== true).map(item => ({
-        id: item.id, fullName: clean(item.fullName, 160), organization: clean(item.organization, 160), jobTitle: clean(item.jobTitle, 120),
+        id: item.id, scope: clean(item.scope, 30) || (item.ownerId ? 'private' : 'institutional'), fullName: clean(item.fullName, 160), organization: clean(item.organization, 160), jobTitle: clean(item.jobTitle, 120),
         primaryEmail: clean(item.primaryEmail, 320), phone: clean(item.phone, 40), category: clean(item.category, 80), notes: clean(item.notes, 700),
       })), question, 12).forEach(item => sources.push(source('contact', item, item.fullName || 'איש קשר', '/contacts', item)));
+    }
+    if (requested(question, 'contactCreate')) {
+      const canViewStaff = decision(permissionContext, 'staff.view').allowed;
+      const staff = createPermission.allowed && canViewStaff ? await schoolUsers(schoolId) : [];
+      sources.push(source('contact_config', { id: 'contact_create' }, 'הגדרות יצירת איש קשר', '/contacts', {
+        scopes: createPermission.allowed ? ['private', 'institutional'] : ['private'],
+        visibilities: ['institution', 'responsible_staff'],
+        responsibleStaff: staff.filter(item => item.accountStatus !== 'disabled' && item.status !== 'archived').map(item => ({
+          id: item.id, name: clean(item.fullName || item.displayName || item.name, 120),
+        })).filter(item => item.name).slice(0, 200),
+      }));
     }
   }
 
@@ -490,15 +713,41 @@ export async function loadZokiContext({ actor, schoolId, question, imageTextExtr
 
   if (requested(question, 'attendance')) {
     const permission = decision(permissionContext, 'attendance.view');
-    if (!permission.allowed) addDenied('attendance', 'attendance.view');
+    const editPermission = decision(permissionContext, 'attendance.edit');
+    const legacyEditPermission = decision(permissionContext, 'attendance_edit');
+    if (requested(question, 'attendanceAction') && !editPermission.allowed && !legacyEditPermission.allowed && taughtClassIds.size === 0) {
+      addDenied('attendanceAction', 'attendance_edit');
+    }
+    if (!permission.allowed && !editPermission.allowed && !legacyEditPermission.allowed && taughtClassIds.size === 0) addDenied('attendance', 'attendance.view');
     else {
       const attendanceFiles = (await collectionDocuments([`schools/${schoolId}/files`], 120)).filter(item => item.fileType === 'attendance');
-      for (const student of matchedStudents.filter(item => decision(permissionContext, 'attendance.view', { classId: item.classId }).allowed).slice(0, 4)) {
+      const exactDate = question.match(/\b\d{4}-\d{2}-\d{2}\b/u)?.[0] || '';
+      for (const student of matchedStudents.filter(item => (
+        decision(permissionContext, 'attendance.view', { classId: item.classId }).allowed
+        || decision(permissionContext, 'attendance.edit', { classId: item.classId }).allowed
+        || decision(permissionContext, 'attendance_edit', { classId: item.classId }).allowed
+        || taughtClassIds.has(item.classId)
+      )).slice(0, 4)) {
         for (const file of attendanceFiles.filter(item => item.classId === student.classId).slice(0, 4)) {
-          const records = await adminDb.collection(`schools/${schoolId}/files/${file.id}/attendanceRecords`).where('studentId', '==', student.id).limit(40).get().catch(() => null);
+          const [records, legendSnapshot, daySnapshot] = await Promise.all([
+            adminDb.collection(`schools/${schoolId}/files/${file.id}/attendanceRecords`).where('studentId', '==', student.id).limit(40).get().catch(() => null),
+            adminDb.collection(`schools/${schoolId}/files/${file.id}/attendanceLegend`).limit(30).get().catch(() => null),
+            exactDate ? adminDb.doc(`schools/${schoolId}/files/${file.id}/attendanceDays/${exactDate}`).get().catch(() => null) : Promise.resolve(null),
+          ]);
           if (!records) continue;
           const items = records.docs.map(doc => ({ dateKey: clean(doc.data().dateKey, 20), primaryStatusId: clean(doc.data().primaryStatusId, 60), actionIds: list(doc.data().actionIds), note: clean(doc.data().note, 300) }));
-          sources.push(source('attendance', { id: `${file.id}_${student.id}` }, `נוכחות — ${student.fullName}`, `/files?file=${encodeURIComponent(file.id)}`, { studentName: student.fullName, sheetName: clean(file.name, 160), records: items }));
+          const legend = (legendSnapshot?.docs || []).map(item => ({
+            id: item.id, label: clean(item.data().label, 80), shortCode: clean(item.data().shortCode, 4),
+            type: clean(item.data().type, 30), attendanceEffect: clean(item.data().attendanceEffect, 40), active: item.data().active !== false,
+          })).filter(item => item.active && item.type === 'status');
+          const day = daySnapshot?.exists ? {
+            dateKey: clean(daySnapshot.data().dateKey, 20), blocked: daySnapshot.data().blocked === true,
+            blockedReason: clean(daySnapshot.data().blockedReason, 300), scheduled: daySnapshot.data().scheduled !== false,
+          } : null;
+          sources.push(source('attendance', { id: `${file.id}_${student.id}` }, `נוכחות — ${student.fullName}`, `/files?file=${encodeURIComponent(file.id)}`, {
+            fileId: file.id, classId: student.classId, studentId: student.id, studentName: student.fullName,
+            sheetName: clean(file.name, 160), dateRange: file.dateRange || {}, legend, requestedDay: day, records: items,
+          }));
         }
       }
     }
@@ -783,7 +1032,14 @@ export async function loadZokiContext({ actor, schoolId, question, imageTextExtr
     const own = decision(permissionContext, 'tasks.viewOwn').allowed;
     const team = decision(permissionContext, 'tasks.viewTeam').allowed;
     const all = decision(permissionContext, 'tasks.viewAll').allowed;
-    const tasks = relevant(await collectionDocuments([`schools/${schoolId}/tasks`, `tasks_${schoolId}`], 2000), question, 40);
+    const tasks = relevant(await organizationTaskDocuments(schoolId, 2000), question, 40);
+    const editAll = evaluatePermission(permissionContext, { capability: 'tasks.editAll', accessLevel: 'edit', resource: {} }).allowed
+      || evaluatePermission(permissionContext, { capability: 'tasks_edit', accessLevel: 'edit', resource: {} }).allowed;
+    const canAssign = editAll
+      || evaluatePermission(permissionContext, { capability: 'tasks.assign', accessLevel: 'edit', resource: {} }).allowed
+      || evaluatePermission(permissionContext, { capability: 'tasks_assign', accessLevel: 'edit', resource: {} }).allowed;
+    const canRemoveAssignment = editAll
+      || evaluatePermission(permissionContext, { capability: 'tasks.manageAssignments', accessLevel: 'edit', resource: {} }).allowed;
     const evaluatedTasks = await Promise.all(tasks.map(async item => {
       const legacyVisible = all
         || (own && [item.createdBy, item.ownerId, item.assigneeId].includes(actor.uid))
@@ -804,10 +1060,16 @@ export async function loadZokiContext({ actor, schoolId, question, imageTextExtr
       .filter(item => item.recipientId === actor.uid || item.inviterId === actor.uid), question, 10);
     if (!visible.length && !personalTasks.length && !invitations.length && !own && !team && !all) addDenied('tasks', 'tasks.viewOwn');
     relevant(visible, question, 12).forEach(item => sources.push(source('task', item, clean(item.title, 160) || 'משימה', `/tasks?task=${encodeURIComponent(item.id)}`, {
-        title: clean(item.title, 160), description: clean(item.description, 600), status: clean(item.status, 40), dueDate: clean(item.dueDate, 20), priority: clean(item.priority, 30),
+        id: item.id, title: clean(item.title, 160), description: clean(item.description, 600), status: clean(item.status, 40) || 'todo', dueDate: clean(item.dueDate, 20), priority: clean(item.priority, 30),
+        storageMode: item._storageMode || 'nested',
+        canUpdateStatus: editAll || list(item.assigneeIds).includes(actor.uid) || list(item.participantIds).includes(actor.uid),
+        assigneeIds: list(item.assigneeIds), canAssignStaff: canAssign, canRemoveAssignee: canRemoveAssignment,
+        canEditDetails: editAll,
     })));
     personalTasks.forEach(item => sources.push(source('personal_task', { id: `personal_${item.id}` }, clean(item.title, 160) || 'משימה אישית', `/tasks?task=${encodeURIComponent(item.id)}`, {
-      title: clean(item.title, 160), description: clean(item.description, 800), status: clean(item.status || item.taskStatus, 40),
+      id: item.id, title: clean(item.title, 160), description: clean(item.description, 800), status: clean(item.status || item.taskStatus, 40) || 'todo',
+      storageMode: 'personal', canUpdateStatus: true,
+      canEditDetails: true,
       dueDate: clean(item.dueDate, 30), reminderAt: clean(item.reminderAt, 40), priority: clean(item.priority, 30), tags: list(item.tags),
     })));
     invitations.forEach(item => sources.push(source('task_invitation', item, clean(item.taskTitle || item.title, 160) || 'הזמנה למשימה', '/tasks', {
@@ -822,9 +1084,42 @@ export async function loadZokiContext({ actor, schoolId, question, imageTextExtr
     adminInstructions: clean(brainData.instructions, 4000),
     capabilities: {
       canCreateTask: decision(permissionContext, 'tasks.useAssistant').allowed,
+      canChangeTaskStatus: sources.some(item => ['task', 'personal_task'].includes(item.type) && item.fields?.canUpdateStatus),
+      canChangeTaskAssignment: sources.some(item => item.type === 'task'
+        && (item.fields?.canAssignStaff || item.fields?.canRemoveAssignee)),
+      canEditTaskDetails: sources.some(item => ['task', 'personal_task'].includes(item.type) && item.fields?.canEditDetails),
       canEditGrades: decision(permissionContext, 'grades.edit').allowed,
       canTransferStudents: decision(permissionContext, 'students.transferClass').allowed
         || decision(permissionContext, 'students_transfer_class').allowed,
+      canAssignRoles,
+      canManageDirectPermissions,
+      canManageResourcePermissions: canProposeResourcePermissions,
+      canRenameResources: sources.some(item => ['file', 'folder'].includes(item.type) && item.fields?.canRename),
+      canTrashResources: sources.some(item => ['file', 'folder'].includes(item.type) && item.fields?.canTrash),
+      canCreateResources: decision(permissionContext, 'files.create').allowed,
+      canRestoreResources: sources.some(item => ['file', 'folder'].includes(item.type) && item.fields?.canRestore),
+      canMoveResources: sources.some(item => item.type === 'file' && item.fields?.canMove)
+        && sources.some(item => item.type === 'folder' && item.fields?.canMoveInto),
+      canManageStudentTracks: decision(permissionContext, 'students.managePrograms').allowed
+        || decision(permissionContext, 'students_manage_programs').allowed,
+      canEditAttendance: decision(permissionContext, 'attendance.edit').allowed
+        || decision(permissionContext, 'attendance_edit').allowed || taughtClassIds.size > 0,
+      canAddStudentNotes: decision(permissionContext, 'students.addNotes').allowed
+        || decision(permissionContext, 'students_add_notes').allowed,
+      canCreateCalendarEvent: decision(permissionContext, 'calendar.create').allowed
+        || decision(permissionContext, 'calendar.edit').allowed
+        || decision(permissionContext, 'calendar_edit').allowed,
+      canEditCalendarEvent: decision(permissionContext, 'calendar.edit').allowed
+        || decision(permissionContext, 'calendar_edit').allowed,
+      canCreatePrivateContact: true,
+      canCreateInstitutionalContact: decision(permissionContext, 'contacts.create').allowed,
+      canManageTeamMembership: managerSubject(permissionContext)
+        || decision(permissionContext, 'teams_edit').allowed
+        || sources.some(item => item.type === 'team' && item.fields?.canManage === true),
+      canManageTeamManagers: managerSubject(permissionContext)
+        || decision(permissionContext, 'teams_edit').allowed
+        || sources.some(item => item.type === 'team' && item.fields?.canManage === true),
+      canCreateTeam: managerSubject(permissionContext) || decision(permissionContext, 'teams_edit').allowed,
     },
   };
 }

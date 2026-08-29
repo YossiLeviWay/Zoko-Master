@@ -19,7 +19,29 @@ export { setActiveSchool, requestPublicPasswordReset } from './callables/auth.js
 export { inviteTaskCollaborators, respondTaskInvitation, createMandatoryTask, executeZokiTask } from './callables/tasks.js';
 export { draftTaskWithAgent } from './callables/taskAgent.js';
 export { askZoki, getZokiTaskGuidance, saveZokiBrain } from './callables/zoki.js';
-export { executeZokiGrade, executeZokiStudentTransfer } from './callables/zokiActions.js';
+export {
+  executeZokiAttendance,
+  executeZokiCalendarEvent,
+  executeZokiCalendarEventUpdate,
+  executeZokiCalendarEventCancel,
+  executeZokiContact,
+  executeZokiDirectPermission,
+  executeZokiGrade,
+  executeZokiRoleAssignment,
+  executeZokiResourceAccess,
+  executeZokiResourceCreate,
+  executeZokiResourceMove,
+  executeZokiResourceRename,
+  executeZokiStudentTrack,
+  executeZokiStudentNote,
+  executeZokiStudentTransfer,
+  executeZokiTeamMembership,
+  executeZokiTeamCreate,
+  executeZokiTeamManager,
+  executeZokiTaskStatus,
+  executeZokiTaskAssignment,
+  executeZokiTaskDetails,
+} from './callables/zokiActions.js';
 export { listTaskPatternCandidates, reviewTaskPattern } from './callables/taskPatterns.js';
 export {
   learnNestedOrganizationTaskCreated,
