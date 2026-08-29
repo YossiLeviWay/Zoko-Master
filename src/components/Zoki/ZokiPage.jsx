@@ -11,6 +11,7 @@ import { schoolCollection } from '../../services/firestore/paths.js';
 import { useTaskAssistantContext } from '../../hooks/useTaskAssistantContext.js';
 import { taskAssistantErrorMessage } from '../../services/firebaseAiTaskService.js';
 import { draftTaskWithInstitutionalBrain } from '../../services/taskAgentBrainService.js';
+import { normalizeZokiConversationState } from '../../utils/zokiConversation.js';
 import zokiAvatar from '../../assets/zoki-avatar-minimal.svg';
 import './Zoki.css';
 
@@ -126,11 +127,12 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
       localStorage.removeItem(conversationKey);
     }
     const applyState = state => {
-      if (!active || !state || !Array.isArray(state.messages)) return;
-      setMessages(state.messages.slice(-60));
-      setPendingTask(state.pendingTask || null);
-      setTaskActionResult(state.taskActionResult || null);
-      setTaskAgentTurn(state.taskAgentTurn || null);
+      const normalized = normalizeZokiConversationState(state);
+      if (!active || !normalized) return;
+      setMessages(normalized.messages);
+      setPendingTask(normalized.pendingTask);
+      setTaskActionResult(normalized.taskActionResult);
+      setTaskAgentTurn(normalized.taskAgentTurn);
     };
     applyState(localState);
     syncZokiConversation({ schoolId, operation: 'load' })
@@ -179,7 +181,9 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
     return () => { active = false; };
   }, [canManage, schoolId]);
 
-  useEffect(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }), [messages, loading]);
+  useEffect(() => {
+    if (typeof endRef.current?.scrollIntoView === 'function') endRef.current.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, loading]);
 
   const greeting = useMemo(() => {
     const firstName = (userData?.fullName || '').trim().split(/\s+/u)[0];
@@ -850,7 +854,7 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
         <nav aria-label="פעולות שיחה">
           {canManage && <button type="button" onClick={() => setBrainOpen(true)} aria-label="הגדרות העוזר" title="הגדרות העוזר"><Settings2 size={18} /></button>}
           {messages.length > 0 && <button type="button" className="zoki-end-conversation" onClick={() => finishConversation()} title="סיום ומחיקת השיחה"><CircleStop size={17} /><span>סיום שיחה</span></button>}
-          {embedded && <button type="button" onClick={onMinimize} aria-label="מזעור" title="מזעור"><Minus size={20} /></button>}
+          {embedded && <button type="button" className="zoki-minimize-button" onClick={onMinimize} aria-label="מזעור" title="מזעור"><Minus size={16} /></button>}
         </nav>
       </header>
 
