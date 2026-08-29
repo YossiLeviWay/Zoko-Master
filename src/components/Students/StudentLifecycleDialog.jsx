@@ -30,7 +30,7 @@ export default function StudentLifecycleDialog({
   const [selectedIds, setSelectedIds] = useState(() => students.map(student => student.id));
   const [targetYearId, setTargetYearId] = useState('');
   const [targetClassId, setTargetClassId] = useState('');
-  const [status, setStatus] = useState(mode === 'graduate' ? ENROLLMENT_STATUS.GRADUATED : mode === 'archive' ? ENROLLMENT_STATUS.ARCHIVED : ENROLLMENT_STATUS.WITHDRAWN);
+  const [status, setStatus] = useState(mode === 'graduate' ? ENROLLMENT_STATUS.GRADUATED : ['archive', 'delete'].includes(mode) ? ENROLLMENT_STATUS.ARCHIVED : ENROLLMENT_STATUS.WITHDRAWN);
   const [effectiveDate, setEffectiveDate] = useState(localDateKey);
   const [reason, setReason] = useState('');
   const [note, setNote] = useState('');
@@ -44,7 +44,7 @@ export default function StudentLifecycleDialog({
     && item.status !== 'archived'
   ));
   const targetClass = targetClasses.find(item => item.id === targetClassId);
-  const title = mode === 'promote' ? 'העלאת תלמידים לשנת לימודים חדשה' : mode === 'graduate' ? 'הפיכת תלמידים לבוגרים' : mode === 'restore' ? 'החזרת תלמידים לפעילות' : mode === 'archive' ? 'העברת תלמידים לארכיון' : 'עדכון סטטוס לימודים';
+  const title = mode === 'promote' ? 'העלאת תלמידים לשנת לימודים חדשה' : mode === 'graduate' ? 'הפיכת תלמידים לבוגרים' : mode === 'restore' ? 'החזרת תלמידים לפעילות' : mode === 'delete' ? 'מחיקת תלמיד' : mode === 'archive' ? 'העברת תלמידים לארכיון' : 'עדכון סטטוס לימודים';
 
   const selections = useMemo(() => selectedStudents.map(student => ({
     student,
@@ -76,7 +76,7 @@ export default function StudentLifecycleDialog({
       } else {
         await changeEnrollmentStatus({
           db, schoolId, actor, selections,
-          status: mode === 'graduate' ? ENROLLMENT_STATUS.GRADUATED : mode === 'restore' ? ENROLLMENT_STATUS.ACTIVE : mode === 'archive' ? ENROLLMENT_STATUS.ARCHIVED : status,
+          status: mode === 'graduate' ? ENROLLMENT_STATUS.GRADUATED : mode === 'restore' ? ENROLLMENT_STATUS.ACTIVE : ['archive', 'delete'].includes(mode) ? ENROLLMENT_STATUS.ARCHIVED : status,
           effectiveDate, reason, note,
           graduationYear: mode === 'graduate' ? String(selectedYear?.endYear || '') : '',
         });
@@ -97,12 +97,12 @@ export default function StudentLifecycleDialog({
         <div className="modal-header"><h3>{title}</h3><button className="modal-close" onClick={onClose} aria-label="סגירה"><X size={18} /></button></div>
         <form className="modal-form" onSubmit={submit}>
           {error && <div className="students-feedback students-feedback--error" role="alert">{error}</div>}
-          <div className="lifecycle-summary"><strong>{selectedStudents.length}</strong> מתוך {students.length} תלמידים נבחרו. המידע ההיסטורי והתיק האישי לא יימחקו.</div>
+          <div className={`lifecycle-summary${mode === 'delete' ? ' lifecycle-summary--danger' : ''}`}>{mode === 'delete' ? <>התלמיד <strong>{selectedStudents[0]?.fullName}</strong> יוסר מכל הרשימות הפעילות. המידע ההיסטורי והתיק האישי יישמרו בארכיון וניתן יהיה לשחזרם.</> : <><strong>{selectedStudents.length}</strong> מתוך {students.length} תלמידים נבחרו. המידע ההיסטורי והתיק האישי לא יימחקו.</>}</div>
           {mode === 'promote' && <div className="student-form-grid"><div className="form-group"><label>שנת יעד *</label><select value={targetYearId} onChange={event => { setTargetYearId(event.target.value); setTargetClassId(''); }} required><option value="">בחירת שנה</option>{years.filter(year => year.startYear > (selectedYear?.startYear || 0)).map(year => <option key={year.id} value={year.id}>{year.label} · {year.startYear}-{year.endYear}</option>)}</select></div><div className="form-group"><label>כיתת יעד *</label><select value={targetClassId} onChange={event => setTargetClassId(event.target.value)} required disabled={!targetYearId}><option value="">בחירת כיתה</option>{targetClasses.map(item => <option key={item.id} value={item.id}>{item.name} · {item.gradeLevel}</option>)}</select></div></div>}
           {mode === 'exit' && <div className="student-form-grid"><div className="form-group"><label>סטטוס *</label><select value={status} onChange={event => setStatus(event.target.value)}>{Object.entries(EXIT_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></div><div className="form-group"><label>סיבה *</label><input value={reason} onChange={event => setReason(event.target.value)} maxLength={300} required /></div><div className="form-group form-group--wide"><label>הערה</label><textarea value={note} onChange={event => setNote(event.target.value)} rows={3} maxLength={1000} /></div></div>}
           <div className="form-group"><label>תאריך תחולה *</label><input type="date" value={effectiveDate} onChange={event => setEffectiveDate(event.target.value)} required /></div>
           <div className="lifecycle-student-list">{students.map(student => <label key={student.id}><input type="checkbox" checked={selectedIds.includes(student.id)} onChange={() => toggleStudent(student.id)} /><span>{student.fullName}</span><small>{student.className || 'ללא כיתה'}</small></label>)}</div>
-          <div className="modal-actions"><button className="btn btn-primary" disabled={saving || selectedStudents.length === 0}>{mode === 'promote' ? <ArrowLeft size={15} /> : mode === 'graduate' ? <GraduationCap size={15} /> : mode === 'exit' ? <UserMinus size={15} /> : <Check size={15} />}{saving ? 'מבצע…' : 'אישור הפעולה'}</button><button type="button" className="btn btn-secondary" onClick={onClose}>ביטול</button></div>
+          <div className="modal-actions"><button className={`btn ${mode === 'delete' ? 'btn-danger' : 'btn-primary'}`} disabled={saving || selectedStudents.length === 0}>{mode === 'promote' ? <ArrowLeft size={15} /> : mode === 'graduate' ? <GraduationCap size={15} /> : mode === 'exit' || mode === 'delete' ? <UserMinus size={15} /> : <Check size={15} />}{saving ? 'מבצע…' : mode === 'delete' ? 'מחיקת התלמיד' : 'אישור הפעולה'}</button><button type="button" className="btn btn-secondary" onClick={onClose}>ביטול</button></div>
         </form>
       </div>
     </div>
