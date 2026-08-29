@@ -152,8 +152,8 @@
 }
 
 /* Manage Members Modal */
-.modal-content--wide {
-  max-width: 560px;
+.team-manage-modal {
+  max-width: 620px;
 }
 
 .manage-section {
@@ -242,7 +242,7 @@
     font-size: 0.55rem;
   }
 
-  .modal-content--wide {
+  .team-manage-modal {
     max-width: 95vw;
   }
 
