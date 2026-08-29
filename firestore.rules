@@ -400,6 +400,26 @@ service cloud.firestore {
       return isGlobalAdmin() || isSchoolPrincipal(schoolId);
     }
 
+    function permanentlyDeletableStudentStatus(status) {
+      return status in ['withdrawn', 'dropout', 'transferred', 'archived'];
+    }
+
+    function canPermanentlyDeleteStudent(schoolId, data) {
+      return canManageSchoolUsers(schoolId)
+        && data.schoolId == schoolId
+        && permanentlyDeletableStudentStatus(data.get('status', 'active'));
+    }
+
+    function canPermanentlyDeleteStudentById(schoolId, studentId) {
+      let nestedPath = /databases/$(database)/documents/schools/$(schoolId)/students/$(studentId);
+      let legacyCollection = 'students_' + schoolId;
+      let legacyPath = /databases/$(database)/documents/$(legacyCollection)/$(studentId);
+      return canManageSchoolUsers(schoolId) && (
+        (exists(nestedPath) && canPermanentlyDeleteStudent(schoolId, get(nestedPath).data))
+        || (exists(legacyPath) && canPermanentlyDeleteStudent(schoolId, get(legacyPath).data))
+      );
+    }
+
     function hasPermission(schoolId, permission) {
       return canManageSchoolUsers(schoolId)
         || (
@@ -3829,7 +3849,8 @@ service cloud.firestore {
           request.resource.data
         );
         allow update: if safeEnrollmentUpdate(schoolId, enrollmentId);
-        allow delete: if false;
+        allow delete: if resource.data.studentId is string
+          && canPermanentlyDeleteStudentById(schoolId, resource.data.studentId);
       }
 
       match /classes/{classId} {
@@ -3863,7 +3884,7 @@ service cloud.firestore {
         allow read: if canViewStudent(schoolId, resource.data);
         allow create: if validStudentCreate(schoolId, request.resource.data);
         allow update: if safeStudentUpdate(schoolId);
-        allow delete: if false;
+        allow delete: if canPermanentlyDeleteStudent(schoolId, resource.data);
 
         match /history/{historyId} {
           allow read: if canViewStudent(
@@ -3876,7 +3897,8 @@ service cloud.firestore {
             getAfter(/databases/$(database)/documents/schools/$(schoolId)/students/$(studentId)).data,
             request.resource.data
           );
-          allow update, delete: if false;
+          allow update: if false;
+          allow delete: if canPermanentlyDeleteStudentById(schoolId, studentId);
         }
 
         match /notes/{noteId} {
@@ -3899,20 +3921,24 @@ service cloud.firestore {
             && request.resource.data.content is string
             && request.resource.data.content.size() > 0
             && request.resource.data.visibility in ['class_staff', 'school_admin'];
-          allow update, delete: if false;
+          allow update: if false;
+          allow delete: if canPermanentlyDeleteStudentById(schoolId, studentId);
         }
 
         match /sensitive/{sensitiveId} {
-          allow read: if sensitiveId == 'identity'
-            && canViewStudent(
-              schoolId,
-              get(/databases/$(database)/documents/schools/$(schoolId)/students/$(studentId)).data
-            )
-            && canViewStudentSensitiveFields(
-              schoolId,
-              get(/databases/$(database)/documents/schools/$(schoolId)/students/$(studentId)).data
-            );
-          allow create, update, delete: if false;
+          allow read: if (
+              sensitiveId == 'identity'
+              && canViewStudent(
+                schoolId,
+                get(/databases/$(database)/documents/schools/$(schoolId)/students/$(studentId)).data
+              )
+              && canViewStudentSensitiveFields(
+                schoolId,
+                get(/databases/$(database)/documents/schools/$(schoolId)/students/$(studentId)).data
+              )
+            ) || canPermanentlyDeleteStudentById(schoolId, studentId);
+          allow create, update: if false;
+          allow delete: if canPermanentlyDeleteStudentById(schoolId, studentId);
         }
       }
 
@@ -3925,26 +3951,31 @@ service cloud.firestore {
           && request.resource.data.updatedBy == request.auth.uid
           && existsAfter(/databases/$(database)/documents/schools/$(schoolId)/students/$(studentId))
           && getAfter(/databases/$(database)/documents/schools/$(schoolId)/students/$(studentId)).data.createdBy == request.auth.uid;
-        allow update, delete: if false;
+        allow update: if false;
+        allow delete: if canPermanentlyDeleteStudentById(schoolId, studentId);
 
         match /{kind}/{itemId} {
           allow read: if kind in [
             'documents', 'credentials', 'experiences', 'skills', 'recommendations'
           ] && canViewPersonalFile(schoolId, studentId);
-          allow create, update, delete: if false;
+          allow create, update: if false;
+          allow delete: if canPermanentlyDeleteStudentById(schoolId, studentId);
         }
 
         match /cvDocuments/{documentId} {
           allow read: if canViewCv(schoolId, studentId);
-          allow create, update, delete: if false;
+          allow create, update: if false;
+          allow delete: if canPermanentlyDeleteStudentById(schoolId, studentId);
 
           match /versions/{versionId} {
             allow read: if canViewCv(schoolId, studentId);
-            allow create, update, delete: if false;
+            allow create, update: if false;
+            allow delete: if canPermanentlyDeleteStudentById(schoolId, studentId);
 
             match /exports/{exportId} {
               allow read: if canViewCv(schoolId, studentId);
-              allow create, update, delete: if false;
+              allow create, update: if false;
+              allow delete: if canPermanentlyDeleteStudentById(schoolId, studentId);
             }
           }
         }
@@ -3977,7 +4008,7 @@ service cloud.firestore {
             && request.resource.data.gradebookId == resource.data.gradebookId
             && request.resource.data.classId == resource.data.classId
             && request.resource.data.studentId == resource.data.studentId;
-          allow delete: if false;
+          allow delete: if canPermanentlyDeleteStudentById(schoolId, studentId);
         }
       }
 
@@ -4053,7 +4084,9 @@ service cloud.firestore {
             && request.resource.data.studentId == memberId
             && studentBelongsToClass(schoolId, memberId, request.resource.data.classId)
             && request.resource.data.createdBy == request.auth.uid;
-          allow update, delete: if false;
+          allow update: if false;
+          allow delete: if resource.data.studentId is string
+            && canPermanentlyDeleteStudentById(schoolId, resource.data.studentId);
         }
 
         match /attendanceDays/{dayId} {
@@ -4095,7 +4128,8 @@ service cloud.firestore {
             && request.resource.data.studentId == resource.data.studentId
             && request.resource.data.dateKey == resource.data.dateKey
             && recordId == request.resource.data.studentId + '__' + request.resource.data.dateKey;
-          allow delete: if false;
+          allow delete: if resource.data.studentId is string
+            && canPermanentlyDeleteStudentById(schoolId, resource.data.studentId);
         }
 
         match /attendanceHistory/{historyId} {
@@ -4104,7 +4138,9 @@ service cloud.firestore {
             && validAttendanceChildBase(schoolId, fileId, request.resource.data)
             && request.resource.data.classId == nestedAttendanceFileData(schoolId, fileId).classId
             && request.resource.data.createdBy == request.auth.uid;
-          allow update, delete: if false;
+          allow update: if false;
+          allow delete: if resource.data.studentId is string
+            && canPermanentlyDeleteStudentById(schoolId, resource.data.studentId);
         }
       }
 
@@ -4248,7 +4284,9 @@ service cloud.firestore {
             schoolId,
             get(/databases/$(database)/documents/schools/$(schoolId)/students/$(resource.data.studentId)).data
           );
-        allow create, update, delete: if false;
+        allow create, update: if false;
+        allow delete: if resource.data.studentId is string
+          && canPermanentlyDeleteStudentById(schoolId, resource.data.studentId);
       }
 
       match /studentOutcomeApprovals/{approvalId} {
@@ -4865,6 +4903,12 @@ service cloud.firestore {
           collectionName.matches('^roles_[A-Za-z0-9_-]+$')
           && legacyRoleReadAllowed(collectionName, documentId, data)
         ) || (
+          collectionName.matches('^gradebooks_[A-Za-z0-9_-]+$')
+          && data.schoolId is string
+          && data.classId is string
+          && collectionName == 'gradebooks_' + data.schoolId
+          && canViewGrades(data.schoolId, data.classId)
+        ) || (
           !collectionName.matches('^(tasks|academic_years|student_enrollments|students|classes|roles|personal_files|skill_catalog)_[A-Za-z0-9_-]+$')
           && legacyReadAllowed(collectionName, data)
         );
@@ -4973,6 +5017,23 @@ service cloud.firestore {
 
     function legacyTopLevelDeleteAllowed(collectionName, data) {
       return (
+          collectionName.matches('^students_[A-Za-z0-9_-]+$')
+          && data.schoolId is string
+          && collectionName == 'students_' + data.schoolId
+          && canPermanentlyDeleteStudent(data.schoolId, data)
+        ) || (
+          collectionName.matches('^student_enrollments_[A-Za-z0-9_-]+$')
+          && data.schoolId is string
+          && data.studentId is string
+          && collectionName == 'student_enrollments_' + data.schoolId
+          && canPermanentlyDeleteStudentById(data.schoolId, data.studentId)
+        ) || (
+          collectionName.matches('^personal_files_[A-Za-z0-9_-]+$')
+          && data.schoolId is string
+          && data.studentId is string
+          && collectionName == 'personal_files_' + data.schoolId
+          && canPermanentlyDeleteStudentById(data.schoolId, data.studentId)
+        ) || (
           collectionName.matches('^tasks_[A-Za-z0-9_-]+$')
           && legacyTaskDeleteAllowed(collectionName, data)
         ) || (
@@ -4985,7 +5046,7 @@ service cloud.firestore {
           collectionName.matches('^settings_[A-Za-z0-9_-]+$')
           && legacySensitiveWriteAllowed(collectionName, data)
         ) || (
-          !collectionName.matches('^(tasks|academic_years|student_enrollments|roles|settings|holidays|personal_files|skill_catalog)_[A-Za-z0-9_-]+$')
+          !collectionName.matches('^(tasks|academic_years|student_enrollments|students|roles|settings|holidays|personal_files|skill_catalog)_[A-Za-z0-9_-]+$')
           && legacyWriteAllowed(collectionName, data)
         );
     }
@@ -5071,13 +5132,48 @@ service cloud.firestore {
     }
 
     match /{legacyCollection}/{studentId}/{kind}/{itemId} {
-      allow read: if legacyCollection.matches('^personal_files_[A-Za-z0-9_-]+$')
-        && kind in ['documents', 'credentials', 'experiences', 'skills', 'recommendations']
-        && resource.data.schoolId is string
-        && legacyCollection == 'personal_files_' + resource.data.schoolId
-        && resource.data.studentId == studentId
-        && canViewPersonalFile(resource.data.schoolId, studentId);
-      allow create, update, delete: if false;
+      allow read: if (
+          legacyCollection.matches('^personal_files_[A-Za-z0-9_-]+$')
+          && kind in ['documents', 'credentials', 'experiences', 'skills', 'recommendations']
+          && resource.data.schoolId is string
+          && legacyCollection == 'personal_files_' + resource.data.schoolId
+          && resource.data.studentId == studentId
+          && canViewPersonalFile(resource.data.schoolId, studentId)
+        ) || (
+          legacyCollection.matches('^students_[A-Za-z0-9_-]+$')
+          && kind == 'sensitive'
+          && resource.data.schoolId is string
+          && canPermanentlyDeleteStudentById(resource.data.schoolId, studentId)
+        );
+      allow create, update: if false;
+      allow delete: if resource.data.schoolId is string
+        && (
+          (
+            legacyCollection.matches('^personal_files_[A-Za-z0-9_-]+$')
+            && kind in ['documents', 'credentials', 'experiences', 'skills', 'recommendations']
+          )
+          || (
+            legacyCollection.matches('^students_[A-Za-z0-9_-]+$')
+            && kind == 'sensitive'
+          )
+        )
+        && canPermanentlyDeleteStudentById(resource.data.schoolId, studentId);
+    }
+
+    match /{legacyCollection}/{gradebookId}/grades/{studentId} {
+      allow read: if legacyCollection.matches('^gradebooks_[A-Za-z0-9_-]+$')
+        && get(/databases/$(database)/documents/$(legacyCollection)/$(gradebookId)).data.schoolId is string
+        && legacyCollection == 'gradebooks_' + get(/databases/$(database)/documents/$(legacyCollection)/$(gradebookId)).data.schoolId
+        && canViewGrades(
+          get(/databases/$(database)/documents/$(legacyCollection)/$(gradebookId)).data.schoolId,
+          get(/databases/$(database)/documents/$(legacyCollection)/$(gradebookId)).data.classId
+        );
+      allow create, update: if false;
+      allow delete: if legacyCollection.matches('^gradebooks_[A-Za-z0-9_-]+$')
+        && canPermanentlyDeleteStudentById(
+          get(/databases/$(database)/documents/$(legacyCollection)/$(gradebookId)).data.schoolId,
+          studentId
+        );
     }
 
     match /{legacyCollection}/{studentId}/cvDocuments/{documentId} {
@@ -5086,7 +5182,9 @@ service cloud.firestore {
         && legacyCollection == 'personal_files_' + resource.data.schoolId
         && resource.data.studentId == studentId
         && canViewCv(resource.data.schoolId, studentId);
-      allow create, update, delete: if false;
+      allow create, update: if false;
+      allow delete: if resource.data.schoolId is string
+        && canPermanentlyDeleteStudentById(resource.data.schoolId, studentId);
 
       match /versions/{versionId} {
         allow read: if legacyCollection.matches('^personal_files_[A-Za-z0-9_-]+$')
@@ -5094,7 +5192,9 @@ service cloud.firestore {
           && legacyCollection == 'personal_files_' + resource.data.schoolId
           && resource.data.studentId == studentId
           && canViewCv(resource.data.schoolId, studentId);
-        allow create, update, delete: if false;
+        allow create, update: if false;
+        allow delete: if resource.data.schoolId is string
+          && canPermanentlyDeleteStudentById(resource.data.schoolId, studentId);
 
         match /exports/{exportId} {
           allow read: if legacyCollection.matches('^personal_files_[A-Za-z0-9_-]+$')
@@ -5102,7 +5202,9 @@ service cloud.firestore {
             && legacyCollection == 'personal_files_' + resource.data.schoolId
             && resource.data.studentId == studentId
             && canViewCv(resource.data.schoolId, studentId);
-          allow create, update, delete: if false;
+          allow create, update: if false;
+          allow delete: if resource.data.schoolId is string
+            && canPermanentlyDeleteStudentById(resource.data.schoolId, studentId);
         }
       }
     }
@@ -5166,7 +5268,12 @@ service cloud.firestore {
             || studentPermission('classes_assign_teacher')
           )
         );
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if legacyCollection.matches('^students_[A-Za-z0-9_-]+$')
+        && canPermanentlyDeleteStudentById(
+          legacySchoolId(get(/databases/$(database)/documents/$(legacyCollection)/$(entityId)).data),
+          entityId
+        );
     }
 
     match /{legacyCollection}/{fileId}/attendanceLegend/{itemId} {
@@ -5213,7 +5320,10 @@ service cloud.firestore {
           request.resource.data.classId
         )
         && request.resource.data.createdBy == request.auth.uid;
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if resource.data.schoolId is string
+        && resource.data.studentId is string
+        && canPermanentlyDeleteStudentById(resource.data.schoolId, resource.data.studentId);
     }
 
     match /{legacyCollection}/{fileId}/attendanceDays/{dayId} {
@@ -5266,7 +5376,11 @@ service cloud.firestore {
         && request.resource.data.studentId == resource.data.studentId
         && request.resource.data.dateKey == resource.data.dateKey
         && recordId == request.resource.data.studentId + '__' + request.resource.data.dateKey;
-      allow delete: if false;
+      allow delete: if resource.data.studentId is string
+        && canPermanentlyDeleteStudentById(
+          legacyAttendanceFileData(legacyCollection, fileId).schoolId,
+          resource.data.studentId
+        );
     }
 
     match /{legacyCollection}/{fileId}/attendanceHistory/{historyId} {
@@ -5279,7 +5393,12 @@ service cloud.firestore {
         )
         && request.resource.data.classId == legacyAttendanceFileData(legacyCollection, fileId).classId
         && request.resource.data.createdBy == request.auth.uid;
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if resource.data.studentId is string
+        && canPermanentlyDeleteStudentById(
+          legacyAttendanceFileData(legacyCollection, fileId).schoolId,
+          resource.data.studentId
+        );
     }
 
     match /{legacyCollection}/{studentId}/notes/{noteId} {
@@ -5305,7 +5424,11 @@ service cloud.firestore {
             get(/databases/$(database)/documents/$(legacyCollection)/$(studentId)).data
           )
         );
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if canPermanentlyDeleteStudentById(
+        legacySchoolId(get(/databases/$(database)/documents/$(legacyCollection)/$(studentId)).data),
+        studentId
+      );
     }
 
     match /{legacyCollection}/{taskId}/chat/{messageId} {

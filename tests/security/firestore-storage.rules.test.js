@@ -1552,6 +1552,32 @@ test('student identity is readable only with the sensitive-fields capability and
   }));
 });
 
+test('only a school manager permanently deletes an archived student and dependent records', async () => {
+  const archivedStudent = { ...studentRecord(), status: 'archived', endDate: '2026-11-01' };
+  await seedFirestore({
+    'users/principal_a': user({ schoolId: SCHOOL_A, role: 'principal' }),
+    'users/viewer_a': user({ schoolId: SCHOOL_A, permissions: { students_view: true } }),
+    [`schools/${SCHOOL_A}/students/archived_student`]: archivedStudent,
+    [`schools/${SCHOOL_A}/students/archived_student/history/archived`]: {
+      schoolId: SCHOOL_A, studentId: 'archived_student', type: 'student_archived', createdBy: 'principal_a',
+    },
+    [`schools/${SCHOOL_A}/studentEnrollments/archived_enrollment`]: enrollmentRecord({
+      studentId: 'archived_student', status: 'archived',
+    }),
+    [`schools/${SCHOOL_A}/students/active_student`]: studentRecord({ name: 'Active Student' }),
+  });
+  const principalDb = context('principal_a').firestore();
+  const viewerDb = context('viewer_a').firestore();
+  const archivedPath = `schools/${SCHOOL_A}/students/archived_student`;
+
+  await assertFails(deleteDoc(doc(viewerDb, `${archivedPath}/history/archived`)));
+  await assertFails(deleteDoc(doc(viewerDb, archivedPath)));
+  await assertFails(deleteDoc(doc(principalDb, `schools/${SCHOOL_A}/students/active_student`)));
+  await assertSucceeds(deleteDoc(doc(principalDb, `${archivedPath}/history/archived`)));
+  await assertSucceeds(deleteDoc(doc(principalDb, `schools/${SCHOOL_A}/studentEnrollments/archived_enrollment`)));
+  await assertSucceeds(deleteDoc(doc(principalDb, archivedPath)));
+});
+
 test('global admin needs the dedicated claim to read student data', async () => {
   await seedFirestore({
     'users/global_admin': user({ schoolId: SCHOOL_A, role: 'global_admin' }),

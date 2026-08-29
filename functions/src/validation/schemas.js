@@ -578,12 +578,6 @@ export const bulkStudentImportSchema = z.object({
   students: z.array(importStudent).min(1).max(200),
 }).strict();
 
-export const permanentlyDeleteStudentSchema = z.object({
-  schoolId: id,
-  studentId: id,
-  confirmation: z.literal('DELETE'),
-}).strict();
-
 const optionalText = max => z.string().trim().max(max).optional().default('');
 const attachment = z.object({
   storagePath: z.string().trim().min(1).max(500),

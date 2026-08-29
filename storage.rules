@@ -297,7 +297,8 @@ service firebase.storage {
         ]
         && canUploadPersonalFile(schoolId, studentId)
         && safeGeneralUpload(filename);
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if isSchoolPrincipal(schoolId);
     }
 
     match /schools/{schoolId}/students/{studentId}/cv/{documentId}/{versionId}/{exportId}/{filename} {
@@ -307,7 +308,8 @@ service firebase.storage {
         && request.resource.size < 10 * 1024 * 1024
         && request.resource.contentType == 'application/pdf'
         && filename.matches('(?i).+\\.pdf$');
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if isSchoolPrincipal(schoolId);
     }
 
     match /users/{userId}/avatars/{filename} {

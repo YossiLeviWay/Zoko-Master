@@ -62,7 +62,6 @@ import {
   upsertCvTemplateHandler,
 } from '../../functions/src/callables/cvTemplates.js';
 import { bulkImportStudentsHandler } from '../../functions/src/callables/studentImports.js';
-import { permanentlyDeleteStudentHandler } from '../../functions/src/callables/students.js';
 import { fileTrashActionHandler } from '../../functions/src/callables/fileTrash.js';
 import {
   evaluatePreviewAccessHandler,
@@ -117,54 +116,6 @@ test('privileged functions reject unauthenticated and cross-school actors', asyn
     role: 'viewer',
     schoolId: SCHOOL_B,
   })), error => error.code === 'permission-denied');
-});
-
-test('a school manager permanently deletes only an archived student and related school data', async () => {
-  await seedUser('principal_a', SCHOOL_A, 'principal');
-  await seedUser('viewer_a', SCHOOL_A, 'viewer');
-  const studentId = 'mistaken_student';
-  await Promise.all([
-    adminDb.doc(`schools/${SCHOOL_A}/students/${studentId}`).set({ schoolId: SCHOOL_A, status: 'archived', fullName: 'רישום שגוי' }),
-    adminDb.doc(`schools/${SCHOOL_A}/students/${studentId}/history/event_a`).set({ studentId, type: 'student_archived' }),
-    adminDb.doc(`schools/${SCHOOL_A}/studentEnrollments/enrollment_a`).set({ schoolId: SCHOOL_A, studentId }),
-    adminDb.doc(`personal_files_${SCHOOL_A}/${studentId}/documents/document_a`).set({ schoolId: SCHOOL_A, studentId }),
-    adminDb.doc(`schools/${SCHOOL_A}/studentOutcomeResults/outcome_a`).set({ schoolId: SCHOOL_A, studentId }),
-    adminDb.doc(`schools/${SCHOOL_A}/gradebooks/gradebook_a`).set({ schoolId: SCHOOL_A, classId: 'class_a' }),
-    adminDb.doc(`schools/${SCHOOL_A}/gradebooks/gradebook_a/grades/${studentId}`).set({ schoolId: SCHOOL_A, studentId }),
-    adminDb.doc(`schools/${SCHOOL_A}/files/attendance_a`).set({ schoolId: SCHOOL_A, fileType: 'attendance' }),
-    adminDb.doc(`schools/${SCHOOL_A}/files/attendance_a/attendanceMembers/${studentId}`).set({ schoolId: SCHOOL_A, studentId }),
-    adminDb.doc(`schools/${SCHOOL_A}/files/attendance_a/attendanceRecords/record_a`).set({ schoolId: SCHOOL_A, studentId }),
-    adminDb.doc(`schools/${SCHOOL_A}/files/attendance_a/attendanceHistory/history_a`).set({ schoolId: SCHOOL_A, studentId }),
-  ]);
-
-  const request = actorRequest('principal_a', { schoolId: SCHOOL_A, studentId, confirmation: 'DELETE' });
-  await assert.rejects(
-    permanentlyDeleteStudentHandler(actorRequest('viewer_a', request.data)),
-    error => error.code === 'permission-denied',
-  );
-  const result = await permanentlyDeleteStudentHandler(request);
-  assert.equal(result.ok, true);
-  const refs = [
-    `schools/${SCHOOL_A}/students/${studentId}`,
-    `schools/${SCHOOL_A}/studentEnrollments/enrollment_a`,
-    `personal_files_${SCHOOL_A}/${studentId}`,
-    `schools/${SCHOOL_A}/studentOutcomeResults/outcome_a`,
-    `schools/${SCHOOL_A}/gradebooks/gradebook_a/grades/${studentId}`,
-    `schools/${SCHOOL_A}/files/attendance_a/attendanceMembers/${studentId}`,
-    `schools/${SCHOOL_A}/files/attendance_a/attendanceRecords/record_a`,
-    `schools/${SCHOOL_A}/files/attendance_a/attendanceHistory/history_a`,
-  ];
-  const deleted = await adminDb.getAll(...refs.map(path => adminDb.doc(path)));
-  assert.equal(deleted.every(item => !item.exists), true);
-});
-
-test('permanent student deletion rejects an active student', async () => {
-  await seedUser('principal_a', SCHOOL_A, 'principal');
-  await adminDb.doc(`schools/${SCHOOL_A}/students/student_a`).set({ schoolId: SCHOOL_A, status: 'active' });
-  await assert.rejects(permanentlyDeleteStudentHandler(actorRequest('principal_a', {
-    schoolId: SCHOOL_A, studentId: 'student_a', confirmation: 'DELETE',
-  })), error => error.code === 'failed-precondition');
-  assert.equal((await adminDb.doc(`schools/${SCHOOL_A}/students/student_a`).get()).exists, true);
 });
 
 test('communication agent is server-authorized, tenant-scoped and audit-only until confirmation', async () => {

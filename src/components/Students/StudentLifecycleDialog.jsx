@@ -3,7 +3,7 @@ import { ArrowLeft, Check, GraduationCap, UserMinus, X } from 'lucide-react';
 import { changeEnrollmentStatus, ENROLLMENT_STATUS, promoteStudents } from '../../services/firestore/studentLifecycleRepository';
 import { academicYearIdFromLegacy } from '../../services/firestore/academicYearRepository';
 import { db } from '../../firebase';
-import { permanentlyDeleteStudent } from '../../services/adminUserService';
+import { permanentlyDeleteStudent } from '../../services/firestore/studentDeletionRepository';
 
 function localDateKey() {
   const date = new Date();
@@ -78,7 +78,7 @@ export default function StudentLifecycleDialog({
     setError('');
     try {
       if (mode === 'permanentDelete') {
-        await permanentlyDeleteStudent({ schoolId, studentId: selectedStudents[0].id, confirmation: 'DELETE' });
+        await permanentlyDeleteStudent({ schoolId, studentId: selectedStudents[0].id });
       } else if (mode === 'promote') {
         await promoteStudents({ db, schoolId, actor, selections, sourceAcademicYear: selectedYear, targetAcademicYear: targetYear, targetClass, effectiveDate });
       } else {
@@ -93,7 +93,7 @@ export default function StudentLifecycleDialog({
     } catch (submitError) {
       setError(submitError.message === 'ENROLLMENT_EXISTS'
         ? 'לאחד התלמידים כבר קיימת הרשמה בשנת היעד. לא בוצע שינוי.'
-        : 'הפעולה נכשלה. לא נמחק מידע; בדקו הרשאות ונסו שוב.');
+        : 'הפעולה לא הושלמה. בדקו את החיבור וההרשאות לפני ניסיון נוסף.');
     } finally {
       setSaving(false);
     }
