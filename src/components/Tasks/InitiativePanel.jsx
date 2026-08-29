@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Archive,
   ArrowDown,
@@ -137,7 +138,7 @@ export default function InitiativePanel({
   const [showEdit, setShowEdit] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
-  const [showMore, setShowMore] = useState(false);
+  const [showMore, setShowMore] = useState(null);
   const [milestoneSort, setMilestoneSort] = useState('date');
   const [initiativeForm, setInitiativeForm] = useState(() => emptyInitiativeForm(academicYears[0]));
   const [milestoneForm, setMilestoneForm] = useState(emptyMilestone);
@@ -156,6 +157,19 @@ export default function InitiativePanel({
   const canTemplate = permissions['initiatives.createTemplate'];
   const canDuplicate = permissions['initiatives.duplicate'];
   const canArchive = permissions['initiatives.archive'];
+
+  function openMoreMenu(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const width = 230;
+    const height = 260;
+    const pointerTriggered = event.type === 'contextmenu';
+    setShowMore(current => current ? null : {
+      x: Math.max(12, Math.min(pointerTriggered ? event.clientX : rect.left, window.innerWidth - width - 12)),
+      y: Math.max(12, Math.min(pointerTriggered ? event.clientY : rect.bottom + 6, window.innerHeight - height - 12)),
+    });
+  }
 
   useEffect(() => {
     if (createRequest && canCreate) {
@@ -556,18 +570,18 @@ export default function InitiativePanel({
       ...details.milestones.flatMap(item => item.fileIds || []),
       ...details.updates.flatMap(item => item.fileIds || []),
     ]);
-    return <section className="initiative-detail" aria-label={`תכנית ${activeInitiative.title}`}>
+    return <section className="initiative-detail" aria-label={`תכנית ${activeInitiative.title}`} onContextMenu={openMoreMenu}>
       <div className="initiative-detail-nav">
         <button className="btn btn-secondary btn-sm" onClick={() => setActiveId('')}><ArrowRight size={15} /> חזרה לכל המשימות</button>
         <div className="initiative-more-wrap">
-          <button className="icon-btn" onClick={() => setShowMore(value => !value)} aria-label="פעולות נוספות"><MoreHorizontal size={18} /></button>
-          {showMore && <div className="initiative-more-menu">
+          <button className="icon-btn" onClick={openMoreMenu} aria-label="פעולות נוספות"><MoreHorizontal size={18} /></button>
+          {showMore && createPortal(<div className="initiative-menu-backdrop" onPointerDown={() => setShowMore(null)}><div className="initiative-more-menu initiative-more-menu--floating" role="menu" style={{ left: showMore.x, top: showMore.y }} onPointerDown={event => event.stopPropagation()}>
             {canEdit && <button onClick={() => { setShowEdit(true); setShowMore(false); }}><Pencil size={14} /> עריכת פרטי התכנית</button>}
-            {canChangeHealth && <button onClick={handleHealthOverride}><CircleAlert size={14} /> שינוי מצב מנומק</button>}
-            {canTemplate && <button onClick={handleTemplate}><Save size={14} /> שמירה כתבנית</button>}
-            {canDuplicate && <button onClick={handleDuplicate}><Copy size={14} /> שכפול לשנה חדשה</button>}
+            {canChangeHealth && <button onClick={() => { setShowMore(null); handleHealthOverride(); }}><CircleAlert size={14} /> שינוי מצב מנומק</button>}
+            {canTemplate && <button onClick={() => { setShowMore(null); handleTemplate(); }}><Save size={14} /> שמירה כתבנית</button>}
+            {canDuplicate && <button onClick={() => { setShowMore(null); handleDuplicate(); }}><Copy size={14} /> שכפול לשנה חדשה</button>}
             {canArchive && activeInitiative.status !== 'archived' && <button onClick={() => { setShowArchive(true); setShowMore(false); }}><Archive size={14} /> סגירה וארכוב</button>}
-          </div>}
+          </div></div>, document.body)}
         </div>
       </div>
 

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { collection, getDocs, onSnapshot, query, where } from 'firebase/firestore';
 import {
@@ -368,6 +369,7 @@ export default function TaskBoard() {
   const [communicationTask, setCommunicationTask] = useState(null);
   const [communicationReturnTo, setCommunicationReturnTo] = useState('');
   const [contextTaskMenu, setContextTaskMenu] = useState(null);
+  const [contextPageMenu, setContextPageMenu] = useState(null);
   const [showAssignmentBoard, setShowAssignmentBoard] = useState(false);
   const [assignmentSavingKey, setAssignmentSavingKey] = useState('');
 
@@ -387,17 +389,18 @@ export default function TaskBoard() {
   }
 
   useEffect(() => {
-    if (!showFilters && !showForm && !contextTaskMenu && !showAssignmentBoard) return undefined;
+    if (!showFilters && !showForm && !contextTaskMenu && !contextPageMenu && !showAssignmentBoard) return undefined;
     const closeTransientPanels = event => {
       if (event.key !== 'Escape') return;
       setShowFilters(false);
       setShowForm(false);
       setContextTaskMenu(null);
+      setContextPageMenu(null);
       setShowAssignmentBoard(false);
     };
     window.addEventListener('keydown', closeTransientPanels);
     return () => window.removeEventListener('keydown', closeTransientPanels);
-  }, [showFilters, showForm, contextTaskMenu, showAssignmentBoard]);
+  }, [showFilters, showForm, contextTaskMenu, contextPageMenu, showAssignmentBoard]);
 
   useEffect(() => {
     if (!location.state?.communicationContext) return;
@@ -776,6 +779,40 @@ export default function TaskBoard() {
     });
     setAssistantMeta(null);
     setShowForm(true);
+  }
+
+  function menuPosition(x, y, width = 240, height = 390) {
+    return {
+      x: Math.max(12, Math.min(x, window.innerWidth - width - 12)),
+      y: Math.max(12, Math.min(y, window.innerHeight - height - 12)),
+    };
+  }
+
+  function openTaskActions(event, task) {
+    event.preventDefault();
+    event.stopPropagation();
+    const anchor = event.currentTarget.getBoundingClientRect?.();
+    const pointerTriggered = event.type === 'contextmenu';
+    const position = menuPosition(
+      pointerTriggered ? event.clientX : anchor?.left ?? event.clientX,
+      pointerTriggered ? event.clientY : (anchor?.bottom ?? event.clientY) + 6,
+    );
+    setContextPageMenu(null);
+    setContextTaskMenu({ task, ...position });
+  }
+
+  function openPageActions(event, anchored = false) {
+    if (!anchored && event.target.closest('button, a, input, textarea, select, [contenteditable="true"], [role="menu"]')) return;
+    event.preventDefault();
+    const anchor = anchored ? event.currentTarget.getBoundingClientRect() : null;
+    const position = menuPosition(
+      anchored ? anchor.left : event.clientX,
+      anchored ? anchor.bottom + 6 : event.clientY,
+      245,
+      280,
+    );
+    setContextTaskMenu(null);
+    setContextPageMenu(position);
   }
 
   function applyAssistantProposal(proposal, context = {}) {
@@ -1442,23 +1479,9 @@ export default function TaskBoard() {
     const status = STATUS_CONFIG[isTaskComplete(task) ? 'done' : task.status] || STATUS_CONFIG.todo;
     const overdue = taskDateGroup(task) === 'overdue';
     const daysLate = overdue ? overdueDayCount({ dueDate: taskDueDate(task) }, localDateKey()) : 0;
-    const pinned = task.pinnedBy?.includes(uid);
     const unreadChat = isTaskChatUnread(task);
-    const closeAndRun = (event, action) => {
-      event.currentTarget.closest('details')?.removeAttribute('open');
-      action();
-    };
     return (
-      <article key={task._key} className={`task-row task-work-card ${overdue ? 'task-row--overdue' : ''}`} onContextMenu={event => {
-        event.preventDefault();
-        const menuWidth = 230;
-        const menuHeight = 330;
-        setContextTaskMenu({
-          task,
-          x: Math.max(12, Math.min(event.clientX, window.innerWidth - menuWidth - 12)),
-          y: Math.max(12, Math.min(event.clientY, window.innerHeight - menuHeight - 12)),
-        });
-      }}>
+      <article key={task._key} className={`task-row task-work-card ${overdue ? 'task-row--overdue' : ''}`} onContextMenu={event => openTaskActions(event, task)}>
         <div className="task-main">
           <div className="task-title-line">
             <span className="task-title">{task.title}</span>
@@ -1476,23 +1499,9 @@ export default function TaskBoard() {
         <button className="task-complete-action" type="button" onClick={() => changeStatus(task, isTaskComplete(task) ? 'todo' : 'done')} disabled={!canChangeStatus(task)} aria-label={isTaskComplete(task) ? `החזרת ${task.title} לביצוע` : `סימון ${task.title} כהושלם`}>
           {isTaskComplete(task) ? <RotateCcw size={15} /> : <Check size={15} />}<span>{isTaskComplete(task) ? 'החזרה לביצוע' : 'סימון כהושלם'}</span>
         </button>
-        <details className="task-actions-menu">
-          <summary aria-label={`פעולות נוספות עבור ${task.title}`} title="פעולות נוספות"><MoreHorizontal size={18} />{unreadChat && <span className="task-menu-unread" aria-label="יש הודעות חדשות">!</span>}</summary>
-          <div role="menu">
-            {canEditDetails(task) && <button role="menuitem" onClick={event => closeAndRun(event, () => startEdit(task))}><Edit3 size={15} /> עריכה</button>}
-            {task._source === 'organization' && <button role="menuitem" onClick={event => closeAndRun(event, () => setChatTask(task))}><MessageSquare size={15} /> {unreadChat ? 'תגובה — הודעה חדשה' : 'תגובה'}</button>}
-            {canEditDetails(task) && <button role="menuitem" onClick={event => closeAndRun(event, () => pinTask(task))}><Pin size={15} /> {pinned ? 'ביטול הצמדה' : 'הצמדת משימה'}</button>}
-            {task.attachedFileId && <button role="menuitem" onClick={event => closeAndRun(event, () => setPreviewFile(task))}><Paperclip size={15} /> פתיחת קובץ</button>}
-            {canEditDetails(task) && <button role="menuitem" onClick={event => closeAndRun(event, () => startEdit(task))}><Paperclip size={15} /> {task.attachedFileId ? 'החלפת קובץ' : 'הוספת קובץ'}</button>}
-            {task._source === 'organization' && <button role="menuitem" onClick={event => closeAndRun(event, () => createFollowUp(task))}><CopyPlus size={15} /> יצירת משימת המשך</button>}
-            {canCreateCommunication && task.workflowType !== 'external_email_followup' && <button role="menuitem" onClick={event => closeAndRun(event, () => setCommunicationTask(task))}><MailPlus size={15} /> יצירת מייל ומעקב</button>}
-            {task.workflowType === 'external_email_followup' && task.communicationStatus === 'awaiting_send' && <button role="menuitem" onClick={event => closeAndRun(event, () => setCommunicationTask(task))}><MailPlus size={15} /> פתיחת טיוטת המייל</button>}
-            {task._source === 'personal' && <button role="menuitem" onClick={event => closeAndRun(event, () => { setCollaborationTask(task); setCollaborationRecipients([]); setCollaborationMessage(''); })}><User size={15} /> הזמנת שותפים</button>}
-            {task._source === 'personal' && canAssignTasks && <button role="menuitem" onClick={event => closeAndRun(event, () => { setConversionTask(task); setConversion({ scope: TASK_SCOPES.ASSIGNED, assigneeId: '', teamId: '' }); })}><Users size={15} /> העברת אחריות</button>}
-            {task._source === 'organization' && canManageTaskPermissions && <button role="menuitem" onClick={event => closeAndRun(event, () => setPermissionTask({ task, position: { x: Math.max(16, window.innerWidth / 2 - 180), y: Math.max(16, window.innerHeight / 2 - 260) } }))}><Shield size={15} /> הרשאות נקודתיות</button>}
-            {canDeleteTask(task) && <button className="is-danger" role="menuitem" onClick={event => closeAndRun(event, () => removeTask(task))}><Trash2 size={15} /> מחיקה</button>}
-          </div>
-        </details>
+        <div className="task-actions-menu">
+          <button type="button" className="task-actions-trigger" onClick={event => openTaskActions(event, task)} aria-label={`פעולות נוספות עבור ${task.title}`} title="פעולות נוספות"><MoreHorizontal size={18} />{unreadChat && <span className="task-menu-unread" aria-label="יש הודעות חדשות">!</span>}</button>
+        </div>
       </article>
     );
   }
@@ -1501,7 +1510,7 @@ export default function TaskBoard() {
     <div className="page">
       <Header title="משימות" onPermissions={() => setShowPermissionsPanel(true)} />
       {showPermissionsPanel && <PagePermissionsPanel feature="tasks" onClose={() => setShowPermissionsPanel(false)} />}
-      <div className="page-content task-page-content">
+      <div className="page-content task-page-content" onContextMenu={event => activeTab === 'dashboard' && openPageActions(event)}>
         {message && <div className="task-feedback task-feedback--success" role="status">{message}</div>}
         {error && <div className="task-feedback task-feedback--error" role="alert">{error}<button onClick={() => setError('')} aria-label="סגירת הודעת שגיאה"><X size={14} /></button></div>}
 
@@ -1519,7 +1528,7 @@ export default function TaskBoard() {
           </section>}
 
           {!showAssignmentBoard && <section className="task-view-layer" aria-label="בחירת תצוגה">
-            <div className="task-view-tools"><button type="button" className="task-filter-trigger" onClick={() => setShowFilters(true)} aria-label={`פתיחת מסננים${activeFilterCount ? `, ${activeFilterCount} פעילים` : ''}`}><Filter size={15} /> סינון{activeFilterCount > 0 && <span>{activeFilterCount}</span>}</button><details className="task-tools-menu"><summary aria-label="כלים נוספים"><MoreHorizontal size={17} /> כלים</summary><div>{canManageAssignmentBoard && <button type="button" onClick={() => setShowAssignmentBoard(true)}><Users size={14} /> ניהול הקצאות</button>}{canCreateCommunication && <button type="button" onClick={() => openCommunicationContext({ type: 'general', id: 'task_panel', label: 'פאנל המשימות' })}><MailPlus size={14} /> מייל ומעקב חדש</button>}<button type="button" onClick={() => setActiveTab('communications')}><MailPlus size={14} /> מרכז מיילים ומעקבים</button><button type="button" onClick={() => setActiveTab('invitations')}><Users size={14} /> הזמנות ושיתופים{dashboardStats.waiting > 0 ? ` (${dashboardStats.waiting})` : ''}</button></div></details></div>
+            <div className="task-view-tools"><button type="button" className="task-filter-trigger" onClick={() => setShowFilters(true)} aria-label={`פתיחת מסננים${activeFilterCount ? `, ${activeFilterCount} פעילים` : ''}`}><Filter size={15} /> סינון{activeFilterCount > 0 && <span>{activeFilterCount}</span>}</button><button type="button" className="task-tools-trigger" onClick={event => openPageActions(event, true)} aria-label="כלים נוספים"><MoreHorizontal size={17} /> כלים</button></div>
           </section>}
 
           {!showAssignmentBoard && workView !== 'plans' && <section className="task-work-list-head" aria-label="מסננים פעילים">
@@ -1617,16 +1626,34 @@ export default function TaskBoard() {
         </section>
       </div>}
 
-      {contextTaskMenu && <div className="task-context-menu-backdrop" onPointerDown={() => setContextTaskMenu(null)}>
+      {contextTaskMenu && createPortal(<div className="task-context-menu-backdrop" onPointerDown={() => setContextTaskMenu(null)}>
         <div className="task-context-menu" role="menu" aria-label={`ניהול ${contextTaskMenu.task.title}`} style={{ left: contextTaskMenu.x, top: contextTaskMenu.y }} onPointerDown={event => event.stopPropagation()}>
           {canEditDetails(contextTaskMenu.task) && <button role="menuitem" onClick={() => { startEdit(contextTaskMenu.task); setContextTaskMenu(null); }}><Edit3 size={15} /> עריכה</button>}
           <button role="menuitem" disabled={!canChangeStatus(contextTaskMenu.task)} onClick={() => { changeStatus(contextTaskMenu.task, isTaskComplete(contextTaskMenu.task) ? 'todo' : 'done'); setContextTaskMenu(null); }}>{isTaskComplete(contextTaskMenu.task) ? <RotateCcw size={15} /> : <Check size={15} />} {isTaskComplete(contextTaskMenu.task) ? 'החזרה לביצוע' : 'סימון כהושלם'}</button>
+          {contextTaskMenu.task._source === 'organization' && <button role="menuitem" onClick={() => { setChatTask(contextTaskMenu.task); setContextTaskMenu(null); }}><MessageSquare size={15} /> {isTaskChatUnread(contextTaskMenu.task) ? 'תגובה — הודעה חדשה' : 'תגובה'}</button>}
           {canEditDetails(contextTaskMenu.task) && <button role="menuitem" onClick={() => { pinTask(contextTaskMenu.task); setContextTaskMenu(null); }}><Pin size={15} /> {contextTaskMenu.task.pinnedBy?.includes(uid) ? 'ביטול הצמדה' : 'הצמדת משימה'}</button>}
-          {contextTaskMenu.task._source === 'organization' && <button role="menuitem" onClick={() => { setChatTask(contextTaskMenu.task); setContextTaskMenu(null); }}><MessageSquare size={15} /> תגובה</button>}
+          {contextTaskMenu.task.attachedFileId && <button role="menuitem" onClick={() => { setPreviewFile(contextTaskMenu.task); setContextTaskMenu(null); }}><Paperclip size={15} /> פתיחת קובץ</button>}
+          {canEditDetails(contextTaskMenu.task) && <button role="menuitem" onClick={() => { startEdit(contextTaskMenu.task); setContextTaskMenu(null); }}><Paperclip size={15} /> {contextTaskMenu.task.attachedFileId ? 'החלפת קובץ' : 'הוספת קובץ'}</button>}
+          {contextTaskMenu.task._source === 'organization' && <button role="menuitem" onClick={() => { createFollowUp(contextTaskMenu.task); setContextTaskMenu(null); }}><CopyPlus size={15} /> יצירת משימת המשך</button>}
+          {canCreateCommunication && contextTaskMenu.task.workflowType !== 'external_email_followup' && <button role="menuitem" onClick={() => { setCommunicationTask(contextTaskMenu.task); setContextTaskMenu(null); }}><MailPlus size={15} /> יצירת מייל ומעקב</button>}
+          {contextTaskMenu.task.workflowType === 'external_email_followup' && contextTaskMenu.task.communicationStatus === 'awaiting_send' && <button role="menuitem" onClick={() => { setCommunicationTask(contextTaskMenu.task); setContextTaskMenu(null); }}><MailPlus size={15} /> פתיחת טיוטת המייל</button>}
           {contextTaskMenu.task._source === 'personal' && <button role="menuitem" onClick={() => { setCollaborationTask(contextTaskMenu.task); setCollaborationRecipients([]); setCollaborationMessage(''); setContextTaskMenu(null); }}><User size={15} /> הזמנת שותפים</button>}
+          {contextTaskMenu.task._source === 'personal' && canAssignTasks && <button role="menuitem" onClick={() => { setConversionTask(contextTaskMenu.task); setConversion({ scope: TASK_SCOPES.ASSIGNED, assigneeId: '', teamId: '' }); setContextTaskMenu(null); }}><Users size={15} /> העברת אחריות</button>}
+          {contextTaskMenu.task._source === 'organization' && canManageTaskPermissions && <button role="menuitem" onClick={() => { setPermissionTask({ task: contextTaskMenu.task, position: { x: Math.max(16, window.innerWidth / 2 - 180), y: Math.max(16, window.innerHeight / 2 - 260) } }); setContextTaskMenu(null); }}><Shield size={15} /> הרשאות נקודתיות</button>}
           {canDeleteTask(contextTaskMenu.task) && <button className="is-danger" role="menuitem" onClick={() => { const task = contextTaskMenu.task; setContextTaskMenu(null); removeTask(task); }}><Trash2 size={15} /> מחיקה</button>}
         </div>
-      </div>}
+      </div>, document.body)}
+
+      {contextPageMenu && createPortal(<div className="task-context-menu-backdrop" onPointerDown={() => setContextPageMenu(null)}>
+        <div className="task-context-menu" role="menu" aria-label="פעולות מהירות במסך המשימות" style={{ left: contextPageMenu.x, top: contextPageMenu.y }} onPointerDown={event => event.stopPropagation()}>
+          <button role="menuitem" onClick={() => { openTaskForm(TASK_SCOPES.PERSONAL); setContextPageMenu(null); }}><Plus size={15} /> יצירת משימה חדשה</button>
+          <button role="menuitem" onClick={() => { setShowFilters(true); setContextPageMenu(null); }}><Filter size={15} /> סינון משימות</button>
+          {canManageAssignmentBoard && <button role="menuitem" onClick={() => { setShowAssignmentBoard(true); setContextPageMenu(null); }}><Users size={15} /> ניהול הקצאות</button>}
+          {canCreateCommunication && <button role="menuitem" onClick={() => { openCommunicationContext({ type: 'general', id: 'task_panel', label: 'פאנל המשימות' }); setContextPageMenu(null); }}><MailPlus size={15} /> מייל ומעקב חדש</button>}
+          <button role="menuitem" onClick={() => { setActiveTab('communications'); setContextPageMenu(null); }}><MailPlus size={15} /> מרכז מיילים ומעקבים</button>
+          <button role="menuitem" onClick={() => { setActiveTab('invitations'); setContextPageMenu(null); }}><Users size={15} /> הזמנות ושיתופים{dashboardStats.waiting > 0 ? ` (${dashboardStats.waiting})` : ''}</button>
+        </div>
+      </div>, document.body)}
 
       {editingTask && editForm && (
         <div className="task-edit-overlay" onClick={() => setEditingTask(null)}>
