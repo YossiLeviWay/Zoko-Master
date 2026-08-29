@@ -1,18 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getDocs } from 'firebase/firestore';
+import { getDocs, query, where } from 'firebase/firestore';
 import { ArrowDown, BookOpen, CheckCircle2, CircleStop, ExternalLink, Minus, Pencil, Plus, Save, Send, Settings2, ShieldCheck, Trash2, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { db } from '../../firebase.js';
-import { askZoki, callableReason, executeZokiAttendance, executeZokiCalendarEvent, executeZokiCalendarEventCancel, executeZokiCalendarEventUpdate, executeZokiContact, executeZokiDirectPermission, executeZokiGrade, executeZokiResourceAccess, executeZokiResourceCreate, executeZokiResourceMove, executeZokiResourceRename, executeZokiRoleAssignment, executeZokiStudentNote, executeZokiStudentTrack, executeZokiStudentTransfer, executeZokiTask, executeZokiTaskAssignment, executeZokiTaskDetails, executeZokiTaskStatus, executeZokiTeamCreate, executeZokiTeamManager, executeZokiTeamMembership, fileTrashAction, syncZokiConversation } from '../../services/adminUserService.js';
+import { callableReason, executeZokiAttendance, executeZokiCalendarEvent, executeZokiCalendarEventCancel, executeZokiCalendarEventUpdate, executeZokiContact, executeZokiDirectPermission, executeZokiGrade, executeZokiResourceAccess, executeZokiResourceCreate, executeZokiResourceMove, executeZokiResourceRename, executeZokiRoleAssignment, executeZokiStudentNote, executeZokiStudentTrack, executeZokiStudentTransfer, executeZokiTask, executeZokiTaskAssignment, executeZokiTaskDetails, executeZokiTaskStatus, executeZokiTeamCreate, executeZokiTeamManager, executeZokiTeamMembership, fileTrashAction, syncZokiConversation } from '../../services/adminUserService.js';
 import { saveZokiBrain, subscribeZokiBrain } from '../../services/firestore/zokiBrainRepository.js';
 import { listSchoolStaff, subscribeStudents } from '../../services/firestore/classStudentRepository.js';
+import { subscribeContacts } from '../../services/firestore/contactRepository.js';
 import { schoolCollection } from '../../services/firestore/paths.js';
 import { useTaskAssistantContext } from '../../hooks/useTaskAssistantContext.js';
 import { usePermissions } from '../../hooks/usePermissions.js';
 import { taskAssistantErrorMessage } from '../../services/firebaseAiTaskService.js';
 import { draftTaskWithInstitutionalBrain } from '../../services/taskAgentBrainService.js';
 import { normalizeZokiConversationState } from '../../utils/zokiConversation.js';
+import { loadAuthorizedStudentDetails } from '../../services/zokiSparkDataService.js';
 import { answerZokiOnSpark } from '../../utils/zokiSparkAnswer.js';
 import zokiAvatar from '../../assets/zoki-avatar-minimal.svg';
 import './Zoki.css';
@@ -106,6 +108,9 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
   const [audienceRoles, setAudienceRoles] = useState([]);
   const [audienceLoading, setAudienceLoading] = useState(false);
   const [accessibleStudents, setAccessibleStudents] = useState([]);
+  const [accessibleTracks, setAccessibleTracks] = useState([]);
+  const [accessibleContacts, setAccessibleContacts] = useState([]);
+  const [accessibleFiles, setAccessibleFiles] = useState([]);
   const [pendingTask, setPendingTask] = useState(null);
   const [executingTask, setExecutingTask] = useState(false);
   const [taskActionResult, setTaskActionResult] = useState(null);
@@ -113,7 +118,7 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
   const messagesRef = useRef(null);
   const [showHistoryJump, setShowHistoryJump] = useState(false);
   const { schoolContext: taskAssistantSchoolContext, loading: taskAssistantContextLoading } = useTaskAssistantContext();
-  const { permissions, permissionScopes, loading: permissionsLoading } = usePermissions();
+  const { permissions, schoolWidePermissions, permissionScopes, loading: permissionsLoading } = usePermissions();
   const conversationKey = useMemo(() => currentUser?.uid && schoolId
     ? `zoko-master:zoki-conversation:v2:${currentUser.uid}:${schoolId}` : '', [currentUser?.uid, schoolId]);
 
@@ -221,6 +226,77 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
     });
   }, [canManage, permissionScopes, permissions, permissionsLoading, schoolId, taskAssistantSchoolContext?.sources?.classes]);
 
+  useEffect(() => {
+    if (!schoolId || permissionsLoading || (!canManage && !permissions['students.view'] && !permissions.students_view)) {
+      setAccessibleTracks([]);
+      return undefined;
+    }
+    let active = true;
+    getDocs(schoolCollection(db, schoolId, 'tracks'))
+      .then(snapshot => {
+        if (active) setAccessibleTracks(snapshot.docs.map(item => ({ id: item.id, ...item.data() })));
+      })
+      .catch(() => { if (active) setAccessibleTracks([]); });
+    return () => { active = false; };
+  }, [canManage, permissions, permissionsLoading, schoolId]);
+
+  useEffect(() => {
+    if (!schoolId || !currentUser?.uid || permissionsLoading) {
+      setAccessibleContacts([]);
+      return undefined;
+    }
+    return subscribeContacts({
+      db,
+      schoolId,
+      userId: currentUser.uid,
+      includeInstitutional: canManage || permissions['contacts.view'] === true,
+      canReadRestricted: canManage,
+      onData: setAccessibleContacts,
+      onError: () => setAccessibleContacts([]),
+    });
+  }, [canManage, currentUser?.uid, permissions, permissionsLoading, schoolId]);
+
+  useEffect(() => {
+    if (!schoolId || permissionsLoading) {
+      setAccessibleFiles([]);
+      return undefined;
+    }
+    let active = true;
+    const classes = taskAssistantSchoolContext?.sources?.classes || [];
+    const classIds = classes.map(item => item.id).filter(Boolean).slice(0, 30);
+    const attendanceSchoolWide = canManage
+      || permissionScopes.attendance_view?.type === 'school'
+      || permissionScopes['attendance.view']?.type === 'school';
+    const gradesSchoolWide = canManage
+      || schoolWidePermissions['grades.view']
+      || schoolWidePermissions['grades.edit']
+      || schoolWidePermissions['gradebooks.manage'];
+    const requests = [getDocs(schoolCollection(db, schoolId, 'files')).catch(() => null)];
+    if (canManage) {
+      requests.push(getDocs(schoolCollection(db, schoolId, 'files', 'nested')).catch(() => null));
+    } else {
+      if (attendanceSchoolWide) requests.push(getDocs(query(
+        schoolCollection(db, schoolId, 'files', 'nested'), where('fileType', '==', 'attendance'),
+      )).catch(() => null));
+      if (gradesSchoolWide) requests.push(getDocs(query(
+        schoolCollection(db, schoolId, 'files', 'nested'), where('fileType', '==', 'gradebook'),
+      )).catch(() => null));
+      if (classIds.length) requests.push(getDocs(query(
+        schoolCollection(db, schoolId, 'files', 'nested'), where('classId', 'in', classIds),
+      )).catch(() => null));
+    }
+    Promise.all(requests).then(snapshots => {
+      if (!active) return;
+      const files = new Map();
+      snapshots.filter(Boolean).forEach(snapshot => snapshot.docs.forEach(item => {
+        const value = { id: item.id, ...item.data() };
+        if (!value.trashedAt && value.status !== 'archived') files.set(item.id, value);
+      }));
+      setAccessibleFiles([...files.values()]);
+    });
+    return () => { active = false; };
+  }, [canManage, permissionScopes, permissionsLoading, schoolId, schoolWidePermissions, taskAssistantSchoolContext?.sources?.classes]);
+
   const greeting = useMemo(() => {
     const firstName = (userData?.fullName || '').trim().split(/\s+/u)[0];
     return firstName ? `היי ${firstName}, איך אפשר לעזור?` : 'היי, איך אפשר לעזור?';
@@ -284,26 +360,25 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
         await submitTaskRequest(nextQuestion);
         return;
       }
-      const localAnswer = answerZokiOnSpark({ question: nextQuestion, students: accessibleStudents });
-      if (localAnswer) {
-        setMessages(previous => [...previous, {
-          id: `zoki_${Date.now()}`, role: 'zoki', text: localAnswer.answer,
-          sources: localAnswer.sources || [], followUpQuestion: '', actionProposal: null,
-        }]);
-        return;
-      }
-      const history = messages.slice(-8).filter(message => !message.error).map(message => ({
-        role: message.role === 'user' ? 'user' : 'assistant',
-        text: message.text,
-      }));
-      const result = await askZoki({ schoolId, question: nextQuestion, history });
-      const actionRequestId = result.actionProposal
-        ? (globalThis.crypto?.randomUUID?.().replaceAll('-', '_') || `request_${Date.now()}`)
-        : '';
+      const result = await answerZokiOnSpark({
+        question: nextQuestion,
+        data: {
+          ...(taskAssistantSchoolContext?.sources || {}),
+          students: accessibleStudents,
+          tracks: accessibleTracks,
+          contacts: accessibleContacts,
+          files: accessibleFiles,
+          brainEntries: canManage ? brain.entries : [],
+          brainInstructions: canManage ? brain.instructions : '',
+        },
+        canViewSensitive: canManage,
+        loadStudentDetails: (student, detailQuestion) => loadAuthorizedStudentDetails({
+          db, schoolId, student, question: detailQuestion,
+        }),
+      });
       setMessages(previous => [...previous, {
         id: `zoki_${Date.now()}`, role: 'zoki', text: result.answer,
-        sources: result.sources || [], followUpQuestion: result.followUpQuestion || '',
-        actionProposal: result.actionProposal ? { ...result.actionProposal, requestId: actionRequestId } : null,
+        sources: result.sources || [], followUpQuestion: '', actionProposal: null,
       }]);
     } catch (error) {
       const isTaskError = taskAgentTurn || TASK_CREATION_REQUEST.test(nextQuestion);
