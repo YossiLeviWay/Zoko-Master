@@ -11,9 +11,11 @@ import {
   updateDoc,
   deleteDoc,
   doc,
-  onSnapshot
+  onSnapshot,
+  arrayRemove,
+  arrayUnion,
+  serverTimestamp,
 } from 'firebase/firestore';
-import { updateTeamMembership } from '../../services/adminUserService';
 import Header from '../Layout/Header';
 import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
 import CommunicationLauncherButton from '../Shared/CommunicationLauncherButton';
@@ -37,6 +39,8 @@ export default function Teams() {
   const [manageTeam, setManageTeam] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [memberSearch, setMemberSearch] = useState('');
+  const [memberAction, setMemberAction] = useState('');
+  const [memberMessage, setMemberMessage] = useState('');
 
   const schoolId = selectedSchool || userData?.schoolId;
   const isAdmin = isPrincipal() || isGlobalAdmin();
@@ -157,35 +161,66 @@ export default function Teams() {
   async function addMember(teamId, userId) {
     const team = teams.find(t => t.id === teamId);
     if (!team || (team.memberIds || []).includes(userId)) return;
-    await updateTeamMembership({ schoolId, teamId, userId, action: 'add' });
-    // Notify the added user
-    createNotification(userId, {
-      schoolId,
-      title: `הוספת לצוות "${team.name}"`,
-      body: `${userData?.fullName || 'מנהל'} הוסיף/ה אותך לצוות`,
-      type: 'staff',
-      link: '/teams'
-    });
+    const actionKey = `add_${userId}`;
+    setMemberAction(actionKey);
+    setMemberMessage('');
+    try {
+      await updateDoc(doc(db, `teams_${schoolId}`, teamId), {
+        memberIds: arrayUnion(userId),
+        updatedAt: serverTimestamp(),
+      });
+      setMemberMessage('איש הצוות נוסף בהצלחה.');
+      createNotification(userId, {
+        schoolId,
+        title: `הוספת לצוות "${team.name}"`,
+        body: `${userData?.fullName || 'מנהל'} הוסיף/ה אותך לצוות`,
+        type: 'staff',
+        link: '/teams'
+      }).catch(() => undefined);
+    } catch {
+      setMemberMessage('לא ניתן להוסיף את איש הצוות. בדקו שיש לך הרשאת ניהול צוותים.');
+    } finally {
+      setMemberAction('');
+    }
   }
 
   async function removeMember(teamId, userId) {
     const team = teams.find(t => t.id === teamId);
     if (!team) return;
-    await updateTeamMembership({ schoolId, teamId, userId, action: 'remove' });
+    const actionKey = `remove_${userId}`;
+    setMemberAction(actionKey);
+    setMemberMessage('');
+    try {
+      await updateDoc(doc(db, `teams_${schoolId}`, teamId), {
+        memberIds: arrayRemove(userId),
+        managerIds: arrayRemove(userId),
+        updatedAt: serverTimestamp(),
+      });
+      setMemberMessage('איש הצוות הוסר מהצוות.');
+    } catch {
+      setMemberMessage('לא ניתן להסיר את איש הצוות. בדקו שיש לך הרשאת ניהול צוותים.');
+    } finally {
+      setMemberAction('');
+    }
   }
 
   async function toggleManager(teamId, userId) {
     const team = teams.find(t => t.id === teamId);
     if (!team) return;
     const managers = team.managerIds || [];
-    if (managers.includes(userId)) {
+    const actionKey = `manager_${userId}`;
+    setMemberAction(actionKey);
+    setMemberMessage('');
+    try {
       await updateDoc(doc(db, `teams_${schoolId}`, teamId), {
-        managerIds: managers.filter(id => id !== userId)
+        managerIds: managers.includes(userId) ? arrayRemove(userId) : arrayUnion(userId),
+        updatedAt: serverTimestamp(),
       });
-    } else {
-      await updateDoc(doc(db, `teams_${schoolId}`, teamId), {
-        managerIds: [...managers, userId]
-      });
+      setMemberMessage(managers.includes(userId) ? 'הרשאת ניהול הצוות הוסרה.' : 'איש הצוות הוגדר כמנהל צוות.');
+    } catch {
+      setMemberMessage('לא ניתן לעדכן את מנהל הצוות.');
+    } finally {
+      setMemberAction('');
     }
   }
 
@@ -349,12 +384,13 @@ export default function Teams() {
         {/* Manage Members Modal */}
         {manageTeam && managedTeam && (
           <div className="modal-overlay" onClick={() => setManageTeam(null)}>
-            <div className="modal-content modal-content--wide" onClick={e => e.stopPropagation()}>
+            <div className="modal-content modal-content--wide team-manage-modal" onClick={e => e.stopPropagation()}>
               <div className="modal-header">
                 <h3>ניהול חברי צוות — {managedTeam.name}</h3>
-                <button className="modal-close" onClick={() => setManageTeam(null)}><X size={18} /></button>
+                <button type="button" className="modal-close" onClick={() => setManageTeam(null)} aria-label="סגירה"><X size={18} /></button>
               </div>
               <div className="modal-form">
+                {memberMessage && <div className="team-member-message" role="status">{memberMessage}</div>}
                 {/* Current members */}
                 <div className="manage-section">
                   <h4 className="manage-section-title">חברי צוות נוכחיים ({currentMembers.length})</h4>
@@ -363,12 +399,14 @@ export default function Teams() {
                       const isManager = (managedTeam.managerIds || []).includes(memberId);
                       return (
                         <div key={memberId} className="manage-member-item">
-                          <div className="assign-avatar">{getMemberName(memberId).charAt(0)}</div>
-                          <span className="assign-name">{getMemberName(memberId)}</span>
+                          <div className="team-staff-avatar">{getMemberName(memberId).charAt(0)}</div>
+                          <span className="team-staff-name">{getMemberName(memberId)}</span>
                           {isManager && <span className="team-manager-badge" title="מנהל צוות"><Shield size={10} /> מנהל</span>}
                           {isAdmin && (
                             <button
+                              type="button"
                               className={`icon-btn${isManager ? ' icon-btn--active' : ''}`}
+                              disabled={memberAction === `manager_${memberId}`}
                               onClick={() => toggleManager(manageTeam, memberId)}
                               title={isManager ? 'הסר כמנהל צוות' : 'הגדר כמנהל צוות'}
                             >
@@ -376,7 +414,9 @@ export default function Teams() {
                             </button>
                           )}
                           <button
+                            type="button"
                             className="icon-btn icon-btn--danger"
+                            disabled={memberAction === `remove_${memberId}`}
                             onClick={() => removeMember(manageTeam, memberId)}
                             title="הסרה"
                           >
@@ -404,19 +444,21 @@ export default function Teams() {
                       placeholder="חיפוש אנשי צוות..."
                     />
                   </div>
-                  <div className="assign-list">
+                  <div className="team-staff-list">
                     {availableStaff.map(u => (
                       <button
+                        type="button"
                         key={u.id}
-                        className="assign-item"
+                        className="team-staff-option"
+                        disabled={memberAction === `add_${u.uid || u.id}`}
                         onClick={() => addMember(manageTeam, u.uid || u.id)}
                       >
-                        <div className="assign-avatar">{u.fullName?.charAt(0)}</div>
-                        <div>
-                          <div className="assign-name">{u.fullName}</div>
-                          <div className="assign-email">{u.jobTitle || u.email}</div>
+                        <div className="team-staff-avatar">{u.fullName?.charAt(0)}</div>
+                        <div className="team-staff-info">
+                          <div className="team-staff-name">{u.fullName}</div>
+                          <div className="team-staff-meta">{u.jobTitle || u.email}</div>
                         </div>
-                        <UserPlus size={14} style={{ color: '#22c55e', marginRight: 'auto', marginLeft: '0.5rem' }} />
+                        <span className="team-staff-add"><UserPlus size={15} /> הוספה</span>
                       </button>
                     ))}
                     {availableStaff.length === 0 && (

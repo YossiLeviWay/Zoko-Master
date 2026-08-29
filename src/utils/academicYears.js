@@ -13,10 +13,10 @@ export function hebrewYearLabel(yearNumber) {
   while (remaining > 0) {
     if (remaining === 15) { letters += 'טו'; break; }
     if (remaining === 16) { letters += 'טז'; break; }
-    const entry = HEBREW_LETTERS.find(([value]) => value <= remaining);
+    const entry = HEBREW_LETTERS.find(([value]) => Number(value) <= remaining);
     if (!entry) break;
     letters += entry[1];
-    remaining -= entry[0];
+    remaining -= Number(entry[0]);
   }
   if (letters.length === 1) return `${letters}׳`;
   return `${letters.slice(0, -1)}״${letters.slice(-1)}`;

@@ -67,6 +67,7 @@
 .bulk-import-progress span { padding: 8px; border-radius: 8px; color: var(--color-text-faint); text-align: center; background: var(--color-surface); font-size: 12px; }
 .bulk-import-progress span.active { color: var(--color-primary-hover); background: var(--color-primary-soft); font-weight: 700; }
 .bulk-import-step { padding: 20px 24px; max-height: 70vh; overflow: auto; }
+.bulk-defaults-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .bulk-source-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 18px; }
 .bulk-source-options button { min-height: 82px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--color-border); border-radius: 12px; background: #fff; color: var(--color-text-muted); cursor: pointer; }
 .bulk-source-options button:hover, .bulk-source-options button:focus-visible, .bulk-source-options button.active { border-color: var(--color-primary); background: var(--color-primary-soft); color: var(--color-primary-hover); outline: none; }
@@ -86,7 +87,7 @@
 .bulk-result-grid { display: grid; grid-template-columns: repeat(4, minmax(100px, 1fr)); gap: 12px; width: 100%; }
 .bulk-result-grid span { border: 1px solid var(--color-border); border-radius: 10px; padding: 14px; display: grid; gap: 4px; }
 .bulk-result-grid strong { color: var(--color-primary-hover); font-size: 22px; }
-@media (max-width: 700px) { .bulk-source-options, .bulk-result-grid { grid-template-columns: 1fr; } .bulk-import-progress { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 700px) { .bulk-source-options, .bulk-result-grid, .bulk-defaults-grid { grid-template-columns: 1fr; } .bulk-import-progress { grid-template-columns: repeat(2, 1fr); } }
 
 /* ===== Program Badges ===== */
 .student-program-badge {

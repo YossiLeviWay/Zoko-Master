@@ -48,7 +48,7 @@ export function academicYearId(startYear, endYear = Number(startYear) + 1) {
 
 export function academicYearIdFromLegacy(value) {
   const match = String(value || '').match(/(20\d{2})\D+(20\d{2})/);
-  return match ? academicYearId(match[1], match[2]) : '';
+  return match ? academicYearId(Number(match[1]), Number(match[2])) : '';
 }
 
 export function subscribeAcademicYears({ db, schoolId, onData, onError }) {
