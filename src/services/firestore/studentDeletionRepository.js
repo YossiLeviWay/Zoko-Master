@@ -43,6 +43,16 @@ async function deleteStorageTree(reference) {
   await Promise.all(contents.prefixes.map(prefix => deleteStorageTree(prefix)));
 }
 
+async function deleteStudentStorage(schoolId, studentId) {
+  try {
+    await deleteStorageTree(storageRef(storage, `schools/${schoolId}/students/${studentId}`));
+  } catch (error) {
+    const missingStorage = ['storage/bucket-not-found', 'storage/object-not-found'].includes(error?.code)
+      || (error?.code === 'storage/unknown' && /(?:404|bucket|not found)/i.test(`${error?.message || ''} ${error?.serverResponse || ''}`));
+    if (!missingStorage) throw error;
+  }
+}
+
 export async function permanentlyDeleteStudent({ schoolId, studentId }) {
   const nestedStudentRef = doc(db, `schools/${schoolId}/students/${studentId}`);
   const legacyStudentRef = doc(db, `students_${schoolId}/${studentId}`);
@@ -96,7 +106,7 @@ export async function permanentlyDeleteStudent({ schoolId, studentId }) {
     if (member.exists()) dependentReferences.push(member.ref);
   }
 
-  await deleteStorageTree(storageRef(storage, `schools/${schoolId}/students/${studentId}`));
+  await deleteStudentStorage(schoolId, studentId);
   await deleteReferences(dependentReferences);
   await deleteReferences([nestedStudent.exists() ? nestedStudentRef : null, legacyStudent.exists() ? legacyStudentRef : null].filter(Boolean));
   return { ok: true, studentId };
