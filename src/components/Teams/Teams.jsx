@@ -326,24 +326,24 @@ export default function Teams() {
                   <h3 className="team-card-name">{team.name}</h3>
                   {team.description && <p className="team-card-desc">{team.description}</p>}
                 </div>
-                <div className="team-card-actions">
-                  <CommunicationLauncherButton context={{ type: 'team', id: team.id, label: team.name, description: team.description, teamId: team.id, participantIds: team.memberIds || [] }} className="icon-btn" title={`יצירת מייל ומעקב עבור ${team.name}`}>מייל</CommunicationLauncherButton>
-                  {canManageTeam(team) && <>
-                    <button className="icon-btn" title="ניהול חברים" onClick={() => { setManageTeam(team.id); setMemberSearch(''); }}>
-                      <UserPlus size={15} />
-                    </button>
-                    {canEdit && (
-                      <>
-                        <button className="icon-btn" title="עריכה" onClick={() => handleEdit(team)}>
-                          <Edit3 size={15} />
-                        </button>
-                        <button className="icon-btn icon-btn--danger" title="מחיקה" onClick={() => handleDelete(team.id)}>
-                          <Trash2 size={15} />
-                        </button>
-                      </>
-                    )}
-                  </>}
-                </div>
+              </div>
+              <div className="team-card-actions">
+                <CommunicationLauncherButton context={{ type: 'team', id: team.id, label: team.name, description: team.description, teamId: team.id, participantIds: team.memberIds || [] }} className="icon-btn" title={`יצירת מייל ומעקב עבור ${team.name}`}>מייל</CommunicationLauncherButton>
+                {canManageTeam(team) && <>
+                  <button className="icon-btn" title="ניהול חברים" onClick={() => { setManageTeam(team.id); setMemberSearch(''); }}>
+                    <UserPlus size={15} />
+                  </button>
+                  {canEdit && (
+                    <>
+                      <button className="icon-btn" title="עריכה" onClick={() => handleEdit(team)}>
+                        <Edit3 size={15} />
+                      </button>
+                      <button className="icon-btn icon-btn--danger" title="מחיקה" onClick={() => handleDelete(team.id)}>
+                        <Trash2 size={15} />
+                      </button>
+                    </>
+                  )}
+                </>}
               </div>
               <div className="team-members">
                 <span className="team-member-count">{(team.memberIds || []).length} חברים</span>

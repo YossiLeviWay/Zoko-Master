@@ -11,6 +11,8 @@
   border-radius: 12px;
   padding: 1rem;
   transition: all 0.15s;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .team-card:hover {
@@ -57,8 +59,11 @@
 
 .team-card-actions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
   gap: 0.25rem;
-  flex-shrink: 0;
+  width: 100%;
+  margin: 0 0 0.75rem;
 }
 
 /* Members */

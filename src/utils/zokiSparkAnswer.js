@@ -29,22 +29,66 @@ const KNOWLEDGE_TERMS = /נוהל|נהלים|כלל|כללים|חוק|חוקים
 const array = value => Array.isArray(value) ? value : [];
 const text = value => typeof value === 'string' ? value.trim() : '';
 const unique = values => [...new Set(values.filter(Boolean))];
+const MATCH_STOP_WORDS = new Set([
+  'איזה', 'איזו', 'איך', 'איפה', 'אלה', 'אני', 'אנשי', 'את', 'בבקשה', 'בתוך',
+  'האם', 'הוא', 'היא', 'זה', 'זאת', 'יש', 'כאן', 'כמה', 'מה', 'מי', 'של',
+  'צוות', 'צוותים', 'חבר', 'חברי', 'חברים',
+]);
 
 function displayName(item, fallback = '') {
   return text(item?.fullName || item?.displayName || item?.name || item?.title) || fallback;
 }
 
-function containsLabel(question, item, fields = []) {
+function fieldText(value) {
+  return Array.isArray(value) ? value.map(fieldText).filter(Boolean).join(' ') : text(value);
+}
+
+function tokenForms(value) {
+  const normalized = normalize(value);
+  const forms = new Set([normalized]);
+  if (normalized.length > 3 && /^[בלמהוכש]/u.test(normalized)) forms.add(normalized.slice(1));
+  [...forms].forEach(form => {
+    if (form.length > 4 && form.endsWith('ים')) forms.add(form.slice(0, -2));
+    if (form.length > 4 && form.endsWith('ות')) forms.add(form.slice(0, -2));
+  });
+  return forms;
+}
+
+function meaningfulTokens(value) {
+  return normalize(value).split(/\s+/u).filter(Boolean).filter(token => {
+    const forms = tokenForms(token);
+    return token.length > 1 && ![...forms].some(form => MATCH_STOP_WORDS.has(form));
+  });
+}
+
+function tokenMatches(left, right) {
+  const rightForms = tokenForms(right);
+  return [...tokenForms(left)].some(form => rightForms.has(form));
+}
+
+function matchScore(question, item, fields = []) {
   const haystack = normalize(question);
-  return unique([displayName(item), ...fields.map(field => text(item?.[field]))])
-    .map(normalize)
-    .some(label => label.length >= 2 && haystack.includes(label));
+  const labels = unique([displayName(item), ...fields.map(field => fieldText(item?.[field]))]).map(normalize);
+  const exact = labels.filter(label => label.length >= 2 && haystack.includes(label));
+  if (exact.length) return 100 + Math.max(...exact.map(label => label.length));
+
+  const questionTokens = meaningfulTokens(question);
+  let best = 0;
+  labels.forEach(label => {
+    const labelTokens = meaningfulTokens(label);
+    const matches = labelTokens.filter(labelToken => questionTokens.some(questionToken => tokenMatches(labelToken, questionToken))).length;
+    if (!matches) return;
+    const coverage = matches / Math.max(1, labelTokens.length);
+    best = Math.max(best, matches * 10 + coverage);
+  });
+  return best;
 }
 
 function bestMatch(question, items, fields = []) {
   return array(items)
-    .filter(item => containsLabel(question, item, fields))
-    .sort((left, right) => normalize(displayName(right)).length - normalize(displayName(left)).length)[0] || null;
+    .map(item => ({ item, score: matchScore(question, item, fields) }))
+    .filter(candidate => candidate.score > 0)
+    .sort((left, right) => right.score - left.score || normalize(displayName(right.item)).length - normalize(displayName(left.item)).length)[0]?.item || null;
 }
 
 function source(id, label, route) {
@@ -251,15 +295,15 @@ export async function answerZokiOnSpark({ question, data = {}, canViewSensitive 
     return { answer: trackStudents.length ? `התלמידים במגמת ${displayName(matchedTrack)}:\n${trackStudents.map(studentName).sort((a, b) => a.localeCompare(b, 'he')).join('\n')}` : `לא נמצאו תלמידים במגמת ${displayName(matchedTrack)} בתוך המידע המורשה.`, sources: [source(`track_${matchedTrack.id}`, displayName(matchedTrack), '/students')] };
   }
 
+  const team = bestMatch(question, teams, ['aliases', 'keywords', 'description', 'responsibility', 'responsibilityAreas', 'typicalTaskTypes']);
+  if (team && TEAM_TERMS.test(normalizedQuestion)) {
+    const memberNames = unique(array(team.memberIds).map(id => staffNameById(id, staff)));
+    return { answer: `${displayName(team)}\n${team.description || team.responsibility || 'ללא תיאור'}\nחברים: ${memberNames.join(', ') || 'לא צוינו'}`, sources: [source(`team_${team.id}`, displayName(team), '/teams')] };
+  }
   const staffMember = bestMatch(question, staff, ['jobTitle', 'email']);
   if (staffMember && (STAFF_TERMS.test(normalizedQuestion) || CONTACT_TERMS.test(normalizedQuestion))) {
     const roleNames = staffRoleNames(staffMember, roles);
     return { answer: `${displayName(staffMember)}\nתפקידים: ${roleNames.join(', ') || 'לא צוינו'}\nדוא״ל: ${staffMember.email || 'לא צוין'}\nטלפון: ${staffMember.phone || 'לא צוין'}`, sources: [source(`staff_${staffMember.id}`, displayName(staffMember), '/staff')] };
-  }
-  const team = bestMatch(question, teams);
-  if (team && TEAM_TERMS.test(normalizedQuestion)) {
-    const memberNames = unique(array(team.memberIds).map(id => staffNameById(id, staff)));
-    return { answer: `${displayName(team)}\n${team.description || team.responsibility || 'ללא תיאור'}\nחברים: ${memberNames.join(', ') || 'לא צוינו'}`, sources: [source(`team_${team.id}`, displayName(team), '/teams')] };
   }
   const task = bestMatch(question, tasks, ['description']);
   if (task && TASK_TERMS.test(normalizedQuestion)) return { answer: `${displayName(task)}\nמצב: ${task.status || 'לביצוע'}\nעדיפות: ${task.priority || 'רגילה'}\nתאריך יעד: ${task.dueDate || 'לא נקבע'}\n${task.description || ''}`.trim(), sources: [source(`task_${task.id}`, displayName(task), '/tasks')] };
@@ -289,7 +333,7 @@ export async function answerZokiOnSpark({ question, data = {}, canViewSensitive 
     { type: 'student', items: students, route: '/students', searchFields: ['className', 'gradeLevel', 'programTypes'] },
     { type: 'class', items: classes, route: '/students', searchFields: ['gradeLevel', 'academicYear'] },
     { type: 'staff', items: staff, route: '/staff', searchFields: ['jobTitle', 'email'] },
-    { type: 'team', items: teams, route: '/teams', searchFields: ['description', 'responsibility'] },
+    { type: 'team', items: teams, route: '/teams', searchFields: ['aliases', 'keywords', 'description', 'responsibility', 'responsibilityAreas', 'typicalTaskTypes'] },
     { type: 'task', items: tasks, route: '/tasks', searchFields: ['description', 'status', 'dueDate'] },
     { type: 'file', items: files, route: '/files', searchFields: ['description', 'className', 'fileType'] },
     { type: 'event', items: events, route: '/calendar', searchFields: ['description', 'date', 'startDate'] },

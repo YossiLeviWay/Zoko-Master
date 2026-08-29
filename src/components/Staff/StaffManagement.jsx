@@ -524,13 +524,26 @@ export default function StaffManagement() {
     }
   }
 
-  async function handleDelete(userId) {
-    if (!confirm('האם להתחיל מחיקה מלאה של המשתמש?')) return;
-    if (!confirm('אישור נוסף: הפעולה תשבית את החשבון ותסיר את פרופיל המשתמש. להמשיך?')) return;
+  async function handleDelete(user) {
+    const userId = user.id;
+    const userName = user.fullName || 'איש הצוות';
+    const confirmation = isAdmin
+      ? `למחוק את ${userName} ואת חשבון המשתמש שלו מכל המערכת?`
+      : `להסיר את ${userName} מהמוסד? החשבון יישאר פעיל במוסדות אחרים, אם קיימים.`;
+    if (!confirm(confirmation)) return;
     try {
-      await deleteStaffUser({ userId, schoolId, confirmDelete: true });
-    } catch {
-      alert('לא ניתן למחוק את המשתמש. הפעולה בוטלה.');
+      if (isAdmin) {
+        if (!confirm('אישור נוסף: זו מחיקה מלאה של החשבון. להמשיך?')) return;
+        await deleteStaffUser({ userId, schoolId, confirmDelete: true });
+      } else {
+        await removeSchoolMembership({ userId, schoolId });
+      }
+    } catch (caught) {
+      const reason = callableReason(caught);
+      const message = reason === 'permission-denied'
+        ? 'אין הרשאה להסיר את איש הצוות הזה. לא ניתן להסיר מנהל מוסד או את המשתמש הנוכחי.'
+        : 'לא ניתן להסיר את איש הצוות. בדקו את החיבור ונסו שוב.';
+      alert(message);
     }
     isAdmin ? loadAllStaff() : loadStaff();
   }
@@ -1246,7 +1259,7 @@ export default function StaffManagement() {
                           <Edit3 size={14} />
                         </button>
                         {canDeleteUser(user) && (
-                          <button className="icon-btn icon-btn--danger" onClick={() => handleDelete(user.id)}>
+                          <button className="icon-btn icon-btn--danger" onClick={() => handleDelete(user)} title="הסרה מהמוסד">
                             <Trash2 size={14} />
                           </button>
                         )}
@@ -1312,7 +1325,7 @@ export default function StaffManagement() {
                                   <Edit3 size={15} />
                                 </button>
                                 {canDeleteUser(user) && (
-                                  <button className="icon-btn icon-btn--danger" title="הסרה" onClick={() => handleDelete(user.id)}>
+                                  <button className="icon-btn icon-btn--danger" title="הסרה" onClick={() => handleDelete(user)}>
                                     <Trash2 size={15} />
                                   </button>
                                 )}

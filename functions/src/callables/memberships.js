@@ -72,7 +72,7 @@ export async function removeMembershipHandler(request) {
     if (data.schoolId) ids.add(data.schoolId);
     target = { ref, data, schoolIds: ids };
   } else {
-    target = await requireTargetInSchool(actor, input.userId, input.schoolId);
+    target = await requireTargetInSchool(actor, input.userId, input.schoolId, { requireAuthUser: false });
   }
   await enforceRateLimit({ uid: actor.uid, action: 'removeSchoolMembership', limit: 30 });
 

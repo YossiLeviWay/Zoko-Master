@@ -105,3 +105,31 @@ test('Spark Zoki answers from authorized school rules without a paid backend', a
   assert.match(result.answer, /אישור מנהל/u);
   assert.match(result.answer, /נוכחות מלווים/u);
 });
+
+test('Spark Zoki recognizes a shortened team name without an AI API', async () => {
+  const result = await answerZokiOnSpark({
+    question: 'מי בצוות טיולים?',
+    data: {
+      teams: [{ id: 'team_1', name: 'צוות תכנון טיולים', memberIds: ['staff_1', 'staff_2'] }],
+      staff: [
+        { id: 'staff_1', fullName: 'דגנית בן חיים' },
+        { id: 'staff_2', fullName: 'אורפז חן' },
+      ],
+    },
+  });
+  assert.match(result.answer, /צוות תכנון טיולים/u);
+  assert.match(result.answer, /דגנית בן חיים/u);
+  assert.match(result.answer, /אורפז חן/u);
+  assert.equal(result.sources[0].route, '/teams');
+});
+
+test('Spark Zoki recognizes team aliases and keywords stored by the school', async () => {
+  const result = await answerZokiOnSpark({
+    question: 'מי בצוות המסעות?',
+    data: {
+      teams: [{ id: 'team_1', name: 'צוות תכנון טיולים', aliases: ['צוות המסעות'], memberIds: ['staff_1'] }],
+      staff: [{ id: 'staff_1', fullName: 'דגנית בן חיים' }],
+    },
+  });
+  assert.match(result.answer, /דגנית בן חיים/u);
+});

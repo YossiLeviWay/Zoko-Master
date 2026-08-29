@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../firebase';
 import {
@@ -67,18 +67,14 @@ function dateKey(date) {
 
 export default function GanttChart() {
   const { selectedSchool, userData, isGlobalAdmin, isPrincipal } = useAuth();
-  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const now = new Date();
-  const paramYear = searchParams.get('year');
-  const paramMonth = searchParams.get('month');
-  const [year, setYear] = useState(paramYear ? Number(paramYear) : now.getFullYear());
-  const [month, setMonth] = useState(paramMonth !== null ? Number(paramMonth) : now.getMonth());
+  const [year, setYear] = useState(() => new Date().getFullYear());
+  const [month, setMonth] = useState(() => new Date().getMonth());
   const [events, setEvents] = useState([]);
   const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
-  const [selectedDate, setSelectedDate] = useState(null);
+  const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [selectedCategory, setSelectedCategory] = useState('');
   const [yearlyOpen, setYearlyOpen] = useState(false);
   const [tooltip, setTooltip] = useState(null);
@@ -93,7 +89,7 @@ export default function GanttChart() {
   const [calendarTasks, setCalendarTasks] = useState([]);
   const [initiativeMilestones, setInitiativeMilestones] = useState([]);
   const [activeAcademicYear, setActiveAcademicYear] = useState(null);
-  const [pendingTodayNavigation, setPendingTodayNavigation] = useState(false);
+  const [pendingTodayNavigation, setPendingTodayNavigation] = useState(true);
   const [todayPulse, setTodayPulse] = useState(false);
   const todayCellRef = useRef(null);
 
@@ -217,7 +213,9 @@ export default function GanttChart() {
       try {
         const docSnap = await getDoc(doc(db, `settings_${schoolId}`, 'calendar'));
         if (docSnap.exists() && docSnap.data().visibleDays) {
-          setVisibleDays(docSnap.data().visibleDays);
+          const todayDay = new Date().getDay();
+          const savedDays = docSnap.data().visibleDays;
+          setVisibleDays(savedDays.includes(todayDay) ? savedDays : [...savedDays, todayDay].sort((a, b) => a - b));
         }
       } catch {}
     }
