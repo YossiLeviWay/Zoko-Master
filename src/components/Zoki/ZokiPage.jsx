@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getDocs } from 'firebase/firestore';
-import { BookOpen, CheckCircle2, CircleStop, ExternalLink, Minus, Pencil, Plus, Save, Send, Settings2, ShieldCheck, Trash2, X } from 'lucide-react';
+import { ArrowUp, BookOpen, CheckCircle2, CircleStop, ExternalLink, Minus, Pencil, Plus, Save, Send, Settings2, ShieldCheck, Trash2, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { db } from '../../firebase.js';
 import { askZoki, callableReason, executeZokiAttendance, executeZokiCalendarEvent, executeZokiCalendarEventCancel, executeZokiCalendarEventUpdate, executeZokiContact, executeZokiDirectPermission, executeZokiGrade, executeZokiResourceAccess, executeZokiResourceCreate, executeZokiResourceMove, executeZokiResourceRename, executeZokiRoleAssignment, executeZokiStudentNote, executeZokiStudentTrack, executeZokiStudentTransfer, executeZokiTask, executeZokiTaskAssignment, executeZokiTaskDetails, executeZokiTaskStatus, executeZokiTeamCreate, executeZokiTeamManager, executeZokiTeamMembership, fileTrashAction, syncZokiConversation } from '../../services/adminUserService.js';
@@ -37,7 +37,11 @@ function errorMessage(error) {
   const reason = callableReason(error);
   if (reason === 'zoki-not-configured') return 'העוזר אינו זמין כרגע. מנהל המערכת קיבל הנחיה לטפל בכך.';
   if (reason === 'permission-denied') return 'אין לך הרשאה לקבל את המידע הזה.';
+  if (reason === 'not-found') return 'שירות התשובות עדיין אינו פעיל. מנהל המערכת קיבל הנחיה לטפל בכך.';
+  if (reason === 'unauthenticated') return 'החיבור פג. התחברו מחדש ונסו שוב.';
+  if (reason === 'app-check-failed') return 'אימות האפליקציה נכשל. רעננו את הדף ונסו שוב.';
   if (reason === 'resource-exhausted') return 'נשלחו הרבה שאלות בזמן קצר. אפשר לנסות שוב בעוד כמה דקות.';
+  if (reason === 'unavailable' || reason === 'deadline-exceeded') return 'שירות התשובות אינו זמין כרגע. אפשר לנסות שוב בעוד רגע.';
   return 'לא הצלחתי לענות כרגע. אפשר לנסות שוב.';
 }
 
@@ -103,6 +107,8 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
   const [executingTask, setExecutingTask] = useState(false);
   const [taskActionResult, setTaskActionResult] = useState(null);
   const endRef = useRef(null);
+  const messagesRef = useRef(null);
+  const [showHistoryJump, setShowHistoryJump] = useState(false);
   const { schoolContext: taskAssistantSchoolContext, loading: taskAssistantContextLoading } = useTaskAssistantContext();
   const conversationKey = useMemo(() => currentUser?.uid && schoolId
     ? `zoko-master:zoki-conversation:v2:${currentUser.uid}:${schoolId}` : '', [currentUser?.uid, schoolId]);
@@ -184,6 +190,11 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
   useEffect(() => {
     if (typeof endRef.current?.scrollIntoView === 'function') endRef.current.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
+
+  function scrollToOlderMessages() {
+    if (typeof messagesRef.current?.scrollTo === 'function') messagesRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    else if (messagesRef.current) messagesRef.current.scrollTop = 0;
+  }
 
   const greeting = useMemo(() => {
     const firstName = (userData?.fullName || '').trim().split(/\s+/u)[0];
@@ -859,7 +870,8 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
       </header>
 
       <section className="zoki-chat" aria-label="שיחה עם העוזר">
-        <div className="zoki-messages" aria-live="polite">
+        {showHistoryJump && <button type="button" className="zoki-history-jump" onClick={scrollToOlderMessages}><ArrowUp size={14} /> הודעות קודמות</button>}
+        <div ref={messagesRef} className="zoki-messages" aria-live="polite" onScroll={event => setShowHistoryJump(event.currentTarget.scrollTop > 120)}>
           {messages.length === 0 && <div className="zoki-empty"><img src={zokiAvatar} alt="" /><h2>אפשר לשאול אותי על כל מה שנמצא במערכת</h2><p>אם המידע אינו בהרשאה שלך, לא אחשוף אם הוא קיים.</p><div>{STARTERS.map(starter => <button type="button" key={starter} onClick={() => submitQuestion(starter)}>{starter}</button>)}</div></div>}
           {messages.map(message => <article key={message.id} className={`zoki-message zoki-message--${message.role}${message.error ? ' is-error' : ''}`}>
             {message.role === 'zoki' && <img src={zokiAvatar} alt="" />}
