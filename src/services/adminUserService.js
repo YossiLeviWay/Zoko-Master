@@ -83,6 +83,7 @@ export const cvTemplateAction = callable('cvTemplateAction');
 export const previewBulkCvDrafts = callable('previewBulkCvDrafts');
 export const bulkCreateCvDrafts = callable('bulkCreateCvDrafts');
 export const bulkImportStudents = callable('bulkImportStudents');
+export const permanentlyDeleteStudent = callable('permanentlyDeleteStudent');
 export const upsertResourceAcl = callable('upsertResourceAcl');
 export const removeResourceAcl = callable('removeResourceAcl');
 export const setPermissionDelegation = callable('setPermissionDelegation');

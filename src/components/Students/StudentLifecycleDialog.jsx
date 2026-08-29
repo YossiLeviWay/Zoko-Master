@@ -3,6 +3,7 @@ import { ArrowLeft, Check, GraduationCap, UserMinus, X } from 'lucide-react';
 import { changeEnrollmentStatus, ENROLLMENT_STATUS, promoteStudents } from '../../services/firestore/studentLifecycleRepository';
 import { academicYearIdFromLegacy } from '../../services/firestore/academicYearRepository';
 import { db } from '../../firebase';
+import { permanentlyDeleteStudent } from '../../services/adminUserService';
 
 function localDateKey() {
   const date = new Date();
@@ -36,6 +37,7 @@ export default function StudentLifecycleDialog({
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
 
   const selectedStudents = students.filter(student => selectedIds.includes(student.id));
   const targetYear = years.find(year => year.id === targetYearId);
@@ -44,7 +46,7 @@ export default function StudentLifecycleDialog({
     && item.status !== 'archived'
   ));
   const targetClass = targetClasses.find(item => item.id === targetClassId);
-  const title = mode === 'promote' ? 'העלאת תלמידים לשנת לימודים חדשה' : mode === 'graduate' ? 'הפיכת תלמידים לבוגרים' : mode === 'restore' ? 'החזרת תלמידים לפעילות' : mode === 'delete' ? 'מחיקת תלמיד' : mode === 'archive' ? 'העברת תלמידים לארכיון' : 'עדכון סטטוס לימודים';
+  const title = mode === 'promote' ? 'העלאת תלמידים לשנת לימודים חדשה' : mode === 'graduate' ? 'הפיכת תלמידים לבוגרים' : mode === 'restore' ? 'החזרת תלמידים לפעילות' : mode === 'permanentDelete' ? 'מחיקה לצמיתות' : mode === 'delete' ? 'העברת תלמיד לארכיון' : mode === 'archive' ? 'העברת תלמידים לארכיון' : 'עדכון סטטוס לימודים';
 
   const selections = useMemo(() => selectedStudents.map(student => ({
     student,
@@ -68,10 +70,16 @@ export default function StudentLifecycleDialog({
       setError('יש להזין סיבה.');
       return;
     }
+    if (mode === 'permanentDelete' && deleteConfirmation.trim() !== 'מחיקה לצמיתות') {
+      setError('כדי לאשר, יש להקליד בדיוק: מחיקה לצמיתות');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
-      if (mode === 'promote') {
+      if (mode === 'permanentDelete') {
+        await permanentlyDeleteStudent({ schoolId, studentId: selectedStudents[0].id, confirmation: 'DELETE' });
+      } else if (mode === 'promote') {
         await promoteStudents({ db, schoolId, actor, selections, sourceAcademicYear: selectedYear, targetAcademicYear: targetYear, targetClass, effectiveDate });
       } else {
         await changeEnrollmentStatus({
@@ -97,12 +105,12 @@ export default function StudentLifecycleDialog({
         <div className="modal-header"><h3>{title}</h3><button className="modal-close" onClick={onClose} aria-label="סגירה"><X size={18} /></button></div>
         <form className="modal-form" onSubmit={submit}>
           {error && <div className="students-feedback students-feedback--error" role="alert">{error}</div>}
-          <div className={`lifecycle-summary${mode === 'delete' ? ' lifecycle-summary--danger' : ''}`}>{mode === 'delete' ? <>התלמיד <strong>{selectedStudents[0]?.fullName}</strong> יוסר מכל הרשימות הפעילות. המידע ההיסטורי והתיק האישי יישמרו בארכיון וניתן יהיה לשחזרם.</> : <><strong>{selectedStudents.length}</strong> מתוך {students.length} תלמידים נבחרו. המידע ההיסטורי והתיק האישי לא יימחקו.</>}</div>
+          <div className={`lifecycle-summary${['delete', 'permanentDelete'].includes(mode) ? ' lifecycle-summary--danger' : ''}`}>{mode === 'permanentDelete' ? <>התלמיד <strong>{selectedStudents[0]?.fullName}</strong> יימחק לצמיתות, יחד עם ההיסטוריה, השיוכים השנתיים, התיק האישי והקבצים שלו. לא ניתן לשחזר פעולה זו.</> : mode === 'delete' ? <>התלמיד <strong>{selectedStudents[0]?.fullName}</strong> יוסר מכל הרשימות הפעילות. המידע ההיסטורי והתיק האישי יישמרו בארכיון וניתן יהיה לשחזרם.</> : <><strong>{selectedStudents.length}</strong> מתוך {students.length} תלמידים נבחרו. המידע ההיסטורי והתיק האישי לא יימחקו.</>}</div>
           {mode === 'promote' && <div className="student-form-grid"><div className="form-group"><label>שנת יעד *</label><select value={targetYearId} onChange={event => { setTargetYearId(event.target.value); setTargetClassId(''); }} required><option value="">בחירת שנה</option>{years.filter(year => year.startYear > (selectedYear?.startYear || 0)).map(year => <option key={year.id} value={year.id}>{year.label} · {year.startYear}-{year.endYear}</option>)}</select></div><div className="form-group"><label>כיתת יעד *</label><select value={targetClassId} onChange={event => setTargetClassId(event.target.value)} required disabled={!targetYearId}><option value="">בחירת כיתה</option>{targetClasses.map(item => <option key={item.id} value={item.id}>{item.name} · {item.gradeLevel}</option>)}</select></div></div>}
           {mode === 'exit' && <div className="student-form-grid"><div className="form-group"><label>סטטוס *</label><select value={status} onChange={event => setStatus(event.target.value)}>{Object.entries(EXIT_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></div><div className="form-group"><label>סיבה *</label><input value={reason} onChange={event => setReason(event.target.value)} maxLength={300} required /></div><div className="form-group form-group--wide"><label>הערה</label><textarea value={note} onChange={event => setNote(event.target.value)} rows={3} maxLength={1000} /></div></div>}
-          <div className="form-group"><label>תאריך תחולה *</label><input type="date" value={effectiveDate} onChange={event => setEffectiveDate(event.target.value)} required /></div>
-          <div className="lifecycle-student-list">{students.map(student => <label key={student.id}><input type="checkbox" checked={selectedIds.includes(student.id)} onChange={() => toggleStudent(student.id)} /><span>{student.fullName}</span><small>{student.className || 'ללא כיתה'}</small></label>)}</div>
-          <div className="modal-actions"><button className={`btn ${mode === 'delete' ? 'btn-danger' : 'btn-primary'}`} disabled={saving || selectedStudents.length === 0}>{mode === 'promote' ? <ArrowLeft size={15} /> : mode === 'graduate' ? <GraduationCap size={15} /> : mode === 'exit' || mode === 'delete' ? <UserMinus size={15} /> : <Check size={15} />}{saving ? 'מבצע…' : mode === 'delete' ? 'מחיקת התלמיד' : 'אישור הפעולה'}</button><button type="button" className="btn btn-secondary" onClick={onClose}>ביטול</button></div>
+          {mode !== 'permanentDelete' && <div className="form-group"><label>תאריך תחולה *</label><input type="date" value={effectiveDate} onChange={event => setEffectiveDate(event.target.value)} required /></div>}
+          {mode === 'permanentDelete' ? <div className="form-group"><label>הקלידו „מחיקה לצמיתות” כדי לאשר</label><input value={deleteConfirmation} onChange={event => setDeleteConfirmation(event.target.value)} autoComplete="off" required /></div> : <div className="lifecycle-student-list">{students.map(student => <label key={student.id}><input type="checkbox" checked={selectedIds.includes(student.id)} onChange={() => toggleStudent(student.id)} /><span>{student.fullName}</span><small>{student.className || 'ללא כיתה'}</small></label>)}</div>}
+          <div className="modal-actions"><button className={`btn ${['delete', 'permanentDelete'].includes(mode) ? 'btn-danger' : 'btn-primary'}`} disabled={saving || selectedStudents.length === 0 || (mode === 'permanentDelete' && deleteConfirmation.trim() !== 'מחיקה לצמיתות')}>{mode === 'promote' ? <ArrowLeft size={15} /> : mode === 'graduate' ? <GraduationCap size={15} /> : mode === 'exit' || ['delete', 'permanentDelete'].includes(mode) ? <UserMinus size={15} /> : <Check size={15} />}{saving ? 'מבצע…' : mode === 'permanentDelete' ? 'מחיקה לצמיתות' : mode === 'delete' ? 'העברה לארכיון' : 'אישור הפעולה'}</button><button type="button" className="btn btn-secondary" onClick={onClose}>ביטול</button></div>
         </form>
       </div>
     </div>

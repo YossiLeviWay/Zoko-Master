@@ -195,6 +195,50 @@ test('a member creates only the configured number of responses in deterministic 
   await assertSucceeds(setDoc(doc(context('member_a').firestore(), `${BOARD_PATH}/responses/member_a_2`), { ...payload, responseSlot: '2' }));
 });
 
+test('a group board lets one responder credit additional staff', async () => {
+  await seed({ [BOARD_PATH]: board('open', { collaborationMode: 'group', collaborationUserIds: ['manager_a', 'member_a', 'member_b'] }) });
+  const responsePath = `${BOARD_PATH}/responses/member_a_1`;
+  const payload = {
+    ...response('member_a'),
+    contributorIds: ['member_a', 'member_b'],
+    contributorNames: ['חבר א', 'member_b'],
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+  await assertSucceeds(setDoc(doc(context('member_a').firestore(), responsePath), payload));
+  await assertSucceeds(updateDoc(doc(context('member_a').firestore(), responsePath), {
+    body: 'תשובה קבוצתית מעודכנת',
+    contributorIds: ['member_a'],
+    contributorNames: ['חבר א'],
+    updatedAt: serverTimestamp(),
+    editedAt: serverTimestamp(),
+  }));
+});
+
+test('individual and restricted boards reject invalid group credit', async () => {
+  const payload = {
+    ...response('member_a'),
+    contributorIds: ['member_a', 'member_b'],
+    contributorNames: ['חבר א', 'member_b'],
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+  await assertFails(setDoc(doc(context('member_a').firestore(), `${BOARD_PATH}/responses/member_a_1`), payload));
+
+  await seed({ [BOARD_PATH]: board('open', {
+    collaborationMode: 'group', collaborationUserIds: ['manager_a', 'member_a'], audienceMode: 'restricted', audienceUserIds: ['member_a'],
+  }) });
+  await assertFails(setDoc(doc(context('member_a').firestore(), `${BOARD_PATH}/responses/member_a_1`), payload));
+});
+
+test('group boards cannot be published as anonymous links', async () => {
+  const payload = board('open', {
+    collaborationMode: 'group', collaborationUserIds: ['manager_a'], visibility: 'public', publicShareId: 'share_abcdefghijklmnopqrstuvwxyz',
+    createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  });
+  await assertFails(setDoc(doc(context('manager_a').firestore(), `schools/${SCHOOL_A}/collectiveBrainBoards/group_public`), payload));
+});
+
 test('a member edits only their body while a board is open', async () => {
   const ownPath = `${BOARD_PATH}/responses/member_a_1`;
   await seed({ [ownPath]: response('member_a') });

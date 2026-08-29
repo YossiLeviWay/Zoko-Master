@@ -118,7 +118,7 @@ export default function PublicCollectiveBrainPage() {
       {participants.length === 0 && board.status === 'open' && <div className="brain-readonly-banner"><Lock size={16} /> לא הוגדרו משתתפים ללוח הזה.</div>}
       {participant && remaining === 0 && <div className="brain-readonly-banner"><Check size={16} /> מכסת התגובות שלך נוצלה.</div>}
       <div className="brain-responses-heading"><div><h2>תשובות הצוות</h2><span>{responses.length} תשובות</span></div></div>
-      <div className="brain-response-grid">{responses.map((response, index) => <article key={response.id} className="brain-response-card"><div className="brain-response-card-top"><span className="brain-response-avatar">{response.authorName?.charAt(0) || '?'}</span><div><strong>{response.authorName}</strong><small>{formatTime(response.createdAt)}</small></div><span className="brain-response-number">#{index + 1}</span></div><p>{response.body}</p></article>)}</div>
+      <div className="brain-response-grid">{responses.map((response, index) => <article key={response.id} className="brain-response-card"><div className="brain-response-card-top"><span className="brain-response-avatar">{response.authorName?.charAt(0) || '?'}</span><div><strong>{response.authorName}</strong><small>{formatTime(response.createdAt)}</small></div><span className="brain-response-number">#{index + 1}</span></div>{response.contributorNames?.length > 1 && <div className="brain-response-contributors">מענה משותף של {response.contributorNames.join(', ')}</div>}<p>{response.body}</p></article>)}</div>
     </main>
   </div>;
 }

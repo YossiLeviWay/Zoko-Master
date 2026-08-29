@@ -13,6 +13,7 @@ export const COLLECTIVE_BRAIN_STATUSES = Object.freeze([
 
 export const COLLECTIVE_BRAIN_AUDIENCES = Object.freeze(['school', 'restricted']);
 export const COLLECTIVE_BRAIN_VISIBILITIES = Object.freeze(['private', 'public']);
+export const COLLECTIVE_BRAIN_COLLABORATION_MODES = Object.freeze(['individual', 'group']);
 
 export function cleanCollectiveBrainText(value, maxLength) {
   if (typeof value !== 'string') return '';
@@ -35,6 +36,8 @@ export function normalizeCollectiveBrainBoard(item) {
     audienceUserIds: Array.isArray(item?.audienceUserIds) ? item.audienceUserIds : [],
     audienceTeamIds: Array.isArray(item?.audienceTeamIds) ? item.audienceTeamIds : [],
     visibility: COLLECTIVE_BRAIN_VISIBILITIES.includes(item?.visibility) ? item.visibility : 'private',
+    collaborationMode: COLLECTIVE_BRAIN_COLLABORATION_MODES.includes(item?.collaborationMode) ? item.collaborationMode : 'individual',
+    collaborationUserIds: Array.isArray(item?.collaborationUserIds) ? item.collaborationUserIds : [],
     publicShareId: typeof item?.publicShareId === 'string' ? item.publicShareId : '',
     maxResponsesPerUser: Number.isInteger(item?.maxResponsesPerUser)
       ? Math.min(20, Math.max(1, item.maxResponsesPerUser)) : 1,

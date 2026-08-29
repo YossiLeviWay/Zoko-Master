@@ -99,6 +99,10 @@
 .brain-response-card-top small { display: block; margin-top: .12rem; color: var(--color-text-faint); font-size: .56rem; }
 .brain-response-number { color: rgba(135,3,53,.3); font-size: .62rem; font-weight: 900; }
 .brain-response-card > p { margin: .8rem 0 .45rem; overflow-wrap: anywhere; white-space: pre-wrap; font-size: .76rem; line-height: 1.72; }
+.brain-response-contributors { display: flex; align-items: center; gap: .35rem; margin-top: .65rem; padding: .42rem .55rem; border-radius: 9px; background: rgba(16, 150, 105, .09); color: #0f7658; font-size: .64rem; font-weight: 750; line-height: 1.45; }
+.brain-contributor-picker { margin: .75rem 0 0; padding: .75rem; border: 1px solid rgba(16, 150, 105, .22); border-radius: 11px; background: #f7fcfa; }
+.brain-contributor-picker legend { padding: 0 .3rem; font-size: .7rem; font-weight: 850; }
+.brain-contributor-picker p { margin: 0 0 .55rem; color: var(--color-text-subtle); font-size: .64rem; }
 .brain-response-actions { justify-content: flex-end; gap: .15rem; padding-top: .45rem; border-top: 1px solid rgba(0,0,0,.06); }
 .brain-no-responses, .brain-empty-board, .brain-loading { display: grid; min-height: 280px; place-items: center; align-content: center; gap: .55rem; color: var(--color-text-faint); text-align: center; }
 .brain-no-responses p, .brain-empty-board p, .brain-loading p { margin: 0; font-size: .75rem; }

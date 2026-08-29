@@ -57,3 +57,8 @@ test('restricted boards and multiple own responses are resolved explicitly', () 
   assert.equal(canReadCollectiveBrainBoard({ status: 'open', audienceMode: 'restricted', audienceUserIds: ['a'] }, 'b'), false);
   assert.equal(findOwnCollectiveBrainResponses([{ id: 'a_1', authorId: 'a' }, { id: 'a_2', authorId: 'a' }, { id: 'b_1', authorId: 'b' }], 'a').length, 2);
 });
+
+test('collective brain boards normalize group collaboration mode', () => {
+  assert.equal(normalizeCollectiveBrainBoard({ collaborationMode: 'group' }).collaborationMode, 'group');
+  assert.equal(normalizeCollectiveBrainBoard({ collaborationMode: 'unknown' }).collaborationMode, 'individual');
+});

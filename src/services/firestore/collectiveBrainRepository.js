@@ -66,12 +66,15 @@ function safeIds(values, limit = 200) {
 
 function boardSettings(input = {}) {
   const audienceMode = input.audienceMode === 'restricted' ? 'restricted' : 'school';
+  const collaborationMode = input.collaborationMode === 'group' ? 'group' : 'individual';
   return {
     schemaVersion: 2,
     audienceMode,
     audienceUserIds: audienceMode === 'restricted' ? safeIds(input.audienceUserIds) : [],
     audienceTeamIds: audienceMode === 'restricted' ? safeIds(input.audienceTeamIds, 50) : [],
-    visibility: input.visibility === 'public' ? 'public' : 'private',
+    visibility: collaborationMode === 'group' ? 'private' : input.visibility === 'public' ? 'public' : 'private',
+    collaborationMode,
+    collaborationUserIds: collaborationMode === 'group' ? safeIds(input.collaborationUserIds, 500) : [],
     publicShareId: typeof input.publicShareId === 'string' ? input.publicShareId.slice(0, 128) : '',
     maxResponsesPerUser: Math.min(20, Math.max(1, Number.parseInt(input.maxResponsesPerUser, 10) || 1)),
     responseSlots: Array.from(
@@ -179,9 +182,12 @@ export function setCollectiveBrainBoardStatus({ db, schoolId, boardId, actor, st
   });
 }
 
-export function createCollectiveBrainResponse({ db, schoolId, boardId, actor, authorName, body, responseIndex = 1 }) {
+export function createCollectiveBrainResponse({ db, schoolId, boardId, actor, authorName, body, responseIndex = 1, contributorIds = [], contributorNames = [] }) {
   requireActor(actor);
   const safeIndex = Math.max(1, Math.min(20, Number.parseInt(responseIndex, 10) || 1));
+  const safeContributorIds = safeIds([actor.uid, ...contributorIds], 20);
+  const safeContributorNames = [authorName, ...contributorNames]
+    .map(value => cleanCollectiveBrainText(value, 120)).filter(Boolean).slice(0, safeContributorIds.length);
   return setDoc(doc(responsesCollection(db, schoolId, boardId), `${actor.uid}_${safeIndex}`), {
     schoolId,
     boardId,
@@ -189,6 +195,8 @@ export function createCollectiveBrainResponse({ db, schoolId, boardId, actor, au
     authorName: requireText(authorName, 120, 'AUTHOR_NAME_REQUIRED'),
     responseSlot: String(safeIndex),
     body: requireText(body, COLLECTIVE_BRAIN_LIMITS.response, 'RESPONSE_REQUIRED'),
+    contributorIds: safeContributorIds,
+    contributorNames: safeContributorNames,
     status: 'active',
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -200,10 +208,14 @@ export function createCollectiveBrainResponse({ db, schoolId, boardId, actor, au
   });
 }
 
-export function updateOwnCollectiveBrainResponse({ db, schoolId, boardId, responseId, actor, body }) {
+export function updateOwnCollectiveBrainResponse({ db, schoolId, boardId, responseId, actor, body, contributorIds = [], contributorNames = [] }) {
   requireActor(actor);
+  const safeContributorIds = safeIds([actor.uid, ...contributorIds], 20);
   return updateDoc(doc(responsesCollection(db, schoolId, boardId), responseId || actor.uid), {
     body: requireText(body, COLLECTIVE_BRAIN_LIMITS.response, 'RESPONSE_REQUIRED'),
+    contributorIds: safeContributorIds,
+    contributorNames: [actor.fullName, ...contributorNames]
+      .map(value => cleanCollectiveBrainText(value, 120)).filter(Boolean).slice(0, safeContributorIds.length),
     updatedAt: serverTimestamp(),
     editedAt: serverTimestamp(),
   });

@@ -541,7 +541,7 @@ service cloud.firestore {
       return data.keys().hasOnly([
           'schoolId', 'question', 'description', 'status', 'schemaVersion',
           'audienceMode', 'audienceUserIds', 'audienceTeamIds',
-          'visibility', 'publicShareId', 'maxResponsesPerUser', 'responseSlots', 'linkedTaskIds',
+          'visibility', 'publicShareId', 'collaborationMode', 'collaborationUserIds', 'maxResponsesPerUser', 'responseSlots', 'linkedTaskIds',
           'createdBy', 'createdAt', 'updatedBy', 'updatedAt',
           'archivedBy', 'archivedAt', 'deletedBy', 'deletedAt'
         ])
@@ -560,6 +560,14 @@ service cloud.firestore {
         && data.audienceTeamIds.size() <= 50
         && (data.audienceMode == 'school' || data.audienceUserIds.size() > 0)
         && data.visibility in ['private', 'public']
+        && data.get('collaborationMode', 'individual') in ['individual', 'group']
+        && (data.get('collaborationMode', 'individual') != 'group' || data.visibility == 'private')
+        && data.get('collaborationUserIds', []) is list
+        && data.get('collaborationUserIds', []).size() <= 500
+        && (
+          data.get('collaborationMode', 'individual') != 'group'
+          || data.createdBy in data.get('collaborationUserIds', [])
+        )
         && data.publicShareId is string
         && data.publicShareId.size() <= 128
         && (data.visibility == 'private' || data.publicShareId.size() > 20)
@@ -675,6 +683,7 @@ service cloud.firestore {
       return data.keys().hasOnly([
           'schoolId', 'boardId', 'authorId', 'authorName', 'body', 'status',
           'responseSlot', 'submissionSource', 'publicShareId', 'publicParticipantId',
+          'contributorIds', 'contributorNames',
           'createdAt', 'updatedAt', 'editedAt', 'moderatedBy', 'moderatedAt',
           'deletedBy', 'deletedAt'
         ])
@@ -685,6 +694,14 @@ service cloud.firestore {
         && data.authorName is string
         && data.authorName.size() > 0
         && data.authorName.size() <= 120
+        && data.get('contributorIds', [data.authorId]) is list
+        && data.get('contributorIds', [data.authorId]).size() >= 1
+        && data.get('contributorIds', [data.authorId]).size() <= 20
+        && data.authorId in data.get('contributorIds', [data.authorId])
+        && data.get('contributorNames', [data.authorName]) is list
+        && data.get('contributorNames', [data.authorName]).size() >= 1
+        && data.get('contributorNames', [data.authorName]).size() <= 20
+        && data.get('contributorNames', [data.authorName]).size() == data.get('contributorIds', [data.authorId]).size()
         && data.get('responseSlot', '1') is string
         && data.get('responseSlot', '1').size() <= 2
         && (
@@ -727,6 +744,15 @@ service cloud.firestore {
         && !data.keys().hasAny(['submissionSource', 'publicShareId', 'publicParticipantId'])
         && data.authorId == request.auth.uid
         && data.authorName == currentUser().get('fullName', 'משתמש')
+        && (
+          board.get('collaborationMode', 'individual') == 'group'
+          ? data.get('contributorIds', [data.authorId]).hasOnly(board.get('collaborationUserIds', []))
+          : data.get('contributorIds', [data.authorId]).size() == 1
+        )
+        && (
+          board.get('audienceMode', 'school') != 'restricted'
+          || data.get('contributorIds', [data.authorId]).hasOnly(board.get('audienceUserIds', []))
+        )
         && data.status == 'active'
         && data.createdAt == request.time
         && data.updatedAt == request.time
@@ -772,28 +798,66 @@ service cloud.firestore {
     }
 
     function safeOwnCollectiveBrainResponseUpdate(schoolId, boardId, responseId) {
+      let board = get(/databases/$(database)/documents/schools/$(schoolId)/collectiveBrainBoards/$(boardId)).data;
       return canContributeCollectiveBrainBoardById(schoolId, boardId)
         && resource.data.authorId == request.auth.uid
         && resource.data.status == 'active'
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['body', 'updatedAt', 'editedAt'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'body', 'contributorIds', 'contributorNames', 'updatedAt', 'editedAt'
+        ])
         && request.resource.data.body is string
         && request.resource.data.body.size() > 0
         && request.resource.data.body.size() <= 2000
+        && request.resource.data.get('contributorIds', [request.auth.uid]) is list
+        && request.resource.data.get('contributorIds', [request.auth.uid]).size() >= 1
+        && request.resource.data.get('contributorIds', [request.auth.uid]).size() <= 20
+        && request.auth.uid in request.resource.data.get('contributorIds', [request.auth.uid])
+        && request.resource.data.get('contributorNames', [resource.data.authorName]) is list
+        && request.resource.data.get('contributorNames', [resource.data.authorName]).size() >= 1
+        && request.resource.data.get('contributorNames', [resource.data.authorName]).size() <= 20
+        && request.resource.data.get('contributorNames', [resource.data.authorName]).size() == request.resource.data.get('contributorIds', [request.auth.uid]).size()
+        && (
+          board.get('collaborationMode', 'individual') == 'group'
+          ? request.resource.data.get('contributorIds', [request.auth.uid]).hasOnly(board.get('collaborationUserIds', []))
+          : request.resource.data.get('contributorIds', [request.auth.uid]).size() == 1
+        )
+        && (
+          board.get('audienceMode', 'school') != 'restricted'
+          || request.resource.data.get('contributorIds', [request.auth.uid]).hasOnly(board.get('audienceUserIds', []))
+        )
         && request.resource.data.updatedAt == request.time
         && request.resource.data.editedAt == request.time;
     }
 
     function safeOwnDeletedCollectiveBrainResponseReplacement(schoolId, boardId) {
+      let board = get(/databases/$(database)/documents/schools/$(schoolId)/collectiveBrainBoards/$(boardId)).data;
       return canContributeCollectiveBrainBoardById(schoolId, boardId)
         && resource.data.authorId == request.auth.uid
         && resource.data.status == 'deleted'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'body', 'status', 'createdAt', 'updatedAt', 'editedAt',
+          'body', 'contributorIds', 'contributorNames', 'status', 'createdAt', 'updatedAt', 'editedAt',
           'moderatedBy', 'moderatedAt', 'deletedBy', 'deletedAt'
         ])
         && request.resource.data.body is string
         && request.resource.data.body.size() > 0
         && request.resource.data.body.size() <= 2000
+        && request.resource.data.get('contributorIds', [request.auth.uid]) is list
+        && request.resource.data.get('contributorIds', [request.auth.uid]).size() >= 1
+        && request.resource.data.get('contributorIds', [request.auth.uid]).size() <= 20
+        && request.auth.uid in request.resource.data.get('contributorIds', [request.auth.uid])
+        && request.resource.data.get('contributorNames', [resource.data.authorName]) is list
+        && request.resource.data.get('contributorNames', [resource.data.authorName]).size() >= 1
+        && request.resource.data.get('contributorNames', [resource.data.authorName]).size() <= 20
+        && request.resource.data.get('contributorNames', [resource.data.authorName]).size() == request.resource.data.get('contributorIds', [request.auth.uid]).size()
+        && (
+          board.get('collaborationMode', 'individual') == 'group'
+          ? request.resource.data.get('contributorIds', [request.auth.uid]).hasOnly(board.get('collaborationUserIds', []))
+          : request.resource.data.get('contributorIds', [request.auth.uid]).size() == 1
+        )
+        && (
+          board.get('audienceMode', 'school') != 'restricted'
+          || request.resource.data.get('contributorIds', [request.auth.uid]).hasOnly(board.get('audienceUserIds', []))
+        )
         && request.resource.data.status == 'active'
         && request.resource.data.createdAt == request.time
         && request.resource.data.updatedAt == request.time

@@ -79,6 +79,7 @@ export {
   bulkCreateCvDrafts,
 } from './callables/cvTemplates.js';
 export { bulkImportStudents } from './callables/studentImports.js';
+export { permanentlyDeleteStudent } from './callables/students.js';
 export { fileTrashAction } from './callables/fileTrash.js';
 export {
   upsertResourceAcl,
