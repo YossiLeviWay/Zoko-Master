@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getDocs } from 'firebase/firestore';
-import { ArrowUp, BookOpen, CheckCircle2, CircleStop, ExternalLink, Minus, Pencil, Plus, Save, Send, Settings2, ShieldCheck, Trash2, X } from 'lucide-react';
+import { ArrowDown, BookOpen, CheckCircle2, CircleStop, ExternalLink, Minus, Pencil, Plus, Save, Send, Settings2, ShieldCheck, Trash2, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { db } from '../../firebase.js';
 import { askZoki, callableReason, executeZokiAttendance, executeZokiCalendarEvent, executeZokiCalendarEventCancel, executeZokiCalendarEventUpdate, executeZokiContact, executeZokiDirectPermission, executeZokiGrade, executeZokiResourceAccess, executeZokiResourceCreate, executeZokiResourceMove, executeZokiResourceRename, executeZokiRoleAssignment, executeZokiStudentNote, executeZokiStudentTrack, executeZokiStudentTransfer, executeZokiTask, executeZokiTaskAssignment, executeZokiTaskDetails, executeZokiTaskStatus, executeZokiTeamCreate, executeZokiTeamManager, executeZokiTeamMembership, fileTrashAction, syncZokiConversation } from '../../services/adminUserService.js';
 import { saveZokiBrain, subscribeZokiBrain } from '../../services/firestore/zokiBrainRepository.js';
-import { listSchoolStaff } from '../../services/firestore/classStudentRepository.js';
+import { listSchoolStaff, subscribeStudents } from '../../services/firestore/classStudentRepository.js';
 import { schoolCollection } from '../../services/firestore/paths.js';
 import { useTaskAssistantContext } from '../../hooks/useTaskAssistantContext.js';
+import { usePermissions } from '../../hooks/usePermissions.js';
 import { taskAssistantErrorMessage } from '../../services/firebaseAiTaskService.js';
 import { draftTaskWithInstitutionalBrain } from '../../services/taskAgentBrainService.js';
 import { normalizeZokiConversationState } from '../../utils/zokiConversation.js';
+import { answerZokiOnSpark } from '../../utils/zokiSparkAnswer.js';
 import zokiAvatar from '../../assets/zoki-avatar-minimal.svg';
 import './Zoki.css';
 
@@ -103,6 +105,7 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
   const [audienceStaff, setAudienceStaff] = useState([]);
   const [audienceRoles, setAudienceRoles] = useState([]);
   const [audienceLoading, setAudienceLoading] = useState(false);
+  const [accessibleStudents, setAccessibleStudents] = useState([]);
   const [pendingTask, setPendingTask] = useState(null);
   const [executingTask, setExecutingTask] = useState(false);
   const [taskActionResult, setTaskActionResult] = useState(null);
@@ -110,6 +113,7 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
   const messagesRef = useRef(null);
   const [showHistoryJump, setShowHistoryJump] = useState(false);
   const { schoolContext: taskAssistantSchoolContext, loading: taskAssistantContextLoading } = useTaskAssistantContext();
+  const { permissions, permissionScopes, loading: permissionsLoading } = usePermissions();
   const conversationKey = useMemo(() => currentUser?.uid && schoolId
     ? `zoko-master:zoki-conversation:v2:${currentUser.uid}:${schoolId}` : '', [currentUser?.uid, schoolId]);
 
@@ -188,13 +192,34 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
   }, [canManage, schoolId]);
 
   useEffect(() => {
-    if (typeof endRef.current?.scrollIntoView === 'function') endRef.current.scrollIntoView({ behavior: 'smooth' });
+    const container = messagesRef.current;
+    if (!container) return;
+    container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
   }, [messages, loading]);
 
-  function scrollToOlderMessages() {
-    if (typeof messagesRef.current?.scrollTo === 'function') messagesRef.current.scrollTo({ top: 0, behavior: 'smooth' });
-    else if (messagesRef.current) messagesRef.current.scrollTop = 0;
+  function scrollToLatestMessage() {
+    const container = messagesRef.current;
+    if (container) container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
   }
+
+  useEffect(() => {
+    if (!schoolId || permissionsLoading) return undefined;
+    const manager = canManage;
+    const studentPermission = permissionScopes['students.view'] || permissionScopes.students_view;
+    const canViewAll = manager || studentPermission?.type === 'school';
+    const classes = taskAssistantSchoolContext?.sources?.classes || [];
+    const classIds = classes.map(item => item.id).filter(Boolean);
+    const legacyClassNames = classes.map(item => item.name).filter(Boolean);
+    if (!canViewAll && classIds.length === 0) {
+      setAccessibleStudents([]);
+      return undefined;
+    }
+    return subscribeStudents({
+      db, schoolId, classIds, legacyClassNames, canViewAll,
+      onData: setAccessibleStudents,
+      onError: () => setAccessibleStudents([]),
+    });
+  }, [canManage, permissionScopes, permissions, permissionsLoading, schoolId, taskAssistantSchoolContext?.sources?.classes]);
 
   const greeting = useMemo(() => {
     const firstName = (userData?.fullName || '').trim().split(/\s+/u)[0];
@@ -257,6 +282,14 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
       if (taskAgentTurn || TASK_CREATION_REQUEST.test(nextQuestion)) {
         if (taskAssistantContextLoading) throw Object.assign(new Error('context-loading'), { code: 'context-loading' });
         await submitTaskRequest(nextQuestion);
+        return;
+      }
+      const localAnswer = answerZokiOnSpark({ question: nextQuestion, students: accessibleStudents });
+      if (localAnswer) {
+        setMessages(previous => [...previous, {
+          id: `zoki_${Date.now()}`, role: 'zoki', text: localAnswer.answer,
+          sources: localAnswer.sources || [], followUpQuestion: '', actionProposal: null,
+        }]);
         return;
       }
       const history = messages.slice(-8).filter(message => !message.error).map(message => ({
@@ -870,8 +903,9 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
       </header>
 
       <section className="zoki-chat" aria-label="שיחה עם העוזר">
-        {showHistoryJump && <button type="button" className="zoki-history-jump" onClick={scrollToOlderMessages}><ArrowUp size={14} /> הודעות קודמות</button>}
-        <div ref={messagesRef} className="zoki-messages" aria-live="polite" onScroll={event => setShowHistoryJump(event.currentTarget.scrollTop > 120)}>
+        {showHistoryJump && <button type="button" className="zoki-history-jump" onClick={scrollToLatestMessage}><ArrowDown size={14} /> להודעה האחרונה</button>}
+        <div ref={messagesRef} className="zoki-messages" aria-live="polite" onScroll={event => { const element = event.currentTarget; setShowHistoryJump(element.scrollHeight - element.scrollTop - element.clientHeight > 100); }}>
+          {messages.length > 0 && <div className="zoki-messages-spacer" aria-hidden="true" />}
           {messages.length === 0 && <div className="zoki-empty"><img src={zokiAvatar} alt="" /><h2>אפשר לשאול אותי על כל מה שנמצא במערכת</h2><p>אם המידע אינו בהרשאה שלך, לא אחשוף אם הוא קיים.</p><div>{STARTERS.map(starter => <button type="button" key={starter} onClick={() => submitQuestion(starter)}>{starter}</button>)}</div></div>}
           {messages.map(message => <article key={message.id} className={`zoki-message zoki-message--${message.role}${message.error ? ' is-error' : ''}`}>
             {message.role === 'zoki' && <img src={zokiAvatar} alt="" />}
@@ -908,7 +942,7 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
           {loading && <article className="zoki-message zoki-message--zoki"><img src={zokiAvatar} alt="" /><div className="zoki-thinking"><span /><span /><span /></div></article>}
           <div ref={endRef} />
         </div>
-        <form className="zoki-composer" onSubmit={event => { event.preventDefault(); submitQuestion(); }}><label className="sr-only" htmlFor="zoki-question">כתיבה לעוזר</label><textarea id="zoki-question" value={question} onChange={event => setQuestion(event.target.value)} maxLength={2000} rows={2} placeholder="אפשר לשאול, לבקש פעולה או ליצור משימה…" onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submitQuestion(); } }} /><button type="submit" disabled={loading || question.trim().length < 2} aria-label="שליחה"><Send size={19} /></button><small><ShieldCheck size={13} /> מידע ופעולות מוגבלים להרשאות שלך</small></form>
+        <form className="zoki-composer" onSubmit={event => { event.preventDefault(); submitQuestion(); }}><textarea id="zoki-question" aria-label="כתיבה לעוזר" value={question} onChange={event => setQuestion(event.target.value)} maxLength={2000} rows={2} placeholder="אפשר לשאול, לבקש פעולה או ליצור משימה…" onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submitQuestion(); } }} /><button type="submit" disabled={loading || question.trim().length < 2} aria-label="שליחה"><Send size={19} /></button><small><ShieldCheck size={13} /> מידע ופעולות מוגבלים להרשאות שלך</small></form>
       </section>
     </div>
 
