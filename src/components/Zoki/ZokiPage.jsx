@@ -363,8 +363,10 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
     setQuestion('');
     setMessages(previous => [...previous, { id: `user_${Date.now()}`, role: 'user', text: nextQuestion }]);
     setLoading(true);
+    let routedTask = false;
     try {
       if (taskAgentTurn || TASK_CREATION_REQUEST.test(nextQuestion)) {
+        routedTask = true;
         if (taskAssistantContextLoading) throw Object.assign(new Error('context-loading'), { code: 'context-loading' });
         await reserveZokiQuestion(schoolId);
         await submitTaskRequest(nextQuestion);
@@ -383,6 +385,12 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
           if (['resource-exhausted', 'permission-denied', 'unauthenticated', 'invalid-app-check'].includes(error.code)) throw error;
           degraded = true;
         }
+      }
+      if (result?.actionIntent === 'create_task') {
+        routedTask = true;
+        if (taskAssistantContextLoading) throw Object.assign(new Error('context-loading'), { code: 'context-loading' });
+        await submitTaskRequest(result.actionRequest || nextQuestion);
+        return;
       }
       result ||= await answerZokiOnSpark({
         question: nextQuestion,
@@ -407,7 +415,7 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
       }]);
     } catch (error) {
       if (activeConversation.current !== submittedConversation || conversationGeneration.current !== submittedGeneration) return;
-      const isTaskError = taskAgentTurn || TASK_CREATION_REQUEST.test(nextQuestion);
+      const isTaskError = routedTask || taskAgentTurn || TASK_CREATION_REQUEST.test(nextQuestion);
       setMessages(previous => [...previous, { id: `error_${Date.now()}`, role: 'zoki', error: true, text: error.code === 'resource-exhausted' ? `הגעת למגבלת השאלות האישית או המשותפת. אפשר לנסות שוב בעוד ${error.retryAfter || 60} שניות.` : isTaskError ? taskAssistantErrorMessage(error) : errorMessage(error) }]);
     } finally {
       setLoading(false);

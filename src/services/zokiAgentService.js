@@ -167,5 +167,12 @@ export async function zokiRequest(path, schoolId, body = {}, method = 'POST', of
       });
     } catch { memoryStatus = 'failed'; }
   }
-  return { answer: result.answer, agentId: actor.uid, memoryStatus, sources: sources.filter(source => result.sourceIds.includes(source.id)).map(source => ({ id: source.id, label: source.label, route: '/zoki' })) };
+  return {
+    answer: result.answer,
+    actionIntent: result.actionIntent,
+    actionRequest: result.actionRequest,
+    agentId: actor.uid,
+    memoryStatus,
+    sources: sources.filter(source => result.sourceIds.includes(source.id)).map(source => ({ id: source.id, label: source.label, route: '/zoki' })),
+  };
 }
