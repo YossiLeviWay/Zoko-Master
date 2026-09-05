@@ -1966,6 +1966,22 @@
 .task-staff-task button:hover { background: #fff0f0; color: #b42318; }
 .task-assignment-empty { margin: 0; padding: 1rem; color: #747d87; font-size: 0.76rem; text-align: center; }
 
+.zoki-task-workflow { display: grid; gap: .75rem; margin-bottom: 1rem; padding: .9rem 1rem; border: 1px solid #e7b8c8; border-radius: 14px; background: linear-gradient(135deg, #fff 0%, #fff7fa 100%); box-shadow: 0 8px 24px rgb(92 20 49 / 8%); }
+.zoki-task-workflow > header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.zoki-task-workflow > header span { display: flex; align-items: center; gap: .45rem; color: #870335; font-weight: 800; }
+.zoki-task-workflow > header button { display: grid; width: 28px; height: 28px; place-items: center; border: 0; border-radius: 8px; background: transparent; color: #765968; cursor: pointer; }
+.zoki-task-workflow ol { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .4rem; margin: 0; padding: 0; list-style: none; }
+.zoki-task-workflow li { display: flex; align-items: center; gap: .35rem; min-width: 0; padding: .5rem .6rem; border: 1px solid #eadfe3; border-radius: 9px; background: #fff; color: #8b7c82; font-size: .7rem; }
+.zoki-task-workflow li.is-active { border-color: #d892aa; background: #fff0f5; color: #870335; font-weight: 750; animation: zoki-workflow-pulse 1.4s ease-in-out infinite; }
+.zoki-task-workflow li.is-done { border-color: #b7dfd3; background: #f1faf7; color: #14745a; }
+.zoki-workflow-decision { display: grid; gap: .2rem; padding: .7rem .8rem; border-radius: 10px; background: #fff; }
+.zoki-workflow-decision strong { color: #34242a; font-size: .82rem; }
+.zoki-workflow-decision p, .zoki-workflow-status, .zoki-workflow-error { margin: 0; color: #765968; font-size: .74rem; }
+.zoki-workflow-picker { display: flex; align-items: center; gap: .55rem; flex-wrap: wrap; }
+.zoki-workflow-picker select { min-width: min(310px, 100%); min-height: 40px; padding: .45rem .6rem; border: 1px solid #d8c9cf; border-radius: 9px; background: #fff; }
+.zoki-workflow-error { color: #b42318; }
+@keyframes zoki-workflow-pulse { 50% { box-shadow: 0 0 0 3px rgb(135 3 53 / 8%); } }
+
 /* Institutional agent brain */
 .brain-manager { position: relative; width: min(1120px, calc(100vw - 32px)); max-height: min(92vh, 920px); padding: 0; overflow: hidden; border: 1px solid var(--color-border-strong); border-radius: 20px; background: #f6f8fa; box-shadow: 0 24px 70px rgb(21 32 43 / 24%); }
 .brain-manager-head { margin: 0 !important; padding: 1.15rem 1.3rem; background: #fff; border-bottom: 1px solid var(--color-border-strong) !important; }
@@ -2027,6 +2043,7 @@
 .brain-preview-overlay footer { justify-content: flex-end; margin-top: .7rem; }
 
 @media (max-width: 760px) {
+  .zoki-task-workflow ol { grid-template-columns: 1fr; }
   .task-create-overlay > .form-card { width: 100vw; }
   .task-form-accordion-body { padding: .75rem; }
   .task-assistant-proposal-note { align-items: flex-start; flex-wrap: wrap; }

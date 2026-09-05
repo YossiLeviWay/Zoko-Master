@@ -12,14 +12,13 @@ import { schoolCollection } from '../../services/firestore/paths.js';
 import { useTaskAssistantContext } from '../../hooks/useTaskAssistantContext.js';
 import { usePermissions } from '../../hooks/usePermissions.js';
 import { taskAssistantErrorMessage } from '../../services/firebaseAiTaskService.js';
-import { draftTaskWithInstitutionalBrain } from '../../services/taskAgentBrainService.js';
 import { normalizeZokiConversationState } from '../../utils/zokiConversation.js';
 import { loadAuthorizedStudentDetails } from '../../services/zokiSparkDataService.js';
 import { answerZokiOnSpark } from '../../utils/zokiSparkAnswer.js';
 import zokiAvatar from '../../assets/zoki-avatar-minimal.svg';
 import './Zoki.css';
 import ZokiPersonalSettings from './ZokiPersonalSettings.jsx';
-import { isZokiAgentConfigured, zokiRequest, zokiSourcePaths, syncPersonalAgentConversation, reserveZokiQuestion } from '../../services/zokiAgentService.js';
+import { isZokiAgentConfigured, zokiRequest, zokiSourcePaths, syncPersonalAgentConversation } from '../../services/zokiAgentService.js';
 
 const STARTERS = [
   'באיזו כיתה לומד תלמיד מסוים?',
@@ -55,39 +54,6 @@ function displayName(item, fallback) {
   return item.fullName || item.displayName || item.name || item.title || fallback;
 }
 
-function zokiTaskAction(proposal, context) {
-  const responsible = proposal?.assignmentPlan?.responsible || [];
-  const assignedStaff = responsible.find(item => item.source === 'staff' && item.id);
-  const assignedTeam = responsible.find(item => item.source === 'team' && item.id);
-  const scope = proposal?.taskType === 'personal' ? 'personal'
-    : assignedStaff ? 'assigned'
-      : assignedTeam ? 'team' : null;
-  if (!scope) return null;
-  return {
-    scope,
-    title: proposal.title,
-    description: proposal.description || '',
-    priority: ['low', 'medium', 'high'].includes(proposal.priority) ? proposal.priority : 'medium',
-    dueDate: proposal.dueDate || proposal.dateRange?.endDate || '',
-    startDate: proposal.dateRange?.startDate || '',
-    endDate: proposal.dateRange?.endDate || '',
-    completionCriteria: proposal.completionCriteria || '',
-    assigneeIds: assignedStaff ? [assignedStaff.id] : [],
-    teamId: assignedTeam?.id || '',
-    agentSessionId: context?.sessionId || '',
-    workPlanSteps: (proposal.workPlanSteps || []).map((step, index) => ({
-      id: step.id || `step_${index + 1}`,
-      title: step.title,
-      dueDate: '',
-      status: 'todo',
-      responsibleIds: (step.suggestedParties || []).filter(item => item.source === 'staff' && item.id).map(item => item.id).slice(0, 10),
-      teamId: (step.suggestedParties || []).find(item => item.source === 'team' && item.id)?.id || '',
-      dependencyStepId: '',
-      order: index,
-    })),
-  };
-}
-
 const TASK_CREATION_REQUEST = /(?:צור|צרי|תיצור|תיצרי|פתח|פתחי|תפתח|תפתחי|הכן|הכיני|תכין|תכיני|בנה|בני|תבנה|תבני)\s+(?:לי\s+)?משימה|(?:אני\s+רוצה|צריך|צריכה)\s+(?:ליצור|לפתוח|להכין)\s+משימה/u;
 const END_CONVERSATION_REQUEST = /^(?:סיים|סיימי|לסיים|סיום)\s+(?:את\s+)?השיחה[.!]?$/u;
 
@@ -99,7 +65,6 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
   const [question, setQuestion] = useState('');
   const [messages, setMessages] = useState([]);
   const [conversationReady, setConversationReady] = useState(false);
-  const [taskAgentTurn, setTaskAgentTurn] = useState(null);
   const [loading, setLoading] = useState(false);
   const [brainOpen, setBrainOpen] = useState(false);
   const [personalOpen, setPersonalOpen] = useState(false);
@@ -120,7 +85,7 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
   const endRef = useRef(null);
   const messagesRef = useRef(null);
   const [showHistoryJump, setShowHistoryJump] = useState(false);
-  const { schoolContext: taskAssistantSchoolContext, loading: taskAssistantContextLoading } = useTaskAssistantContext();
+  const { schoolContext: taskAssistantSchoolContext } = useTaskAssistantContext();
   const { permissions, schoolWidePermissions, permissionScopes, loading: permissionsLoading } = usePermissions();
   const conversationKey = useMemo(() => currentUser?.uid && schoolId
     ? `zoko-master:zoki-conversation:v2:${currentUser.uid}:${schoolId}` : '', [currentUser?.uid, schoolId]);
@@ -139,7 +104,6 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
     setMessages([]);
     setPendingTask(null);
     setTaskActionResult(null);
-    setTaskAgentTurn(null);
     if (!conversationKey) return undefined;
     let localState = null;
     try {
@@ -153,7 +117,6 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
       setMessages(normalized.messages);
       setPendingTask(normalized.pendingTask);
       setTaskActionResult(normalized.taskActionResult);
-      setTaskAgentTurn(normalized.taskAgentTurn);
     };
     applyState(localState);
     syncPersonalAgentConversation({ schoolId, operation: 'load' })
@@ -165,18 +128,18 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
 
   useEffect(() => {
     if (!conversationReady || !conversationKey) return;
-    const state = { messages: messages.slice(-60), pendingTask, taskActionResult, taskAgentTurn };
+    const state = { messages: messages.slice(-60), pendingTask, taskActionResult, taskAgentTurn: null };
     try {
       localStorage.setItem(conversationKey, JSON.stringify(state));
     } catch {
       // The conversation remains available for the current session if browser storage is full.
     }
-    if (loading || (!messages.length && !pendingTask && !taskActionResult && !taskAgentTurn)) return undefined;
+    if (loading || (!messages.length && !pendingTask && !taskActionResult)) return undefined;
     const timer = window.setTimeout(() => {
       syncPersonalAgentConversation({ schoolId, operation: 'save', state }).catch(() => undefined);
     }, 700);
     return () => window.clearTimeout(timer);
-  }, [conversationKey, conversationReady, loading, messages, pendingTask, schoolId, taskActionResult, taskAgentTurn]);
+  }, [conversationKey, conversationReady, loading, messages, pendingTask, schoolId, taskActionResult]);
 
   useEffect(() => {
     if (!schoolId || !canManage) return undefined;
@@ -314,41 +277,19 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
     setMessages([]);
     setPendingTask(null);
     setTaskActionResult(null);
-    setTaskAgentTurn(null);
     if (conversationKey) localStorage.removeItem(conversationKey);
     if (schoolId) syncPersonalAgentConversation({ schoolId, operation: 'end' }).catch(() => undefined);
     if (minimize) onMinimize();
   }
 
-  async function submitTaskRequest(nextQuestion) {
-    const existingTurn = taskAgentTurn;
-    const request = existingTurn?.request || nextQuestion;
-    const result = await draftTaskWithInstitutionalBrain({
-      uid: currentUser?.uid,
-      schoolId,
+  function startTaskWorkflow(request, target = {}) {
+    onMinimize();
+    navigate('/tasks', { state: { zokiTaskWorkflow: {
       request,
-      currentProposal: existingTurn?.proposal || null,
-      answer: existingTurn ? nextQuestion : '',
-      schoolContext: taskAssistantSchoolContext,
-    });
-    const context = {
-      request,
-      sessionId: result.sessionId,
-      capabilities: result.capabilities,
-      degraded: result.degraded,
-    };
-    if (result.proposal?.followUpQuestion) {
-      setTaskAgentTurn({ request, proposal: result.proposal, context });
-      setMessages(previous => [...previous, {
-        id: `zoki_${Date.now()}`, role: 'zoki', text: result.proposal.followUpQuestion,
-      }]);
-      return;
-    }
-    setTaskAgentTurn(null);
-    openTaskProposal(result.proposal, context);
-    setMessages(previous => [...previous, {
-      id: `zoki_${Date.now()}`, role: 'zoki', text: 'הכנתי הצעת משימה. בדקו את הפרטים ואשרו רק אם הכול נכון.',
-    }]);
+      targetType: target.type || 'none',
+      targetLabel: target.label || '',
+      startedAt: Date.now(),
+    } } });
   }
 
   async function submitQuestion(text = question) {
@@ -365,11 +306,9 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
     setLoading(true);
     let routedTask = false;
     try {
-      if (taskAgentTurn || TASK_CREATION_REQUEST.test(nextQuestion)) {
+      if (TASK_CREATION_REQUEST.test(nextQuestion)) {
         routedTask = true;
-        if (taskAssistantContextLoading) throw Object.assign(new Error('context-loading'), { code: 'context-loading' });
-        await reserveZokiQuestion(schoolId);
-        await submitTaskRequest(nextQuestion);
+        startTaskWorkflow(nextQuestion);
         return;
       }
       let result;
@@ -388,8 +327,10 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
       }
       if (result?.actionIntent === 'create_task') {
         routedTask = true;
-        if (taskAssistantContextLoading) throw Object.assign(new Error('context-loading'), { code: 'context-loading' });
-        await submitTaskRequest(result.actionRequest || nextQuestion);
+        startTaskWorkflow(result.actionRequest || nextQuestion, {
+          type: result.actionTargetType,
+          label: result.actionTargetLabel,
+        });
         return;
       }
       result ||= await answerZokiOnSpark({
@@ -415,7 +356,7 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
       }]);
     } catch (error) {
       if (activeConversation.current !== submittedConversation || conversationGeneration.current !== submittedGeneration) return;
-      const isTaskError = routedTask || taskAgentTurn || TASK_CREATION_REQUEST.test(nextQuestion);
+      const isTaskError = routedTask || TASK_CREATION_REQUEST.test(nextQuestion);
       setMessages(previous => [...previous, { id: `error_${Date.now()}`, role: 'zoki', error: true, text: error.code === 'resource-exhausted' ? `הגעת למגבלת השאלות האישית או המשותפת. אפשר לנסות שוב בעוד ${error.retryAfter || 60} שניות.` : isTaskError ? taskAssistantErrorMessage(error) : errorMessage(error) }]);
     } finally {
       setLoading(false);
@@ -964,12 +905,6 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
     } finally {
       setSavingBrain(false);
     }
-  }
-
-  function openTaskProposal(proposal, context) {
-    const requestId = globalThis.crypto?.randomUUID?.().replaceAll('-', '_') || `request_${Date.now()}`;
-    setTaskActionResult(null);
-    setPendingTask({ proposal, context, requestId, action: zokiTaskAction(proposal, context) });
   }
 
   function editTaskProposal() {
