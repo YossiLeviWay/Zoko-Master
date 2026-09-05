@@ -41,14 +41,10 @@ jobs:
       - name: Verify production App Check configuration
         env:
           VITE_FIREBASE_APPCHECK_SITE_KEY: ${{ secrets.VITE_FIREBASE_APPCHECK_SITE_KEY }}
-          VITE_TASK_AGENT_WORKER_URL: ${{ secrets.VITE_TASK_AGENT_WORKER_URL }}
         run: |
           if [ -z "$VITE_FIREBASE_APPCHECK_SITE_KEY" ]; then
             echo "::error::VITE_FIREBASE_APPCHECK_SITE_KEY is required because production Cloud Functions enforce App Check."
             exit 1
-          fi
-          if [ -z "$VITE_TASK_AGENT_WORKER_URL" ]; then
-            echo "::warning::VITE_TASK_AGENT_WORKER_URL is not configured. The task agent will use its existing Firebase AI fallback until the private Worker is deployed."
           fi
 
       - name: Build
@@ -61,7 +57,6 @@ jobs:
           VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
           VITE_FIREBASE_APPCHECK_SITE_KEY: ${{ secrets.VITE_FIREBASE_APPCHECK_SITE_KEY }}
-          VITE_TASK_AGENT_WORKER_URL: ${{ secrets.VITE_TASK_AGENT_WORKER_URL }}
 
       - uses: actions/configure-pages@v6
 

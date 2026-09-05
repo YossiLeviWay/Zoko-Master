@@ -129,7 +129,7 @@ export function useTaskAssistantContext() {
     let personalTasks = [];
     let organizationTasks = [];
     const updateTasks = () => patch({
-      tasks: [...personalTasks, ...organizationTasks.filter(task => task.createdBy === uid)],
+      tasks: [...personalTasks, ...organizationTasks],
     });
     unsubscribers.push(subscribePersonalTasks({
       db, uid, schoolId, onData: items => { personalTasks = items; updateTasks(); }, onError: () => undefined,

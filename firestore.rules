@@ -2,6 +2,31 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    match /zokiAgents/{agentId} {
+      allow read: if activeUser() && request.auth.uid == agentId;
+      allow create, update: if activeUser() && request.auth.uid == agentId
+        && request.resource.data.keys().hasOnly(['agentId', 'learningEnabled', 'preferences'])
+        && request.resource.data.agentId == agentId
+        && request.resource.data.learningEnabled is bool
+        && request.resource.data.preferences is list
+        && request.resource.data.preferences.size() <= 1
+        && (request.resource.data.preferences.size() == 0
+          || (request.resource.data.preferences[0] is string && request.resource.data.preferences[0].size() <= 600));
+      allow delete: if activeUser() && request.auth.uid == agentId;
+      match /scopes/{schoolId} {
+        allow read, delete: if activeUser() && request.auth.uid == agentId && isSchoolMember(schoolId);
+        allow create, update: if activeUser() && request.auth.uid == agentId && isSchoolMember(schoolId)
+          && request.resource.data.keys().hasOnly(['memories'])
+          && request.resource.data.memories is list && request.resource.data.memories.size() <= 100;
+      }
+      match /conversations/{schoolId} {
+        allow read, delete: if activeUser() && request.auth.uid == agentId && isSchoolMember(schoolId);
+        allow create, update: if activeUser() && request.auth.uid == agentId && isSchoolMember(schoolId)
+          && request.resource.data.keys().hasOnly(['state'])
+          && (request.resource.data.state == null || (request.resource.data.state is map
+            && request.resource.data.state.messages is list && request.resource.data.state.messages.size() <= 60));
+      }
+    }
     function signedIn() {
       return request.auth != null;
     }

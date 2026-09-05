@@ -4,7 +4,7 @@ import { getDocs, query, where } from 'firebase/firestore';
 import { ArrowDown, BookOpen, CheckCircle2, CircleStop, ExternalLink, Minus, Pencil, Plus, Save, Send, Settings2, ShieldCheck, Trash2, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { db } from '../../firebase.js';
-import { callableReason, executeZokiAttendance, executeZokiCalendarEvent, executeZokiCalendarEventCancel, executeZokiCalendarEventUpdate, executeZokiContact, executeZokiDirectPermission, executeZokiGrade, executeZokiResourceAccess, executeZokiResourceCreate, executeZokiResourceMove, executeZokiResourceRename, executeZokiRoleAssignment, executeZokiStudentNote, executeZokiStudentTrack, executeZokiStudentTransfer, executeZokiTask, executeZokiTaskAssignment, executeZokiTaskDetails, executeZokiTaskStatus, executeZokiTeamCreate, executeZokiTeamManager, executeZokiTeamMembership, fileTrashAction, syncZokiConversation } from '../../services/adminUserService.js';
+import { callableReason, executeZokiAttendance, executeZokiCalendarEvent, executeZokiCalendarEventCancel, executeZokiCalendarEventUpdate, executeZokiContact, executeZokiDirectPermission, executeZokiGrade, executeZokiResourceAccess, executeZokiResourceCreate, executeZokiResourceMove, executeZokiResourceRename, executeZokiRoleAssignment, executeZokiStudentNote, executeZokiStudentTrack, executeZokiStudentTransfer, executeZokiTask, executeZokiTaskAssignment, executeZokiTaskDetails, executeZokiTaskStatus, executeZokiTeamCreate, executeZokiTeamManager, executeZokiTeamMembership, fileTrashAction } from '../../services/adminUserService.js';
 import { saveZokiBrain, subscribeZokiBrain } from '../../services/firestore/zokiBrainRepository.js';
 import { listSchoolStaff, subscribeStudents } from '../../services/firestore/classStudentRepository.js';
 import { subscribeContacts } from '../../services/firestore/contactRepository.js';
@@ -18,6 +18,8 @@ import { loadAuthorizedStudentDetails } from '../../services/zokiSparkDataServic
 import { answerZokiOnSpark } from '../../utils/zokiSparkAnswer.js';
 import zokiAvatar from '../../assets/zoki-avatar-minimal.svg';
 import './Zoki.css';
+import ZokiPersonalSettings from './ZokiPersonalSettings.jsx';
+import { isZokiAgentConfigured, zokiRequest, zokiSourcePaths, syncPersonalAgentConversation, reserveZokiQuestion } from '../../services/zokiAgentService.js';
 
 const STARTERS = [
   'באיזו כיתה לומד תלמיד מסוים?',
@@ -100,6 +102,7 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
   const [taskAgentTurn, setTaskAgentTurn] = useState(null);
   const [loading, setLoading] = useState(false);
   const [brainOpen, setBrainOpen] = useState(false);
+  const [personalOpen, setPersonalOpen] = useState(false);
   const [brain, setBrain] = useState({ instructions: '', entries: [] });
   const [brainDraft, setBrainDraft] = useState({ instructions: '', entries: [] });
   const [savingBrain, setSavingBrain] = useState(false);
@@ -121,6 +124,9 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
   const { permissions, schoolWidePermissions, permissionScopes, loading: permissionsLoading } = usePermissions();
   const conversationKey = useMemo(() => currentUser?.uid && schoolId
     ? `zoko-master:zoki-conversation:v2:${currentUser.uid}:${schoolId}` : '', [currentUser?.uid, schoolId]);
+  const activeConversation = useRef(conversationKey);
+  const conversationGeneration = useRef(0);
+  activeConversation.current = conversationKey;
 
   useEffect(() => {
     if (!schoolId || !canManage) return undefined;
@@ -150,7 +156,7 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
       setTaskAgentTurn(normalized.taskAgentTurn);
     };
     applyState(localState);
-    syncZokiConversation({ schoolId, operation: 'load' })
+    syncPersonalAgentConversation({ schoolId, operation: 'load' })
       .then(result => applyState(result?.state))
       .catch(() => undefined)
       .finally(() => { if (active) setConversationReady(true); });
@@ -165,12 +171,12 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
     } catch {
       // The conversation remains available for the current session if browser storage is full.
     }
-    if (!messages.length && !pendingTask && !taskActionResult && !taskAgentTurn) return undefined;
+    if (loading || (!messages.length && !pendingTask && !taskActionResult && !taskAgentTurn)) return undefined;
     const timer = window.setTimeout(() => {
-      syncZokiConversation({ schoolId, operation: 'save', state }).catch(() => undefined);
+      syncPersonalAgentConversation({ schoolId, operation: 'save', state }).catch(() => undefined);
     }, 700);
     return () => window.clearTimeout(timer);
-  }, [conversationKey, conversationReady, messages, pendingTask, schoolId, taskActionResult, taskAgentTurn]);
+  }, [conversationKey, conversationReady, loading, messages, pendingTask, schoolId, taskActionResult, taskAgentTurn]);
 
   useEffect(() => {
     if (!schoolId || !canManage) return undefined;
@@ -303,13 +309,14 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
   }, [userData?.fullName]);
 
   function finishConversation({ minimize = false } = {}) {
+    conversationGeneration.current++;
     setQuestion('');
     setMessages([]);
     setPendingTask(null);
     setTaskActionResult(null);
     setTaskAgentTurn(null);
     if (conversationKey) localStorage.removeItem(conversationKey);
-    if (schoolId) syncZokiConversation({ schoolId, operation: 'end' }).catch(() => undefined);
+    if (schoolId) syncPersonalAgentConversation({ schoolId, operation: 'end' }).catch(() => undefined);
     if (minimize) onMinimize();
   }
 
@@ -345,6 +352,8 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
   }
 
   async function submitQuestion(text = question) {
+    const submittedConversation = conversationKey;
+    const submittedGeneration = conversationGeneration.current;
     const nextQuestion = text.trim();
     if (!nextQuestion || loading || !schoolId) return;
     if (END_CONVERSATION_REQUEST.test(nextQuestion)) {
@@ -357,10 +366,25 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
     try {
       if (taskAgentTurn || TASK_CREATION_REQUEST.test(nextQuestion)) {
         if (taskAssistantContextLoading) throw Object.assign(new Error('context-loading'), { code: 'context-loading' });
+        await reserveZokiQuestion(schoolId);
         await submitTaskRequest(nextQuestion);
         return;
       }
-      const result = await answerZokiOnSpark({
+      let result;
+      let degraded = false;
+      if (isZokiAgentConfigured) {
+        try {
+          result = await zokiRequest('turn', schoolId, {
+            question: nextQuestion,
+            history: messages.filter(item => !item.error).slice(-8).map(item => ({ role: item.role === 'zoki' ? 'assistant' : 'user', text: item.text })),
+            sourcePaths: zokiSourcePaths({ schoolId, uid: currentUser.uid, question: nextQuestion, sources: { ...taskAssistantSchoolContext.sources, students: accessibleStudents } }),
+          });
+        } catch (error) {
+          if (['resource-exhausted', 'permission-denied', 'unauthenticated', 'invalid-app-check'].includes(error.code)) throw error;
+          degraded = true;
+        }
+      }
+      result ||= await answerZokiOnSpark({
         question: nextQuestion,
         data: {
           ...(taskAssistantSchoolContext?.sources || {}),
@@ -376,13 +400,15 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
           db, schoolId, student, question: detailQuestion,
         }),
       });
+      if (activeConversation.current !== submittedConversation || conversationGeneration.current !== submittedGeneration) return;
       setMessages(previous => [...previous, {
-        id: `zoki_${Date.now()}`, role: 'zoki', text: result.answer,
+        id: `zoki_${Date.now()}`, role: 'zoki', text: result.answer + (degraded ? '\n\nהשירות החכם אינו זמין כרגע; זו תשובה מהמידע המקומי.' : '') + (result.memoryStatus === 'saved' ? '\n\nנשמר עדכון בזיכרון האישי. אפשר לערוך או למחוק אותו ב״הזיכרון שלי״.' : result.memoryStatus === 'failed' ? '\n\nעדכון הזיכרון לא נשמר; התשובה זמינה.' : ''),
         sources: result.sources || [], followUpQuestion: '', actionProposal: null,
       }]);
     } catch (error) {
+      if (activeConversation.current !== submittedConversation || conversationGeneration.current !== submittedGeneration) return;
       const isTaskError = taskAgentTurn || TASK_CREATION_REQUEST.test(nextQuestion);
-      setMessages(previous => [...previous, { id: `error_${Date.now()}`, role: 'zoki', error: true, text: isTaskError ? taskAssistantErrorMessage(error) : errorMessage(error) }]);
+      setMessages(previous => [...previous, { id: `error_${Date.now()}`, role: 'zoki', error: true, text: error.code === 'resource-exhausted' ? `הגעת למגבלת השאלות האישית או המשותפת. אפשר לנסות שוב בעוד ${error.retryAfter || 60} שניות.` : isTaskError ? taskAssistantErrorMessage(error) : errorMessage(error) }]);
     } finally {
       setLoading(false);
     }
@@ -971,6 +997,7 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
       <header className="zoki-window-header">
         <div><img src={zokiAvatar} alt="" /><span><strong>{greeting}</strong><small>מידע ופעולות במקום אחד, לפי ההרשאות שלך</small></span></div>
         <nav aria-label="פעולות שיחה">
+          {isZokiAgentConfigured && <button type="button" onClick={() => setPersonalOpen(true)}>הזיכרון שלי</button>}
           {canManage && <button type="button" onClick={() => setBrainOpen(true)} aria-label="הגדרות העוזר" title="הגדרות העוזר"><Settings2 size={18} /></button>}
           {messages.length > 0 && <button type="button" className="zoki-end-conversation" onClick={() => finishConversation()} title="סיום ומחיקת השיחה"><CircleStop size={17} /><span>סיום שיחה</span></button>}
           {embedded && <button type="button" className="zoki-minimize-button" onClick={onMinimize} aria-label="מזעור" title="מזעור"><Minus size={16} /></button>}
@@ -1021,6 +1048,7 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
       </section>
     </div>
 
+    {personalOpen && <ZokiPersonalSettings key={schoolId} schoolId={schoolId} manager={canManage} onClose={() => setPersonalOpen(false)} />}
     {brainOpen && <div className="zoki-brain-overlay" onClick={() => setBrainOpen(false)}><aside className="zoki-brain-panel" role="dialog" aria-modal="true" aria-labelledby="zoki-brain-title" onClick={event => event.stopPropagation()}>
       <header><div><span><Settings2 size={15} /> הגדרות מנהל</span><h2 id="zoki-brain-title">הוראות וידע לצוות</h2><p>כאן מגדירים בקצרה מה העוזר צריך לדעת ואיך לפעול.</p></div><button type="button" onClick={() => setBrainOpen(false)} aria-label="סגירה"><X size={20} /></button></header>
       <div className="zoki-brain-body"><label>הנחיות כלליות<textarea rows={4} maxLength={8000} value={brainDraft.instructions} onChange={event => setBrainDraft(previous => ({ ...previous, instructions: event.target.value }))} placeholder="לדוגמה: בשאלות על טיולים יש להפנות תחילה לנוהל הבטיחות…" /></label>
