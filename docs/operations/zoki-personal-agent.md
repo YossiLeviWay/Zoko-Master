@@ -19,7 +19,7 @@ an answer, authorized citation IDs and at most three memory changes.
    This quota is uniform for all users of the project, not per school. Gemini's
    project/model quotas also apply. No application setting can raise those quotas.
 4. Deploy the Firestore rules and rebuild/deploy the web app. Optional model
-   override: VITE_ZOKI_AI_MODEL, default gemini-flash-latest.
+override: VITE_ZOKI_AI_MODEL, default gemini-3.5-flash-lite.
 5. Verify a real signed-in teacher's answer, memory save/reload and quota error.
    A successful direct Gemini-key test does not verify AI Logic or App Check.
 
