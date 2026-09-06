@@ -14,11 +14,32 @@ function normalizeSource(value) {
   return id && label && route ? { id, label, route } : null;
 }
 
+function normalizeTaskWorkflowAction(value) {
+  if (!isRecord(value) || value.type !== 'task_role_selection') return null;
+  const workflowId = safeText(value.workflowId, 128);
+  if (!workflowId) return null;
+  const options = Array.isArray(value.options) ? value.options.map(option => isRecord(option) ? {
+    id: safeText(option.id, 128),
+    name: safeText(option.name, 160),
+    jobTitle: safeText(option.jobTitle, 160),
+  } : null).filter(option => option?.id && option.name).slice(0, 100) : [];
+  return {
+    type: 'task_role_selection',
+    workflowId,
+    targetLabel: safeText(value.targetLabel, 160),
+    selectedStaffId: safeText(value.selectedStaffId, 128),
+    canAssignRole: value.canAssignRole === true,
+    roleMissing: value.roleMissing === true,
+    options,
+  };
+}
+
 function normalizeMessage(value, index) {
   if (!isRecord(value) || !['user', 'zoki'].includes(value.role)) return null;
   const text = safeText(value.text);
   if (!text) return null;
   const sources = Array.isArray(value.sources) ? value.sources.map(normalizeSource).filter(Boolean).slice(0, 20) : [];
+  const workflowAction = normalizeTaskWorkflowAction(value.actionProposal);
   return {
     id: safeText(value.id, 128) || `restored_${index}`,
     role: value.role,
@@ -26,6 +47,7 @@ function normalizeMessage(value, index) {
     ...(value.error === true ? { error: true } : {}),
     ...(safeText(value.followUpQuestion, 2000) ? { followUpQuestion: safeText(value.followUpQuestion, 2000) } : {}),
     ...(sources.length ? { sources } : {}),
+    ...(workflowAction ? { actionProposal: workflowAction, actionStatus: safeText(value.actionStatus, 40) } : {}),
   };
 }
 

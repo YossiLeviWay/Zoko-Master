@@ -15,6 +15,7 @@ import { taskAssistantErrorMessage } from '../../services/firebaseAiTaskService.
 import { normalizeZokiConversationState } from '../../utils/zokiConversation.js';
 import { loadAuthorizedStudentDetails } from '../../services/zokiSparkDataService.js';
 import { answerZokiOnSpark } from '../../utils/zokiSparkAnswer.js';
+import { sendZokiTaskWorkflowCommand, ZOKI_TASK_WORKFLOW_UPDATE } from '../../utils/zokiTaskWorkflowBridge.js';
 import zokiAvatar from '../../assets/zoki-avatar-minimal.svg';
 import './Zoki.css';
 import ZokiPersonalSettings from './ZokiPersonalSettings.jsx';
@@ -146,6 +147,28 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
     }, 700);
     return () => window.clearTimeout(timer);
   }, [conversationKey, conversationReady, loading, messages, pendingTask, schoolId, taskActionResult]);
+
+  useEffect(() => {
+    const receiveTaskWorkflowUpdate = event => {
+      const detail = event.detail;
+      if (!detail?.workflowId || detail.schoolId !== schoolId || !detail.text) return;
+      const messageId = `zoki_task_${detail.workflowId}`;
+      const nextMessage = {
+        id: messageId,
+        role: 'zoki',
+        text: String(detail.text).slice(0, 5000),
+        actionProposal: detail.actionProposal || null,
+        actionStatus: detail.phase || '',
+      };
+      setMessages(previous => {
+        const index = previous.findIndex(item => item.id === messageId);
+        if (index < 0) return [...previous, nextMessage];
+        return previous.map((item, itemIndex) => itemIndex === index ? { ...item, ...nextMessage } : item);
+      });
+    };
+    window.addEventListener(ZOKI_TASK_WORKFLOW_UPDATE, receiveTaskWorkflowUpdate);
+    return () => window.removeEventListener(ZOKI_TASK_WORKFLOW_UPDATE, receiveTaskWorkflowUpdate);
+  }, [schoolId]);
 
   useEffect(() => {
     if (!schoolId || !canManage) return undefined;
@@ -289,13 +312,33 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
   }
 
   function startTaskWorkflow(request, target = {}) {
-    onMinimize();
+    const workflowId = `task_${Date.now()}`;
+    setMessages(previous => [...previous, {
+      id: `zoki_task_${workflowId}`,
+      role: 'zoki',
+      text: 'עברתי לעמוד המשימות. אני טוען את ההקשר ומכין שם טיוטה לעריכה — השיחה נשארת כאן.',
+      actionStatus: 'loading_context',
+    }]);
     navigate('/tasks', { state: { zokiTaskWorkflow: {
+      workflowId,
       request,
       targetType: target.type || 'none',
       targetLabel: target.label || '',
       startedAt: Date.now(),
     } } });
+  }
+
+  function continueTaskWorkflow(message, assignRole = false) {
+    const staffId = message.actionProposal?.selectedStaffId;
+    if (!staffId) return;
+    sendZokiTaskWorkflowCommand({
+      workflowId: message.actionProposal.workflowId,
+      schoolId,
+      action: 'select_assignee',
+      staffId,
+      assignRole,
+    });
+    patchMessage(message.id, { actionStatus: 'executing' });
   }
 
   async function submitQuestion(text = question) {
@@ -961,6 +1004,7 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
           {messages.map(message => <article key={message.id} className={`zoki-message zoki-message--${message.role}${message.error ? ' is-error' : ''}`}>
             {message.role === 'zoki' && <img src={zokiAvatar} alt="" />}
             <div><p>{message.text}</p>{message.followUpQuestion && <button type="button" className="zoki-follow-up" onClick={() => setQuestion(message.followUpQuestion)}>{message.followUpQuestion}</button>}
+              {message.actionProposal?.type === 'task_role_selection' && <section className="zoki-inline-action zoki-role-selection"><header><ShieldCheck size={14} /><strong>בחירת אחראי למשימה</strong></header><label>איש צוות<select value={message.actionProposal.selectedStaffId || ''} onChange={event => patchMessage(message.id, { actionProposal: { ...message.actionProposal, selectedStaffId: event.target.value } })}><option value="">בחרו איש צוות</option>{(message.actionProposal.options || []).map(option => <option key={option.id} value={option.id}>{option.name}{option.jobTitle ? ` — ${option.jobTitle}` : ''}</option>)}</select></label><footer><button type="button" disabled={!message.actionProposal.selectedStaffId || message.actionStatus === 'executing'} onClick={() => continueTaskWorkflow(message, false)}><CheckCircle2 size={14} /> למשימה הזו בלבד</button>{message.actionProposal.canAssignRole && <button type="button" disabled={!message.actionProposal.selectedStaffId || message.actionStatus === 'executing'} onClick={() => continueTaskWorkflow(message, true)}>שייך לתפקיד והמשך</button>}{message.actionProposal.roleMissing && <button type="button" onClick={() => navigate('/staff')}>פתיחת ניהול הסגל</button>}</footer></section>}
               {message.actionProposal?.type === 'task_details_update' && <section className={`zoki-inline-action ${message.actionStatus === 'executed' ? 'is-complete' : ''}`}><header><ShieldCheck size={14} /><strong>{message.actionStatus === 'executed' ? 'פרטי המשימה עודכנו' : 'אישור עריכת משימה'}</strong></header><div><b>{message.actionProposal.taskTitle}</b>{message.actionProposal.changedFields.map(field => <span key={field}>{TASK_DETAIL_LABELS[field]}: {taskDetailValue(field, message.actionProposal.expected[field])} ← {taskDetailValue(field, message.actionProposal.task[field])}</span>)}</div><small>רק השדות המוצגים ישתנו. זוקי יוודא שהמשימה לא נערכה מאז ההצעה.</small>{message.actionStatus !== 'executed' && message.actionStatus !== 'cancelled' && <footer><button type="button" disabled={message.actionStatus === 'executing'} onClick={() => confirmTaskDetailsAction(message)}><CheckCircle2 size={14} /> {message.actionStatus === 'executing' ? 'מעדכן…' : 'אישור ועדכון'}</button><button type="button" disabled={message.actionStatus === 'executing'} onClick={() => patchMessage(message.id, { actionStatus: 'cancelled' })}>ביטול</button></footer>}{message.actionStatus === 'cancelled' && <small>פרטי המשימה נשארו ללא שינוי.</small>}{message.actionError && <small className="is-error">{message.actionError}</small>}{message.actionStatus === 'executed' && <button type="button" className="zoki-action-link" onClick={() => navigate(message.actionResult.route)}>פתיחת המשימה</button>}</section>}
               {message.actionProposal?.type === 'task_assignment_change' && <section className={`zoki-inline-action ${message.actionStatus === 'executed' ? 'is-complete' : ''}`}><header><ShieldCheck size={14} /><strong>{message.actionStatus === 'executed' ? 'אחראי המשימה עודכנו' : 'אישור שינוי אחראי במשימה'}</strong></header><div><span>{message.actionProposal.operation === 'add' ? 'הוספת אחראי' : 'הסרת אחראי'}</span><span>{message.actionProposal.staffName}</span><b>{message.actionProposal.taskTitle}</b></div><small>זוקי יוודא מחדש את ההרשאה, איש הצוות ורשימת האחראים בזמן האישור.</small>{message.actionStatus !== 'executed' && message.actionStatus !== 'cancelled' && <footer><button type="button" disabled={message.actionStatus === 'executing'} onClick={() => confirmTaskAssignmentAction(message)}><CheckCircle2 size={14} /> {message.actionStatus === 'executing' ? 'מעדכן…' : 'אישור ושינוי'}</button><button type="button" disabled={message.actionStatus === 'executing'} onClick={() => patchMessage(message.id, { actionStatus: 'cancelled' })}>ביטול</button></footer>}{message.actionStatus === 'cancelled' && <small>אחראי המשימה נשארו ללא שינוי.</small>}{message.actionError && <small className="is-error">{message.actionError}</small>}{message.actionStatus === 'executed' && <button type="button" className="zoki-action-link" onClick={() => navigate(message.actionResult.route)}>פתיחת המשימה</button>}</section>}
               {message.actionProposal?.type === 'task_status_change' && <section className={`zoki-inline-action ${message.actionStatus === 'executed' ? 'is-complete' : ''}`}><header><ShieldCheck size={14} /><strong>{message.actionStatus === 'executed' ? 'מצב המשימה עודכן' : 'אישור שינוי מצב משימה'}</strong></header><div><span>מ־{TASK_STATUS_LABELS[message.actionProposal.expectedStatus] || 'לביצוע'}</span><span>אל {TASK_STATUS_LABELS[message.actionProposal.status] || message.actionProposal.status}</span><b>{message.actionProposal.taskTitle}</b></div><small>זוקי יוודא מחדש את ההקצאה, ההרשאה והמצב הנוכחי בזמן האישור.</small>{message.actionStatus !== 'executed' && message.actionStatus !== 'cancelled' && <footer><button type="button" disabled={message.actionStatus === 'executing'} onClick={() => confirmTaskStatusAction(message)}><CheckCircle2 size={14} /> {message.actionStatus === 'executing' ? 'מעדכן…' : 'אישור ועדכון'}</button><button type="button" disabled={message.actionStatus === 'executing'} onClick={() => patchMessage(message.id, { actionStatus: 'cancelled' })}>ביטול</button></footer>}{message.actionStatus === 'cancelled' && <small>המשימה נשארה ללא שינוי.</small>}{message.actionError && <small className="is-error">{message.actionError}</small>}{message.actionStatus === 'executed' && <button type="button" className="zoki-action-link" onClick={() => navigate(message.actionResult.route)}>פתיחת המשימה</button>}</section>}

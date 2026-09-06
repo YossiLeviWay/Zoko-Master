@@ -89,6 +89,7 @@ import {
 import { startTaskAssistantStage } from '../../services/taskAssistantPerformance';
 import { captureTaskAgentLearning, draftTaskWithInstitutionalBrain } from '../../services/taskAgentBrainService';
 import { proposalWithRoleHolder, resolveTaskRoleTarget } from '../../utils/zokiTaskWorkflow';
+import { publishZokiTaskWorkflowUpdate, ZOKI_TASK_WORKFLOW_COMMAND } from '../../utils/zokiTaskWorkflowBridge';
 import '../Gantt/Gantt.css';
 import './Tasks.css';
 
@@ -380,6 +381,17 @@ export default function TaskBoard() {
   const [assignmentSavingKey, setAssignmentSavingKey] = useState('');
   const [zokiWorkflow, setZokiWorkflow] = useState(null);
 
+  function publishWorkflowUpdate(workflow, phase, text, actionProposal = null) {
+    if (!workflow?.workflowId) return;
+    publishZokiTaskWorkflowUpdate({
+      workflowId: workflow.workflowId,
+      schoolId,
+      phase,
+      text,
+      actionProposal,
+    });
+  }
+
   function openCommunicationContext(context, returnTo = '') {
     setCommunicationTask(communicationSourceFromContext(normalizeCommunicationContext(context)));
     setCommunicationReturnTo(returnTo);
@@ -400,14 +412,14 @@ export default function TaskBoard() {
     const closeTransientPanels = event => {
       if (event.key !== 'Escape') return;
       setShowFilters(false);
-      setShowForm(false);
+      if (form.creationSource !== 'agent') setShowForm(false);
       setContextTaskMenu(null);
       setContextPageMenu(null);
       setShowAssignmentBoard(false);
     };
     window.addEventListener('keydown', closeTransientPanels);
     return () => window.removeEventListener('keydown', closeTransientPanels);
-  }, [showFilters, showForm, contextTaskMenu, contextPageMenu, showAssignmentBoard]);
+  }, [showFilters, showForm, contextTaskMenu, contextPageMenu, showAssignmentBoard, form.creationSource]);
 
   useEffect(() => {
     if (!location.state?.communicationContext) return;
@@ -895,13 +907,21 @@ export default function TaskBoard() {
     setZokiWorkflow(previous => ({ ...previous, phase: 'filling', selectedStaffId: member.uid || member.id, error: '' }));
     applyAssistantProposal(proposalWithRoleHolder(workflow.proposal, member), workflow.context);
     setZokiWorkflow(previous => ({ ...previous, phase: 'ready', selectedStaffId: member.uid || member.id, error: '' }));
+    publishWorkflowUpdate(workflow, 'ready', `הטיוטה מוכנה בעמוד המשימות ושויכה ל${member.fullName}. אפשר לערוך את הפרטים בעמוד ולאשר שם את השמירה.`);
   }
 
-  async function confirmZokiRoleHolder() {
-    const member = staff.find(item => (item.uid || item.id) === zokiWorkflow?.selectedStaffId);
-    if (!member || !zokiWorkflow?.proposal) return;
-    const resolution = zokiWorkflow.roleResolution;
-    if (zokiWorkflow.phase === 'unassigned_role' && resolution?.role?.id && canManageRoles) {
+  function cancelZokiTaskDraft() {
+    publishWorkflowUpdate(zokiWorkflow, 'cancelled', 'טיוטת המשימה נסגרה ללא שמירה. אפשר להמשיך לכתוב לי כאן כשתרצה לנסות שוב.');
+    setForm(emptyForm());
+    setShowForm(false);
+    setAssistantMeta(null);
+    setZokiWorkflow(previous => previous ? { ...previous, phase: 'cancelled' } : previous);
+  }
+
+  async function continueZokiWorkflowWithMember(member, workflow = zokiWorkflow, assignRole = false) {
+    if (!member || !workflow?.proposal) return;
+    const resolution = workflow.roleResolution;
+    if (assignRole && workflow.phase === 'unassigned_role' && resolution?.role?.id && canManageRoles) {
       setZokiWorkflow(previous => ({ ...previous, phase: 'assigning_role', error: '' }));
       try {
         await executeZokiRoleAssignment({
@@ -915,11 +935,28 @@ export default function TaskBoard() {
         });
       } catch {
         setZokiWorkflow(previous => ({ ...previous, phase: 'unassigned_role', error: 'שיוך התפקיד לא הושלם. בדקו שיש לך הרשאה לנהל תפקידים.' }));
+        publishWorkflowUpdate(workflow, 'unassigned_role', 'שיוך התפקיד לא הושלם. אפשר לבחור שוב בצ׳אט או להמשיך עם אחראי למשימה הזו בלבד.', workflow.actionProposal);
         return;
       }
     }
-    finishZokiWorkflowWithMember(member);
+    finishZokiWorkflowWithMember(member, workflow);
   }
+
+  useEffect(() => {
+    const receiveWorkflowCommand = event => {
+      const detail = event.detail;
+      if (!zokiWorkflow?.workflowId || detail?.workflowId !== zokiWorkflow.workflowId || detail.schoolId !== schoolId) return;
+      if (detail.action !== 'select_assignee') return;
+      const member = staff.find(item => (item.uid || item.id) === detail.staffId);
+      if (!member) return;
+      setZokiWorkflow(previous => ({ ...previous, selectedStaffId: detail.staffId, error: '' }));
+      continueZokiWorkflowWithMember(member, zokiWorkflow, detail.assignRole === true);
+    };
+    window.addEventListener(ZOKI_TASK_WORKFLOW_COMMAND, receiveWorkflowCommand);
+    return () => window.removeEventListener(ZOKI_TASK_WORKFLOW_COMMAND, receiveWorkflowCommand);
+    // The command applies only to the active, already-loaded workflow.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schoolId, staff, zokiWorkflow]);
 
   useEffect(() => {
     const workflow = location.state?.zokiTaskWorkflow;
@@ -928,6 +965,7 @@ export default function TaskBoard() {
       setShowAssignmentBoard(false);
       setShowForm(false);
       setZokiWorkflow({
+        workflowId: String(workflow.workflowId || workflow.startedAt || Date.now()).slice(0, 128),
         phase: 'loading_context',
         request: String(workflow.request).slice(0, 2000),
         targetType: workflow.targetType || 'none',
@@ -1018,11 +1056,35 @@ export default function TaskBoard() {
         setZokiWorkflow({ ...next, phase: 'filling' });
         applyAssistantProposal(proposal, context);
         setZokiWorkflow({ ...next, phase: 'ready' });
+        publishWorkflowUpdate(next, 'ready', 'הטיוטה מוכנה לעריכה בעמוד המשימות. לא שמרתי דבר עדיין.');
         return;
       }
       setZokiWorkflow(next);
+      const targetLabel = roleResolution.targetLabel || next.targetLabel || 'התפקיד המבוקש';
+      const options = staff.filter(member => (member.uid || member.id) !== uid).map(member => ({
+        id: member.uid || member.id,
+        name: member.fullName || member.displayName || member.name || 'איש צוות',
+        jobTitle: member.jobTitle || member.roleName || '',
+      }));
+      const text = roleResolution.status === 'multiple_holders'
+        ? `מצאתי כמה בעלי תפקיד “${targetLabel}”. במי לבחור כאחראי?`
+        : roleResolution.status === 'unassigned_role'
+          ? `התפקיד “${targetLabel}” קיים, אבל אינו משויך עדיין. אפשר לבחור אדם למשימה בלבד${canManageRoles ? ' או לשייך אותו לתפקיד ולהמשיך' : ''}.`
+          : `לא מצאתי במערכת בעל תפקיד “${targetLabel}”. אפשר לבחור אחראי למשימה הזו בלבד, או לפתוח את ניהול הסגל ולהגדיר את התפקיד.`;
+      publishWorkflowUpdate(next, roleResolution.status, text, {
+        type: 'task_role_selection',
+        workflowId: next.workflowId,
+        targetLabel,
+        selectedStaffId: '',
+        canAssignRole: roleResolution.status === 'unassigned_role' && canManageRoles,
+        roleMissing: roleResolution.status === 'role_missing',
+        options,
+      });
     }).catch(() => {
-      if (active) setZokiWorkflow(previous => ({ ...previous, phase: 'failed', error: 'לא הצלחתי להכין את טיוטת המשימה. אפשר לנסות שוב.' }));
+      if (active) {
+        setZokiWorkflow(previous => ({ ...previous, phase: 'failed', error: 'לא הצלחתי להכין את טיוטת המשימה. אפשר לנסות שוב.' }));
+        publishWorkflowUpdate(zokiWorkflow, 'failed', 'לא הצלחתי להכין את טיוטת המשימה. אפשר לנסות שוב מעמוד המשימות.');
+      }
     });
     return () => { active = false; };
     // The workflow is intentionally started once for each request or explicit retry.
@@ -1133,9 +1195,11 @@ export default function TaskBoard() {
       setWorkView([TASK_SCOPES.TEAM, TASK_SCOPES.INSTITUTION].includes(input.scope) ? 'teams' : 'mine');
       setAssistantMeta(null);
       setZokiWorkflow(previous => previous ? { ...previous, phase: 'completed' } : previous);
+      publishWorkflowUpdate(zokiWorkflow, 'completed', `המשימה “${input.title}” נוצרה ונשמרה בהצלחה.`);
       showMessage(invitationWarning ? 'המשימה נוצרה, אך חלק מהזמנות השיתוף לא נשלחו.' : input.workPlanSteps.length ? 'המשימה והשלבים נשמרו בהצלחה.' : 'המשימה נוצרה בהצלחה.');
     } catch {
       setGeneralError();
+      publishWorkflowUpdate(zokiWorkflow, 'failed', 'שמירת המשימה לא הושלמה. הטיוטה נשארה בעמוד ואפשר לתקן ולנסות שוב.');
     } finally {
       setSaving(false);
     }
@@ -1539,7 +1603,7 @@ export default function TaskBoard() {
       </section>
 
       <details className="task-form-section task-form-accordion">
-        <summary><span><Users size={17} /> מי מעורב</span><small>{[...(value.responsibleIds || []), ...(value.partnerIds || []), ...(value.informedIds || []), ...(value.suggestedInviteIds || [])].length ? `${[...new Set([...(value.responsibleIds || []), ...(value.partnerIds || []), ...(value.informedIds || []), ...(value.suggestedInviteIds || [])])].length} אנשים` : 'ללא שיוך'}</small></summary>
+        <summary><span><Users size={17} /> מי מעורב</span><small>{[...(value.responsibleIds || []), ...(value.partnerIds || []), ...(value.informedIds || []), ...(value.suggestedInviteIds || [])].length ? (() => { const count = [...new Set([...(value.responsibleIds || []), ...(value.partnerIds || []), ...(value.informedIds || []), ...(value.suggestedInviteIds || [])])].length; return count === 1 ? 'אדם אחד' : `${count} אנשים`; })() : 'ללא שיוך'}</small></summary>
         <div className="task-form-accordion-body">
         {canAssignTasks ? <>
           <div className="form-row">
@@ -1661,14 +1725,20 @@ export default function TaskBoard() {
             <li className={['resolved', 'filling', 'ready', 'completed'].includes(zokiWorkflow.phase) ? 'is-done' : ['multiple_holders', 'unassigned_role', 'role_missing', 'assigning_role'].includes(zokiWorkflow.phase) ? 'is-active' : ''}><User size={14} /> מאתר את האחראי</li>
             <li className={['ready', 'completed'].includes(zokiWorkflow.phase) ? 'is-done' : zokiWorkflow.phase === 'filling' ? 'is-active' : ''}><FileEdit size={14} /> ממלא טיוטה לאישור</li>
           </ol>
-          {zokiWorkflow.phase === 'multiple_holders' && <div className="zoki-workflow-decision"><strong>נמצאו כמה בעלי תפקיד “{zokiWorkflow.roleResolution?.targetLabel}”</strong><p>בחרו למי להקצות את המשימה.</p></div>}
-          {zokiWorkflow.phase === 'unassigned_role' && <div className="zoki-workflow-decision"><strong>התפקיד “{zokiWorkflow.roleResolution?.targetLabel}” קיים, אבל עדיין אינו משויך לאיש צוות</strong><p>{canManageRoles ? 'אפשר לבחור אדם, לאשר את שיוך התפקיד ולהמשיך להכנת המשימה.' : 'אין לך הרשאה לשייך תפקידים, אך אפשר לבחור אחראי למשימה הזו בלבד.'}</p></div>}
-          {zokiWorkflow.phase === 'role_missing' && <div className="zoki-workflow-decision"><strong>לא נמצאה הגדרת תפקיד “{zokiWorkflow.roleResolution?.targetLabel || zokiWorkflow.targetLabel}”</strong><p>אפשר לבחור אחראי למשימה הזו בלבד, או להגדיר את התפקיד בניהול הסגל.</p></div>}
-          {['multiple_holders', 'unassigned_role', 'role_missing'].includes(zokiWorkflow.phase) && <div className="zoki-workflow-picker"><select aria-label="בחירת אחראי לתהליך זוקי" value={zokiWorkflow.selectedStaffId || ''} onChange={event => setZokiWorkflow(previous => ({ ...previous, selectedStaffId: event.target.value, error: '' }))}><option value="">בחרו איש צוות</option>{staff.filter(member => (member.uid || member.id) !== uid).map(member => <option key={member.uid || member.id} value={member.uid || member.id}>{member.fullName}{member.jobTitle ? ` — ${member.jobTitle}` : ''}</option>)}</select><button type="button" className="btn btn-primary" disabled={!zokiWorkflow.selectedStaffId} onClick={confirmZokiRoleHolder}>{zokiWorkflow.phase === 'unassigned_role' && canManageRoles ? 'אישור שיוך התפקיד והמשך' : 'בחירה והמשך'}</button>{zokiWorkflow.phase === 'role_missing' && <button type="button" className="btn btn-secondary" onClick={() => navigate('/staff')}>פתיחת ניהול הסגל</button>}</div>}
+          {['multiple_holders', 'unassigned_role', 'role_missing'].includes(zokiWorkflow.phase) && <div className="zoki-workflow-decision"><strong>נדרשת בחירה קצרה כדי להמשיך</strong><p>השאלה ואפשרויות הבחירה מופיעות בצ׳אט של זוקי. לאחר הבחירה הטיוטה תתמלא כאן.</p></div>}
           {zokiWorkflow.phase === 'assigning_role' && <p className="zoki-workflow-status">משייך את התפקיד וממשיך למשימה…</p>}
           {zokiWorkflow.phase === 'completed' && <p className="zoki-workflow-status">המשימה נוצרה ונשמרה בהצלחה.</p>}
           {zokiWorkflow.error && <p className="zoki-workflow-error">{zokiWorkflow.error}</p>}
           {zokiWorkflow.phase === 'failed' && <button type="button" className="btn btn-secondary" onClick={() => setZokiWorkflow(previous => ({ ...previous, phase: 'loading_context', attempt: (previous.attempt || 0) + 1, error: '' }))}>ניסיון נוסף</button>}
+        </section>}
+
+        {showForm && form.creationSource === 'agent' && !initiativeDetailOpen && <section className="card task-inline-agent-editor" aria-labelledby="task-inline-create-title">
+          <form onSubmit={handleCreate} className="task-form">
+            <header className="task-unified-form-head"><div><span><Sparkles size={15} /> טיוטה של זוקי</span><h2 id="task-inline-create-title">משימה חדשה</h2></div><button type="button" className="icon-btn" onClick={cancelZokiTaskDraft} aria-label="סגירת טיוטת המשימה"><X size={18} /></button></header>
+            {assistantMeta && <div className="task-assistant-proposal-note" title={assistantMeta.reasoningSummary || 'הצעה לפי ההקשר המוסדי'}><Sparkles size={16} /><strong>זוקי מילא הצעה שאפשר לשנות</strong><span>{assistantMeta.capabilities?.collaborationMode === 'invite' ? 'השמות המוצעים יקבלו הזמנה לשיתוף' : 'השינויים מתבצעים בעמוד הזה'}</span>{assistantMeta.holidayName && <span className="task-date-warning">המועד חופף ל־{assistantMeta.holidayName}</span>}</div>}
+            {renderFormFields(form, setForm)}
+            <div className="form-actions"><button className="btn btn-primary" type="submit" disabled={saving}>{saving ? 'יוצר…' : 'יצירת המשימה'}</button><button className="btn btn-secondary" type="button" onClick={cancelZokiTaskDraft}>ביטול</button></div>
+          </form>
         </section>}
 
         {activeTab === 'dashboard' ? <>
@@ -1694,7 +1764,7 @@ export default function TaskBoard() {
           </section>}
         </> : <section className="task-secondary-head"><div><button type="button" className="btn btn-secondary btn-sm" onClick={() => setActiveTab('dashboard')}>חזרה למשימות</button><h1>{activeTab === 'communications' ? 'מיילים ומעקבים' : 'הזמנות ושיתופים'}</h1></div>{activeTab === 'communications' && canCreateCommunication && <button type="button" className="btn task-create-primary" onClick={() => openCommunicationContext({ type: 'general', id: 'task_panel', label: 'פאנל המשימות' })}><Plus size={15} /> מייל ומעקב חדש</button>}</section>}
 
-        {showForm && !initiativeDetailOpen && (
+        {showForm && form.creationSource !== 'agent' && !initiativeDetailOpen && (
           <div className="task-create-overlay" onClick={() => setShowForm(false)}>
           <div className="card form-card" role="dialog" aria-modal="true" aria-labelledby="task-create-title" onClick={event => event.stopPropagation()}>
             <form onSubmit={handleCreate} className="task-form">
