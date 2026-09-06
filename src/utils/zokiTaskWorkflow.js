@@ -87,8 +87,10 @@ export function proposalWithRoleHolder(proposal, member) {
     teamSuggestions: [],
     assignmentPlan: {
       responsible: [party],
-      partners: proposal?.assignmentPlan?.partners || [],
-      informed: proposal?.assignmentPlan?.informed || [],
+      // Addressing one institutional role is an explicit assignment. Generic
+      // collaborators suggested by the model must not be added silently.
+      partners: [],
+      informed: [],
     },
     followUpQuestion: null,
   };

@@ -21,9 +21,18 @@ test('task workflow distinguishes an unassigned role from a missing role', () =>
   assert.equal(resolveTaskRoleTarget({ request: 'משימה לרכז חדשנות', targetLabel: 'רכז חדשנות', roles: [role], staff: [], schoolId: 'school1' }).status, 'role_missing');
 });
 
-test('selected role holder becomes the concrete task assignee', () => {
-  const proposal = proposalWithRoleHolder({ title: 'לוח מבחנים', taskType: 'personal', assignmentPlan: {} }, { id: 'teacher1', fullName: 'סאמי סלאמה', jobTitle: 'רכז פדגוגי' });
+test('selected role holder becomes the only concrete task assignee', () => {
+  const proposal = proposalWithRoleHolder({
+    title: 'לוח מבחנים',
+    taskType: 'personal',
+    assignmentPlan: {
+      partners: [{ id: 'partner1', name: 'שותף כללי', source: 'staff' }],
+      informed: [{ id: 'viewer1', name: 'לעדכון כללי', source: 'staff' }],
+    },
+  }, { id: 'teacher1', fullName: 'סאמי סלאמה', jobTitle: 'רכז פדגוגי' });
   assert.equal(proposal.taskType, 'assigned');
   assert.deepEqual(proposal.assigneeSuggestions, ['סאמי סלאמה']);
   assert.equal(proposal.assignmentPlan.responsible[0].id, 'teacher1');
+  assert.deepEqual(proposal.assignmentPlan.partners, []);
+  assert.deepEqual(proposal.assignmentPlan.informed, []);
 });
