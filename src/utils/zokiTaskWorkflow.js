@@ -38,6 +38,13 @@ function containsRoleLabel(source, label) {
   return labelWords.every(word => sourceWords.includes(word));
 }
 
+const ROLE_TARGET_IN_REQUEST = /(?:(?:עבור|בשביל|אל|אצל)\s+(?:את\s+)?|ל)(ה?(?:רכז(?:ת)?|מנהל(?:ת)?|מחנכ(?:ת)?|יועצ(?:ת)?|מזכיר(?:ה)?|סגנ(?:ית)?|אחראי(?:ת)?|ראש(?:ת)?)(?:\s+[\p{L}״׳'-]+){0,3}?)(?=\s+(?:להכ(?:ין|נת)|לבצע|לעשות|ליצור|לבנות|לתכנן|כדי|שי|שת)|[.,:;!?]|$)/u;
+
+export function inferTaskRoleTarget(request = '') {
+  const label = boundedText(request, 1000).match(ROLE_TARGET_IN_REQUEST)?.[1]?.trim() || '';
+  return label ? { type: 'role', label } : {};
+}
+
 function legacyJobTitleResolution({ requestText, requested, staff }) {
   const sourceWords = new Set(`${requestText} ${requested}`.split(' ').map(canonicalWord).filter(Boolean));
   const roleCues = new Set(['רכז', 'מנהל', 'מחנכ', 'יועצ', 'מזכיר', 'סגנ']);
@@ -60,7 +67,9 @@ function legacyJobTitleResolution({ requestText, requested, staff }) {
 }
 
 export function resolveTaskRoleTarget({ request = '', targetLabel = '', proposal = {}, roles = [], staff = [], schoolId = '' }) {
-  const requested = normalized(targetLabel);
+  const inferredTargetLabel = inferTaskRoleTarget(request).label || '';
+  const effectiveTargetLabel = targetLabel || inferredTargetLabel;
+  const requested = normalized(effectiveTargetLabel);
   const requestText = normalized(request);
   const suggestions = (proposal?.assigneeSuggestions || []).map(normalized).filter(Boolean);
   const ranked = roles.map(role => {
@@ -81,7 +90,7 @@ export function resolveTaskRoleTarget({ request = '', targetLabel = '', proposal
     if (legacyResolution) return legacyResolution;
     return {
       status: requested ? 'role_missing' : 'none',
-      targetLabel: boundedText(targetLabel || suggestions[0], 120),
+      targetLabel: boundedText(effectiveTargetLabel || suggestions[0], 120),
       role: null,
       holders: [],
     };
@@ -95,7 +104,7 @@ export function resolveTaskRoleTarget({ request = '', targetLabel = '', proposal
   });
   return {
     status: holders.length === 1 ? 'resolved' : holders.length > 1 ? 'multiple_holders' : 'unassigned_role',
-    targetLabel: boundedText(match.role.name || match.role.title || targetLabel, 120),
+    targetLabel: boundedText(match.role.name || match.role.title || effectiveTargetLabel, 120),
     role: match.role,
     holders,
   };

@@ -13,6 +13,7 @@ import { useTaskAssistantContext } from '../../hooks/useTaskAssistantContext.js'
 import { usePermissions } from '../../hooks/usePermissions.js';
 import { taskAssistantErrorMessage } from '../../services/firebaseAiTaskService.js';
 import { normalizeZokiConversationState } from '../../utils/zokiConversation.js';
+import { inferTaskRoleTarget } from '../../utils/zokiTaskWorkflow.js';
 import { loadAuthorizedStudentDetails } from '../../services/zokiSparkDataService.js';
 import { answerZokiOnSpark } from '../../utils/zokiSparkAnswer.js';
 import { sendZokiTaskWorkflowCommand, ZOKI_TASK_WORKFLOW_UPDATE } from '../../utils/zokiTaskWorkflowBridge.js';
@@ -57,13 +58,6 @@ function displayName(item, fallback) {
 
 const TASK_CREATION_REQUEST = /(?:צור|צרי|תיצור|תיצרי|פתח|פתחי|תפתח|תפתחי|הכן|הכיני|תכין|תכיני|בנה|בני|תבנה|תבני)\s+(?:לי\s+)?משימה|(?:אני\s+רוצה|צריך|צריכה)\s+(?:ליצור|לפתוח|להכין)\s+משימה/u;
 const END_CONVERSATION_REQUEST = /^(?:סיים|סיימי|לסיים|סיום)\s+(?:את\s+)?השיחה[.!]?$/u;
-const ROLE_TARGET_HINT = /(?:עבור|בשביל|אל|ל)\s+(ה?(?:רכז(?:ת)?|מנהל(?:ת)?|מחנכ(?:ת)?|יועצ(?:ת)?|מזכיר(?:ה)?|סגנ(?:ית)?)(?:\s+[\p{L}״׳'-]+){0,3}?)(?=\s+(?:להכ(?:ין|נת)|לבצע|לעשות|ליצור|לבנות|לתכנן|כדי|שי|שת)|[.,!?]|$)/u;
-
-function taskTargetHint(request) {
-  const label = request.match(ROLE_TARGET_HINT)?.[1]?.trim() || '';
-  return label ? { type: 'role', label } : {};
-}
-
 export default function ZokiPage({ embedded = false, onMinimize = () => undefined }) {
   const { userData, currentUser, selectedSchool, isPrincipal, isGlobalAdmin } = useAuth();
   const navigate = useNavigate();
@@ -357,7 +351,7 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
     try {
       if (TASK_CREATION_REQUEST.test(nextQuestion)) {
         routedTask = true;
-        startTaskWorkflow(nextQuestion, taskTargetHint(nextQuestion));
+        startTaskWorkflow(nextQuestion, inferTaskRoleTarget(nextQuestion));
         return;
       }
       let result;
@@ -376,9 +370,11 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
       }
       if (result?.actionIntent === 'create_task') {
         routedTask = true;
-        startTaskWorkflow(result.actionRequest || nextQuestion, {
-          type: result.actionTargetType,
-          label: result.actionTargetLabel,
+        const actionRequest = result.actionRequest || nextQuestion;
+        const inferredTarget = inferTaskRoleTarget(actionRequest);
+        startTaskWorkflow(actionRequest, {
+          type: result.actionTargetType || inferredTarget.type,
+          label: result.actionTargetLabel || inferredTarget.label,
         });
         return;
       }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { proposalWithRoleHolder, resolveTaskRoleTarget, taskCreationSourceForContext } from '../../src/utils/zokiTaskWorkflow.js';
+import { inferTaskRoleTarget, proposalWithRoleHolder, resolveTaskRoleTarget, taskCreationSourceForContext } from '../../src/utils/zokiTaskWorkflow.js';
 
 const role = { id: 'pedagogy', name: 'רכז פדגוגי', aliases: ['רכז הוראה'] };
 
@@ -19,6 +19,19 @@ test('task workflow resolves a configured role from broad request wording', () =
 test('task workflow distinguishes an unassigned role from a missing role', () => {
   assert.equal(resolveTaskRoleTarget({ request: 'משימה לרכז הפדגוגי', roles: [role], staff: [], schoolId: 'school1' }).status, 'unassigned_role');
   assert.equal(resolveTaskRoleTarget({ request: 'משימה לרכז חדשנות', targetLabel: 'רכז חדשנות', roles: [role], staff: [], schoolId: 'school1' }).status, 'role_missing');
+});
+
+test('task workflow extracts attached Hebrew prepositions and treats an unknown role as missing', () => {
+  assert.deepEqual(inferTaskRoleTarget('צור משימה לרכז החלל להכנת שבוע אסטרונומיה'), { type: 'role', label: 'רכז החלל' });
+  assert.deepEqual(inferTaskRoleTarget('צור משימה עבור הרכז הפדגוגי: להכין לוח מבחנים'), { type: 'role', label: 'הרכז הפדגוגי' });
+  const result = resolveTaskRoleTarget({
+    request: 'צור משימה לרכז החלל להכנת שבוע אסטרונומיה',
+    roles: [role],
+    staff: [],
+    schoolId: 'school1',
+  });
+  assert.equal(result.status, 'role_missing');
+  assert.equal(result.targetLabel, 'רכז החלל');
 });
 
 test('task workflow recognizes a legacy job title when no custom role exists', () => {
