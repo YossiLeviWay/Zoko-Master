@@ -26,6 +26,9 @@ function roleIdsForStaff(member, schoolId) {
 function canonicalWord(value) {
   let word = normalized(value);
   while (word.length > 3 && /^[והלמבכ]/u.test(word)) word = word.slice(1);
+  if (word.length > 4 && word.endsWith('ית')) word = word.slice(0, -2);
+  else if (word.length > 3 && /[תי]$/u.test(word)) word = word.slice(0, -1);
+  else if (word.length > 4 && /(?:ים|ות)$/u.test(word)) word = word.slice(0, -2);
   return word;
 }
 
@@ -33,6 +36,27 @@ function containsRoleLabel(source, label) {
   const sourceWords = source.split(' ').map(canonicalWord);
   const labelWords = label.split(' ').map(canonicalWord);
   return labelWords.every(word => sourceWords.includes(word));
+}
+
+function legacyJobTitleResolution({ requestText, requested, staff }) {
+  const sourceWords = new Set(`${requestText} ${requested}`.split(' ').map(canonicalWord).filter(Boolean));
+  const roleCues = new Set(['רכז', 'מנהל', 'מחנכ', 'יועצ', 'מזכיר', 'סגנ']);
+  const ranked = staff.map(member => {
+    const jobTitle = boundedText(member?.jobTitle || member?.roleName || member?.position, 120);
+    const words = normalized(jobTitle).split(' ').map(canonicalWord).filter(Boolean);
+    const overlap = [...new Set(words)].filter(word => sourceWords.has(word)).length;
+    const hasRoleCue = words.some(word => roleCues.has(word));
+    return { member, jobTitle, words, score: hasRoleCue && overlap >= 2 ? overlap * 20 + Math.min(words.length, 8) : 0 };
+  }).filter(item => item.score > 0).sort((left, right) => right.score - left.score);
+  if (!ranked.length) return null;
+  const best = ranked[0];
+  const holders = ranked.filter(item => item.score === best.score).map(item => item.member);
+  return {
+    status: holders.length === 1 ? 'resolved' : 'multiple_holders',
+    targetLabel: best.jobTitle,
+    role: { id: `job_title:${normalized(best.jobTitle)}`, name: best.jobTitle, legacyJobTitle: true },
+    holders,
+  };
 }
 
 export function resolveTaskRoleTarget({ request = '', targetLabel = '', proposal = {}, roles = [], staff = [], schoolId = '' }) {
@@ -53,6 +77,8 @@ export function resolveTaskRoleTarget({ request = '', targetLabel = '', proposal
   }).filter(item => item.score > 0).sort((left, right) => right.score - left.score);
   const match = ranked[0];
   if (!match || (ranked[1] && ranked[1].score === match.score)) {
+    const legacyResolution = legacyJobTitleResolution({ requestText, requested, staff });
+    if (legacyResolution) return legacyResolution;
     return {
       status: requested ? 'role_missing' : 'none',
       targetLabel: boundedText(targetLabel || suggestions[0], 120),

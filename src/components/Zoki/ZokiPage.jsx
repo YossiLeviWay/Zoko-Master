@@ -56,6 +56,12 @@ function displayName(item, fallback) {
 
 const TASK_CREATION_REQUEST = /(?:צור|צרי|תיצור|תיצרי|פתח|פתחי|תפתח|תפתחי|הכן|הכיני|תכין|תכיני|בנה|בני|תבנה|תבני)\s+(?:לי\s+)?משימה|(?:אני\s+רוצה|צריך|צריכה)\s+(?:ליצור|לפתוח|להכין)\s+משימה/u;
 const END_CONVERSATION_REQUEST = /^(?:סיים|סיימי|לסיים|סיום)\s+(?:את\s+)?השיחה[.!]?$/u;
+const ROLE_TARGET_HINT = /(?:עבור|בשביל|אל|ל)\s+(ה?(?:רכז(?:ת)?|מנהל(?:ת)?|מחנכ(?:ת)?|יועצ(?:ת)?|מזכיר(?:ה)?|סגנ(?:ית)?)(?:\s+[\p{L}״׳'-]+){0,3})/u;
+
+function taskTargetHint(request) {
+  const label = request.match(ROLE_TARGET_HINT)?.[1]?.trim() || '';
+  return label ? { type: 'role', label } : {};
+}
 
 export default function ZokiPage({ embedded = false, onMinimize = () => undefined }) {
   const { userData, currentUser, selectedSchool, isPrincipal, isGlobalAdmin } = useAuth();
@@ -308,7 +314,7 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
     try {
       if (TASK_CREATION_REQUEST.test(nextQuestion)) {
         routedTask = true;
-        startTaskWorkflow(nextQuestion);
+        startTaskWorkflow(nextQuestion, taskTargetHint(nextQuestion));
         return;
       }
       let result;

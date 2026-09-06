@@ -21,6 +21,21 @@ test('task workflow distinguishes an unassigned role from a missing role', () =>
   assert.equal(resolveTaskRoleTarget({ request: 'משימה לרכז חדשנות', targetLabel: 'רכז חדשנות', roles: [role], staff: [], schoolId: 'school1' }).status, 'role_missing');
 });
 
+test('task workflow recognizes a legacy job title when no custom role exists', () => {
+  const result = resolveTaskRoleTarget({
+    request: 'צור משימה עבור הרכז הפדגוגי להכנת לוח מבחנים',
+    targetLabel: 'הרכז הפדגוגי להכנת לוח מבחנים',
+    roles: [],
+    staff: [
+      { id: 'pedagogy1', fullName: 'דגנית בן חיים', jobTitle: 'רכז פדגוגית וחברתית' },
+      { id: 'trips1', fullName: 'אורפז חן', jobTitle: 'רכז ביטחון וטיולים' },
+    ],
+    schoolId: 'school1',
+  });
+  assert.equal(result.status, 'resolved');
+  assert.equal(result.holders[0].id, 'pedagogy1');
+});
+
 test('selected role holder becomes the only concrete task assignee', () => {
   const proposal = proposalWithRoleHolder({
     title: 'לוח מבחנים',
