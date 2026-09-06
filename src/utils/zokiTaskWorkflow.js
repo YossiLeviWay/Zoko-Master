@@ -121,3 +121,7 @@ export function proposalWithRoleHolder(proposal, member) {
     followUpQuestion: null,
   };
 }
+
+export function taskCreationSourceForContext(context = {}) {
+  return context?.creationSource === 'agent' || Boolean(context?.sessionId) ? 'agent' : 'manual';
+}

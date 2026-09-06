@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { proposalWithRoleHolder, resolveTaskRoleTarget } from '../../src/utils/zokiTaskWorkflow.js';
+import { proposalWithRoleHolder, resolveTaskRoleTarget, taskCreationSourceForContext } from '../../src/utils/zokiTaskWorkflow.js';
 
 const role = { id: 'pedagogy', name: 'רכז פדגוגי', aliases: ['רכז הוראה'] };
 
@@ -50,4 +50,10 @@ test('selected role holder becomes the only concrete task assignee', () => {
   assert.equal(proposal.assignmentPlan.responsible[0].id, 'teacher1');
   assert.deepEqual(proposal.assignmentPlan.partners, []);
   assert.deepEqual(proposal.assignmentPlan.informed, []);
+});
+
+test('a Zoki workflow stays agent-created even when the free AI provider has no session id', () => {
+  assert.equal(taskCreationSourceForContext({ creationSource: 'agent', sessionId: '' }), 'agent');
+  assert.equal(taskCreationSourceForContext({ sessionId: 'session_1' }), 'agent');
+  assert.equal(taskCreationSourceForContext({}), 'manual');
 });

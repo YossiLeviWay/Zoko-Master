@@ -88,7 +88,7 @@ import {
 } from '../../utils/taskAssistant';
 import { startTaskAssistantStage } from '../../services/taskAssistantPerformance';
 import { captureTaskAgentLearning, draftTaskWithInstitutionalBrain } from '../../services/taskAgentBrainService';
-import { proposalWithRoleHolder, resolveTaskRoleTarget } from '../../utils/zokiTaskWorkflow';
+import { proposalWithRoleHolder, resolveTaskRoleTarget, taskCreationSourceForContext } from '../../utils/zokiTaskWorkflow';
 import { publishZokiTaskWorkflowUpdate, ZOKI_TASK_WORKFLOW_COMMAND } from '../../utils/zokiTaskWorkflowBridge';
 import '../Gantt/Gantt.css';
 import './Tasks.css';
@@ -860,7 +860,7 @@ export default function TaskBoard() {
     finishMatching();
     const nextForm = proposalToTaskForm(resolved, emptyForm());
     nextForm.currentUserId = uid;
-    nextForm.creationSource = context.sessionId ? 'agent' : 'manual';
+    nextForm.creationSource = taskCreationSourceForContext(context);
     nextForm.agentSessionId = context.sessionId || '';
     const inviteOnly = context.capabilities?.collaborationMode === 'invite' || !canAssignTasks;
     if (inviteOnly) {
@@ -980,7 +980,7 @@ export default function TaskBoard() {
     const payload = location.state?.zokiTaskDraft;
     if (payload?.proposal) {
       if (!assistantContextReady.staff || !assistantContextReady.teams || !assistantContextReady.classes) return;
-      applyAssistantProposal(payload.proposal, payload.context || {});
+      applyAssistantProposal(payload.proposal, { ...(payload.context || {}), creationSource: 'agent' });
       navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
       return;
     }
@@ -1036,6 +1036,7 @@ export default function TaskBoard() {
       const context = {
         request,
         sessionId: result.sessionId,
+        creationSource: 'agent',
         capabilities: result.capabilities,
         degraded: result.degraded,
       };
