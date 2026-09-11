@@ -1,3 +1,4 @@
+import { zokiDisplayText } from './zokiDisplayText.js';
 // Pure orchestration boundary: the provider interprets language; code validates
 // IDs, bounds work and loads only sources authorized by the caller.
 export const ZOKI_CONTEXT_LIMITS = Object.freeze({ candidates: 240, sources: 12, historyMessages: 24, historyCharacters: 24000 });
@@ -32,7 +33,7 @@ export function normalizeSemanticResult(parsed, input) {
   const targetType = ['role', 'person', 'team'].includes(parsed.actionTargetType) ? parsed.actionTargetType : 'none';
   if (createTask && targetType !== 'none' && (typeof parsed.actionTargetLabel !== 'string' || !parsed.actionTargetLabel.trim())) throw invalid();
   return {
-    answer: parsed.answer.slice(0, 5000),
+    answer: zokiDisplayText(parsed.answer.slice(0, 5000), input.authorizedSources),
     staffRoleDraft: parsed.actionIntent === 'update_staff_role' ? (() => {
       const draft = parsed.staffRoleDraft;
       if (!draft || typeof draft.sourceId !== 'string' || !/^users\/[\w-]+$/.test(draft.sourceId)
