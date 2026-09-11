@@ -82,8 +82,8 @@ export class FirebaseGeminiProvider {
       const appCheckFailed = /app.?check|unauthenticated|401|403/iu.test(details);
       // Keep prompts and school data out of logs; retain only provider metadata
       // so production failures can be diagnosed without exposing user content.
-      console.warn('Zoki AI provider unavailable', { code: error.code || '', status: error.status || '' });
       const code = exhausted ? 'resource-exhausted' : appCheckFailed ? 'invalid-app-check' : 'agent-unavailable';
+      console.warn('Zoki AI provider unavailable', { code });
       throw Object.assign(new Error(code), { code, retryAfter: exhausted ? 60 : 0 });
     }
   }

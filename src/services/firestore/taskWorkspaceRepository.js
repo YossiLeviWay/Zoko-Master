@@ -2,7 +2,10 @@ import { collection, doc, onSnapshot, query, setDoc, where } from 'firebase/fire
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '../../firebase';
 const call = httpsCallable(functions, 'taskWorkspace');
-export const workspaceAction = async input => (await call(input)).data;
+export const workspaceAction = async input => {
+  if (import.meta.env.VITE_TASK_WORKSPACE_ENABLED !== 'true') throw new Error('shared-action-paused');
+  return (await call(input)).data;
+};
 export const newRequestId = () => crypto.randomUUID();
 export function subscribeWorkspace({db, schoolId, uid, onLists, onPreferences, onInvitations, onError}) {
   return [

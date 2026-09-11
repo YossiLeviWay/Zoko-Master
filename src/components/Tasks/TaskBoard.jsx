@@ -88,7 +88,7 @@ import {
 import { startTaskAssistantStage } from '../../services/taskAssistantPerformance';
 import { captureTaskAgentLearning, draftTaskWithInstitutionalBrain } from '../../services/taskAgentBrainService';
 import { proposalWithRoleHolder, resolveTaskRoleTarget, resolveSemanticTaskTarget, taskCreationSourceForContext } from '../../utils/zokiTaskWorkflow';
-import { publishZokiTaskWorkflowUpdate, ZOKI_TASK_WORKFLOW_COMMAND } from '../../utils/zokiTaskWorkflowBridge';
+import { getZokiTaskDraft, discardZokiTaskDraft, publishZokiTaskWorkflowUpdate, ZOKI_TASK_WORKFLOW_COMMAND } from '../../utils/zokiTaskWorkflowBridge';
 import '../Gantt/Gantt.css';
 import './Tasks.css';
 
@@ -958,7 +958,8 @@ export default function TaskBoard() {
   }, [schoolId, staff, zokiWorkflow]);
 
   useEffect(() => {
-    const workflow = location.state?.zokiTaskWorkflow;
+    const privateDraft = getZokiTaskDraft(location.state?.zokiDraftId, schoolId);
+    const workflow = privateDraft?.zokiTaskWorkflow;
     if (workflow?.request) {
       setActiveTab('dashboard');
       setShowAssignmentBoard(false);
@@ -974,18 +975,21 @@ export default function TaskBoard() {
         selectedStaffId: '',
         error: '',
       });
+      discardZokiTaskDraft(location.state?.zokiDraftId);
       navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
       return;
     }
-    const payload = location.state?.zokiTaskDraft;
+    const payload = privateDraft?.zokiTaskDraft;
     if (payload?.proposal) {
       if (!assistantContextReady.staff || !assistantContextReady.teams || !assistantContextReady.classes) return;
       applyAssistantProposal(payload.proposal, { ...(payload.context || {}), creationSource: 'agent' });
+      discardZokiTaskDraft(location.state?.zokiDraftId);
       navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
       return;
     }
     if (location.state?.openManualTask) {
       openTaskForm(TASK_SCOPES.PERSONAL);
+      discardZokiTaskDraft(location.state?.zokiDraftId);
       navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
     }
     // The state is consumed once. The proposal resolver uses the authorized data

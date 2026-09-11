@@ -62,7 +62,7 @@ function safe(handler, label) {
   return async request => {
     try { return await handler(request); }
     catch (error) {
-      logger.error(`${label} failed.`, { code: error?.code || error?.message || 'unknown' });
+      logger.error(`${label} failed.`, { code: error?.code || 'unknown' });
       throw toPublicError(error);
     }
   };

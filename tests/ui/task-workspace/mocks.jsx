@@ -19,3 +19,6 @@ export const subscribeWorkspace=({onLists,onPreferences,onInvitations})=>{emitPr
 export const saveBoardPreferences=async(_,uid,schoolId,patch)=>{prefs={...prefs,...patch};emitPreferences(prefs);};
 export const newRequestId=()=>crypto.randomUUID();
 export const workspaceAction=async input=>{if(input.operation==='create'){const ids=(input.titles||[input.title]).map((title,i)=>{const id=`${input.requestId}-${i}`;personal=[...personal,{id,title,scope:'personal',_source:'personal',createdBy:'a',ownerId:'a',status:'todo'}];return id;});emitPersonal(personal);return{taskIds:ids};}if(input.operation==='progress'){personal=personal.map(task=>task.id===input.taskId?{...task,status:input.status}:task);emitPersonal(personal);}return{ok:true};};
+
+export const subscribeSparkWorkspace=subscribeWorkspace;
+export const sparkWorkspaceAction=({input})=>workspaceAction(input);

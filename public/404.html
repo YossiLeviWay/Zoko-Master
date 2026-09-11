@@ -5,10 +5,9 @@
     <title>Zoko-Master</title>
     <script>
       // GitHub Pages SPA redirect
-      // Stores the current URL in sessionStorage and redirects to base path
-      // index.html picks it up via history.replaceState
-      sessionStorage.redirect = location.href;
-      location.replace(location.pathname.split('/').slice(0, 2).join('/') + '/');
+      // Carry the route in the URL, never in browser data storage.
+      const route = location.pathname + location.search + location.hash;
+      location.replace(location.pathname.split('/').slice(0, 2).join('/') + '/#spa-route=' + encodeURIComponent(route));
     </script>
   </head>
   <body></body>

@@ -19,7 +19,7 @@ async function created(event, forcedSchoolId = '') {
       embeddingModel: GEMINI_EMBEDDING_MODEL.value(),
     });
   } catch (error) {
-    logger.error('Task learning create failed.', { schoolId, taskId: event.params.taskId, code: error?.code || 'unknown' });
+    logger.error('Task learning create failed.', { code: error?.code || 'unknown' });
     throw error;
   }
 }

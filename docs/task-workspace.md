@@ -1,6 +1,6 @@
 # Task workspace rollout
 
-The `/tasks` route uses `TaskWorkspace` only when the build flag `VITE_TASK_WORKSPACE_ENABLED=true`. Otherwise it retains the existing board. This prevents broken production actions before the backend exists. `/tasks/advanced` preserves existing initiative links and the role-resolution task writer. Task discussions route to `/messages?task=ID&storage=nested|legacy`; the old chat documents are retained.
+The `/tasks` route uses the full shared workspace only when `VITE_TASK_WORKSPACE_ENABLED=true`. With the flag false it uses a Spark-compatible column board after verifying server access to the owner-only preferences document; older rules fall back to the existing board. The Spark adapter uses Firestore directly for private lists, personal tasks, favorites/order and existing global task completion. Shared-list creation and the new per-person completion service remain paused. `/tasks/advanced` preserves existing initiative links and the role-resolution task writer. Task discussions route to `/messages?task=ID&storage=nested|legacy`; the old chat documents are retained. See [browser privacy and free rollout](operations/browser-privacy.md).
 
 ## Release order
 

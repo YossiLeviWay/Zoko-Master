@@ -4,3 +4,5 @@
 .tw-conversation .chat-panel{position:relative;inset:auto;width:100%;height:calc(100dvh - 220px);max-width:900px;margin:20px auto;box-shadow:none;border:1px solid #eee8eb;border-radius:16px}
 
 .tw-grip{touch-action:none}
+
+.tw-free-note{font-size:13px;color:#615c65;margin:0 0 12px}.tw-free-note button{color:#870335;background:none;border:0;text-decoration:underline;cursor:pointer}
