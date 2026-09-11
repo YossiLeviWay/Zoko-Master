@@ -1,7 +1,8 @@
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '../../firebase';
 import { useEffect, useMemo, useState } from 'react';
 import { Calculator, Plus, Save, Trash2 } from 'lucide-react';
 import { db } from '../../firebase';
-import { subscribeStudents } from '../../services/firestore/classStudentRepository';
 import {
   saveGradebookSubjects,
   saveStudentGrades,
@@ -32,15 +33,20 @@ export default function GradeMappingEditor({
   file,
   schoolId,
   actor,
-  canEditScores = false,
-  canManageConfig = false,
+  canEditScores: legacyCanEditScores = false,
+  canManageConfig: legacyCanManageConfig = false,
   studentOnly = null,
 }) {
   const gradebookId = file?.gradebookId || file?.id?.replace(/^gradebook_/, '');
+  const [sharedAccess, setSharedAccess] = useState(null);
+  const canEditScores = sharedAccess ? sharedAccess.canEdit || sharedAccess.canCreate : legacyCanEditScores;
+  const canManageConfig = sharedAccess ? sharedAccess.canManage : legacyCanManageConfig;
   const [gradebook, setGradebook] = useState(null);
   const [subjects, setSubjects] = useState([]);
   const [students, setStudents] = useState(studentOnly ? [studentOnly] : []);
   const [rows, setRows] = useState({});
+  const [persistedIds, setPersistedIds] = useState([]);
+  const canWriteRow = id => sharedAccess ? (persistedIds.includes(id) ? sharedAccess.canEdit : sharedAccess.canCreate) : canEditScores;
   const [savingConfig, setSavingConfig] = useState(false);
   const [savingStudentId, setSavingStudentId] = useState('');
   const [message, setMessage] = useState('');
@@ -57,7 +63,7 @@ export default function GradeMappingEditor({
 
   useEffect(() => subscribeGradebookGrades({
     db, schoolId, gradebookId,
-    onData: items => setRows(Object.fromEntries(items.map(item => [item.studentId || item.id, item]))),
+    onData: items => { setRows(Object.fromEntries(items.map(item => [item.studentId || item.id, item]))); setPersistedIds(items.map(item => item.studentId || item.id)); },
     onError: () => setError('לא ניתן לטעון את ציוני התלמידים.'),
   }), [gradebookId, schoolId]);
 
@@ -67,15 +73,12 @@ export default function GradeMappingEditor({
       return undefined;
     }
     if (!file?.classId) return undefined;
-    return subscribeStudents({
-      db,
-      schoolId,
-      classIds: [file.classId],
-      canViewAll: false,
-      onData: items => setStudents(items.filter(item => item.classId === file.classId && item.status !== 'archived')),
-      onError: () => setError('לא ניתן לטעון את תלמידי הכיתה.'),
-    });
-  }, [file?.classId, schoolId, studentOnly]);
+    let active = true;
+    httpsCallable(functions, 'getSharedGradebookContext')({ schoolId, gradebookId }).then(({ data }) => {
+      if (active) { setStudents(data.students); setSharedAccess(data); }
+    }).catch(() => { if (active) setError('לא ניתן לטעון את המיפוי המשותף. ייתכן שהגישה השתנתה.'); });
+    return () => { active = false; };
+  }, [file?.classId, schoolId, studentOnly, gradebookId]);
 
   const orderedStudents = useMemo(() => [...students].sort((a, b) => (
     (a.fullName || '').localeCompare(b.fullName || '', 'he')
@@ -139,6 +142,7 @@ export default function GradeMappingEditor({
   }
 
   async function persistStudent(student) {
+    if (!canWriteRow(student.id)) return;
     const scores = rows[student.id]?.scores || {};
     setSavingStudentId(student.id);
     setError('');
@@ -183,7 +187,7 @@ export default function GradeMappingEditor({
       {subjects.length === 0 ? <div className="gradebook-empty">עדיין לא הוגדרו מקצועות במיפוי.{canManageConfig ? ' הוסיפו מקצוע כדי להתחיל.' : ''}</div> : (
         <div className="gradebook-table-wrap"><table className="gradebook-table"><thead><tr><th rowSpan="2">שם התלמיד</th>{subjects.map(subject => <th key={subject.id} colSpan={subject.components.length + 1}>{subject.name}</th>)}</tr><tr>{subjects.flatMap(subject => [...subject.components.map((component, index) => <th key={scoreKey(subject.id, component.id)}>{component.name}<small>C{index + 1} · {component.weight || 0}%</small></th>), <th key={`${subject.id}_final`} className="gradebook-final">ציון סופי</th>])}</tr></thead><tbody>{orderedStudents.map(student => {
           const scores = rows[student.id]?.scores || {};
-          return <tr key={student.id}><th>{student.fullName}{savingStudentId === student.id && <small>שומר…</small>}</th>{subjects.flatMap(subject => [...subject.components.map(component => <td key={scoreKey(subject.id, component.id)}><input aria-label={`${student.fullName} ${subject.name} ${component.name}`} inputMode="decimal" value={scores[subject.id]?.[component.id] ?? ''} readOnly={!canEditScores} onChange={event => setScore(student.id, subject.id, component.id, event.target.value)} onBlur={() => canEditScores && persistStudent(student)} /></td>), <td key={`${subject.id}_final`} className="gradebook-final">{(() => { try { return calculateSubjectGrade(subject, scores[subject.id] || {}) ?? '—'; } catch { return 'שגיאה'; } })()}</td>])}</tr>;
+          return <tr key={student.id}><th>{student.fullName}{savingStudentId === student.id && <small>שומר…</small>}</th>{subjects.flatMap(subject => [...subject.components.map(component => <td key={scoreKey(subject.id, component.id)}><input aria-label={`${student.fullName} ${subject.name} ${component.name}`} inputMode="decimal" value={scores[subject.id]?.[component.id] ?? ''} readOnly={!canWriteRow(student.id)} onChange={event => setScore(student.id, subject.id, component.id, event.target.value)} onBlur={() => canWriteRow(student.id) && persistStudent(student)} /></td>), <td key={`${subject.id}_final`} className="gradebook-final">{(() => { try { return calculateSubjectGrade(subject, scores[subject.id] || {}) ?? '—'; } catch { return 'שגיאה'; } })()}</td>])}</tr>;
         })}</tbody></table></div>
       )}
     </div>

@@ -63,7 +63,7 @@ export async function resolveActorRoleAuthority(actor, schoolId) {
   }
   if (!membership.active) throw permissionDenied();
 
-  const permissions = truePermissionKeys(actor.data.permissions);
+  const permissions = truePermissionKeys({ ...actor.data.permissions, ...Object.fromEntries(Object.entries(actor.data.accessProfilesBySchool?.[schoolId]?.school || {}).filter(([, enabled]) => enabled === true)) });
   const delegable = new Set(Array.isArray(actor.data.delegatedPermissionKeys)
     ? actor.data.delegatedPermissionKeys
     : []);

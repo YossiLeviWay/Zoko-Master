@@ -129,7 +129,10 @@ service firebase.storage {
     }
 
     function aclAllows(schoolId, resourceType, resourceId, accessLevel) {
-      let levelData = aclPolicy(schoolId, resourceType, resourceId)[accessLevel];
+      let policy = aclPolicy(schoolId, resourceType, resourceId);
+      let baseLevel = {'inherit_view': 'view', 'inherit_create': 'create', 'inherit_edit': 'edit', 'inherit_comment': 'comment', 'inherit_delete': 'delete', 'inherit_manage': 'manage'}.get(accessLevel, accessLevel);
+      let fallback = baseLevel == 'create' ? 'edit' : baseLevel == 'delete' ? 'manage' : baseLevel;
+      let levelData = policy.get(accessLevel, policy[fallback]);
       return isSchoolPrincipal(schoolId)
         || (!aclPrincipalMatches(schoolId, levelData, 'denied') && aclPrincipalMatches(schoolId, levelData, 'allowed'));
     }
@@ -145,14 +148,25 @@ service firebase.storage {
           firestore.exists(/databases/(default)/documents/schools/$(schoolId)/files/$(fileId))
           && schoolFile(schoolId, fileId).folderId is string
           && hasAclPolicy(schoolId, 'folder', schoolFile(schoolId, fileId).folderId)
-            ? aclAllows(schoolId, 'folder', schoolFile(schoolId, fileId).folderId, accessLevel)
-            : isSchoolMember(schoolId)
+            ? aclAllows(schoolId, 'folder', schoolFile(schoolId, fileId).folderId, 'inherit_' + accessLevel)
+            : isSchoolMember(schoolId) && (
+              currentUser().get('accessProfilesBySchool', {}).get(schoolId, {}).size() == 0
+              || (accessLevel == 'view' ? hasPermission(schoolId, 'files.view') || hasPermission(schoolId, 'files_view')
+                : accessLevel == 'create' ? hasPermission(schoolId, 'files.create') || legacyFileWrite(schoolId)
+                : accessLevel == 'edit' ? hasPermission(schoolId, 'files.edit') || legacyFileWrite(schoolId)
+                : hasPermission(schoolId, 'files.delete') || hasPermission(schoolId, 'files_delete'))
+            )
         );
     }
 
+    function legacyFileWrite(schoolId) {
+      return isSchoolPrincipal(schoolId) || isGlobalAdmin() || currentUser().get('permissions', {}).get('files_upload', false)
+        || currentUser().get('rolePermissionsBySchool', {}).get(schoolId, {}).get('files_upload', false);
+    }
     function hasPermission(schoolId, permission) {
       return isGlobalAdmin()
         || isSchoolPrincipal(schoolId)
+        || (isSchoolMember(schoolId) && currentUser().get('accessProfilesBySchool', {}).get(schoolId, {}).get('school', {}).get(permission, false) == true)
         || (
           isSchoolMember(schoolId)
           && currentUser().permissions is map
@@ -161,24 +175,32 @@ service firebase.storage {
         );
     }
 
-    function rolePermission(schoolId, permission) {
-      return 'rolePermissionsBySchool' in currentUser()
-        && currentUser().rolePermissionsBySchool is map
-        && schoolId in currentUser().rolePermissionsBySchool
-        && currentUser().rolePermissionsBySchool[schoolId] is map
-        && permission in currentUser().rolePermissionsBySchool[schoolId]
-        && currentUser().rolePermissionsBySchool[schoolId][permission] == true;
+    function profileClassPermission(schoolId, permission, classId) {
+      let profile = currentUser().get('accessProfilesBySchool', {}).get(schoolId, {});
+      return classId is string && (
+        profile.get('classes', {}).get(classId, {}).get(permission, false) == true
+        || (profile.get('homeroom', {}).get(permission, false) == true && profileClassMember(schoolId, classId, true))
+        || (profile.get('assigned', {}).get(permission, false) == true && profileClassMember(schoolId, classId, false))
+      );
     }
-
+    function profileClassMember(schoolId, classId, homeroomOnly) {
+      let path = /databases/(default)/documents/schools/$(schoolId)/classes/$(classId);
+      let legacyCollection = 'classes_' + schoolId;
+      let record = firestore.exists(path) ? firestore.get(path).data : firestore.get(/databases/(default)/documents/$(legacyCollection)/$(classId)).data;
+      return record != null && record.get('status', 'active') != 'archived' && (
+        record.get('teacherId', '') == request.auth.uid
+        || (!homeroomOnly && request.auth.uid in record.get('staffIds', []))
+      );
+    }
+    function rolePermission(schoolId, permission) {
+      return currentUser().get('rolePermissionsBySchool', {}).get(schoolId, {}).get(permission, false) == true
+        || currentUser().get('accessProfilesBySchool', {}).get(schoolId, {}).get('school', {}).get(permission, false) == true;
+    }
     function classRolePermission(schoolId, permission, classId) {
-      return classId is string
-        && 'classRolePermissionsBySchool' in currentUser()
-        && currentUser().classRolePermissionsBySchool is map
-        && schoolId in currentUser().classRolePermissionsBySchool
-        && currentUser().classRolePermissionsBySchool[schoolId] is map
-        && permission in currentUser().classRolePermissionsBySchool[schoolId]
-        && currentUser().classRolePermissionsBySchool[schoolId][permission] is list
-        && classId in currentUser().classRolePermissionsBySchool[schoolId][permission];
+      return classId is string && (
+        classId in currentUser().get('classRolePermissionsBySchool', {}).get(schoolId, {}).get(permission, [])
+        || profileClassPermission(schoolId, permission, classId)
+      );
     }
 
     function personalFileStudent(schoolId, studentId) {
@@ -274,11 +296,14 @@ service firebase.storage {
 
     match /schools/{schoolId}/files/{fileId}/{filename} {
       allow read: if isSchoolMember(schoolId) && schoolFileAclAllows(schoolId, fileId, 'view');
-      allow create, update: if (hasPermission(schoolId, 'files_upload') || hasPermission(schoolId, 'files.create'))
-        && schoolFileAclAllows(schoolId, fileId, 'edit')
-        && safeGeneralUpload(filename);
+      allow create: if isSchoolMember(schoolId)
+        && (hasPermission(schoolId, 'files_upload') || hasPermission(schoolId, 'files.create') || hasAclPolicy(schoolId, 'file', fileId))
+        && schoolFileAclAllows(schoolId, fileId, 'create') && safeGeneralUpload(filename);
+      allow update: if isSchoolMember(schoolId)
+        && (legacyFileWrite(schoolId) || hasPermission(schoolId, 'files.edit') || hasAclPolicy(schoolId, 'file', fileId))
+        && schoolFileAclAllows(schoolId, fileId, 'edit') && safeGeneralUpload(filename);
       allow delete: if (hasPermission(schoolId, 'files_delete') || hasPermission(schoolId, 'files.delete'))
-        && schoolFileAclAllows(schoolId, fileId, 'manage');
+        && schoolFileAclAllows(schoolId, fileId, 'delete');
     }
 
     match /schools/{schoolId}/chat-images/{conversationId}/{filename} {

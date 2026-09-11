@@ -115,3 +115,9 @@ export {
 
 export { taskWorkspace } from './callables/taskWorkspace.js';
 export { syncNestedTaskTeam, syncLegacyTaskTeam } from './triggers/taskWorkspace.js';
+
+export { getAccessConfiguration, saveAccessConfiguration, getOwnAccessClasses } from './callables/accessConfiguration.js';
+
+export { getSharedGradebookContext } from './callables/sharedGradebook.js';
+
+export { listSharedFiles } from './callables/sharedFiles.js';

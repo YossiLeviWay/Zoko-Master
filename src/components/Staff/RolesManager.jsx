@@ -1,3 +1,4 @@
+import CapabilityEditor from '../Access/CapabilityEditor';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { Archive, ChevronDown, ChevronUp, Copy, Edit3, Plus, Save, Shield, UserPlus, X } from 'lucide-react';
@@ -87,7 +88,6 @@ export default function RolesManager({ schoolId, onClose }) {
   const [teams, setTeams] = useState([]);
   const [editingRole, setEditingRole] = useState(null);
   const [editForm, setEditForm] = useState(roleForm());
-  const [expandedGroups, setExpandedGroups] = useState({});
   const [showForm, setShowForm] = useState(false);
   const [selectedAssignees, setSelectedAssignees] = useState({});
   const [saving, setSaving] = useState(false);
@@ -137,7 +137,6 @@ export default function RolesManager({ schoolId, onClose }) {
   function openForm(role = null) {
     setEditingRole(role);
     setEditForm(roleForm(role || EMPTY_FORM));
-    setExpandedGroups(PERMISSION_GROUPS[0] ? { [PERMISSION_GROUPS[0].id]: true } : {});
     setError('');
     setShowForm(true);
   }
@@ -151,39 +150,12 @@ export default function RolesManager({ schoolId, onClose }) {
     }));
   }
 
-  function togglePermission(key) {
-    setEditForm(previous => {
-      const enabled = !previous.permissions[key];
-      return {
-        ...previous,
-        permissions: { ...previous.permissions, [key]: enabled },
-        delegatedPermissionKeys: enabled
-          ? previous.delegatedPermissionKeys
-          : previous.delegatedPermissionKeys.filter(item => item !== key),
-      };
-    });
-  }
-
   function toggleDelegable(key) {
     setEditForm(previous => ({
       ...previous,
       delegatedPermissionKeys: previous.delegatedPermissionKeys.includes(key)
         ? previous.delegatedPermissionKeys.filter(item => item !== key)
         : [...previous.delegatedPermissionKeys, key],
-    }));
-  }
-
-  function setGroupPermissions(group, enabled) {
-    const keys = group.permissions.map(([key]) => key);
-    setEditForm(previous => ({
-      ...previous,
-      permissions: {
-        ...previous.permissions,
-        ...Object.fromEntries(keys.map(key => [key, enabled])),
-      },
-      delegatedPermissionKeys: enabled
-        ? previous.delegatedPermissionKeys
-        : previous.delegatedPermissionKeys.filter(key => !keys.includes(key)),
     }));
   }
 
@@ -350,19 +322,10 @@ export default function RolesManager({ schoolId, onClose }) {
               {editForm.accessScope.type === 'classes' && <div className="role-class-grid">{classes.map(item => <label key={item.id}><input type="checkbox" checked={editForm.accessScope.classIds.includes(item.id)} onChange={() => toggleScopeClass(item.id)} /> {item.name}</label>)}</div>}
             </fieldset>
 
-            <section className="role-form-section role-permissions-section">
-              <div className="role-section-heading"><strong>הרשאות לפי קטגוריות</strong><span>{Object.values(editForm.permissions).filter(Boolean).length} הרשאות נבחרו</span></div>
-              <div className="permissions-list">{PERMISSION_GROUPS.map(group => {
-                const enabledCount = group.permissions.filter(([key]) => editForm.permissions[key]).length;
-                return <section key={group.id} className={`permissions-group${expandedGroups[group.id] ? ' expanded' : ''}`}>
-                  <div className="permissions-group-header">
-                    <button type="button" className="permissions-group-toggle" onClick={() => setExpandedGroups(previous => ({ ...previous, [group.id]: !previous[group.id] }))}><span className="permissions-group-title">{group.label}</span><span className="permissions-group-summary">{enabledCount}/{group.permissions.length}</span>{expandedGroups[group.id] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</button>
-                    <div className="permissions-group-bulk"><button type="button" className="btn btn-secondary btn-sm" onClick={() => setGroupPermissions(group, true)}>בחירת הכול</button><button type="button" className="btn btn-secondary btn-sm" disabled={enabledCount === 0} onClick={() => setGroupPermissions(group, false)}>ניקוי</button></div>
-                  </div>
-                  {expandedGroups[group.id] && <div className="permissions-group-items">{group.permissions.map(([key, label]) => <div key={key} className="permission-delegation-row"><label className="permissions-item"><input type="checkbox" checked={Boolean(editForm.permissions[key])} onChange={() => togglePermission(key)} /><span>{label}</span></label><label className="permission-delegable"><input type="checkbox" disabled={!editForm.permissions[key]} checked={editForm.delegatedPermissionKeys.includes(key)} onChange={() => toggleDelegable(key)} /> ניתן להאצלה</label></div>)}</div>}
-                </section>;
-              })}</div>
-            </section>
+            <details className="role-form-section"><summary>התאמת הגישה לתפקיד</summary>
+              <CapabilityEditor value={editForm.permissions} onChange={permissions => setEditForm(previous => ({ ...previous, permissions, delegatedPermissionKeys: previous.delegatedPermissionKeys.filter(key => permissions[key]) }))} />
+              <details><summary>האצלת פעולות מסוימות</summary>{Object.keys(editForm.permissions).filter(key => editForm.permissions[key]).map(key => <label className="access-check" key={key}><input type="checkbox" checked={editForm.delegatedPermissionKeys.includes(key)} onChange={() => toggleDelegable(key)} />{PERMISSION_GROUPS.flatMap(group => group.permissions).find(([permission]) => permission === key)?.[1] || key}</label>)}</details>
+            </details>
 
             <details className="role-advanced-settings">
               <summary>הגדרות הקצאה מתקדמות</summary>

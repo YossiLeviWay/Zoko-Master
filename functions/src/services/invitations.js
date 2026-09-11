@@ -1,3 +1,4 @@
+import { cleanAccessProfile } from '../accessCatalog.js';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { adminAuth, adminDb } from './firebaseAdmin.js';
@@ -44,6 +45,7 @@ export async function createInvitationRecord({
   teamIds = [],
   classIds = [],
   permissions = {},
+  accessProfile,
   message = '',
   sourceJoinRequestId = '',
   throwOnDeliveryFailure = true,
@@ -87,6 +89,7 @@ export async function createInvitationRecord({
     teamIds,
     classIds,
     permissions,
+    ...(accessProfile ? { accessProfile: cleanAccessProfile(accessProfile) } : {}),
     message: String(message || '').trim(),
     sourceJoinRequestId,
     status: 'pending',
@@ -217,6 +220,7 @@ export async function acceptInvitationToken({ invitationId, token, password, ful
         customRoleIds: [...new Set([...(current.customRoleIds || []), ...(invitation.customRoleIds || [])])],
         teamIds: [...new Set([...(current.teamIds || []), ...(invitation.teamIds || [])])],
         permissions: { ...(current.permissions || {}), ...(invitation.permissions || {}) },
+        ...(invitation.accessProfile && !current.accessProfilesBySchool?.[invitation.schoolId] ? { accessProfilesBySchool: { ...(current.accessProfilesBySchool || {}), [invitation.schoolId]: invitation.accessProfile } } : {}),
         rolesBySchool: { ...(current.rolesBySchool || {}), [secret.schoolId]: invitation.role },
         accountStatus: 'active',
         updatedAt: FieldValue.serverTimestamp(),

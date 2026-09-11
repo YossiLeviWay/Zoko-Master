@@ -1,3 +1,4 @@
+import { useSharedFiles } from '../../hooks/useSharedFiles';
 import { useState, useEffect, useRef } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -121,6 +122,7 @@ export default function Sidebar() {
   const [navPermPanel, setNavPermPanel] = useState(null); // { item, x, y }
   const canManagePermissions = isPrincipal() || isGlobalAdmin();
   const schoolId = selectedSchool || userData?.schoolId;
+  const sharedFiles = useSharedFiles(schoolId);
 
   useEffect(() => {
     if (!currentUser?.uid || isPlatformAdmin() || isPrincipal()) {
@@ -230,7 +232,7 @@ export default function Sidebar() {
     if (item.adminOnly) return isPlatformAdmin();
     if (item.forumOnly && !forumMembershipActive && !isPrincipal()) return false;
     if (item.requiresSchool && !schoolId) return false;
-    if (item.permission && !permissions[item.permission]) return false;
+    if (item.permission && !permissions[item.permission] && !(item.path === '/files' && sharedFiles.length > 0)) return false;
     return true;
   }
 

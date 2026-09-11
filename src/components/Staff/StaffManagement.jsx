@@ -1,3 +1,6 @@
+import AccessProfileEditor from '../Access/AccessProfileEditor';
+import { ACCESS_PRESETS, presetProfile } from '../../../functions/src/accessCatalog.js';
+import UserAccessDialog from '../Access/UserAccessDialog';
 import StaffActions, { StaffChangeDialog } from './StaffActions';
 import { changeStaffMember } from '../../services/firestore/staffManagementRepository';
 import { schoolJobTitle, staffChangeError, staffSchoolIds } from '../../utils/staffManagement';
@@ -12,7 +15,6 @@ import {
   getDocs,
   updateDoc,
   doc,
-  getDoc,
   arrayUnion,
   orderBy,
   limit
@@ -65,205 +67,9 @@ const AVATAR_STYLES = [
   { key: 'sapphire', label: 'ספיר' },
 ];
 
-const DEFAULT_PERMISSIONS = {
-  calendar_view: true,
-  calendar_edit: false,
-  categories_view: true,
-  categories_edit: false,
-  staff_view: true,
-  staff_edit: false,
-  staff_delete: false,
-  'staff.invite': false,
-  'staff.viewJoinRequests': false,
-  'staff.reviewJoinRequests': false,
-  'staff.resetPassword': false,
-  tasks_view: true,
-  tasks_edit: false,
-  tasks_assign: false,
-  'tasks.useAssistant': false,
-  'tasks.inviteCollaborators': false,
-  'tasks.assignMandatory': false,
-  'tasks.manageAssignments': false,
-  teams_view: true,
-  teams_edit: false,
-  classes_view: false,
-  classes_create: false,
-  classes_update: false,
-  classes_archive: false,
-  classes_assign_teacher: false,
-  students_view: false,
-  students_edit: false,
-  students_create: false,
-  students_update: false,
-  students_archive: false,
-  students_transfer_class: false,
-  students_manage_programs: false,
-  students_add_notes: false,
-  students_view_notes: false,
-  'grades.view': false,
-  'grades.edit': false,
-  'gradebooks.manage': false,
-  attendance_create: false,
-  attendance_view: false,
-  attendance_edit: false,
-  attendance_manage_legend: false,
-  attendance_manage_dates: false,
-  attendance_block_days: false,
-  files_view: true,
-  files_upload: false,
-  files_delete: false,
-  messages_send: true,
-  messages_delete: false,
-  holidays_view: true,
-  holidays_edit: false,
-  data_mapping_view: true,
-  data_mapping_edit: false,
-  schools_manage: false,
-  settings_edit: false,
-};
-
-const PERMISSION_GROUPS = [
-  {
-    label: 'לוח שנה',
-    permissions: [
-      { key: 'calendar_view', label: 'צפייה בלוח שנה' },
-      { key: 'calendar_edit', label: 'עריכת אירועים' },
-    ]
-  },
-  {
-    label: 'קטגוריות',
-    permissions: [
-      { key: 'categories_view', label: 'צפייה בקטגוריות' },
-      { key: 'categories_edit', label: 'עריכת קטגוריות' },
-    ]
-  },
-  {
-    label: 'סגל וקהילה',
-    permissions: [
-      { key: 'staff_view', label: 'צפייה בסגל' },
-      { key: 'staff_edit', label: 'עריכת סגל והרשאות' },
-      { key: 'staff_delete', label: 'מחיקת איש צוות' },
-      { key: 'staff.invite', label: 'שליחת הזמנות לצוות' },
-      { key: 'staff.viewJoinRequests', label: 'צפייה בבקשות הצטרפות' },
-      { key: 'staff.reviewJoinRequests', label: 'טיפול בבקשות הצטרפות' },
-      { key: 'staff.resetPassword', label: 'שליחת קישור איפוס סיסמה' },
-    ]
-  },
-  {
-    label: 'משימות',
-    permissions: [
-      { key: 'tasks_view', label: 'צפייה במשימות' },
-      { key: 'tasks_edit', label: 'יצירה ועריכת משימות' },
-      { key: 'tasks_assign', label: 'הקצאת משימות לאחרים' },
-      { key: 'tasks.inviteCollaborators', label: 'הזמנת שותפים למשימה' },
-      { key: 'tasks.assignMandatory', label: 'הקצאת משימה מחייבת' },
-      { key: 'tasks.manageAssignments', label: 'ניהול הקצאות משימה' },
-      { key: 'tasks.useAssistant', label: 'שימוש בסוכן יצירת משימות' },
-    ]
-  },
-  {
-    label: 'צוותים',
-    permissions: [
-      { key: 'teams_view', label: 'צפייה בצוותים' },
-      { key: 'teams_edit', label: 'ניהול צוותים' },
-    ]
-  },
-  {
-    label: 'כיתות ותלמידים',
-    permissions: [
-      { key: 'classes_view', label: 'צפייה בכל הכיתות במוסד' },
-      { key: 'classes_create', label: 'יצירת כיתות' },
-      { key: 'classes_update', label: 'עריכת כיתות' },
-      { key: 'classes_archive', label: 'ארכוב ושחזור כיתות' },
-      { key: 'classes_assign_teacher', label: 'שיוך והחלפת מחנך' },
-      { key: 'students_view', label: 'צפייה בכל התלמידים במוסד' },
-      { key: 'students_create', label: 'הוספת תלמידים' },
-      { key: 'students_update', label: 'עריכת תלמידים' },
-      { key: 'students_archive', label: 'ארכוב ושחזור תלמידים' },
-      { key: 'students_transfer_class', label: 'העברת תלמיד בין כיתות' },
-      { key: 'students_manage_programs', label: 'ניהול מגמות ותוכניות' },
-      { key: 'students_add_notes', label: 'הוספת הערות תלמיד' },
-      { key: 'students_view_notes', label: 'צפייה בהערות תלמיד' },
-    ]
-  },
-  {
-    label: 'ציונים ומיפויים',
-    permissions: [
-      { key: 'grades.view', label: 'צפייה בציונים' },
-      { key: 'grades.edit', label: 'עריכת ציוני תלמידים' },
-      { key: 'gradebooks.manage', label: 'ניהול מקצועות, רכיבים ונוסחאות' },
-    ]
-  },
-  {
-    label: 'נוכחות',
-    permissions: [
-      { key: 'attendance_create', label: 'יצירת גיליונות נוכחות' },
-      { key: 'attendance_view', label: 'צפייה בנוכחות' },
-      { key: 'attendance_edit', label: 'עריכת נוכחות' },
-      { key: 'attendance_manage_legend', label: 'ניהול מקראה' },
-      { key: 'attendance_manage_dates', label: 'ניהול תאריכים' },
-      { key: 'attendance_block_days', label: 'חסימת ימים' },
-    ]
-  },
-  {
-    label: 'קבצים',
-    permissions: [
-      { key: 'files_view', label: 'צפייה בקבצים' },
-      { key: 'files_upload', label: 'העלאת קבצים' },
-      { key: 'files_delete', label: 'מחיקת קבצים' },
-    ]
-  },
-  {
-    label: 'הודעות',
-    permissions: [
-      { key: 'messages_send', label: 'שליחת הודעות' },
-      { key: 'messages_delete', label: 'מחיקת הודעות' },
-    ]
-  },
-  {
-    label: 'חגים וחופשות',
-    permissions: [
-      { key: 'holidays_view', label: 'צפייה בחגים' },
-      { key: 'holidays_edit', label: 'עריכת חגים' },
-    ]
-  },
-  {
-    label: 'מיפוי נתונים',
-    permissions: [
-      { key: 'data_mapping_view', label: 'צפייה במיפוי' },
-      { key: 'data_mapping_edit', label: 'עריכת מיפוי נתונים' },
-    ]
-  },
-  {
-    label: 'הגדרות מערכת',
-    permissions: [
-      { key: 'schools_manage', label: 'ניהול מוסדות' },
-      { key: 'settings_edit', label: 'עריכת הגדרות' },
-    ]
-  },
-];
-
-function getPermissionsForRole(role) {
-  const perms = { ...DEFAULT_PERMISSIONS };
-  if (role === 'global_admin' || role === 'platform_admin') {
-    for (const key of Object.keys(perms)) perms[key] = true;
-  } else if (role === 'principal' || role === 'institution_manager') {
-    for (const key of Object.keys(perms)) perms[key] = true;
-    perms.schools_manage = false;
-  } else if (role === 'editor') {
-    perms.calendar_edit = true;
-    perms.tasks_edit = true;
-    perms.tasks_assign = true;
-    perms.teams_edit = true;
-    perms.files_upload = true;
-    perms.messages_send = true;
-    perms.data_mapping_edit = true;
-  }
-  return perms;
-}
-
 export default function StaffManagement() {
   const { currentUser, userData, selectedSchool, isPrincipal, isGlobalAdmin, approveUser, rejectUser } = useAuth();
+  const [invitationProfile, setInvitationProfile] = useState(() => presetProfile('teacher'));
   const [showPermissionsPanel, setShowPermissionsPanel] = useState(false);
   const navigate = useNavigate();
   const [staff, setStaff] = useState([]);
@@ -284,7 +90,7 @@ export default function StaffManagement() {
 
   // Bulk add modal
   const [showBulkModal, setShowBulkModal] = useState(false);
-  const EMPTY_BULK_ROW = { fullName: '', email: '', jobTitle: '', role: 'viewer' };
+  const EMPTY_BULK_ROW = { fullName: '', email: '', jobTitle: '', role: 'teacher' };
   const [bulkRows, setBulkRows] = useState(() => Array.from({ length: 5 }, () => ({ ...EMPTY_BULK_ROW })));
   const [bulkError, setBulkError] = useState('');
   const [bulkProgress, setBulkProgress] = useState(null); // { current, total, results: [{ name, success, error }] }
@@ -299,8 +105,6 @@ export default function StaffManagement() {
 
   const [schools, setSchools] = useState([]);
   const [permissionsUser, setPermissionsUser] = useState(null);
-  const [permissionsForm, setPermissionsForm] = useState({});
-  const [expandedGroups, setExpandedGroups] = useState({});
   const [showRolesManager, setShowRolesManager] = useState(false);
   const [permissionPreview, setPermissionPreview] = useState(null);
   const [previewLoadingId, setPreviewLoadingId] = useState('');
@@ -466,7 +270,8 @@ export default function StaffManagement() {
         schoolId,
         requestId,
         action,
-        role: action === 'invite' ? (joinRequestRoles[requestId] || 'viewer') : undefined,
+        role: action === 'invite' ? 'viewer' : undefined,
+        ...(action === 'invite' ? { accessProfile: presetProfile(joinRequestRoles[requestId] || 'teacher') } : {}),
         rejectionReason: action === 'reject' ? 'הבקשה נדחתה על ידי מנהל המוסד.' : '',
         permissions: {}, customRoleIds: [], teamIds: [], classIds: [],
       });
@@ -607,41 +412,7 @@ export default function StaffManagement() {
     }
   }
 
-  async function openPermissions(user) {
-    setPermissionsUser(user);
-    try {
-      const permDoc = await getDoc(doc(db, 'users', user.id));
-      const data = permDoc.data();
-      if (data?.permissions) {
-        setPermissionsForm({ ...getPermissionsForRole(user.role), ...data.permissions });
-      } else {
-        setPermissionsForm(getPermissionsForRole(user.role));
-      }
-    } catch {
-      setPermissionsForm(getPermissionsForRole(user.role));
-    }
-    const expanded = {};
-    PERMISSION_GROUPS.forEach(g => { expanded[g.label] = true; });
-    setExpandedGroups(expanded);
-  }
-
-  async function savePermissions() {
-    if (!permissionsUser) return;
-    try {
-      await updateStaffUser({ userId: permissionsUser.id, schoolId, permissions: permissionsForm });
-      setPermissionsUser(null);
-    } catch {
-      alert('לא ניתן לשמור את ההרשאות.');
-    }
-  }
-
-  function togglePermission(key) {
-    setPermissionsForm(prev => ({ ...prev, [key]: !prev[key] }));
-  }
-
-  function toggleGroup(label) {
-    setExpandedGroups(prev => ({ ...prev, [label]: !prev[label] }));
-  }
+  function openPermissions(user) { setPermissionsUser(user); }
 
   async function handleAddStaff(e) {
     e.preventDefault();
@@ -653,7 +424,8 @@ export default function StaffManagement() {
       await createStaffInvitation({
         email: addForm.email.trim(),
         fullName: addForm.fullName.trim(),
-        role: addForm.role,
+        role: 'viewer',
+        accessProfile: invitationProfile,
         schoolId: targetSchoolId,
         customRoleIds: addForm.customRoleIds,
         teamIds: addForm.teamIds,
@@ -663,6 +435,7 @@ export default function StaffManagement() {
       });
 
       setShowAddModal(false);
+      setInvitationProfile(presetProfile('teacher'));
       setAddForm({ fullName: '', email: '', jobTitle: '', role: 'viewer', schoolId: '', avatarStyle: 'default', customRoleIds: [], teamIds: [], message: '' });
       setStaffSection('invitations');
       await loadInvitationsAndRequests();
@@ -719,7 +492,7 @@ export default function StaffManagement() {
             let value = cell.trim();
             // Normalize role values
             if (field === 'role') {
-              const roleMap = { 'צופה': 'viewer', 'עורך': 'editor', 'viewer': 'viewer', 'editor': 'editor' };
+              const roleMap = { 'צופה': 'viewer', 'עורך': 'editor', 'viewer': 'viewer', 'editor': 'editor', ...Object.fromEntries(ACCESS_PRESETS.flatMap(item => [[item.id, item.id], [item.label, item.id]])) };
               value = roleMap[value] || 'viewer';
             }
             updated[startRow + lineIdx] = { ...updated[startRow + lineIdx], [field]: value };
@@ -747,7 +520,8 @@ export default function StaffManagement() {
         await createStaffInvitation({
           email: row.email.trim(),
           fullName: row.fullName.trim(),
-          role: row.role,
+          role: ACCESS_PRESETS.some(item => item.id === row.role) ? 'viewer' : row.role,
+          ...(ACCESS_PRESETS.some(item => item.id === row.role) ? { accessProfile: presetProfile(row.role) } : {}),
           schoolId: targetSchoolId,
           customRoleIds: [], teamIds: [], classIds: [], permissions: {}, message: row.jobTitle.trim(),
         });
@@ -1103,7 +877,7 @@ export default function StaffManagement() {
           <section className="card staff-request-panel">
             <h3>בקשות הצטרפות</h3>
             <div className="data-table-wrap"><table className="data-table"><thead><tr><th>שם</th><th>דוא״ל</th><th>תאריך</th><th>הודעה</th><th>סטטוס</th><th>פעולות</th></tr></thead><tbody>
-              {joinRequests.map(item => <tr key={item.id}><td>{item.fullName}</td><td dir="ltr">{item.normalizedEmail}</td><td>{formatRequestDate(item.createdAt)}</td><td>{item.message || '—'}</td><td>{item.status === 'pending' ? 'ממתינה' : item.status === 'invited' ? 'נשלחה הזמנה' : item.status === 'rejected' ? 'נדחתה' : item.status}</td><td>{item.status === 'pending' && <div className="join-request-actions"><select aria-label="תפקיד להזמנה" value={joinRequestRoles[item.id] || 'viewer'} onChange={event => setJoinRequestRoles(previous => ({ ...previous, [item.id]: event.target.value }))}><option value="viewer">צופה</option><option value="editor">עורך</option></select><button disabled={requestActionId === item.id} className="btn btn-primary btn-sm" onClick={() => handleJoinRequestAction(item.id, 'invite')}><CheckCircle size={13} /> אישור והזמנה</button><button disabled={requestActionId === item.id} className="btn btn-secondary btn-sm staff-danger-action" onClick={() => handleJoinRequestAction(item.id, 'reject')}><XCircle size={13} /> דחייה</button></div>}</td></tr>)}
+              {joinRequests.map(item => <tr key={item.id}><td>{item.fullName}</td><td dir="ltr">{item.normalizedEmail}</td><td>{formatRequestDate(item.createdAt)}</td><td>{item.message || '—'}</td><td>{item.status === 'pending' ? 'ממתינה' : item.status === 'invited' ? 'נשלחה הזמנה' : item.status === 'rejected' ? 'נדחתה' : item.status}</td><td>{item.status === 'pending' && <div className="join-request-actions"><select aria-label="תפקיד להזמנה" value={joinRequestRoles[item.id] || 'teacher'} onChange={event => setJoinRequestRoles(previous => ({ ...previous, [item.id]: event.target.value }))}>{ACCESS_PRESETS.map(preset => <option key={preset.id} value={preset.id}>{preset.label}</option>)}</select><button disabled={requestActionId === item.id} className="btn btn-primary btn-sm" onClick={() => handleJoinRequestAction(item.id, 'invite')}><CheckCircle size={13} /> אישור והזמנה</button><button disabled={requestActionId === item.id} className="btn btn-secondary btn-sm staff-danger-action" onClick={() => handleJoinRequestAction(item.id, 'reject')}><XCircle size={13} /> דחייה</button></div>}</td></tr>)}
               {joinRequests.length === 0 && <tr><td colSpan={6} className="td-empty">אין בקשות להצגה</td></tr>}
             </tbody></table></div>
           </section>
@@ -1605,17 +1379,8 @@ export default function StaffManagement() {
                       ))}
                     </select>
                   </div>
-                  <div className="form-group">
-                    <label>הרשאה</label>
-                    <select
-                      value={addForm.role}
-                      onChange={e => setAddForm(prev => ({ ...prev, role: e.target.value }))}
-                    >
-                      <option value="viewer">צופה</option>
-                      <option value="editor">עורך</option>
-                    </select>
-                  </div>
-                  {customRoles.length > 0 && <div className="form-group"><label>תפקידים מוגדרים</label><div className="staff-choice-list">{customRoles.filter(role => role.status !== 'archived').map(role => <label key={role.id}><input type="checkbox" checked={addForm.customRoleIds.includes(role.id)} onChange={event => setAddForm(previous => ({ ...previous, customRoleIds: event.target.checked ? [...previous.customRoleIds, role.id] : previous.customRoleIds.filter(id => id !== role.id) }))} /> {role.name}</label>)}</div></div>}
+
+                  <AccessProfileEditor value={invitationProfile} original={presetProfile('teacher')} onChange={setInvitationProfile} roles={customRoles} />
                   {teams.length > 0 && <div className="form-group"><label>צוותים</label><div className="staff-choice-list">{teams.map(team => <label key={team.id}><input type="checkbox" checked={addForm.teamIds.includes(team.id)} onChange={event => setAddForm(previous => ({ ...previous, teamIds: event.target.checked ? [...previous.teamIds, team.id] : previous.teamIds.filter(id => id !== team.id) }))} /> {team.name}</label>)}</div></div>}
                   <div className="form-group"><label>הודעה להזמנה (אופציונלי)</label><textarea value={addForm.message} onChange={event => setAddForm(previous => ({ ...previous, message: event.target.value }))} maxLength={1000} /></div>
                   <div className="form-group">
@@ -1714,6 +1479,7 @@ export default function StaffManagement() {
                                   onChange={e => updateBulkRow(idx, 'role', e.target.value)}
                                   className="bulk-select"
                                 >
+                                  {ACCESS_PRESETS.map(preset => <option key={preset.id} value={preset.id}>{preset.label}</option>)}
                                   <option value="viewer">צופה</option>
                                   <option value="editor">עורך</option>
                                 </select>
@@ -1804,81 +1570,8 @@ export default function StaffManagement() {
         )}
 
         {/* Detailed Permissions Modal */}
-        {permissionsUser && (
-          <div className="modal-overlay" onClick={() => setPermissionsUser(null)}>
-            <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: 540 }}>
-              <div className="modal-header">
-                <h3>הרשאות — {permissionsUser.fullName}</h3>
-                <button className="modal-close" onClick={() => setPermissionsUser(null)}><X size={18} /></button>
-              </div>
-              <div style={{ padding: '0.75rem 1.5rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: '0.8rem', color: '#765968' }}>תפקיד מערכת:</span>
-                  <span className={`role-badge role-${permissionsUser.role}`}>
-                    {ROLE_LABELS[permissionsUser.role] || 'צופה'}
-                  </span>
-                </div>
-                {/* Custom roles */}
-                {permissionsUser.customRoleIds && permissionsUser.customRoleIds.length > 0 && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '0.8rem', color: '#765968' }}>תפקידים מותאמים:</span>
-                    {permissionsUser.customRoleIds.map(rid => {
-                      const r = customRoles.find(cr => cr.id === rid);
-                      return r ? <span key={rid} style={{ fontSize: '0.72rem', background: '#ede9fe', color: '#6d28d9', padding: '0.15rem 0.4rem', borderRadius: 4 }}>{r.name}</span> : null;
-                    })}
-                  </div>
-                )}
-                {/* Teams */}
-                {permissionsUser.teamIds && permissionsUser.teamIds.length > 0 && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '0.8rem', color: '#765968' }}>צוותים:</span>
-                    {permissionsUser.teamIds.map(tid => {
-                      const t = teams.find(tm => tm.id === tid);
-                      return t ? <span key={tid} style={{ fontSize: '0.72rem', background: '#ecfdf5', color: '#065f46', padding: '0.15rem 0.4rem', borderRadius: 4 }}>{t.name}</span> : null;
-                    })}
-                  </div>
-                )}
-                <p style={{ fontSize: '0.75rem', color: '#9b8790', margin: '0 0 1rem' }}>
-                  ניתן להתאים את ההרשאות לכל משתמש בנפרד. הרשאות מתפקידים מותאמים יתווספו אוטומטית.
-                </p>
-              </div>
-              <div className="permissions-list">
-                {PERMISSION_GROUPS.map(group => (
-                  <div key={group.label} className="permissions-group">
-                    <button className="permissions-group-header" onClick={() => toggleGroup(group.label)}>
-                      <span className="permissions-group-title">{group.label}</span>
-                      <span className="permissions-group-summary">
-                        {group.permissions.filter(p => permissionsForm[p.key]).length}/{group.permissions.length}
-                      </span>
-                      {expandedGroups[group.label] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                    </button>
-                    {expandedGroups[group.label] && (
-                      <div className="permissions-group-items">
-                        {group.permissions.map(perm => (
-                          <label key={perm.key} className="permissions-item">
-                            <input
-                              type="checkbox"
-                              checked={!!permissionsForm[perm.key]}
-                              onChange={() => togglePermission(perm.key)}
-                            />
-                            <span>{perm.label}</span>
-                          </label>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <div className="modal-actions" style={{ padding: '1rem 1.5rem' }}>
-                <button className="btn btn-primary" onClick={savePermissions}>
-                  <Save size={16} />
-                  שמירת הרשאות
-                </button>
-                <button className="btn btn-secondary" onClick={() => setPermissionsUser(null)}>ביטול</button>
-              </div>
-            </div>
-          </div>
-        )}
+        {permissionsUser && <UserAccessDialog user={permissionsUser} schoolId={schoolId} onClose={() => setPermissionsUser(null)} />}
+
         </>}
 
         {staffChange?.schoolId === schoolId && staffChange && <StaffChangeDialog busy={staffChangeBusy} onCancel={() => setStaffChange(null)} label={staffChange.operation === 'remove' ? 'הסרת איש צוות' : 'עריכת תפקיד'}>

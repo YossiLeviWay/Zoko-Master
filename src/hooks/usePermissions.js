@@ -1,7 +1,9 @@
+import { profileGrants } from '../../functions/src/accessCatalog.js';
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { db } from '../firebase';
-import { getDoc, getDocs, query, where } from 'firebase/firestore';
+import { db, functions } from '../firebase';
+import { httpsCallable } from 'firebase/functions';
+import { getDoc, getDocs, query, where, onSnapshot } from 'firebase/firestore';
 import { schoolCollection, schoolDoc } from '../services/firestore/paths';
 import { ALL_PERMISSION_KEYS } from '../../functions/src/permissionCatalog.js';
 
@@ -101,11 +103,22 @@ export function usePermissions() {
   const [schoolWidePermissions, setSchoolWidePermissions] = useState({});
   const [permissionScopes, setPermissionScopes] = useState({});
   const [loading, setLoading] = useState(true);
+  const [classRevision, setClassRevision] = useState(0);
 
   const schoolId = selectedSchool || userData?.schoolId;
   const hasFullAccess = isGlobalAdmin() || isPrincipal();
 
   useEffect(() => {
+    if (!schoolId || !userData?.uid || !userData.accessProfilesBySchool?.[schoolId]) return;
+    const unsubscribers = ['legacy', 'nested'].flatMap(mode => {
+      const classes = schoolCollection(db, schoolId, 'classes', mode);
+      return [query(classes, where('teacherId', '==', userData.uid)), query(classes, where('staffIds', 'array-contains', userData.uid))];
+    }).map(source => onSnapshot(source, () => setClassRevision(value => value + 1), () => {}));
+    return () => unsubscribers.forEach(unsubscribe => unsubscribe());
+  }, [schoolId, userData?.uid, userData?.accessProfilesBySchool]);
+
+  useEffect(() => {
+    let active = true;
     if (!userData) {
       setPermissions(VIEWER_DEFAULTS);
       setSchoolWidePermissions({});
@@ -175,9 +188,26 @@ export function usePermissions() {
         }
       }
 
+      const profile = userData.accessProfilesBySchool?.[schoolId];
+      if (profile && schoolId && userData.uid) {
+        try {
+          const { data } = await httpsCallable(functions, 'getOwnAccessClasses')({ schoolId });
+          const classes = /** @type {any} */ (data).classes || [];
+          for (const grant of profileGrants(profile, classes, userData.uid)) {
+            setPermissionWithAlias(base, grant.capability, true);
+            if (grant.scope.type === 'school') {
+              explicit[grant.capability] = true;
+              scopes[grant.capability] = { type: 'school', classIds: [] };
+            } else if (scopes[grant.capability]?.type !== 'school') {
+              scopes[grant.capability] = { type: 'classes', classIds: [...new Set([...(scopes[grant.capability]?.classIds || []), ...grant.scope.classIds])] };
+            }
+          }
+        } catch { /* No unverified class grants. */ }
+      }
+
       // A homeroom teacher or explicitly assigned class staff member must be able
       // to open the page, while their Firestore access remains scoped per class.
-      if (!base.students_view && schoolId && userData.uid) {
+      if (!profile && !base.students_view && schoolId && userData.uid) {
         try {
           const classesRef = schoolCollection(db, schoolId, 'classes');
           const [teacherClasses, staffClasses] = await Promise.all([
@@ -201,6 +231,7 @@ export function usePermissions() {
         }
       }
 
+      if (!active) return;
       setPermissions(base);
       setSchoolWidePermissions(explicit);
       setPermissionScopes(scopes);
@@ -208,7 +239,8 @@ export function usePermissions() {
     }
 
     resolve();
-  }, [hasFullAccess, schoolId, userData]);
+    return () => { active = false; };
+  }, [hasFullAccess, schoolId, userData, classRevision]);
 
   return { permissions, schoolWidePermissions, permissionScopes, loading };
 }

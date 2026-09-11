@@ -60,6 +60,7 @@ jobs:
           VITE_FIREBASE_AI_MODEL: ${{ vars.VITE_FIREBASE_AI_MODEL }}
           VITE_ZOKI_AI_MODEL: ${{ vars.VITE_ZOKI_AI_MODEL }}
           VITE_TASK_WORKSPACE_ENABLED: ${{ vars.VITE_TASK_WORKSPACE_ENABLED }}
+          VITE_SIMPLE_ACCESS_ENABLED: ${{ vars.VITE_SIMPLE_ACCESS_ENABLED }}
 
       - uses: actions/configure-pages@v6
 

@@ -96,6 +96,9 @@ export default function GanttChart() {
   const schoolId = selectedSchool || userData?.schoolId;
   const { permissions } = usePermissions();
   const canEditCalendar = permissions.calendar_edit;
+  const hasAccessProfile = Boolean(userData?.accessProfilesBySchool?.[schoolId]);
+  const canCreateCalendar = hasAccessProfile ? permissions['calendar.create'] : canEditCalendar;
+  const canDeleteCalendar = hasAccessProfile ? permissions['calendar.manageSchoolCalendar'] : canEditCalendar;
   const canViewAllInitiatives = permissions['initiatives.viewAll'] || isGlobalAdmin() || isPrincipal();
   const [showPermissionsPanel, setShowPermissionsPanel] = useState(false);
 
@@ -330,7 +333,7 @@ export default function GanttChart() {
   }
 
   function handleCellClick(date, category) {
-    if (!canEditCalendar) return;
+    if (!canCreateCalendar) return;
     setSelectedDate(date);
     setSelectedCategory(category);
     setEditingEvent(null);
@@ -347,7 +350,7 @@ export default function GanttChart() {
   }
 
   async function handleSaveEvent(eventData) {
-    if (!canEditCalendar || !schoolId) return;
+    if (!(editingEvent ? canEditCalendar : canCreateCalendar) || !schoolId) return;
     try {
       const colRef = collection(db, `events_${schoolId}`);
       if (editingEvent) {
@@ -369,7 +372,7 @@ export default function GanttChart() {
   }
 
   async function handleDeleteEvent() {
-    if (!canEditCalendar || !editingEvent || !schoolId) return;
+    if (!canDeleteCalendar || !editingEvent || !schoolId) return;
     try {
       await deleteDoc(doc(db, `events_${schoolId}`, editingEvent.id));
       setModalOpen(false);
@@ -714,7 +717,7 @@ export default function GanttChart() {
           colors={PASTEL_COLORS}
           schoolId={schoolId}
           onSave={handleSaveEvent}
-          onDelete={editingEvent ? handleDeleteEvent : null}
+          onDelete={editingEvent && canDeleteCalendar ? handleDeleteEvent : null}
           onClose={() => setModalOpen(false)}
         />
       )}

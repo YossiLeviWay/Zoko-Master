@@ -1,3 +1,4 @@
+import { accessProfileSchema } from './accessProfile.js';
 import { z } from 'zod';
 import { PERMISSION_KEYS } from '../config.js';
 
@@ -69,6 +70,7 @@ export const staffInvitationSchema = z.object({
   teamIds: z.array(id).max(50).optional().default([]),
   classIds: z.array(id).max(100).optional().default([]),
   permissions: permissions.optional().default({}),
+  accessProfile: accessProfileSchema.optional(),
   message: z.string().trim().max(1000).optional().default(''),
   sourceJoinRequestId: id.optional(),
 }).strict();
@@ -94,6 +96,7 @@ export const joinRequestSchema = z.object({
 }).strict();
 
 export const reviewJoinRequestSchema = z.object({
+  accessProfile: accessProfileSchema.optional(),
   schoolId: id,
   requestId: id,
   action: z.enum(['invite', 'reject', 'resolved']),
@@ -513,6 +516,7 @@ export const resourceAclSchema = z.object({
   principalType: z.enum(['user', 'team', 'role', 'class']),
   principalId: id,
   accessLevel: z.enum(['view', 'comment', 'edit', 'manage']).optional().default('view'),
+  actions: z.array(z.enum(['view', 'create', 'edit', 'comment', 'delete', 'manage'])).max(6).optional(),
   explicitDeny: z.boolean().optional().default(false),
   inherit: z.boolean().optional().default(true),
   expiresAt: z.string().datetime().nullable().optional().default(null),

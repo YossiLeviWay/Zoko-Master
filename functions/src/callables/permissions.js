@@ -1,3 +1,4 @@
+import { RESOURCE_ACTIONS, aclActions } from '../resourceActions.js';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
 import { onCall } from 'firebase-functions/v2/https';
@@ -81,9 +82,9 @@ function policyField(acl, denied = false) {
 export async function rebuildAclPolicy(schoolId, resourceType, resourceId) {
   const snapshot = await adminDb.collection(`schools/${schoolId}/resourceAcls`)
     .where('resourceType', '==', resourceType).where('resourceId', '==', resourceId).get();
-  const levels = ['view', 'comment', 'edit', 'manage'];
-  const policy = { configured: false };
-  levels.forEach(level => {
+  const levels = RESOURCE_ACTIONS;
+  const policy = { configured: snapshot.docs.some(doc => Array.isArray(doc.data().actions)) };
+  [...levels, ...levels.map(level => `inherit_${level}`)].forEach(level => {
     policy[level] = {
       allowedUsers: [], allowedTeams: [], allowedRoles: [], allowedClasses: [],
       deniedUsers: [], deniedTeams: [], deniedRoles: [], deniedClasses: [],
@@ -98,15 +99,14 @@ export async function rebuildAclPolicy(schoolId, resourceType, resourceId) {
     const field = policyField(acl, acl.explicitDeny === true);
     const targetLevels = acl.explicitDeny === true
       ? levels
-      : levels.filter(level => LEVEL_ORDER[level] <= LEVEL_ORDER[acl.accessLevel]);
-    targetLevels.forEach(level => policy[level][field].push(acl.principalId));
+      : aclActions(acl);
+    targetLevels.forEach(level => { policy[level][field].push(acl.principalId); if (acl.inherit !== false) policy[`inherit_${level}`][field].push(acl.principalId); });
   });
   await adminDb.doc(`schools/${schoolId}/resourceAclPolicies/${resourceType}_${resourceId}`).set({
     schoolId, resourceType, resourceId, ...policy, updatedAt: FieldValue.serverTimestamp(),
   });
 }
 
-const LEVEL_ORDER = Object.freeze({ view: 1, comment: 2, edit: 3, manage: 4 });
 
 export async function upsertResourceAclHandler(request) {
   const actor = await requireActor(request);
@@ -122,7 +122,7 @@ export async function upsertResourceAclHandler(request) {
     : adminDb.collection(`schools/${input.schoolId}/resourceAcls`).doc();
   if (input.aclId) {
     const existing = await ref.get();
-    if (!existing.exists || existing.data().schoolId !== input.schoolId) throw permissionDenied();
+    if (!existing.exists || (existing.data().schoolId !== input.schoolId || existing.data().resourceType !== input.resourceType || existing.data().resourceId !== input.resourceId)) throw permissionDenied();
   }
   await ref.set({
     schoolId: input.schoolId,
@@ -131,6 +131,7 @@ export async function upsertResourceAclHandler(request) {
     principalType: input.principalType,
     principalId: input.principalId,
     accessLevel: input.accessLevel,
+    ...(input.actions ? { actions: [...new Set(['view', ...input.actions])] } : {}),
     explicitDeny: input.explicitDeny,
     inherit: input.inherit,
     grantedBy: actor.uid,

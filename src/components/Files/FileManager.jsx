@@ -1,3 +1,4 @@
+import { useSharedFiles } from '../../hooks/useSharedFiles';
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -110,15 +111,22 @@ export default function FileManager() {
   const fileEditNotifSentRef = useRef(null); // track which file we already notified about
 
   const schoolId = selectedSchool || userData?.schoolId;
+  const sharedLinks = useSharedFiles(schoolId);
+  const [sharedFiles, setSharedFiles] = useState([]);
+  useEffect(() => {
+    let active = true;
+    Promise.all(sharedLinks.map(item => getDoc(item.dataMode === 'legacy' ? doc(db, `files_${schoolId}`, item.id) : doc(db, 'schools', schoolId, 'files', item.id)).then(snapshot => snapshot.exists() ? { id: snapshot.id, ...snapshot.data(), _dataMode: item.dataMode || 'nested', _sharedActions: item.actions, folderId: '' } : null).catch(() => null))).then(items => { if (active) setSharedFiles(items.filter(Boolean)); });
+    return () => { active = false; };
+  }, [schoolId, sharedLinks]);
   const canManage = isPrincipal() || isGlobalAdmin();
   const canUploadFiles = permissions.files_upload;
   const attendanceSchoolWide = canManage
-    || permissions.attendance_create
-    || permissions.attendance_view
-    || permissions.attendance_edit
-    || permissions.attendance_manage_legend
-    || permissions.attendance_manage_dates
-    || permissions.attendance_block_days;
+    || schoolWidePermissions.attendance_create
+    || schoolWidePermissions.attendance_view
+    || schoolWidePermissions.attendance_edit
+    || schoolWidePermissions.attendance_manage_legend
+    || schoolWidePermissions.attendance_manage_dates
+    || schoolWidePermissions.attendance_block_days;
   const gradesSchoolWide = canManage
     || schoolWidePermissions['grades.view']
     || schoolWidePermissions['grades.edit']
@@ -145,6 +153,7 @@ export default function FileManager() {
   }, [attendanceClasses, schoolId, userData?.classRolePermissionsBySchool]);
 
   const userCanOpenFile = useCallback((file) => {
+    if (file._sharedActions?.includes('view')) return true;
     if (file.fileType === 'attendance') {
       return canManage || attendanceSchoolWide || accessibleClassIds.includes(file.classId);
     }
@@ -177,7 +186,7 @@ export default function FileManager() {
 
   const accessibleFolders = useMemo(() => [...legacyFolders, ...nestedFolders]
     .filter(userCanAccessFolder), [legacyFolders, nestedFolders, userCanAccessFolder]);
-  const accessibleFiles = useMemo(() => [...legacyFiles, ...nestedFiles].filter(userCanOpenFile), [legacyFiles, nestedFiles, userCanOpenFile]);
+  const accessibleFiles = useMemo(() => [...new Map([...legacyFiles, ...nestedFiles, ...sharedFiles].map(file => [file.id, file])).values()].filter(userCanOpenFile), [legacyFiles, nestedFiles, sharedFiles, userCanOpenFile]);
   const folders = useMemo(() => accessibleFolders.filter(item => !item.trashedAt), [accessibleFolders]);
   const files = useMemo(() => accessibleFiles.filter(item => !item.trashedAt), [accessibleFiles]);
   const trashedFolders = useMemo(() => accessibleFolders.filter(item => item.trashedAt), [accessibleFolders]);
@@ -260,7 +269,7 @@ export default function FileManager() {
     const q = query(collection(db, `files_${schoolId}`), orderBy('createdAt', 'desc'));
     const unsub = onSnapshot(q, (snap) => {
       setLegacyFiles(snap.docs.map(d => ({ id: d.id, ...d.data(), _dataMode: 'legacy' })));
-    });
+    }, () => setLegacyFiles([]));
     return unsub;
   }, [schoolId]);
 
@@ -1181,24 +1190,24 @@ export default function FileManager() {
                     <SpreadsheetEditor
                       key={editingFile.id}
                       data={typeof editingFile.content === 'string' ? JSON.parse(editingFile.content) : editingFile.content}
-                      onChange={!canUploadFiles ? undefined : (newData) => {
+                      onChange={!(canManage || (editingFile._sharedActions ? editingFile._sharedActions.includes('edit') : permissions['files.edit'] || (!userData?.accessProfilesBySchool?.[schoolId] && canUploadFiles))) ? undefined : (newData) => {
                         const json = JSON.stringify(newData);
                         setEditingFile(prev => ({ ...prev, content: json }));
                         autoSave(json);
                       }}
                       onToggleFullscreen={() => setFullscreen(!fullscreen)}
                       isFullscreen={fullscreen}
-                      readOnly={!canUploadFiles}
+                      readOnly={!(canManage || (editingFile._sharedActions ? editingFile._sharedActions.includes('edit') : permissions['files.edit'] || (!userData?.accessProfilesBySchool?.[schoolId] && canUploadFiles)))}
                     />
                   ) : (
                     <DocumentEditor
                       key={editingFile.id}
                       content={editingFile.content || ''}
-                      onChange={!canUploadFiles ? undefined : (newContent) => {
+                      onChange={!(canManage || (editingFile._sharedActions ? editingFile._sharedActions.includes('edit') : permissions['files.edit'] || (!userData?.accessProfilesBySchool?.[schoolId] && canUploadFiles))) ? undefined : (newContent) => {
                         setEditingFile(prev => ({ ...prev, content: newContent }));
                         autoSave(newContent);
                       }}
-                      readOnly={!canUploadFiles}
+                      readOnly={!(canManage || (editingFile._sharedActions ? editingFile._sharedActions.includes('edit') : permissions['files.edit'] || (!userData?.accessProfilesBySchool?.[schoolId] && canUploadFiles)))}
                     />
                   )}
                 </div>
@@ -1389,7 +1398,7 @@ export default function FileManager() {
           style={{ top: contextMenu.position.y, left: contextMenu.position.x }}
           onClick={e => e.stopPropagation()}
         >
-          {canManage && contextMenu.item.fileType !== 'gradebook' && !contextMenu.item.specialFolder && (
+          {canManage && !contextMenu.item.specialFolder && (
             <button className="context-menu-item" onClick={() => {
               setPermMenu({
                 type: contextMenu.type,
@@ -1403,7 +1412,7 @@ export default function FileManager() {
               שיתוף
             </button>
           )}
-          {contextMenu.item.fileType !== 'gradebook' && !contextMenu.item.specialFolder && (
+          {!contextMenu.item.specialFolder && (
             <button className="context-menu-item" onClick={() => startRename(contextMenu.type, contextMenu.item)}>
               <Pencil size={14} />
               שינוי שם

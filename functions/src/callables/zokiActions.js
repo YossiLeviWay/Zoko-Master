@@ -911,7 +911,7 @@ export async function executeZokiAttendanceHandler(request) {
     const legacyPermission = evaluatePermission(permissionContext, {
       capability: 'attendance_edit', accessLevel: 'edit', resource: { classId: file.classId },
     });
-    const teachesClass = classData.schoolId === input.schoolId && classData.teacherId === actor.uid;
+    const teachesClass = !actor.data.accessProfilesBySchool?.[input.schoolId] && classData.schoolId === input.schoolId && classData.teacherId === actor.uid;
     if (!modernPermission.allowed && !legacyPermission.allowed && !teachesClass) throw permissionDenied();
     const previous = recordSnapshot.exists ? recordSnapshot.data() : null;
     if (previous && (previous.schoolId !== input.schoolId || previous.fileId !== input.fileId
@@ -1010,8 +1010,8 @@ export async function executeZokiStudentNoteHandler(request) {
     const legacyView = evaluatePermission(permissionContext, {
       capability: 'students_view', accessLevel: 'view', resource: { classId: student.classId },
     });
-    const assignedToClass = classData.teacherId === actor.uid
-      || (Array.isArray(classData.staffIds) && classData.staffIds.includes(actor.uid));
+    const assignedToClass = !actor.data.accessProfilesBySchool?.[input.schoolId] && (classData.teacherId === actor.uid
+      || (Array.isArray(classData.staffIds) && classData.staffIds.includes(actor.uid)));
     if ((!modernAdd.allowed && !legacyAdd.allowed) || (!modernView.allowed && !legacyView.allowed && !assignedToClass)) {
       throw permissionDenied();
     }
@@ -1051,7 +1051,7 @@ export async function executeZokiCalendarEventHandler(request) {
   const createPermission = evaluatePermission(permissionContext, { capability: 'calendar.create', accessLevel: 'edit', resource: {} });
   const editPermission = evaluatePermission(permissionContext, { capability: 'calendar.edit', accessLevel: 'edit', resource: {} });
   const legacyEditPermission = evaluatePermission(permissionContext, { capability: 'calendar_edit', accessLevel: 'edit', resource: {} });
-  if (!createPermission.allowed && !editPermission.allowed && !legacyEditPermission.allowed) throw permissionDenied();
+  if (!createPermission.allowed && (actor.data.accessProfilesBySchool?.[input.schoolId] || (!editPermission.allowed && !legacyEditPermission.allowed))) throw permissionDenied();
   const actionId = stableId(actor.uid, input.schoolId, input.requestId);
   const eventId = `zoki_${actionId}`;
   const nestedEventRef = adminDb.doc(`schools/${input.schoolId}/events/${eventId}`);

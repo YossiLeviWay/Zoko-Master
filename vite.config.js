@@ -1,4 +1,5 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
+import { simpleAccessRollout } from './scripts/simple-access-rollout.mjs'
 import react from '@vitejs/plugin-react'
 import { execFileSync } from 'node:child_process'
 
@@ -12,8 +13,8 @@ function currentCommit() {
 }
 
 // https://vite.dev/config/
-export default defineConfig({
-  plugins: [react()],
+export default defineConfig(({ mode }) => ({
+  plugins: [simpleAccessRollout(loadEnv(mode, process.cwd(), '').VITE_SIMPLE_ACCESS_ENABLED === 'true'), react()],
   base: '/Zoko-Master/',
   define: {
     'import.meta.env.APP_BUILD_DATE': JSON.stringify(new Date().toISOString()),
@@ -30,4 +31,4 @@ export default defineConfig({
       },
     },
   },
-})
+}))

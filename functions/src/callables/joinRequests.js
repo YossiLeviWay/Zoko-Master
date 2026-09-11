@@ -4,7 +4,7 @@ import { logger } from 'firebase-functions';
 import { onCall } from 'firebase-functions/v2/https';
 import { CALLABLE_OPTIONS } from '../config.js';
 import { joinRequestSchema, reviewJoinRequestSchema } from '../validation/schemas.js';
-import { isInstitutionManagerFor, requireActor } from '../services/authorization.js';
+import { assertReferencesBelongToSchool, isInstitutionManagerFor, requireActor } from '../services/authorization.js';
 import { adminDb } from '../services/firebaseAdmin.js';
 import { permissionDenied, publicError, toPublicError } from '../services/errors.js';
 import { enforceRateLimit } from '../services/rateLimit.js';
@@ -87,6 +87,10 @@ export async function reviewJoinRequestHandler(request) {
     if (!authority.unrestricted && requested.some(key => !authority.permissions.has(key) || !authority.delegable.has(key))) {
       throw permissionDenied();
     }
+    if (input.accessProfile) {
+      if (!authority.unrestricted) throw permissionDenied();
+      await assertReferencesBelongToSchool(input.schoolId, 'classes', Object.keys(input.accessProfile.classes));
+    }
     const result = await createInvitationRecord({
       actor,
       schoolId: input.schoolId,
@@ -97,6 +101,7 @@ export async function reviewJoinRequestHandler(request) {
       teamIds: input.teamIds,
       classIds: input.classIds,
       permissions: input.permissions,
+      ...(input.accessProfile ? { accessProfile: input.accessProfile } : {}),
       sourceJoinRequestId: input.requestId,
     });
     await ref.update({ status: 'invited', reviewedAt: FieldValue.serverTimestamp(), reviewedBy: actor.uid, invitationId: result.invitationId, updatedAt: FieldValue.serverTimestamp() });

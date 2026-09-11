@@ -66,6 +66,10 @@ export async function createStaffInvitationHandler(request) {
   const input = staffInvitationSchema.parse(request.data);
   const authority = await invitationAuthority(actor, input.schoolId);
   await validateInvitationGrant(authority, input);
+  if (input.accessProfile) {
+    if (!authority.unrestricted) throw permissionDenied();
+    await assertReferencesBelongToSchool(input.schoolId, 'classes', Object.keys(input.accessProfile.classes));
+  }
   await enforceRateLimit({ uid: actor.uid, action: 'createStaffInvitation', limit: 10, windowSeconds: 300 });
   return createInvitationRecord({ actor, ...input });
 }

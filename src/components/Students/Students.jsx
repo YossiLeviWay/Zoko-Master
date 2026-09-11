@@ -273,7 +273,7 @@ export default function Students() {
     };
   }), [effectiveEnrollments, schoolId, studentById]);
 
-  const managedClassIds = useMemo(() => new Set(classes.filter(item => item.teacherId === actor.uid).map(item => item.id)), [actor.uid, classes]);
+  const managedClassIds = useMemo(() => new Set(classes.filter(item => !userData?.accessProfilesBySchool?.[schoolId] && item.teacherId === actor.uid).map(item => item.id)), [actor.uid, classes, userData?.accessProfilesBySchool, schoolId]);
   const permissionApplies = (keys, classId) => keys.some(key => {
     if (!permissions[key]) return false;
     const scope = permissionScopes[key];

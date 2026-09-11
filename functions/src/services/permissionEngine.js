@@ -1,7 +1,9 @@
+import { assignedClassesForUser } from './accessClasses.js';
+import { profileGrants } from '../accessCatalog.js';
+import { aclHasAction } from '../resourceActions.js';
 import { Timestamp } from 'firebase-admin/firestore';
 import { adminDb } from './firebaseAdmin.js';
 
-const LEVELS = Object.freeze({ view: 1, comment: 2, edit: 3, manage: 4 });
 const PROTECTED_ROLES = new Set(['principal', 'institution_manager']);
 
 function timestampMillis(value) {
@@ -52,7 +54,7 @@ function principalMatches(acl, subject) {
 }
 
 function aclAllows(acl, requestedLevel) {
-  return (LEVELS[acl.accessLevel] || 0) >= (LEVELS[requestedLevel] || 1);
+  return aclHasAction(acl, requestedLevel);
 }
 
 function denied(capability, reason, source = 'default', scope = null, expiresAt = null) {
@@ -99,6 +101,11 @@ export function evaluatePermission(context, request) {
       expiresAt: directAcl.expiresAt || null,
     };
   }
+
+  // Configured resource sharing is an allow-list, including when the actor has a broad role.
+  const configured = (context.resourceAcls || []).some(acl => (activeAt(acl, nowMs) || Array.isArray(acl.actions))
+    && acl.resourceType === request.resourceType && acl.resourceId === request.resourceId);
+  if (configured) return denied(capability, 'resource-not-shared', 'resource-acl');
 
   const grant = (context.capabilityGrants || []).find(item => (
     item.capability === capability
@@ -152,13 +159,14 @@ async function loadResourceAcls(schoolId, resource) {
     .where('resourceType', '==', resource.resourceType)
     .where('resourceId', '==', resource.resourceId)
     .get();
+  /** @type {any[]} */
   const resourceAcls = aclSnapshot.docs.map(snapshot => ({ id: snapshot.id, ...snapshot.data() }));
-  if (resource.parentIds?.length) {
+  if (!resourceAcls.some(acl => activeAt(acl, Date.now()) || Array.isArray(acl.actions)) && resource.parentIds?.length) {
     const parents = await Promise.all(resource.parentIds.slice(0, 10).map(parentId => (
       adminDb.collection(`schools/${schoolId}/resourceAcls`)
         .where('resourceType', '==', 'folder').where('resourceId', '==', parentId).get()
     )));
-    parents.forEach(snapshot => snapshot.docs.forEach(item => resourceAcls.push({
+    parents.forEach(snapshot => snapshot.docs.filter(item => item.data().inherit !== false).forEach(item => resourceAcls.push({
       id: item.id, ...item.data(), resourceType: resource.resourceType,
       resourceId: resource.resourceId, inheritedFrom: item.data().resourceId,
     })));
@@ -190,6 +198,12 @@ export async function buildPermissionContext({ userId, schoolId, resource = null
       expiresAt: role.expiresAt || null,
     }));
   });
+
+  const profile = data.accessProfilesBySchool?.[schoolId];
+  if (profile) {
+    const classes = await assignedClassesForUser(schoolId, userId);
+    capabilityGrants.push(...profileGrants(profile, classes, userId));
+  }
 
   const resourceAcls = await loadResourceAcls(schoolId, resource);
 

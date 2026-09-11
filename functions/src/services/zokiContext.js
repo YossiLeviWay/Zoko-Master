@@ -358,7 +358,7 @@ export async function loadZokiContext({ actor, schoolId, question, imageTextExtr
   const classesRaw = requested(question, 'classes') || requested(question, 'students') || requested(question, 'grades') || requested(question, 'attendance') || requested(question, 'studentHistory') || requested(question, 'studentSensitive') || requested(question, 'studentTransfer') || requested(question, 'studentTrackAction') || requested(question, 'studentNoteAction')
     || requested(question, 'personalFile') || requested(question, 'cv') || requested(question, 'outcomes')
     ? await collectionDocuments([`schools/${schoolId}/classes`, `classes_${schoolId}`]) : [];
-  const taughtClassIds = new Set(classesRaw.filter(item => item.teacherId === actor.uid).map(item => item.id));
+  const taughtClassIds = new Set(actor.data.accessProfilesBySchool?.[schoolId] ? [] : classesRaw.filter(item => item.teacherId === actor.uid).map(item => item.id));
   const allowedClasses = classesRaw.filter(item => decision(permissionContext, 'classes.view', { classId: item.id }).allowed);
   if (requested(question, 'classes') || requested(question, 'studentTransfer')) {
     if (!classesPermission.allowed) addDenied('classes', 'classes.view');
@@ -577,7 +577,7 @@ export async function loadZokiContext({ actor, schoolId, question, imageTextExtr
     const createPermission = decision(permissionContext, 'calendar.create');
     const editPermission = decision(permissionContext, 'calendar.edit');
     const legacyEditPermission = decision(permissionContext, 'calendar_edit');
-    const canCreateCalendarEvent = createPermission.allowed || editPermission.allowed || legacyEditPermission.allowed;
+    const canCreateCalendarEvent = createPermission.allowed || (!actor.data.accessProfilesBySchool?.[schoolId] && (editPermission.allowed || legacyEditPermission.allowed));
     const canEditCalendarEvent = editPermission.allowed || legacyEditPermission.allowed;
     if (requested(question, 'calendarCreate') && !canCreateCalendarEvent) addDenied('calendarCreate', 'calendar.create');
     if ((requested(question, 'calendarUpdate') || requested(question, 'calendarCancel')) && !canEditCalendarEvent) addDenied('calendarEdit', 'calendar.edit');
@@ -1107,8 +1107,8 @@ export async function loadZokiContext({ actor, schoolId, question, imageTextExtr
       canAddStudentNotes: decision(permissionContext, 'students.addNotes').allowed
         || decision(permissionContext, 'students_add_notes').allowed,
       canCreateCalendarEvent: decision(permissionContext, 'calendar.create').allowed
-        || decision(permissionContext, 'calendar.edit').allowed
-        || decision(permissionContext, 'calendar_edit').allowed,
+        || (!actor.data.accessProfilesBySchool?.[schoolId] && (decision(permissionContext, 'calendar.edit').allowed
+          || decision(permissionContext, 'calendar_edit').allowed)),
       canEditCalendarEvent: decision(permissionContext, 'calendar.edit').allowed
         || decision(permissionContext, 'calendar_edit').allowed,
       canCreatePrivateContact: true,
