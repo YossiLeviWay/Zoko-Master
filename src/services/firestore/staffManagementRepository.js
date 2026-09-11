@@ -14,15 +14,19 @@ export async function changeStaffMember({ db, actorId, schoolId, userId, operati
   const memberRef = doc(db, 'schools', schoolId, 'memberships', userId);
   const receiptRef = doc(db, 'schools', schoolId, 'staffChanges', requestId);
   return runTransaction(db, async transaction => {
-    const [actor, target, receipt, membership] = await Promise.all([
-      transaction.get(doc(db, 'users', actorId)), transaction.get(userRef), transaction.get(receiptRef), transaction.get(memberRef),
-    ]);
+    // A completed removal makes the target unreadable to this manager. Check
+    // the non-sensitive receipt first so a lost response can still be retried.
+    const receipt = await transaction.get(receiptRef);
     assertSession();
     if (receipt.exists()) {
       const saved = receipt.data();
       if (saved.actorId !== actorId || saved.userId !== userId || saved.operation !== operation || saved.payloadHash !== payloadHash) throw new Error('invalid-input');
       return { ok: true, repeated: true };
     }
+    const [actor, target, membership] = await Promise.all([
+      transaction.get(doc(db, 'users', actorId)), transaction.get(userRef), transaction.get(memberRef),
+    ]);
+    assertSession();
     if (!target.exists() || !actor.exists() || !canManageStaffMember({ ...actor.data(), uid: actorId }, { ...target.data(), uid: userId }, schoolId)) throw new Error('permission-denied');
     if (operation === 'jobTitle' && schoolJobTitle(target.data(), schoolId) !== expectedTitle) throw new Error('stale-proposal');
     const marker = { schoolId, requestId };

@@ -57,7 +57,9 @@ test('title and removal preserve other institutions, account and history', async
 
 test('single and legacy membership removal revokes institutional access without account deletion', async () => {
   for (const id of ['single', 'legacy']) {
-    await change(id, { operation: 'remove' });
+    const requestId = crypto.randomUUID();
+    await change(id, { operation: 'remove', requestId });
+    assert.equal((await change(id, { operation: 'remove', requestId })).repeated, true);
     const value = await read(`users/${id}`);
     assert.equal(value.accountStatus, 'pending');
     assert.deepEqual(value.schoolIds, []);
