@@ -1,5 +1,6 @@
+import { cleanLegacyBrowserData, privateSessionRevision, subscribePrivateSession } from '../../utils/browserPrivacy.js';
 import { workspaceAction } from '../../services/firestore/taskWorkspaceRepository';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getDocs, query, where } from 'firebase/firestore';
 import { ArrowDown, BookOpen, CheckCircle2, CircleStop, ExternalLink, Minus, Pencil, Plus, Save, Send, Settings2, ShieldCheck, Trash2, X } from 'lucide-react';
@@ -16,7 +17,7 @@ import { normalizeZokiConversationState } from '../../utils/zokiConversation.js'
 import { boundedZokiHistory } from '../../utils/zokiSemanticTurn.js';
 import { loadAuthorizedStudentDetails } from '../../services/zokiSparkDataService.js';
 import { answerZokiOnSpark } from '../../utils/zokiSparkAnswer.js';
-import { sendZokiTaskWorkflowCommand, ZOKI_TASK_WORKFLOW_UPDATE } from '../../utils/zokiTaskWorkflowBridge.js';
+import { sendZokiTaskWorkflowCommand, storeZokiTaskDraft, ZOKI_TASK_WORKFLOW_UPDATE } from '../../utils/zokiTaskWorkflowBridge.js';
 import zokiAvatar from '../../assets/zoki-avatar-minimal.svg';
 import './Zoki.css';
 import ZokiPersonalSettings from './ZokiPersonalSettings.jsx';
@@ -59,7 +60,15 @@ function displayName(item, fallback) {
   return item.fullName || item.displayName || item.name || item.title || fallback;
 }
 
-export default function ZokiPage({ embedded = false, onMinimize = () => undefined }) {
+export default function ZokiPage(props) {
+  const { currentUser, userData, selectedSchool } = useAuth();
+  const revision = useSyncExternalStore(subscribePrivateSession, privateSessionRevision);
+  const schoolId = selectedSchool || userData?.schoolId;
+  if (!currentUser?.uid || !userData || !schoolId) return null;
+  return <ScopedZokiPage key={`${currentUser.uid}:${schoolId}:${revision}`} {...props} />;
+}
+
+function ScopedZokiPage({ embedded = false, onMinimize = () => undefined }) {
   const { userData, currentUser, selectedSchool, isPrincipal, isGlobalAdmin } = useAuth();
   const navigate = useNavigate();
   const schoolId = selectedSchool || userData?.schoolId;
@@ -90,7 +99,7 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
   const { schoolContext: taskAssistantSchoolContext } = useTaskAssistantContext();
   const { permissions, schoolWidePermissions, permissionScopes, loading: permissionsLoading } = usePermissions();
   const conversationKey = useMemo(() => currentUser?.uid && schoolId
-    ? `zoko-master:zoki-conversation:v2:${currentUser.uid}:${schoolId}` : '', [currentUser?.uid, schoolId]);
+    ? `conversation:${currentUser.uid}:${schoolId}` : '', [currentUser?.uid, schoolId]);
   const activeConversation = useRef(conversationKey);
   const conversationGeneration = useRef(0);
   activeConversation.current = conversationKey;
@@ -102,48 +111,40 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
 
   useEffect(() => {
     let active = true;
-    conversationGeneration.current++;
+    const generation = ++conversationGeneration.current;
     setConversationReady(false);
     setLoading(false);
     setMessages([]);
     setPendingTask(null);
     setTaskActionResult(null);
     if (!conversationKey) return undefined;
-    let localState = null;
-    try {
-      localState = JSON.parse(localStorage.getItem(conversationKey) || 'null');
-    } catch {
-      localStorage.removeItem(conversationKey);
-    }
+    cleanLegacyBrowserData();
     const applyState = state => {
       const normalized = normalizeZokiConversationState(state);
-      if (!active || !normalized) return;
+      if (!active || generation !== conversationGeneration.current || !normalized) return;
       setMessages(normalized.messages);
       setPendingTask(normalized.pendingTask);
       setTaskActionResult(normalized.taskActionResult);
     };
-    applyState(localState);
-    syncPersonalAgentConversation({ schoolId, operation: 'load' })
+    syncPersonalAgentConversation({ schoolId, expectedUid: currentUser?.uid, operation: 'load' })
       .then(result => applyState(result?.state))
       .catch(() => undefined)
       .finally(() => { if (active) setConversationReady(true); });
-    return () => { active = false; };
-  }, [conversationKey, schoolId]);
+    return () => { active = false; conversationGeneration.current = generation + 1; activeConversation.current = null; };
+  }, [conversationKey, schoolId, currentUser?.uid]);
 
   useEffect(() => {
     if (!conversationReady || !conversationKey) return;
     const state = { messages: messages.slice(-60), pendingTask, taskActionResult, taskAgentTurn: null };
-    try {
-      localStorage.setItem(conversationKey, JSON.stringify(state));
-    } catch {
-      // The conversation remains available for the current session if browser storage is full.
-    }
     if (loading || (!messages.length && !pendingTask && !taskActionResult)) return undefined;
+    const generation = conversationGeneration.current;
     const timer = window.setTimeout(() => {
-      syncPersonalAgentConversation({ schoolId, operation: 'save', state }).catch(() => undefined);
+      syncPersonalAgentConversation({ schoolId, expectedUid: currentUser?.uid, operation: 'save', state,
+        isCurrent: () => activeConversation.current === conversationKey && conversationGeneration.current === generation,
+      }).catch(() => undefined);
     }, 700);
     return () => window.clearTimeout(timer);
-  }, [conversationKey, conversationReady, loading, messages, pendingTask, schoolId, taskActionResult]);
+  }, [conversationKey, conversationReady, loading, messages, pendingTask, schoolId, taskActionResult, currentUser?.uid]);
 
   useEffect(() => {
     const receiveTaskWorkflowUpdate = event => {
@@ -307,8 +308,7 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
     setMessages([]);
     setPendingTask(null);
     setTaskActionResult(null);
-    if (conversationKey) localStorage.removeItem(conversationKey);
-    if (schoolId) syncPersonalAgentConversation({ schoolId, operation: 'end' }).catch(() => undefined);
+    if (schoolId) syncPersonalAgentConversation({ schoolId, expectedUid: currentUser?.uid, operation: 'end' }).catch(() => undefined);
     if (minimize) onMinimize();
   }
 
@@ -321,14 +321,14 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
       workflowBrief: request,
       actionStatus: 'loading_context',
     }]);
-    navigate('/tasks/advanced', { state: { zokiTaskWorkflow: {
+    navigate('/tasks/advanced', { state: { zokiDraftId: storeZokiTaskDraft(schoolId, { zokiTaskWorkflow: {
       workflowId,
       request,
       targetType: target.type || 'none',
       targetLabel: target.label || '',
       semantic: true,
       startedAt: Date.now(),
-    } } });
+    } }) } });
   }
 
   function continueTaskWorkflow(message, assignRole = false) {
@@ -348,7 +348,7 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
     const submittedConversation = conversationKey;
     const submittedGeneration = conversationGeneration.current;
     const nextQuestion = text.trim();
-    if (!nextQuestion || loading || !schoolId) return;
+    if (!nextQuestion || loading || !schoolId || !conversationReady) return;
     setQuestion('');
     setMessages(previous => [...previous, { id: `user_${Date.now()}`, role: 'user', text: nextQuestion }]);
     setLoading(true);
@@ -919,7 +919,7 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
         ? await executeZokiTeamCreate({ schoolId, requestId: action.requestId, confirm: true, name: action.teamName, memberIds: action.recipientIds, task: { title: action.title, dueDate: action.dueDate } })
         : await workspaceAction({ schoolId, requestId: action.requestId, operation: 'create', title: action.title, dueDate: action.dueDate, recipientIds: action.teamId ? [] : action.recipientIds, ...(action.teamId ? { teamId: action.teamId } : {}), expectedRecipientIds: action.recipientIds });
       patchMessage(message.id, { actionStatus: 'executed', actionResult: { ...result, route: result.route || `/tasks?task=${result.taskIds[0]}` } });
-    } catch (error) { patchMessage(message.id, { actionStatus: 'failed', actionError: error.message || 'היצירה נכשלה. אפשר לנסות שוב.' }); }
+    } catch (error) { patchMessage(message.id, { actionStatus: 'failed', actionError: 'היצירה נכשלה. אפשר לנסות שוב.' }); }
   }
 
   async function confirmTeamCreateAction(message) {
@@ -996,7 +996,7 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
 
   function editTaskProposal() {
     if (!pendingTask) return;
-    navigate('/tasks/advanced', { state: { zokiTaskDraft: { proposal: pendingTask.proposal, context: pendingTask.context } } });
+    navigate('/tasks/advanced', { state: { zokiDraftId: storeZokiTaskDraft(schoolId, { zokiTaskDraft: { proposal: pendingTask.proposal, context: pendingTask.context } }) } });
   }
 
   async function confirmTaskCreation() {

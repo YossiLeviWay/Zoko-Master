@@ -1,10 +1,11 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
+import { cleanLegacyBrowserData } from './utils/browserPrivacy.js'
 
-const redirect = sessionStorage.getItem('redirect')
-sessionStorage.removeItem('redirect')
-if (redirect && redirect !== window.location.href) {
+cleanLegacyBrowserData();
+const redirect = new URLSearchParams(window.location.hash.slice(1)).get('spa-route')
+if (redirect) {
   try {
     const target = new URL(redirect, window.location.origin)
     if (target.origin === window.location.origin) window.history.replaceState(null, '', target.href)
@@ -13,7 +14,7 @@ if (redirect && redirect !== window.location.href) {
   }
 }
 import App from './App.jsx'
-import { isFirebaseConfigured, missingFirebaseVariables } from './firebase.js'
+import { authPrivacyReady, isFirebaseConfigured, missingFirebaseVariables } from './firebase.js'
 
 function ConfigurationError() {
   return (
@@ -29,8 +30,9 @@ function ConfigurationError() {
   );
 }
 
-createRoot(document.getElementById('root')).render(
+const root = createRoot(document.getElementById('root'));
+authPrivacyReady.then(() => root.render(
   <StrictMode>
     {isFirebaseConfigured ? <App /> : <ConfigurationError />}
   </StrictMode>,
-)
+)).catch(() => root.render(<main role="alert">לא ניתן לאתחל חיבור פרטי. סגרו את הלשונית ונסו שוב.</main>));

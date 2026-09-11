@@ -1,3 +1,4 @@
+import { privateSessionGuard, subscribePrivateSession } from '../utils/browserPrivacy.js';
 import { doc, getDocFromServer, runTransaction, setDoc } from 'firebase/firestore';
 import { auth, db, isFirebaseConfigured } from '../firebase.js';
 import { schoolCollectionPath } from './firestore/paths.js';
@@ -24,50 +25,67 @@ export function zokiSourcePaths({ schoolId, uid, sources }) {
 const fail = (code, retryAfter = 0) => Object.assign(new Error(code), { code, retryAfter });
 const safeId = value => typeof value === 'string' && /^[\w-]{1,128}$/u.test(value);
 const localWindows = new Map();
+subscribePrivateSession(() => localWindows.clear());
 
 async function actorFor(schoolId) {
+  const assertPrivateSession = privateSessionGuard();
   const uid = auth.currentUser?.uid;
   if (!uid) throw fail('unauthenticated');
   if (!safeId(schoolId)) throw fail('invalid-input');
   const data = (await getDocFromServer(doc(db, 'users', uid))).data();
+  assertPrivateSession();
+  if (auth.currentUser?.uid !== uid) throw fail('unauthenticated');
   if (!data || (data.accountStatus && data.accountStatus !== 'active') || ![data.schoolId, ...(data.schoolIds || [])].includes(schoolId)) throw fail('permission-denied');
   return { uid, data, role: data.rolesBySchool?.[schoolId] || data.role || 'viewer' };
 }
 
 // UX throttling only. Google's AI Logic quota is the authoritative shared limit.
 export async function reserveZokiQuestion(schoolId, knownActor) {
+  const assertPrivateSession = privateSessionGuard();
   const actor = knownActor || await actorFor(schoolId);
   const value = (await getDocFromServer(doc(db, 'schools', schoolId, 'settings', 'zoki_agent'))).data()?.questionsPerMinute;
+  assertPrivateSession();
   const limit = Number.isInteger(value) && value >= 1 && value <= 20 ? value : 4;
   const key = `zoki-question-window:${actor.uid}:${schoolId}`;
   const reserve = () => {
     const now = Date.now();
     let times = localWindows.get(key) || [];
-    try { const stored = JSON.parse(localStorage.getItem(key) || 'null'); if (Array.isArray(stored)) times = stored; } catch { /* Keep session limit. */ }
     times = times.filter(at => Number.isFinite(at) && at > now - 60000 && at <= now);
     if (times.length >= limit) throw fail('resource-exhausted', Math.max(1, Math.ceil((Math.min(...times) + 60000 - now) / 1000)));
     times.push(now); localWindows.set(key, times);
-    try { localStorage.setItem(key, JSON.stringify(times)); } catch { /* Keep session limit. */ }
   };
-  if (globalThis.navigator?.locks) await navigator.locks.request(key, reserve);
-  else reserve();
+  reserve();
 }
 
 export async function syncPersonalAgentConversation(input) {
+  const assertPrivateSession = privateSessionGuard();
+  const expectedUid = input.expectedUid || auth.currentUser?.uid;
   const actor = await actorFor(input.schoolId);
+  const assertCurrent = () => {
+    assertPrivateSession();
+    if (input.isCurrent && !input.isCurrent()) throw fail('session-changed');
+    if (actor.uid !== expectedUid || auth.currentUser?.uid !== expectedUid) throw fail('unauthenticated');
+  };
+  assertCurrent();
   const ref = doc(db, 'zokiAgents', actor.uid, 'conversations', input.schoolId);
-  if (input.operation === 'load') return { state: (await getDocFromServer(ref)).data()?.state || null };
+  if (input.operation === 'load') {
+    const snapshot = await getDocFromServer(ref);
+    assertCurrent();
+    return { state: snapshot.data()?.state || null };
+  }
   const messages = input.state?.messages?.filter(item => !item.error && !item.localOnly).slice(-12).map(item => ({ id: item.id, role: item.role, text: item.text.slice(0, 1500) })) || [];
+  assertCurrent();
   await setDoc(ref, { state: input.operation === 'end' ? null : { messages } });
   return { saved: true };
 }
 
 // Compatibility interface for the settings UI: these are Firebase SDK operations.
 export async function zokiRequest(path, schoolId, body = {}, method = 'POST', offset = 0) {
+  const assertPrivateSession = privateSessionGuard();
   const actor = await actorFor(schoolId);
   const rootRef = doc(db, 'zokiAgents', actor.uid);
   const scopeRef = doc(rootRef, 'scopes', schoolId);
-  const assertSession = () => { if (auth.currentUser?.uid !== actor.uid) throw fail('unauthenticated'); };
+  const assertSession = () => { assertPrivateSession(); if (auth.currentUser?.uid !== actor.uid) throw fail('unauthenticated'); };
   if (path === 'admin/settings') {
     if (!['principal', 'institution_manager'].includes(actor.role)) throw fail('permission-denied');
     const ref = doc(db, 'schools', schoolId, 'settings', 'zoki_agent');

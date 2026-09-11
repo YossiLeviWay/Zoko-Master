@@ -14,6 +14,7 @@ import {
   removeSchoolMembership,
 } from '../services/adminUserService';
 import { recordSchoolLogin } from '../services/firestore/loginActivityRepository';
+import { invalidatePrivateSession } from '../utils/browserPrivacy';
 
 const AuthContext = createContext(null);
 const ALLOWED_ROLES = new Set(['viewer', 'editor', 'principal', 'institution_manager']);
@@ -161,6 +162,7 @@ export function AuthProvider({ children }) {
     if (!school) {
       throw Object.assign(new Error('SCHOOL_MEMBERSHIP_REQUIRED'), { code: 'school-membership-required' });
     }
+    invalidatePrivateSession();
     setSelectedSchool(schoolId);
     await recordSchoolLogin({
       db,
@@ -170,6 +172,11 @@ export function AuthProvider({ children }) {
   }
 
   async function logout() {
+    // Clear private UI and invalidate pending requests before any network wait.
+    invalidatePrivateSession();
+    setUserData(null);
+    setCurrentUser(null);
+    setSelectedSchool(null);
     if (currentUser) {
       try {
         await updateDoc(doc(db, 'users', currentUser.uid), {
@@ -229,6 +236,7 @@ export function AuthProvider({ children }) {
 
   async function switchSchool(schoolId) {
     if (globalAdminClaim || availableSchools.some(school => school.id === schoolId)) {
+      if (schoolId !== selectedSchool) invalidatePrivateSession();
       setSelectedSchool(schoolId);
     }
   }
@@ -270,6 +278,7 @@ export function AuthProvider({ children }) {
       setLoading(true);
       setCurrentUser(user);
       if (!user) {
+        invalidatePrivateSession();
         setUserData(null);
         setAvailableSchools([]);
         setSelectedSchool(null);

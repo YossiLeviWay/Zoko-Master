@@ -5,6 +5,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDocFromServer,
   onSnapshot,
   orderBy,
   limit,
@@ -361,9 +362,9 @@ function editableFields(input) {
   };
 }
 
-export async function createPersonalTask({ db, schoolId, user, input }) {
+export async function createPersonalTask({ db, schoolId, user, input, requestId }) {
   if (!user?.uid || !schoolId || !input.title?.trim()) throw new Error('Invalid personal task');
-  return addDoc(personalTasksCollection(db, user.uid), {
+  const data = {
     ...editableFields(input),
     scope: TASK_SCOPES.PERSONAL,
     schoolId,
@@ -377,7 +378,19 @@ export async function createPersonalTask({ db, schoolId, user, input }) {
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
     ...(input.sourceTaskId ? { sourceTaskId: input.sourceTaskId } : {}),
-  });
+  };
+  if (!requestId) return addDoc(personalTasksCollection(db, user.uid), data);
+  if (!/^[\w-]{1,128}$/.test(requestId)) throw new Error('Invalid request');
+  const ref = doc(personalTasksCollection(db, user.uid), `quick_${requestId}`);
+  // A retry targets the same document. Rules reject resetting creation fields;
+  // recover only when the server confirms the exact original task exists.
+  try { await setDoc(ref, data); }
+  catch (error) {
+    const existing = await getDocFromServer(ref).catch(() => null);
+    const saved = existing?.data();
+    if (!saved || saved.ownerId !== user.uid || saved.schoolId !== schoolId || saved.title !== data.title) throw error;
+  }
+  return ref;
 }
 
 export async function createOrganizationTask({ db, schoolId, user, input }) {

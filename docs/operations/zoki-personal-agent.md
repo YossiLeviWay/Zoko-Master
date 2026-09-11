@@ -93,8 +93,8 @@ copy is written per turn, and the transcript sync waits until generation ends.
 ## Rate limits
 
 The school manager's questionsPerMinute setting (1–20, default 4) is a convenience
-limit enforced in the browser, shared across tabs using Web Locks/localStorage
-where available. It is NOT a tamper-proof spending limit and does not coordinate
+limit held only in the current tab’s memory and cleared on logout/school change.
+It does not persist timestamps or user/school identifiers on the device. It is NOT a tamper-proof spending limit and does not coordinate
 multiple devices. The UI labels this explicitly. Enforcement against bypass is
 Google's common AI Logic quota and the Gemini project's quota. Limiting requests
 in this version does not write a Firestore counter for every question.
