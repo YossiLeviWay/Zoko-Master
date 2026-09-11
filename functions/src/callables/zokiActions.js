@@ -1,3 +1,4 @@
+import { assignedIds, initializeAssignments, progressSummary, reconcileSource } from '../domain/taskWorkspace.js';
 import { FieldValue } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
 import { onCall } from 'firebase-functions/v2/https';
@@ -117,11 +118,20 @@ export async function executeZokiTaskStatusHandler(request) {
     if ((currentStatus === 'completed' ? 'done' : currentStatus) === input.status) {
       throw publicError('failed-precondition', 'task-status-already-applied', 'המשימה כבר נמצאת במצב המבוקש.');
     }
+    let progressPatch = {};
+    if (input.storageMode !== 'personal') {
+      const normalized = initializeAssignments(task);
+      if (!assignedIds(normalized).includes(actor.uid)) throw permissionDenied();
+      const progressBy = { ...normalized.progressBy, [actor.uid]: { status: input.status, inherited: false } };
+      progressPatch = { assignmentVersion: 2, assignmentSources: normalized.assignmentSources, progressBy, status: progressSummary({ ...normalized, progressBy }).status };
+    }
     const patch = {
       status: input.status,
       completedAt: input.status === 'done' ? FieldValue.serverTimestamp() : null,
       updatedAt: FieldValue.serverTimestamp(),
+      ...progressPatch,
     };
+    patch.completedAt = patch.status === 'done' ? FieldValue.serverTimestamp() : null;
     if (input.storageMode === 'personal') transaction.update(personalRef, patch);
     else {
       if (nested.exists && (!nested.data().schoolId || nested.data().schoolId === input.schoolId)) transaction.update(nestedRef, patch);
@@ -211,6 +221,11 @@ export async function executeZokiTaskAssignmentHandler(request) {
       participantIds: nextParticipantIds, teamId: '', assigneeTeamId: '', lastAssignedStaffId: input.userId,
       assignmentUpdatedBy: actor.uid, assignmentUpdatedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
     };
+    if (task.assignmentVersion === 2) {
+      const direct = assignedIds(task).filter(uid => task.assignmentSources[uid]?.includes('direct'));
+      const next = reconcileSource(task, 'direct', input.action === 'add' ? [...new Set([...direct, input.userId])] : direct.filter(uid => uid !== input.userId));
+      Object.assign(patch, { scope: task.scope, assigneeType: task.assigneeType, teamId: task.teamId || '', assigneeTeamId: task.assigneeTeamId || '', assignmentSources: next.assignmentSources, progressBy: next.progressBy, assigneeIds: assignedIds(next), participantIds: [...new Set([...(task.participantIds || []).filter(uid => uid !== input.userId), ...assignedIds(next)])], status: progressSummary(next).status });
+    }
     if (nested.exists && (!nested.data().schoolId || nested.data().schoolId === input.schoolId)) transaction.update(nestedRef, patch);
     if (legacy.exists && (!legacy.data().schoolId || legacy.data().schoolId === input.schoolId)) transaction.update(legacyRef, patch);
     if (input.action === 'add') transaction.create(adminDb.doc(`notifications/zoki_task_assignment_${actionId}`), {
@@ -1730,6 +1745,7 @@ export async function executeZokiTeamCreateHandler(request) {
   const permissionContext = await buildPermissionContext({ userId: actor.uid, schoolId: input.schoolId });
   const editPermission = evaluatePermission(permissionContext, { capability: 'teams_edit', accessLevel: 'edit', resource: {} });
   if (!actor.globalAdmin && !isPrincipalFor(actor, input.schoolId) && !editPermission.allowed) throw permissionDenied();
+  if (input.task && (!input.memberIds.length || (!actor.globalAdmin && !isPrincipalFor(actor, input.schoolId) && !evaluatePermission(permissionContext, { capability: 'tasks.assign', accessLevel: 'edit', resource: {} }).allowed))) throw permissionDenied();
   const actionId = stableId(actor.uid, input.schoolId, input.requestId);
   const teamId = `zoki_${actionId}`;
   const nestedTeamRef = adminDb.doc(`schools/${input.schoolId}/teams/${teamId}`);
@@ -1773,6 +1789,17 @@ export async function executeZokiTeamCreateHandler(request) {
       createdBy: actor.data.fullName || actor.data.displayName || actor.uid, createdById: actor.uid,
       createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
     };
+    if (input.task) {
+      transaction.create(adminDb.doc(`schools/${input.schoolId}/tasks/${teamId}`), {
+        schoolId: input.schoolId, title: input.task.title, description: '', dueDate: input.task.dueDate,
+        scope: 'team', assigneeType: 'team', teamId, assigneeTeamId: teamId,
+        createdBy: actor.uid, createdByName: actor.data.fullName || '', ownerId: '',
+        participantIds: input.memberIds, assigneeIds: input.memberIds, status: 'todo', assignmentVersion: 2,
+        assignmentSources: Object.fromEntries(input.memberIds.map(uid => [uid, [`team:${teamId}`]])),
+        progressBy: Object.fromEntries(input.memberIds.map(uid => [uid, { status: 'todo' }])),
+        creationSource: 'zoki', createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
     transaction.create(nestedTeamRef, team);
     transaction.create(legacyTeamRef, team);
     memberRefs.forEach((ref, index) => {
@@ -1784,8 +1811,8 @@ export async function executeZokiTeamCreateHandler(request) {
       });
       transaction.create(adminDb.doc(`notifications/zoki_team_create_${actionId}_${index}`), {
         userId, schoolId: input.schoolId, title: `הוספת לצוות "${input.name}"`,
-        body: `${String(actor.data.fullName || actor.data.displayName || 'מנהל הצוות').slice(0, 120)} הוסיף/ה אותך לצוות`,
-        type: 'staff', link: '/teams', read: false, createdAt: FieldValue.serverTimestamp(),
+        body: input.task ? input.task.title : `${String(actor.data.fullName || actor.data.displayName || 'מנהל הצוות').slice(0, 120)} הוסיף/ה אותך לצוות`,
+        type: 'staff', link: input.task ? `/tasks?task=${teamId}` : '/teams', read: false, createdAt: FieldValue.serverTimestamp(),
       });
     });
     transaction.create(receiptRef, {
@@ -1801,7 +1828,7 @@ export async function executeZokiTeamCreateHandler(request) {
     action: 'zoki.action.team.create', targetType: 'team', targetId: teamId,
     schoolId: input.schoolId, metadata: { teamId, memberCount: input.memberIds.length },
   });
-  return { ok: true, executed, ...result, route: '/teams' };
+  return { ok: true, executed, ...result, route: input.task ? `/tasks?task=${teamId}` : '/teams' };
 }
 
 export const executeZokiGrade = onCall(CALLABLE_OPTIONS, async request => {

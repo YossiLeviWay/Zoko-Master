@@ -65,7 +65,6 @@ import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
 import PermissionsMenu from '../Shared/PermissionsMenu';
 import DocumentEditor from '../Files/DocumentEditor';
 import SpreadsheetEditor from '../Files/SpreadsheetEditor';
-import ChatPanel from './ChatPanel';
 import InitiativePanel from './InitiativePanel';
 import CommunicationComposer from './CommunicationComposer';
 import CommunicationDashboard from './CommunicationDashboard';
@@ -335,7 +334,7 @@ export default function TaskBoard() {
   const [holidays, setHolidays] = useState([]);
   const [academicYears, setAcademicYears] = useState([]);
   const [initiatives, setInitiatives] = useState([]);
-  const [activeTab, setActiveTab] = useState(() => searchParams.get('view') === 'communications' ? 'communications' : 'dashboard');
+  const [activeTab, setActiveTab] = useState(() => searchParams.get('view') === 'communications' ? 'communications' : searchParams.get('view') === 'invitations' ? 'invitations' : 'dashboard');
   const [workView, setWorkView] = useState(() => searchParams.get('initiative') ? 'plans' : 'mine');
   const communicationReminderInFlight = useRef(new Set());
   const [searchText, setSearchText] = useState('');
@@ -356,7 +355,7 @@ export default function TaskBoard() {
   const [editForm, setEditForm] = useState(null);
   const [conversionTask, setConversionTask] = useState(null);
   const [conversion, setConversion] = useState({ scope: TASK_SCOPES.ASSIGNED, assigneeId: '', teamId: '' });
-  const [chatTask, setChatTask] = useState(null);
+  const setChatTask = task => task && navigate(`/messages?task=${task.id}&storage=${task._storageMode || 'nested'}`);
   const [previewFile, setPreviewFile] = useState(null);
   const [showPermissionsPanel, setShowPermissionsPanel] = useState(false);
   const [permissionTask, setPermissionTask] = useState(null);
@@ -1720,7 +1719,7 @@ export default function TaskBoard() {
 
   return (
     <div className="page">
-      <Header title="משימות" onPermissions={() => setShowPermissionsPanel(true)} />
+      <Header title={activeTab === 'communications' ? 'מיילים ומעקבים' : 'משימות'} onPermissions={() => setShowPermissionsPanel(true)} />
       {showPermissionsPanel && <PagePermissionsPanel feature="tasks" onClose={() => setShowPermissionsPanel(false)} />}
       <div className="page-content task-page-content" onContextMenu={event => activeTab === 'dashboard' && openPageActions(event)}>
         {message && <div className="task-feedback task-feedback--success" role="status">{message}</div>}
@@ -1771,7 +1770,7 @@ export default function TaskBoard() {
             <span className="task-stats">{filteredTasks.length} משימות</span>
             {activeFilterChips.length > 0 && <div className="task-active-filters">{activeFilterChips.map(chip => <button type="button" key={chip.key} onClick={chip.clear} aria-label={`הסרת מסנן ${chip.label}`}>{chip.label}<X size={12} aria-hidden="true" /></button>)}<button type="button" className="task-clear-filters" onClick={clearAllFilters}>נקה הכול</button></div>}
           </section>}
-        </> : <section className="task-secondary-head"><div><button type="button" className="btn btn-secondary btn-sm" onClick={() => setActiveTab('dashboard')}>חזרה למשימות</button><h1>{activeTab === 'communications' ? 'מיילים ומעקבים' : 'הזמנות ושיתופים'}</h1></div>{activeTab === 'communications' && canCreateCommunication && <button type="button" className="btn task-create-primary" onClick={() => openCommunicationContext({ type: 'general', id: 'task_panel', label: 'פאנל המשימות' })}><Plus size={15} /> מייל ומעקב חדש</button>}</section>}
+        </> : <section className="task-secondary-head"><div><button type="button" className="btn btn-secondary btn-sm" onClick={() => navigate('/tasks')}>חזרה למשימות</button><h1>{activeTab === 'communications' ? 'מיילים ומעקבים' : 'הזמנות ושיתופים'}</h1></div>{activeTab === 'communications' && canCreateCommunication && <button type="button" className="btn task-create-primary" onClick={() => openCommunicationContext({ type: 'general', id: 'task_panel', label: 'פאנל המשימות' })}><Plus size={15} /> מייל ומעקב חדש</button>}</section>}
 
         {showForm && form.creationSource !== 'agent' && !initiativeDetailOpen && (
           <div className="task-create-overlay" onClick={() => setShowForm(false)}>
@@ -1924,7 +1923,7 @@ export default function TaskBoard() {
         </div>
       )}
 
-      {chatTask && <ChatPanel task={chatTask} schoolId={schoolId} currentUser={userData} onClose={() => setChatTask(null)} />}
+
 
       {communicationTask && <CommunicationComposer
         schoolId={schoolId}

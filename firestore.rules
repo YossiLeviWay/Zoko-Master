@@ -2861,29 +2861,22 @@ service cloud.firestore {
     }
 
     function safeOrganizationTaskUpdate(schoolId) {
-      return safeTaskChatActivityUpdate(schoolId) || (
-        isOrganizationTask(request.resource.data)
-        && validTaskInitiativeLink(schoolId, request.resource.data)
-        && request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'schoolId', 'createdBy', 'ownerId'
-        ]) == false
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let participant = request.auth.uid in resource.data.get('assigneeIds', [])
+        || request.auth.uid in resource.data.get('participantIds', []);
+      return resource.data.get('assignmentVersion', 1) != 2
+        && isOrganizationTask(request.resource.data)
         && (
-          (
-            hasPermission(schoolId, 'tasks_edit')
-            && validTaskAssigneeMutation(schoolId)
-            && (!('mandatory' in resource.data) || resource.data.mandatory == false || resource.data.createdBy == request.auth.uid || hasPermission(schoolId, 'tasks.manageAssignments'))
-          )
+          (participant && changed.hasOnly(['status', 'completedAt', 'updatedAt']))
+          || safeTaskChatActivityUpdate(schoolId)
           || (
-            (
-              (isAssignedTask(resource.data) && resource.data.assigneeIds is list && request.auth.uid in resource.data.assigneeIds)
-              || (resource.data.participantIds is list && request.auth.uid in resource.data.participantIds)
-            )
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-              'status', 'completedAt', 'updatedAt'
-            ])
+            validTaskInitiativeLink(schoolId, request.resource.data)
+            && !changed.hasAny(['schoolId', 'createdBy', 'ownerId'])
+            && hasPermission(schoolId, 'tasks_edit')
+            && validTaskAssigneeMutation(schoolId)
+            && (!resource.data.get('mandatory', false) || resource.data.createdBy == request.auth.uid || hasPermission(schoolId, 'tasks.manageAssignments'))
           )
-        )
-      );
+        );
     }
 
     function validPersonalTaskCreate(userId, taskId, data) {
@@ -3238,6 +3231,9 @@ service cloud.firestore {
         && safeSelfProfileUpdate();
       allow delete: if false;
 
+      match /taskBoardPreferences/{schoolId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId && isSchoolMember(schoolId);
+      }
       match /personalTasks/{taskId} {
         allow read: if personalTaskOwner(userId, resource.data);
         allow create: if validPersonalTaskCreate(userId, taskId, request.resource.data);
@@ -3246,7 +3242,7 @@ service cloud.firestore {
       }
 
       match /taskAgentProfiles/{schoolId} {
-        allow read: if signedIn() && request.auth.uid == userId && isSchoolMember(schoolId);
+        allow read: if request.auth != null && request.auth.uid == userId && isSchoolMember(schoolId);
         allow create, update, delete: if false;
       }
 
@@ -3525,12 +3521,22 @@ service cloud.firestore {
         allow update, delete: if false;
       }
 
+      match /taskLists/{listId} {
+        allow read: if isSchoolMember(schoolId) && request.auth.uid in resource.data.memberIds;
+        allow write: if false;
+      }
+      match /taskListInvitations/{invitationId} {
+        allow read: if isSchoolMember(schoolId) && (resource.data.recipientId == request.auth.uid || resource.data.inviterId == request.auth.uid);
+        allow write: if false;
+      }
       match /tasks/{taskId} {
         allow read: if resourceAclConfigured(schoolId, 'task', taskId, '')
           ? resourceAclAllows(schoolId, 'task', taskId, 'view', '')
           : taskVisibleToCurrentUser(schoolId, resource.data);
         allow create: if validOrganizationTaskCreate(schoolId, request.resource.data);
-        allow update: if resourceAclConfigured(schoolId, 'task', taskId, '')
+        allow update: if resource.data.get('assignmentVersion', 1) == 2
+          ? safeTaskChatActivityUpdate(schoolId)
+          : resourceAclConfigured(schoolId, 'task', taskId, '')
           ? resourceAclAllows(schoolId, 'task', taskId, 'edit', '')
           : safeOrganizationTaskUpdate(schoolId);
         allow delete: if resourceAclConfigured(schoolId, 'task', taskId, '')
@@ -4782,6 +4788,7 @@ service cloud.firestore {
         )
         || (
           !('schoolId' in resource.data)
+          && resource.data.get('assignmentVersion', 1) != 2
           && legacyCanEditTasks(collectionName, resource.data)
           && isOrganizationTask(request.resource.data)
           && request.resource.data.diff(resource.data).affectedKeys().hasAny([
@@ -4790,6 +4797,7 @@ service cloud.firestore {
         )
         || (
           !('schoolId' in resource.data)
+          && resource.data.get('assignmentVersion', 1) != 2
           && isAssignedTask(resource.data)
           && resource.data.assigneeIds is list
           && request.auth.uid in resource.data.assigneeIds

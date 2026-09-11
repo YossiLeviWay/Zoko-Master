@@ -182,6 +182,7 @@ export async function zokiRequest(path, schoolId, body = {}, method = 'POST', of
   return {
     answer: result.answer,
     actionIntent: result.actionIntent,
+    taskDraft: result.taskDraft,
     actionRequest: result.actionRequest,
     actionTargetType: result.actionTargetType,
     actionTargetLabel: result.actionTargetLabel,

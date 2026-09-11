@@ -112,3 +112,6 @@ export {
   platformStaffAction,
   repairPlatformStaffPermissions,
 } from './callables/platformAdministration.js';
+
+export { taskWorkspace } from './callables/taskWorkspace.js';
+export { syncNestedTaskTeam, syncLegacyTaskTeam } from './triggers/taskWorkspace.js';

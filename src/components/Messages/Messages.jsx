@@ -1,3 +1,6 @@
+import TaskBoard from '../Tasks/TaskBoard';
+import { Link, useSearchParams } from 'react-router-dom';
+import TaskConversation from '../Tasks/TaskConversation';
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { db, storage } from '../../firebase';
@@ -28,7 +31,7 @@ const ROLE_LABELS_MSG = {
   viewer: 'צופה'
 };
 
-export default function Messages() {
+function MessagesMain() {
   const { userData, currentUser, selectedSchool, isGlobalAdmin } = useAuth();
   const [conversations, setConversations] = useState([]);
   const [activeConv, setActiveConv] = useState(null);
@@ -455,7 +458,7 @@ export default function Messages() {
 
   return (
     <div className="page">
-      <Header title="הודעות" />
+      <Header title="הודעות" /><div style={{padding: '12px 24px'}}><Link to="/messages?view=communications">מיילים ומעקבים</Link></div>
       <div className="page-content">
         <div className="messages-layout">
           {/* Conversations sidebar */}
@@ -808,3 +811,5 @@ export default function Messages() {
     </div>
   );
 }
+
+export default function Messages() { const [params] = useSearchParams(); return params.get('task') ? <TaskConversation /> : params.get('view') === 'communications' ? <TaskBoard /> : <MessagesMain />; }

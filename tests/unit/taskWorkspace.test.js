@@ -1,0 +1,11 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { assignedIds, initializeAssignments, personStatus, primaryLane, progressSummary, rankBetween, reconcileSource } from '../../functions/src/domain/taskWorkspace.js';
+test('individual completion never completes another assignee',()=>{const task=initializeAssignments({assigneeIds:['a','b'],status:'todo'});task.progressBy.a={status:'done'};assert.equal(personStatus(task,'b'),'todo');assert.deepEqual(progressSummary(task),{total:2,done:1,status:'in_progress'});task.progressBy.b={status:'done'};assert.equal(progressSummary(task).status,'done');});
+test('empty assignments do not imply completion',()=>assert.equal(progressSummary({assigneeIds:[]}).status,'todo'));
+test('team removal preserves direct assignments and excludes departed members',()=>{let task=initializeAssignments({assigneeIds:['a'],teamId:'t',status:'todo'},['a','b']);task=reconcileSource(task,'team:t',['c']);assert.deepEqual(assignedIds(task),['a','c']);assert.deepEqual(task.assignmentSources.a,['direct']);assert.equal(personStatus(task,'c'),'todo');});
+test('historical completion is explicitly inherited',()=>{const task=initializeAssignments({assigneeIds:['a','b'],status:'completed'});assert.equal(task.progressBy.a.inherited,true);assert.equal(progressSummary(task).done,2);});
+test('personal placement does not mutate shared membership',()=>{const task={id:'x',_storageMode:'nested',teamId:'t',assigneeIds:['a','b']};assert.equal(primaryLane(task,[{id:'mine',kind:'personal'}],{placements:{'nested:x':'mine'}}),'mine');assert.deepEqual(task.assigneeIds,['a','b']);});
+test('shared lists precede teams and archived placements fall back',()=>{const task={id:'x',listId:'l',teamId:'t'};assert.equal(primaryLane(task,[{id:'l',kind:'shared'}]),'l');assert.equal(primaryLane(task,[{id:'l',archived:true}]),'team:t');});
+test('rank insertion handles both ends',()=>{assert.equal(rankBetween(100,200),150);assert.ok(rankBetween(null,100)<100);assert.ok(rankBetween(200,null)>200);});
+test('explicit removal remains excluded when the team is synchronized',()=>{const task={...initializeAssignments({teamId:'t'},['a','b']),assignmentExclusions:{'team:t':['b']}};assert.deepEqual(assignedIds(reconcileSource(task,'team:t',['a','b','c'])),['a','c']);});

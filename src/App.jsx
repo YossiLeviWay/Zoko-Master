@@ -1,3 +1,4 @@
+import TaskWorkspace from './components/Tasks/TaskWorkspaceRoute';
 import { lazy, Suspense } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -111,7 +112,8 @@ export default function App() {
               <Route path="calendar" element={<ApprovedRoute><SchoolRequiredRoute><GanttChart /></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="categories" element={<ApprovedRoute><SchoolRequiredRoute><CategoryManager /></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="staff" element={<ApprovedRoute><SchoolRequiredRoute><StaffManagement /></SchoolRequiredRoute></ApprovedRoute>} />
-              <Route path="tasks" element={<ApprovedRoute><SchoolRequiredRoute><PageErrorBoundary><TaskBoard /></PageErrorBoundary></SchoolRequiredRoute></ApprovedRoute>} />
+              <Route path="tasks" element={<ApprovedRoute><SchoolRequiredRoute><PageErrorBoundary><TaskWorkspace /></PageErrorBoundary></SchoolRequiredRoute></ApprovedRoute>} />
+              <Route path="tasks/advanced" element={<ApprovedRoute><SchoolRequiredRoute><PageErrorBoundary><TaskBoard /></PageErrorBoundary></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="files" element={<ApprovedRoute><SchoolRequiredRoute><FileManager /></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="teams" element={<ApprovedRoute><SchoolRequiredRoute><Teams /></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="contacts" element={<ApprovedRoute><SchoolRequiredRoute><ContactsPage /></SchoolRequiredRoute></ApprovedRoute>} />

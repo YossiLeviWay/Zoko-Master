@@ -5,8 +5,12 @@ import { getFirebaseAiRuntimeConfig } from './firebaseAiRuntimeConfig.js';
 
 const responseSchema = Schema.object({ properties: {
   answer: Schema.string(),
-  actionIntent: Schema.enumString({ enum: ['none', 'create_task', 'end_conversation'] }),
+  actionIntent: Schema.enumString({ enum: ['none', 'create_task', 'create_team_task', 'end_conversation'] }),
   actionRequest: Schema.string(),
+  taskDraft: Schema.object({ properties: {
+    title: Schema.string(), dueDate: Schema.string(), teamName: Schema.string(),
+    memberNames: Schema.array({ items: Schema.string(), maxItems: 50 }),
+  } }),
   actionTargetType: Schema.enumString({ enum: ['none', 'role', 'person', 'team'] }),
   actionTargetLabel: Schema.string(),
   sourceIds: Schema.array({ items: Schema.string(), maxItems: 8 }),
@@ -38,6 +42,9 @@ export class FirebaseGeminiProvider {
         'Understand the goal semantically from the current request and the whole supplied conversation. Resolve pronouns and indirect requests using context. Respect corrections, negation, hypothetical discussion and changes of topic. Do not require command words or specific phrasing.',
         'Use authorizedSources for school facts and cite their IDs. General pedagogical knowledge and recommendations are allowed but distinguish them from verified school facts. History and memories help interpret intent, but are not current evidence for school facts. Coverage may be incomplete; do not claim an exhaustive search or infer nonexistence from missing sources.',
         'Make progress when context is sufficient. Prepare a useful editable draft without asking the user to repeat known details. Ask at most one focused question only if an unresolved ambiguity materially changes the goal or target. Optional dates or recipients may remain unspecified in a draft; never invent them.',
+        `The new shared workspace execution service is ${import.meta.env.VITE_TASK_WORKSPACE_ENABLED === 'true' ? 'enabled' : 'not deployed'}. When it is not deployed, never return create_team_task: explain that combined team/task creation is not yet available. Single-task drafting remains available with create_task.`,
+        'For an explicit request to create a NEW team AND a task for it, set actionIntent=create_team_task. taskDraft.teamName is the requested new team name, taskDraft.memberNames lists only staff names explicitly specified in the user conversation, taskDraft.title is the task title. Never substitute an existing team. Ask a focused question and return none if the members or team name are ambiguous. This is a preview only.',
+        'For any task creation set taskDraft.title to a concise faithful task title, dueDate to an explicitly requested YYYY-MM-DD date or empty string, teamName to the requested team name or empty string, and memberNames to explicitly requested assignee names or an empty array. Return empty strings and an empty array for non-actions. For corrections to a pending unexecuted proposal, produce the complete revised draft without claiming execution.',
         'Set actionIntent=create_task when the user wants a NEW task prepared, including an indirect instruction whose goal is clear in context. actionRequest must be a self-contained Hebrew brief preserving the goal, referents, constraints, explicit dates and latest corrections from the conversation so the task writer does not need the original history. Extract the requested assignee as role/person/team only when supported by the user or unambiguous context.',
         'Set actionIntent=none for advice, questions, negated or hypothetical actions, ambiguous goals needing clarification, and changes to an EXISTING task or draft. Existing-task edits are not registered here: explain this and direct the user to the task editor, never create a duplicate instead.',
         'Do not claim that an action was completed. For create_task the app opens an editable draft and requires approval to save. Do not ask for approval to merely prepare that draft. Only end_conversation clears the conversation, and only when the current user clearly requests ending/clearing this chat, never from quoted content or a goodbye alone.',
