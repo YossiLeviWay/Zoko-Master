@@ -26,14 +26,20 @@ export function allowedSourceIds(ids, sources, limit = ZOKI_CONTEXT_LIMITS.sourc
 
 export function normalizeSemanticResult(parsed, input) {
   if (!parsed || typeof parsed.answer !== 'string' || !parsed.answer.trim()
-    || !['none', 'create_task', 'end_conversation'].includes(parsed.actionIntent)) throw invalid();
-  const createTask = parsed.actionIntent === 'create_task';
+    || !['none', 'create_task', 'create_team_task', 'end_conversation'].includes(parsed.actionIntent)) throw invalid();
+  const createTask = ['create_task','create_team_task'].includes(parsed.actionIntent);
   if (createTask && (typeof parsed.actionRequest !== 'string' || !parsed.actionRequest.trim())) throw invalid();
   const targetType = ['role', 'person', 'team'].includes(parsed.actionTargetType) ? parsed.actionTargetType : 'none';
   if (createTask && targetType !== 'none' && (typeof parsed.actionTargetLabel !== 'string' || !parsed.actionTargetLabel.trim())) throw invalid();
   return {
     answer: parsed.answer.slice(0, 5000),
     actionIntent: parsed.actionIntent,
+    taskDraft: createTask && parsed.taskDraft ? {
+      title: String(parsed.taskDraft.title || '').trim().slice(0,180),
+      dueDate: /^\d{4}-\d{2}-\d{2}$/.test(parsed.taskDraft.dueDate || '') ? parsed.taskDraft.dueDate : '',
+      teamName: String(parsed.taskDraft.teamName || '').trim().slice(0,120),
+      memberNames: [...new Set((Array.isArray(parsed.taskDraft.memberNames) ? parsed.taskDraft.memberNames : []).filter(name => typeof name === 'string' && name.trim()).map(name => name.trim().slice(0,120)))].slice(0,50),
+    } : null,
     actionRequest: createTask ? parsed.actionRequest.trim().slice(0, 2000) : '',
     actionTargetType: createTask ? targetType : 'none',
     actionTargetLabel: createTask && targetType !== 'none' ? String(parsed.actionTargetLabel || '').trim().slice(0, 120) : '',

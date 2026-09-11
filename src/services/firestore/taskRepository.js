@@ -6,6 +6,8 @@ import {
   deleteDoc,
   doc,
   onSnapshot,
+  orderBy,
+  limit,
   query,
   serverTimestamp,
   setDoc,
@@ -238,6 +240,7 @@ export function subscribeOrganizationTasks({
   uid,
   teamIds = [],
   canViewAll = false,
+  historyLimit = 0,
   onData,
   onError,
 }) {
@@ -246,9 +249,13 @@ export function subscribeOrganizationTasks({
     { ref: collection(db, `tasks_${schoolId}`), storageMode: 'legacy' },
     { ref: schoolCollection(db, schoolId, 'tasks', 'nested'), storageMode: 'nested' },
   ];
+  const paged = entries => historyLimit > 0 ? entries.flatMap(entry => [
+    { ...entry, query: query(entry.query, where('status', 'in', ['todo', 'in_progress'])) },
+    { ...entry, query: query(entry.query, where('status', 'in', ['done', 'completed']), orderBy('updatedAt', 'desc'), limit(historyLimit)) },
+  ]) : entries;
   if (canViewAll) {
     return subscribeToQuerySet(
-      taskCollections.map(item => ({ query: item.ref, storageMode: item.storageMode })),
+      paged(taskCollections.map(item => ({ query: item.ref, storageMode: item.storageMode }))),
       normalizeOrganizationTask,
       onData,
       onError,
@@ -265,7 +272,7 @@ export function subscribeOrganizationTasks({
       storageMode: item.storageMode,
     })),
   ]);
-  return subscribeToQuerySet(queryEntries, normalizeOrganizationTask, onData, onError);
+  return subscribeToQuerySet(paged(queryEntries), normalizeOrganizationTask, onData, onError);
 }
 
 export function subscribeTaskChatReceipts({ db, uid, onData, onError }) {
@@ -407,6 +414,10 @@ export async function createOrganizationTask({ db, schoolId, user, input }) {
 }
 
 export async function updateTask({ db, schoolId, uid, task, input }) {
+  if (task.assignmentVersion === 2 && task._source === 'organization') {
+    const { workspaceAction, newRequestId } = await import('./taskWorkspaceRepository.js');
+    return workspaceAction({ schoolId, requestId: newRequestId(), operation: 'edit', taskId: task.id, storage: task._storageMode || 'nested', title: input.title, description: input.description || '', dueDate: input.dueDate || '', details: { priority: input.priority || 'medium', startDate: input.startDate || '', endDate: input.endDate || '', reminderAt: input.reminderAt || '', completionCriteria: input.completionCriteria || '' } });
+  }
   const taskRef = task._source === 'personal'
     ? personalTaskDoc(db, uid, task.id)
     : organizationTaskDoc(db, schoolId, task);
@@ -437,6 +448,10 @@ export async function updateTask({ db, schoolId, uid, task, input }) {
 }
 
 export async function updateTaskStatus({ db, schoolId, uid, task, status }) {
+  if (task._source === 'organization' && task.assignmentVersion === 2) {
+    const { workspaceAction, newRequestId } = await import('./taskWorkspaceRepository.js');
+    return workspaceAction({ schoolId, requestId: newRequestId(), operation: 'progress', taskId: task.id, storage: task._storageMode || 'nested', status: status === 'completed' ? 'done' : status });
+  }
   const taskRef = task._source === 'personal'
     ? personalTaskDoc(db, uid, task.id)
     : organizationTaskDoc(db, schoolId, task);
@@ -448,6 +463,10 @@ export async function updateTaskStatus({ db, schoolId, uid, task, status }) {
 }
 
 export async function updateTaskAssignee({ db, schoolId, task, staffId, assigned, actorId }) {
+  if (task.assignmentVersion === 2) {
+    const { workspaceAction, newRequestId } = await import('./taskWorkspaceRepository.js');
+    return workspaceAction({ schoolId, requestId: newRequestId(), operation: assigned ? 'move' : 'unassign', taskId: task.id, storage: task._storageMode || 'nested', recipientIds: assigned ? [staffId] : [], userId: staffId, confirmed: true });
+  }
   if (task?._source !== 'organization' || !staffId) throw new Error('Invalid task assignment');
   const taskRef = organizationTaskDoc(db, schoolId, task);
   const currentAssignees = safeIdList(task.assigneeIds);

@@ -457,7 +457,8 @@ export const zokiTeamCreateActionSchema = z.object({
   aliases: zokiTeamList,
   supportingRoles: zokiTeamList,
   typicalTaskTypes: zokiTeamList,
-  memberIds: z.array(id).max(7).optional().default([]).transform(values => [...new Set(values)]),
+  memberIds: z.array(id).max(50).optional().default([]).transform(values => [...new Set(values)]),
+  task: z.object({ title: z.string().trim().min(1).max(180), dueDate: z.string().regex(/^$|^\d{4}-\d{2}-\d{2}$/).default('') }).optional(),
 }).strict();
 
 export const activeSchoolSchema = z.object({ schoolId: id }).strict();
