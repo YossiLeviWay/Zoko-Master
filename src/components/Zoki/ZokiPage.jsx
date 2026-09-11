@@ -121,7 +121,7 @@ function ScopedZokiPage({ embedded = false, onMinimize = () => undefined }) {
     cleanLegacyBrowserData();
     const applyState = state => {
       const normalized = normalizeZokiConversationState(state);
-      if (!active || !normalized) return;
+      if (!active || generation !== conversationGeneration.current || !normalized) return;
       setMessages(normalized.messages);
       setPendingTask(normalized.pendingTask);
       setTaskActionResult(normalized.taskActionResult);
@@ -137,8 +137,11 @@ function ScopedZokiPage({ embedded = false, onMinimize = () => undefined }) {
     if (!conversationReady || !conversationKey) return;
     const state = { messages: messages.slice(-60), pendingTask, taskActionResult, taskAgentTurn: null };
     if (loading || (!messages.length && !pendingTask && !taskActionResult)) return undefined;
+    const generation = conversationGeneration.current;
     const timer = window.setTimeout(() => {
-      syncPersonalAgentConversation({ schoolId, expectedUid: currentUser?.uid, operation: 'save', state }).catch(() => undefined);
+      syncPersonalAgentConversation({ schoolId, expectedUid: currentUser?.uid, operation: 'save', state,
+        isCurrent: () => activeConversation.current === conversationKey && conversationGeneration.current === generation,
+      }).catch(() => undefined);
     }, 700);
     return () => window.clearTimeout(timer);
   }, [conversationKey, conversationReady, loading, messages, pendingTask, schoolId, taskActionResult, currentUser?.uid]);

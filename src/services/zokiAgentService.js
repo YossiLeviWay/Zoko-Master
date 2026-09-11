@@ -63,6 +63,7 @@ export async function syncPersonalAgentConversation(input) {
   const actor = await actorFor(input.schoolId);
   const assertCurrent = () => {
     assertPrivateSession();
+    if (input.isCurrent && !input.isCurrent()) throw fail('session-changed');
     if (actor.uid !== expectedUid || auth.currentUser?.uid !== expectedUid) throw fail('unauthenticated');
   };
   assertCurrent();

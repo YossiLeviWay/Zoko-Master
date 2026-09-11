@@ -75,3 +75,11 @@ test('an old account cannot save its transcript into a newly logged-in account',
   assert.equal(memory.writes.length, before);
   memory.currentUser = { uid: 'a' };
 });
+
+test('a save queued before clearing the conversation cannot restore the old transcript', async () => {
+  const before = memory.writes.length;
+  await assert.rejects(syncPersonalAgentConversation({ schoolId: 'school1', operation: 'save',
+    isCurrent: () => false, state: { messages: [{ id: 'stale', role: 'user', text: 'שיחה שהסתיימה' }] },
+  }), { code: 'session-changed' });
+  assert.equal(memory.writes.length, before);
+});
