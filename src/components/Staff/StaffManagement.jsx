@@ -532,18 +532,18 @@ export default function StaffManagement() {
 
   function handleDelete(user) {
     setStaffChangeMessage('');
-    setStaffChange({ user, operation: 'remove', requestId: crypto.randomUUID() });
+    setStaffChange({ user, schoolId, operation: 'remove', requestId: crypto.randomUUID() });
   }
 
   function openJobTitle(user) {
     setStaffChangeMessage('');
     const title = schoolJobTitle(user, schoolId);
-    setStaffChange({ user, operation: 'jobTitle', title, expectedTitle: title, requestId: crypto.randomUUID() });
+    setStaffChange({ user, schoolId, operation: 'jobTitle', title, expectedTitle: title, requestId: crypto.randomUUID() });
   }
 
   async function saveStaffChange(event) {
     event.preventDefault();
-    if (staffChangeBusy || !staffChange) return;
+    if (staffChangeBusy || !staffChange || staffChange.schoolId !== schoolId) return;
     setStaffChangeBusy(true); setStaffChangeMessage('');
     try {
       if (isAdmin && staffChange.operation === 'remove') {
@@ -1881,9 +1881,9 @@ export default function StaffManagement() {
         )}
         </>}
 
-        {staffChange && <StaffChangeDialog busy={staffChangeBusy} onCancel={() => setStaffChange(null)} label={staffChange.operation === 'remove' ? 'הסרת איש צוות' : 'עריכת תפקיד'}>
+        {staffChange?.schoolId === schoolId && staffChange && <StaffChangeDialog busy={staffChangeBusy} onCancel={() => setStaffChange(null)} label={staffChange.operation === 'remove' ? 'הסרת איש צוות' : 'עריכת תפקיד'}>
           <form onSubmit={saveStaffChange}><header className="modal-header"><h3>{staffChange.operation === 'remove' ? 'הסרת איש צוות' : 'התפקיד בבית הספר'}</h3><button type="button" className="modal-close" disabled={staffChangeBusy} onClick={() => setStaffChange(null)} aria-label="סגירה"><X size={18}/></button></header>
-          <div className="modal-body"><h4>{staffChange.user.fullName}</h4>{staffChange.operation === 'remove' ? <p>{isAdmin ? 'זו מחיקה מלאה של חשבון המשתמש מכל המערכת.' : 'איש הצוות יאבד את הגישה למוסד הנוכחי. החשבון, החברות במוסדות אחרים והמידע ההיסטורי יישמרו.'}</p> : <><label>שם התפקיד<input autoFocus required maxLength={160} value={staffChange.title} onChange={event => setStaffChange({ ...staffChange, title: event.target.value, requestId: crypto.randomUUID() })}/></label><p>השינוי מעדכן את התפקיד המוצג בסגל ובזוקי. הרשאות הגישה נשארות ללא שינוי.</p></>}{staffChangeMessage && <p role="alert">{staffChangeMessage}</p>}</div>
+          <div className="modal-body"><h4>{staffChange.user.fullName}</h4>{staffChange.operation === 'remove' ? <p>{isAdmin ? 'זו מחיקה מלאה של חשבון המשתמש מכל המערכת.' : 'איש הצוות יאבד את הגישה למוסד הנוכחי. החשבון, החברות במוסדות אחרים והמידע ההיסטורי יישמרו.'}</p> : <><label>שם התפקיד<input autoFocus required disabled={staffChangeBusy} maxLength={160} value={staffChange.title} onChange={event => setStaffChange({ ...staffChange, title: event.target.value, requestId: crypto.randomUUID() })}/></label><p>השינוי מעדכן את התפקיד המוצג בסגל ובזוקי. הרשאות הגישה נשארות ללא שינוי.</p></>}{staffChangeMessage && <p role="alert">{staffChangeMessage}</p>}</div>
           <footer className="modal-footer"><button type="button" className="btn btn-secondary" disabled={staffChangeBusy} onClick={() => setStaffChange(null)}>ביטול</button><button type="submit" className="btn btn-primary" disabled={staffChangeBusy}>{staffChangeBusy ? 'שומר…' : staffChange.operation === 'remove' ? isAdmin ? 'מחיקת החשבון' : 'אישור הסרה מהמוסד' : 'שמירת התפקיד'}</button></footer></form>
         </StaffChangeDialog>}
 
