@@ -11,9 +11,8 @@ import { subscribeContacts } from '../../services/firestore/contactRepository.js
 import { schoolCollection } from '../../services/firestore/paths.js';
 import { useTaskAssistantContext } from '../../hooks/useTaskAssistantContext.js';
 import { usePermissions } from '../../hooks/usePermissions.js';
-import { taskAssistantErrorMessage } from '../../services/firebaseAiTaskService.js';
 import { normalizeZokiConversationState } from '../../utils/zokiConversation.js';
-import { inferTaskRoleTarget } from '../../utils/zokiTaskWorkflow.js';
+import { boundedZokiHistory } from '../../utils/zokiSemanticTurn.js';
 import { loadAuthorizedStudentDetails } from '../../services/zokiSparkDataService.js';
 import { answerZokiOnSpark } from '../../utils/zokiSparkAnswer.js';
 import { sendZokiTaskWorkflowCommand, ZOKI_TASK_WORKFLOW_UPDATE } from '../../utils/zokiTaskWorkflowBridge.js';
@@ -42,6 +41,9 @@ function taskDetailValue(field, value) {
 
 function errorMessage(error) {
   const reason = callableReason(error);
+  if (reason === 'agent-not-configured') return 'שירות ה־AI אינו מוגדר כרגע. אפשר לנסות שוב לאחר הגדרת החיבור.';
+  if (reason === 'invalid-app-check') return 'אימות החיבור לשירות ה־AI נכשל. רעננו את הדף ונסו שוב.';
+  if (['agent-unavailable', 'invalid-ai-response', 'invalid-ai-source'].includes(reason)) return 'לא התקבלה תשובה תקינה משירות ה־AI. אפשר לנסות שוב; לא בוצעה פעולה.';
   if (reason === 'zoki-not-configured') return 'העוזר אינו זמין כרגע. מנהל המערכת קיבל הנחיה לטפל בכך.';
   if (reason === 'permission-denied') return 'אין לך הרשאה לקבל את המידע הזה.';
   if (reason === 'not-found') return 'שירות התשובות עדיין אינו פעיל. מנהל המערכת קיבל הנחיה לטפל בכך.';
@@ -56,8 +58,6 @@ function displayName(item, fallback) {
   return item.fullName || item.displayName || item.name || item.title || fallback;
 }
 
-const TASK_CREATION_REQUEST = /(?:צור|צרי|תיצור|תיצרי|פתח|פתחי|תפתח|תפתחי|הכן|הכיני|תכין|תכיני|בנה|בני|תבנה|תבני)\s+(?:לי\s+)?משימה|(?:אני\s+רוצה|צריך|צריכה)\s+(?:ליצור|לפתוח|להכין)\s+משימה/u;
-const END_CONVERSATION_REQUEST = /^(?:סיים|סיימי|לסיים|סיום)\s+(?:את\s+)?השיחה[.!]?$/u;
 export default function ZokiPage({ embedded = false, onMinimize = () => undefined }) {
   const { userData, currentUser, selectedSchool, isPrincipal, isGlobalAdmin } = useAuth();
   const navigate = useNavigate();
@@ -101,7 +101,9 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
 
   useEffect(() => {
     let active = true;
+    conversationGeneration.current++;
     setConversationReady(false);
+    setLoading(false);
     setMessages([]);
     setPendingTask(null);
     setTaskActionResult(null);
@@ -157,7 +159,10 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
       setMessages(previous => {
         const index = previous.findIndex(item => item.id === messageId);
         if (index < 0) return [...previous, nextMessage];
-        return previous.map((item, itemIndex) => itemIndex === index ? { ...item, ...nextMessage } : item);
+        return previous.map((item, itemIndex) => itemIndex === index ? {
+          ...item, ...nextMessage,
+          text: `${nextMessage.text}${item.workflowBrief ? `\n\nפרטי הבקשה: ${item.workflowBrief}` : ''}`,
+        } : item);
       });
     };
     window.addEventListener(ZOKI_TASK_WORKFLOW_UPDATE, receiveTaskWorkflowUpdate);
@@ -296,6 +301,7 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
 
   function finishConversation({ minimize = false } = {}) {
     conversationGeneration.current++;
+    setLoading(false);
     setQuestion('');
     setMessages([]);
     setPendingTask(null);
@@ -305,12 +311,13 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
     if (minimize) onMinimize();
   }
 
-  function startTaskWorkflow(request, target = {}) {
+  function startTaskWorkflow(request, target = {}, answer = '') {
     const workflowId = `task_${Date.now()}`;
     setMessages(previous => [...previous, {
       id: `zoki_task_${workflowId}`,
       role: 'zoki',
-      text: 'עברתי לעמוד המשימות. אני טוען את ההקשר ומכין שם טיוטה לעריכה — השיחה נשארת כאן.',
+      text: `${answer ? `${answer}\n\n` : ''}אני מכין טיוטה לעריכה בעמוד המשימות. השמירה תתבצע רק לאחר אישורך.\nפרטי הבקשה: ${request}`,
+      workflowBrief: request,
       actionStatus: 'loading_context',
     }]);
     navigate('/tasks', { state: { zokiTaskWorkflow: {
@@ -318,6 +325,7 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
       request,
       targetType: target.type || 'none',
       targetLabel: target.label || '',
+      semantic: true,
       startedAt: Date.now(),
     } } });
   }
@@ -340,46 +348,48 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
     const submittedGeneration = conversationGeneration.current;
     const nextQuestion = text.trim();
     if (!nextQuestion || loading || !schoolId) return;
-    if (END_CONVERSATION_REQUEST.test(nextQuestion)) {
-      finishConversation();
-      return;
-    }
     setQuestion('');
     setMessages(previous => [...previous, { id: `user_${Date.now()}`, role: 'user', text: nextQuestion }]);
     setLoading(true);
-    let routedTask = false;
     try {
-      if (TASK_CREATION_REQUEST.test(nextQuestion)) {
-        routedTask = true;
-        startTaskWorkflow(nextQuestion, inferTaskRoleTarget(nextQuestion));
+      if (!isZokiAgentConfigured) throw Object.assign(new Error('agent-not-configured'), { code: 'agent-not-configured' });
+      const result = await zokiRequest('turn', schoolId, {
+        question: nextQuestion,
+        history: boundedZokiHistory(messages),
+        sourcePaths: zokiSourcePaths({ schoolId, uid: currentUser.uid, sources: { ...taskAssistantSchoolContext.sources, students: accessibleStudents } }),
+      });
+      if (activeConversation.current !== submittedConversation || conversationGeneration.current !== submittedGeneration) return;
+      if (result.actionIntent === 'end_conversation') {
+        finishConversation();
         return;
-      }
-      let result;
-      let degraded = false;
-      if (isZokiAgentConfigured) {
-        try {
-          result = await zokiRequest('turn', schoolId, {
-            question: nextQuestion,
-            history: messages.filter(item => !item.error).slice(-8).map(item => ({ role: item.role === 'zoki' ? 'assistant' : 'user', text: item.text })),
-            sourcePaths: zokiSourcePaths({ schoolId, uid: currentUser.uid, question: nextQuestion, sources: { ...taskAssistantSchoolContext.sources, students: accessibleStudents } }),
-          });
-        } catch (error) {
-          if (['resource-exhausted', 'permission-denied', 'unauthenticated', 'invalid-app-check'].includes(error.code)) throw error;
-          degraded = true;
-        }
       }
       if (result?.actionIntent === 'create_task') {
-        routedTask = true;
-        const actionRequest = result.actionRequest || nextQuestion;
-        const inferredTarget = inferTaskRoleTarget(actionRequest);
-        startTaskWorkflow(actionRequest, {
-          type: result.actionTargetType || inferredTarget.type,
-          label: result.actionTargetLabel || inferredTarget.label,
-        });
+        startTaskWorkflow(result.actionRequest, {
+          type: result.actionTargetType,
+          label: result.actionTargetLabel,
+        }, result.answer);
         return;
       }
-      result ||= await answerZokiOnSpark({
-        question: nextQuestion,
+      setMessages(previous => [...previous, {
+        id: `zoki_${Date.now()}`, role: 'zoki', text: result.answer + (result.memoryStatus === 'saved' ? '\n\nנשמר עדכון בזיכרון האישי. אפשר לערוך או למחוק אותו ב״הזיכרון שלי״.' : result.memoryStatus === 'failed' ? '\n\nעדכון הזיכרון לא נשמר; התשובה זמינה.' : ''),
+        sources: result.sources || [], followUpQuestion: '', actionProposal: null,
+      }]);
+    } catch (error) {
+      if (activeConversation.current !== submittedConversation || conversationGeneration.current !== submittedGeneration) return;
+      setMessages(previous => [...previous, { id: `error_${Date.now()}`, role: 'zoki', error: true, retryQuestion: nextQuestion, text: error.code === 'resource-exhausted' ? `הגעת למגבלת השאלות האישית או המשותפת. אפשר לנסות שוב בעוד ${error.retryAfter || 60} שניות.` : errorMessage(error) }]);
+    } finally {
+      if (activeConversation.current === submittedConversation && conversationGeneration.current === submittedGeneration) setLoading(false);
+    }
+  }
+
+  async function searchLocally(text) {
+    if (loading) return;
+    const submittedConversation = conversationKey;
+    const submittedGeneration = conversationGeneration.current;
+    setLoading(true);
+    try {
+      const result = await answerZokiOnSpark({
+        question: text,
         data: {
           ...(taskAssistantSchoolContext?.sources || {}),
           students: accessibleStudents,
@@ -396,15 +406,15 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
       });
       if (activeConversation.current !== submittedConversation || conversationGeneration.current !== submittedGeneration) return;
       setMessages(previous => [...previous, {
-        id: `zoki_${Date.now()}`, role: 'zoki', text: result.answer + (degraded ? '\n\nהשירות החכם אינו זמין כרגע; זו תשובה מהמידע המקומי.' : '') + (result.memoryStatus === 'saved' ? '\n\nנשמר עדכון בזיכרון האישי. אפשר לערוך או למחוק אותו ב״הזיכרון שלי״.' : result.memoryStatus === 'failed' ? '\n\nעדכון הזיכרון לא נשמר; התשובה זמינה.' : ''),
-        sources: result.sources || [], followUpQuestion: '', actionProposal: null,
+        id: `local_${Date.now()}`, role: 'zoki', localOnly: true,
+        text: `חיפוש מקומי ללא AI — תוצאה לפי התאמת מילים:\n\n${result.answer}`,
+        sources: result.sources || [],
       }]);
     } catch (error) {
       if (activeConversation.current !== submittedConversation || conversationGeneration.current !== submittedGeneration) return;
-      const isTaskError = routedTask || TASK_CREATION_REQUEST.test(nextQuestion);
-      setMessages(previous => [...previous, { id: `error_${Date.now()}`, role: 'zoki', error: true, text: error.code === 'resource-exhausted' ? `הגעת למגבלת השאלות האישית או המשותפת. אפשר לנסות שוב בעוד ${error.retryAfter || 60} שניות.` : isTaskError ? taskAssistantErrorMessage(error) : errorMessage(error) }]);
+      setMessages(previous => [...previous, { id: `error_${Date.now()}`, role: 'zoki', error: true, text: errorMessage(error) }]);
     } finally {
-      setLoading(false);
+      if (activeConversation.current === submittedConversation && conversationGeneration.current === submittedGeneration) setLoading(false);
     }
   }
 
@@ -1000,6 +1010,7 @@ export default function ZokiPage({ embedded = false, onMinimize = () => undefine
           {messages.map(message => <article key={message.id} className={`zoki-message zoki-message--${message.role}${message.error ? ' is-error' : ''}`}>
             {message.role === 'zoki' && <img src={zokiAvatar} alt="" />}
             <div><p>{message.text}</p>{message.followUpQuestion && <button type="button" className="zoki-follow-up" onClick={() => setQuestion(message.followUpQuestion)}>{message.followUpQuestion}</button>}
+              {message.error && message.retryQuestion && <div><button type="button" className="btn btn-link" disabled={loading} onClick={() => submitQuestion(message.retryQuestion)}>ניסיון נוסף עם AI</button><button type="button" className="btn btn-link" disabled={loading} onClick={() => searchLocally(message.retryQuestion)}>חיפוש מקומי ללא AI</button></div>}
               {message.actionProposal?.type === 'task_role_selection' && <section className="zoki-inline-action zoki-role-selection"><header><ShieldCheck size={14} /><strong>בחירת אחראי למשימה</strong></header><label>איש צוות<select value={message.actionProposal.selectedStaffId || ''} onChange={event => patchMessage(message.id, { actionProposal: { ...message.actionProposal, selectedStaffId: event.target.value } })}><option value="">בחרו איש צוות</option>{(message.actionProposal.options || []).map(option => <option key={option.id} value={option.id}>{option.name}{option.jobTitle ? ` — ${option.jobTitle}` : ''}</option>)}</select></label><footer><button type="button" disabled={!message.actionProposal.selectedStaffId || message.actionStatus === 'executing'} onClick={() => continueTaskWorkflow(message, false)}><CheckCircle2 size={14} /> למשימה הזו בלבד</button>{message.actionProposal.canAssignRole && <button type="button" disabled={!message.actionProposal.selectedStaffId || message.actionStatus === 'executing'} onClick={() => continueTaskWorkflow(message, true)}>שייך לתפקיד והמשך</button>}{message.actionProposal.roleMissing && <button type="button" onClick={() => navigate('/staff')}>פתיחת ניהול הסגל</button>}</footer></section>}
               {message.actionProposal?.type === 'task_details_update' && <section className={`zoki-inline-action ${message.actionStatus === 'executed' ? 'is-complete' : ''}`}><header><ShieldCheck size={14} /><strong>{message.actionStatus === 'executed' ? 'פרטי המשימה עודכנו' : 'אישור עריכת משימה'}</strong></header><div><b>{message.actionProposal.taskTitle}</b>{message.actionProposal.changedFields.map(field => <span key={field}>{TASK_DETAIL_LABELS[field]}: {taskDetailValue(field, message.actionProposal.expected[field])} ← {taskDetailValue(field, message.actionProposal.task[field])}</span>)}</div><small>רק השדות המוצגים ישתנו. זוקי יוודא שהמשימה לא נערכה מאז ההצעה.</small>{message.actionStatus !== 'executed' && message.actionStatus !== 'cancelled' && <footer><button type="button" disabled={message.actionStatus === 'executing'} onClick={() => confirmTaskDetailsAction(message)}><CheckCircle2 size={14} /> {message.actionStatus === 'executing' ? 'מעדכן…' : 'אישור ועדכון'}</button><button type="button" disabled={message.actionStatus === 'executing'} onClick={() => patchMessage(message.id, { actionStatus: 'cancelled' })}>ביטול</button></footer>}{message.actionStatus === 'cancelled' && <small>פרטי המשימה נשארו ללא שינוי.</small>}{message.actionError && <small className="is-error">{message.actionError}</small>}{message.actionStatus === 'executed' && <button type="button" className="zoki-action-link" onClick={() => navigate(message.actionResult.route)}>פתיחת המשימה</button>}</section>}
               {message.actionProposal?.type === 'task_assignment_change' && <section className={`zoki-inline-action ${message.actionStatus === 'executed' ? 'is-complete' : ''}`}><header><ShieldCheck size={14} /><strong>{message.actionStatus === 'executed' ? 'אחראי המשימה עודכנו' : 'אישור שינוי אחראי במשימה'}</strong></header><div><span>{message.actionProposal.operation === 'add' ? 'הוספת אחראי' : 'הסרת אחראי'}</span><span>{message.actionProposal.staffName}</span><b>{message.actionProposal.taskTitle}</b></div><small>זוקי יוודא מחדש את ההרשאה, איש הצוות ורשימת האחראים בזמן האישור.</small>{message.actionStatus !== 'executed' && message.actionStatus !== 'cancelled' && <footer><button type="button" disabled={message.actionStatus === 'executing'} onClick={() => confirmTaskAssignmentAction(message)}><CheckCircle2 size={14} /> {message.actionStatus === 'executing' ? 'מעדכן…' : 'אישור ושינוי'}</button><button type="button" disabled={message.actionStatus === 'executing'} onClick={() => patchMessage(message.id, { actionStatus: 'cancelled' })}>ביטול</button></footer>}{message.actionStatus === 'cancelled' && <small>אחראי המשימה נשארו ללא שינוי.</small>}{message.actionError && <small className="is-error">{message.actionError}</small>}{message.actionStatus === 'executed' && <button type="button" className="zoki-action-link" onClick={() => navigate(message.actionResult.route)}>פתיחת המשימה</button>}</section>}

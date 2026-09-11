@@ -45,6 +45,8 @@ function normalizeMessage(value, index) {
     role: value.role,
     text,
     ...(value.error === true ? { error: true } : {}),
+    ...(value.localOnly === true ? { localOnly: true } : {}),
+    ...(safeText(value.workflowBrief, 2000) ? { workflowBrief: safeText(value.workflowBrief, 2000) } : {}),
     ...(safeText(value.followUpQuestion, 2000) ? { followUpQuestion: safeText(value.followUpQuestion, 2000) } : {}),
     ...(sources.length ? { sources } : {}),
     ...(workflowAction ? { actionProposal: workflowAction, actionStatus: safeText(value.actionStatus, 40) } : {}),

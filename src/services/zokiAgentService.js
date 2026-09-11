@@ -1,17 +1,20 @@
 import { doc, getDocFromServer, runTransaction, setDoc } from 'firebase/firestore';
 import { auth, db, isFirebaseConfigured } from '../firebase.js';
 import { schoolCollectionPath } from './firestore/paths.js';
-import { mergeMemories, normalizeMemories, selectRelevantMemories, validSourcePath, zokiContextFields, isSafeMemoryText } from '../utils/zokiMemory.js';
+import { mergeMemories, normalizeMemories, validSourcePath, zokiContextFields, isSafeMemoryText } from '../utils/zokiMemory.js';
 import { createZokiProvider } from './zokiFirebaseProvider.js';
+import { boundedZokiHistory, runSemanticZokiTurn, ZOKI_CONTEXT_LIMITS } from '../utils/zokiSemanticTurn.js';
 
 export const isZokiAgentConfigured = isFirebaseConfigured;
-export function zokiSourcePaths({ schoolId, uid, question, sources }) {
-  const terms = question.split(/\s+/u).filter(word => word.length > 2);
-  const intent = /משימ|דחופ|דחוף|השבוע|לעשות/u.test(question) ? 'tasks'
-    : /תלמיד|לומד/u.test(question) ? 'students' : /צוות/u.test(question) ? 'teams' : /כיתה/u.test(question) ? 'classes' : /אירוע|מחר|היום/u.test(question) ? 'events' : '';
-  return ['tasks', 'teams', 'classes', 'students', 'events', 'roles', 'initiatives'].flatMap(type => (sources[type] || []).map(item => ({ type, item,
-    score: (type === intent ? 100 : 0) + terms.filter(word => `${item.title || ''} ${item.name || ''} ${item.fullName || ''}`.includes(word)).length * 10,
-  }))).sort((a, b) => b.score - a.score || String(a.item.dueDate || '9999').localeCompare(String(b.item.dueDate || '9999'))).slice(0, 12).flatMap(({ type, item }) => {
+export function zokiSourcePaths({ schoolId, uid, sources }) {
+  // Interleave resource categories so a large task list does not hide classes
+  // or roles. Language interpretation belongs to the model, not this adapter.
+  const groups = ['tasks', 'teams', 'classes', 'students', 'events', 'roles', 'initiatives'].map(type => (sources[type] || []).map(item => ({ type, item })));
+  const candidates = [];
+  for (let index = 0; candidates.length < ZOKI_CONTEXT_LIMITS.candidates && groups.some(group => index < group.length); index++) {
+    for (const group of groups) if (group[index]) candidates.push(group[index]);
+  }
+  return candidates.slice(0, ZOKI_CONTEXT_LIMITS.candidates).flatMap(({ type, item }) => {
     if (!/^[\w-]{1,128}$/u.test(item.id || '')) return [];
     if (type === 'tasks' && item._storageMode === 'personal') return [`users/${uid}/personalTasks/${item.id}`];
     const mode = ['legacy', 'nested'].includes(item._storageMode) ? item._storageMode : undefined;
@@ -54,7 +57,7 @@ export async function syncPersonalAgentConversation(input) {
   const actor = await actorFor(input.schoolId);
   const ref = doc(db, 'zokiAgents', actor.uid, 'conversations', input.schoolId);
   if (input.operation === 'load') return { state: (await getDocFromServer(ref)).data()?.state || null };
-  const messages = input.state?.messages?.slice(-12).map(item => ({ id: item.id, role: item.role, text: item.text.slice(0, 1500) })) || [];
+  const messages = input.state?.messages?.filter(item => !item.error && !item.localOnly).slice(-12).map(item => ({ id: item.id, role: item.role, text: item.text.slice(0, 1500) })) || [];
   await setDoc(ref, { state: input.operation === 'end' ? null : { messages } });
   return { saved: true };
 }
@@ -132,24 +135,33 @@ export async function zokiRequest(path, schoolId, body = {}, method = 'POST', of
     ...ids('classIdsBySchool', 'classIds').map(id => `${schoolCollectionPath(schoolId, 'classes')}/${id}`),
     ...ids('customRoleAssignments', 'customRoleIds').map(id => `${schoolCollectionPath(schoolId, 'roles')}/${id}`),
   ];
-  const paths = [...new Set([...assigned, ...(Array.isArray(body.sourcePaths) ? body.sourcePaths : [])])].filter(value => validSourcePath(value, schoolId, actor.uid)).slice(0, 12);
-  const sources = (await Promise.all(paths.map(async sourcePath => {
+  const candidates = [...new Set([...assigned, ...(Array.isArray(body.sourcePaths) ? body.sourcePaths : [])])].filter(value => validSourcePath(value, schoolId, actor.uid));
+  const paths = candidates.slice(0, ZOKI_CONTEXT_LIMITS.candidates);
+  const sources = [];
+  // Fresh rule-authorized reads, with bounded concurrency. Cached UI labels are
+  // never sent to the model as evidence or used to authorize retrieval.
+  for (let offset = 0; offset < paths.length; offset += 12) {
+    sources.push(...(await Promise.all(paths.slice(offset, offset + 12).map(async sourcePath => {
     try {
       const data = await readSource(sourcePath);
-      const fields = Object.fromEntries(zokiContextFields.filter(key => data[key] !== undefined).map(key => [key, Array.isArray(data[key]) ? data[key].filter(value => typeof value === 'string').slice(0, 8).map(value => value.slice(0, 100)) : typeof data[key] === 'string' ? data[key].slice(0, 400) : typeof data[key] === 'number' ? data[key] : null]));
+      const fields = Object.fromEntries(zokiContextFields.filter(key => data[key] !== undefined).map(key => [key, Array.isArray(data[key]) ? data[key].filter(value => typeof value === 'string').slice(0, 8).map(value => value.slice(0, 100)) : typeof data[key] === 'string' ? data[key].slice(0, 1500) : typeof data[key] === 'number' ? data[key] : null]));
       return { id: sourcePath, label: String(data.title || data.name || data.fullName || 'מידע מורשה').slice(0, 120), fields };
     } catch { return null; }
-  }))).filter(Boolean);
-  const ranked = selectRelevantMemories(memories, body.question, 6);
+    }))).filter(Boolean));
+    assertSession();
+  }
+  // Keep recent authorized memory available without lexical relevance filtering.
+  const ranked = memories.slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 12);
   const checks = await Promise.all(ranked.map(authorized));
   const selected = ranked.filter((_, index) => checks[index]);
   assertSession();
-  const result = await createZokiProvider().generateTurn({ question: body.question,
+  const { result, selectedSources } = await runSemanticZokiTurn({ provider: createZokiProvider(), sources, assertSession, input: { question: body.question,
     today: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(new Date()),
     profile: { uid: actor.uid, name: actor.data.fullName || '', role: actor.role, preferences: profile.preferences },
-    authorizedSources: sources, memories: selected, learningEnabled: profile.learningEnabled,
-    history: (Array.isArray(body.history) ? body.history : []).slice(-6).filter(item => ['user', 'assistant'].includes(item.role)).map(item => ({ role: item.role, text: String(item.text || '').slice(0, 900) })),
-  });
+    memories: selected, learningEnabled: profile.learningEnabled,
+    coverage: { exhaustive: false, candidateCount: sources.length, limit: ZOKI_CONTEXT_LIMITS.candidates },
+    history: boundedZokiHistory(Array.isArray(body.history) ? body.history : []),
+  } });
   assertSession();
   const mutations = result.memoryMutations.filter(item => item && (!item.id || selected.some(memory => memory.id === item.id)));
   let memoryStatus = 'unchanged';
@@ -160,7 +172,7 @@ export async function zokiRequest(path, schoolId, body = {}, method = 'POST', of
         const latest = normalizeMemories(latestScope.data()?.memories);
         const unchanged = JSON.stringify(latest) === JSON.stringify(memories);
         const applicable = mutations.filter(item => !item.id ? unchanged : latest.some(memory => memory.id === item.id && memory.updatedAt === selected.find(old => old.id === item.id)?.updatedAt));
-        const merged = mergeMemories(latest, applicable, sources, latestRoot.data()?.learningEnabled ?? true);
+        const merged = mergeMemories(latest, applicable, selectedSources, latestRoot.data()?.learningEnabled ?? true);
         if (!merged.changed.length) return 'unchanged';
         transaction.set(scopeRef, { memories: merged.memories });
         return 'saved';
@@ -175,6 +187,6 @@ export async function zokiRequest(path, schoolId, body = {}, method = 'POST', of
     actionTargetLabel: result.actionTargetLabel,
     agentId: actor.uid,
     memoryStatus,
-    sources: sources.filter(source => result.sourceIds.includes(source.id)).map(source => ({ id: source.id, label: source.label, route: '/zoki' })),
+    sources: selectedSources.filter(source => result.sourceIds.includes(source.id)).map(source => ({ id: source.id, label: source.label, route: '/zoki' })),
   };
 }

@@ -66,12 +66,12 @@ function legacyJobTitleResolution({ requestText, requested, staff }) {
   };
 }
 
-export function resolveTaskRoleTarget({ request = '', targetLabel = '', proposal = {}, roles = [], staff = [], schoolId = '' }) {
-  const inferredTargetLabel = inferTaskRoleTarget(request).label || '';
+export function resolveTaskRoleTarget({ request = '', targetLabel = '', proposal = {}, roles = [], staff = [], schoolId = '', explicitOnly = false }) {
+  const inferredTargetLabel = explicitOnly ? '' : inferTaskRoleTarget(request).label || '';
   const effectiveTargetLabel = targetLabel || inferredTargetLabel;
   const requested = normalized(effectiveTargetLabel);
-  const requestText = normalized(request);
-  const suggestions = (proposal?.assigneeSuggestions || []).map(normalized).filter(Boolean);
+  const requestText = explicitOnly ? '' : normalized(request);
+  const suggestions = explicitOnly ? [] : (proposal?.assigneeSuggestions || []).map(normalized).filter(Boolean);
   const ranked = roles.map(role => {
     const labels = roleLabels(role);
     const score = Math.max(0, ...labels.map(label => {
@@ -129,6 +129,18 @@ export function proposalWithRoleHolder(proposal, member) {
     },
     followUpQuestion: null,
   };
+}
+
+// Bind a model-interpreted target to real records. This checks identity; it does
+// not classify the user's language or infer an assignment from the request.
+export function resolveSemanticTaskTarget({ targetType, targetLabel, roles, staff, schoolId }) {
+  if (targetType === 'role') return resolveTaskRoleTarget({ targetLabel, roles, staff, schoolId, explicitOnly: true });
+  if (targetType === 'person') {
+    const requested = normalized(targetLabel);
+    const holders = staff.filter(member => requested && normalized(member.fullName || member.displayName || member.name) === requested);
+    return { status: holders.length === 1 ? 'resolved' : holders.length > 1 ? 'multiple_holders' : 'role_missing', targetLabel, holders, role: null };
+  }
+  return { status: 'none', holders: [] };
 }
 
 export function taskCreationSourceForContext(context = {}) {

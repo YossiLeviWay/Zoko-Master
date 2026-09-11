@@ -88,7 +88,7 @@ import {
 } from '../../utils/taskAssistant';
 import { startTaskAssistantStage } from '../../services/taskAssistantPerformance';
 import { captureTaskAgentLearning, draftTaskWithInstitutionalBrain } from '../../services/taskAgentBrainService';
-import { proposalWithRoleHolder, resolveTaskRoleTarget, taskCreationSourceForContext } from '../../utils/zokiTaskWorkflow';
+import { proposalWithRoleHolder, resolveTaskRoleTarget, resolveSemanticTaskTarget, taskCreationSourceForContext } from '../../utils/zokiTaskWorkflow';
 import { publishZokiTaskWorkflowUpdate, ZOKI_TASK_WORKFLOW_COMMAND } from '../../utils/zokiTaskWorkflowBridge';
 import '../Gantt/Gantt.css';
 import './Tasks.css';
@@ -970,6 +970,7 @@ export default function TaskBoard() {
         request: String(workflow.request).slice(0, 2000),
         targetType: workflow.targetType || 'none',
         targetLabel: String(workflow.targetLabel || '').slice(0, 120),
+        semantic: workflow.semantic === true,
         attempt: 0,
         selectedStaffId: '',
         error: '',
@@ -1003,6 +1004,7 @@ export default function TaskBoard() {
       uid,
       schoolId,
       request,
+      requireAI: zokiWorkflow.semantic === true,
       currentProposal: null,
       answer: '',
       schoolContext: {
@@ -1032,7 +1034,9 @@ export default function TaskBoard() {
       },
     }).then(result => {
       if (!active) return;
-      const proposal = { ...result.proposal, followUpQuestion: null };
+      const proposal = { ...result.proposal, followUpQuestion: null,
+        ...(zokiWorkflow.semantic && zokiWorkflow.targetType === 'team' ? { taskType: 'team', teamSuggestions: [zokiWorkflow.targetLabel] } : {}),
+      };
       const context = {
         request,
         sessionId: result.sessionId,
@@ -1040,7 +1044,9 @@ export default function TaskBoard() {
         capabilities: result.capabilities,
         degraded: result.degraded,
       };
-      const roleResolution = resolveTaskRoleTarget({
+      const roleResolution = zokiWorkflow.semantic
+        ? resolveSemanticTaskTarget({ targetType: zokiWorkflow.targetType, targetLabel: zokiWorkflow.targetLabel, roles, staff, schoolId })
+        : resolveTaskRoleTarget({
         request,
         targetLabel: zokiWorkflow.targetType === 'role' ? zokiWorkflow.targetLabel : '',
         proposal,
@@ -1067,7 +1073,9 @@ export default function TaskBoard() {
         name: member.fullName || member.displayName || member.name || 'איש צוות',
         jobTitle: member.jobTitle || member.roleName || '',
       }));
-      const text = roleResolution.status === 'multiple_holders'
+      const text = zokiWorkflow.semantic && zokiWorkflow.targetType === 'person'
+        ? `לא נמצאה התאמה יחידה לאיש הצוות “${targetLabel}”. בחרו את האדם המתאים כדי להכין את הטיוטה.`
+        : roleResolution.status === 'multiple_holders'
         ? `מצאתי כמה בעלי תפקיד “${targetLabel}”. במי לבחור כאחראי?`
         : roleResolution.status === 'unassigned_role'
           ? `התפקיד “${targetLabel}” קיים, אבל אינו משויך עדיין. אפשר לבחור אדם למשימה בלבד${canManageRoles ? ' או לשייך אותו לתפקיד ולהמשיך' : ''}.`
