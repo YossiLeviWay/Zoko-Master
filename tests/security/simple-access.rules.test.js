@@ -89,3 +89,17 @@ test('mapping create-only and edit-only shares enforce independent score writes'
   await assertFails(setDoc(doc(db, `${root}/gradebooks/mapping_a/grades/student_b`), { ...row, studentId: 'student_b' }));
   await assertFails(deleteDoc(ref));
 });
+
+test('principal can trash and restore attendance files without permitting content forgery or hard deletion', async () => {
+  const { serverTimestamp, deleteField } = await import('firebase/firestore');
+  for (const prefix of [`schools/${school}/files`, `files_${school}`]) {
+    await seed({ [`${prefix}/attendance_a`]: { schoolId: school, classId: 'class_a', fileType: 'attendance', name: 'Attendance', createdBy: 'manager' } });
+    const ref = doc(env.authenticatedContext('manager').firestore(), `${prefix}/attendance_a`);
+    await assertSucceeds(updateDoc(ref, { trashedAt: serverTimestamp(), trashedBy: 'manager', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(ref, { trashedAt: serverTimestamp(), trashedBy: 'other', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(ref, { trashedAt: serverTimestamp(), trashedBy: 'manager', schoolId: 'school_b', updatedAt: serverTimestamp() }));
+    await assertFails(deleteDoc(ref));
+    await assertSucceeds(updateDoc(ref, { trashedAt: deleteField(), trashedBy: deleteField(), updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(env.authenticatedContext('teacher').firestore(), `${prefix}/attendance_a`), { trashedAt: serverTimestamp(), trashedBy: 'teacher', updatedAt: serverTimestamp() }));
+  }
+});

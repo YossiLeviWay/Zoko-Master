@@ -1,3 +1,4 @@
+import { changeRecycleBin } from '../../services/firestore/recycleBinRepository';
 import { useSharedFiles } from '../../hooks/useSharedFiles';
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -535,7 +536,7 @@ export default function FileManager() {
     if (!confirm(`להעביר את התיקייה "${folder.name}" ואת תוכנה לסל המחזור?`)) return;
     setTrashBusyId(`folder_${folder.id}`);
     try {
-      await fileTrashAction({ schoolId, resourceType: 'folder', resourceId: folder.id, action: 'trash' });
+      await (canManage ? changeRecycleBin({ db, schoolId, actorId: uid, resourceType: 'folder', item: folder, action: 'trash' }) : fileTrashAction({ schoolId, resourceType: 'folder', resourceId: folder.id, action: 'trash' }));
       if (selectedFolder === folder.id) setSelectedFolder(null);
       setAttendanceMessage('התיקייה הועברה לסל המחזור.');
     } catch { alert('לא ניתן להעביר את התיקייה לסל המחזור.'); }
@@ -547,7 +548,7 @@ export default function FileManager() {
     if (!confirm(`להעביר את "${fileItem.name}" לסל המחזור?`)) return;
     setTrashBusyId(`file_${fileItem.id}`);
     try {
-      await fileTrashAction({ schoolId, resourceType: 'file', resourceId: fileItem.id, action: 'trash' });
+      await (canManage ? changeRecycleBin({ db, schoolId, actorId: uid, resourceType: 'file', item: fileItem, action: 'trash' }) : fileTrashAction({ schoolId, resourceType: 'file', resourceId: fileItem.id, action: 'trash' }));
       if (editingFile?.id === fileItem.id) setEditingFile(null);
       setAttendanceMessage('הקובץ הועבר לסל המחזור.');
     } catch { alert('לא ניתן להעביר את הקובץ לסל המחזור.'); }
@@ -557,7 +558,7 @@ export default function FileManager() {
   async function restoreTrashItem(resourceType, item) {
     setTrashBusyId(`${resourceType}_${item.id}`);
     try {
-      await fileTrashAction({ schoolId, resourceType, resourceId: item.id, action: 'restore' });
+      await (canManage ? changeRecycleBin({ db, schoolId, actorId: uid, resourceType, item, action: 'restore' }) : fileTrashAction({ schoolId, resourceType, resourceId: item.id, action: 'restore' }));
       setAttendanceMessage(`${resourceType === 'folder' ? 'התיקייה' : 'הקובץ'} שוחזרו בהצלחה.`);
     } catch { alert('לא ניתן לשחזר את הפריט.'); }
     finally { setTrashBusyId(''); }

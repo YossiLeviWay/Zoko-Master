@@ -1274,3 +1274,10 @@
 
 .staff-native-dialog { position: fixed; inset: 0; margin: auto; max-height: calc(100dvh - 32px); overflow-y: auto; border: 1px solid var(--border-color, #e2e8f0); padding: 0; }
 .staff-native-dialog::backdrop { background: #0f172a55; }
+
+/* Action menus stay beside their trigger in the browser top layer. */
+.staff-actions-dialog{position:fixed;inset:auto;margin:0;width:320px;max-width:calc(100vw - 16px);border-radius:12px;box-shadow:0 8px 30px #30192325}
+.staff-actions-dialog::backdrop{background:transparent}
+.staff-actions-dialog header{padding:10px 14px}
+.staff-actions-dialog h3{font-size:14px}
+.staff-actions-list button{padding:9px 10px;font-size:14px}

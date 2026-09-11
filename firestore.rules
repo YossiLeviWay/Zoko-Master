@@ -2085,6 +2085,15 @@ service cloud.firestore {
         && canManageGradebook(schoolId, data.classId);
     }
 
+    function safeResourceTrashUpdate(schoolId) {
+      return isSchoolPrincipal(schoolId)
+        && resource.data.schoolId == schoolId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['trashedAt', 'trashedBy', 'trashedWithFolderId', 'updatedAt'])
+        && request.resource.data.updatedAt == request.time
+        && ((request.resource.data.get('trashedAt', null) == request.time && request.resource.data.trashedBy == request.auth.uid)
+          || (resource.data.get('trashedAt', null) != null && !request.resource.data.keys().hasAny(['trashedAt', 'trashedBy', 'trashedWithFolderId'])));
+    }
+
     function safeGradebookUpdate(schoolId) {
       return request.resource.data.schoolId == resource.data.schoolId
         && request.resource.data.classId == resource.data.classId
@@ -2150,7 +2159,7 @@ service cloud.firestore {
     }
 
     function safeGradebookFileUpdate(schoolId) {
-      return request.resource.data.schoolId == resource.data.schoolId
+      return canManageGradebook(schoolId, resource.data.classId) && request.resource.data.schoolId == resource.data.schoolId
         && request.resource.data.classId == resource.data.classId
         && request.resource.data.gradebookId == resource.data.gradebookId
         && request.resource.data.fileType == resource.data.fileType
@@ -4138,6 +4147,7 @@ service cloud.firestore {
       }
 
       match /gradebooks/{gradebookId} {
+        allow update: if safeResourceTrashUpdate(schoolId);
         allow read: if mappingAccess(schoolId, gradebookId, 'view', resource.data.classId);
         allow create: if validGradebookCreate(schoolId, request.resource.data);
         allow update: if mappingAccess(schoolId, gradebookId, 'manage', resource.data.classId) && safeGradebookUpdate(schoolId);
@@ -4159,6 +4169,7 @@ service cloud.firestore {
       }
 
       match /files/{fileId} {
+        allow update: if safeResourceTrashUpdate(schoolId);
         allow read: if isSchoolMember(schoolId) && (
           hasResourceAclPolicy(schoolId, 'file', fileId)
             ? directResourceAclAllows(schoolId, 'file', fileId, 'view')
@@ -4294,6 +4305,7 @@ service cloud.firestore {
       }
 
       match /folders/{folderId} {
+        allow update: if safeResourceTrashUpdate(schoolId);
         allow read: if isSchoolMember(schoolId) && (
           hasResourceAclPolicy(schoolId, 'folder', folderId)
             ? directResourceAclAllows(schoolId, 'folder', folderId, 'view')
@@ -5232,6 +5244,7 @@ service cloud.firestore {
     }
 
     match /{legacyCollection}/{documentId} {
+      allow update: if legacyCollection.matches('^(files|folders)_[A-Za-z0-9_-]+$') && resource.data.schoolId is string && legacyCollection in ['files_' + resource.data.schoolId, 'folders_' + resource.data.schoolId] && safeResourceTrashUpdate(resource.data.schoolId);
       allow read: if (
           legacyCollection.matches('^personal_files_[A-Za-z0-9_-]+$')
           && resource.data.schoolId is string
