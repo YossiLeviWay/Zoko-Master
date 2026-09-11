@@ -1267,3 +1267,10 @@
   .permissions-group-header { align-items: flex-start; padding-inline: 0.75rem; }
   .permissions-group-bulk { flex-direction: column; }
 }
+
+.staff-actions-trigger{display:inline-flex;align-items:center;gap:8px;border:1px solid #e3dce0;border-radius:10px;background:white;color:#633b4c;padding:8px 14px;font:inherit;cursor:pointer;white-space:nowrap}
+.staff-actions-dialog{max-height:calc(100dvh - 32px);overflow-y:auto;border:1px solid #e8dfe3;border-radius:18px;padding:0;width:min(360px,calc(100vw - 32px));color:#32272c;box-shadow:0 18px 70px #30192330;text-align:right;direction:rtl}
+.staff-actions-dialog::backdrop{background:#231a2840}.staff-actions-dialog header{display:flex;align-items:center;justify-content:space-between;padding:20px;border-bottom:1px solid #eee7eb}.staff-actions-dialog h3{margin:4px 0}.staff-actions-dialog small{color:#806b75}.staff-actions-dialog header button{border:0;background:transparent;padding:8px;cursor:pointer}.staff-actions-list{padding:8px}.staff-actions-list button{width:100%;display:flex;align-items:center;gap:12px;border:0;background:transparent;padding:13px;border-radius:10px;font:inherit;color:inherit;text-align:right;cursor:pointer}.staff-actions-list button:hover,.staff-actions-list button:focus-visible{background:#faf4f6}.staff-actions-list .is-danger{color:#ac2747;border-top:1px solid #eee7eb;border-radius:0;margin-top:6px}.staff-change-dialog{max-width:440px}.staff-change-dialog label{display:grid;gap:8px}.staff-change-dialog input{padding:10px;border:1px solid #dfd6dc;border-radius:8px;font:inherit}.staff-change-dialog p{line-height:1.65;color:#715d66}
+
+.staff-native-dialog { position: fixed; inset: 0; margin: auto; max-height: calc(100dvh - 32px); overflow-y: auto; border: 1px solid var(--border-color, #e2e8f0); padding: 0; }
+.staff-native-dialog::backdrop { background: #0f172a55; }

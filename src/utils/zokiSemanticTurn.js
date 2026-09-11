@@ -1,6 +1,6 @@
 // Pure orchestration boundary: the provider interprets language; code validates
 // IDs, bounds work and loads only sources authorized by the caller.
-export const ZOKI_CONTEXT_LIMITS = Object.freeze({ candidates: 84, sources: 12, historyMessages: 24, historyCharacters: 24000 });
+export const ZOKI_CONTEXT_LIMITS = Object.freeze({ candidates: 240, sources: 12, historyMessages: 24, historyCharacters: 24000 });
 const invalid = (code = 'invalid-ai-response') => Object.assign(new Error(code), { code });
 
 export function boundedZokiHistory(messages = []) {
@@ -26,13 +26,20 @@ export function allowedSourceIds(ids, sources, limit = ZOKI_CONTEXT_LIMITS.sourc
 
 export function normalizeSemanticResult(parsed, input) {
   if (!parsed || typeof parsed.answer !== 'string' || !parsed.answer.trim()
-    || !['none', 'create_task', 'create_team_task', 'end_conversation'].includes(parsed.actionIntent)) throw invalid();
+    || !['none', 'create_task', 'create_team_task', 'update_staff_role', 'end_conversation'].includes(parsed.actionIntent)) throw invalid();
   const createTask = ['create_task','create_team_task'].includes(parsed.actionIntent);
   if (createTask && (typeof parsed.actionRequest !== 'string' || !parsed.actionRequest.trim())) throw invalid();
   const targetType = ['role', 'person', 'team'].includes(parsed.actionTargetType) ? parsed.actionTargetType : 'none';
   if (createTask && targetType !== 'none' && (typeof parsed.actionTargetLabel !== 'string' || !parsed.actionTargetLabel.trim())) throw invalid();
   return {
     answer: parsed.answer.slice(0, 5000),
+    staffRoleDraft: parsed.actionIntent === 'update_staff_role' ? (() => {
+      const draft = parsed.staffRoleDraft;
+      if (!draft || typeof draft.sourceId !== 'string' || !/^users\/[\w-]+$/.test(draft.sourceId)
+        || !input.authorizedSources.some(source => source.id === draft.sourceId)
+        || typeof draft.jobTitle !== 'string' || !draft.jobTitle.trim() || draft.jobTitle.trim().length > 160) throw invalid('invalid-ai-source');
+      return { sourceId: draft.sourceId, jobTitle: draft.jobTitle.trim() };
+    })() : null,
     actionIntent: parsed.actionIntent,
     taskDraft: createTask && parsed.taskDraft ? {
       title: String(parsed.taskDraft.title || '').trim().slice(0,180),

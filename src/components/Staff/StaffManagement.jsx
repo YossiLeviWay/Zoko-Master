@@ -1,3 +1,6 @@
+import StaffActions, { StaffChangeDialog } from './StaffActions';
+import { changeStaffMember } from '../../services/firestore/staffManagementRepository';
+import { schoolJobTitle, staffChangeError, staffSchoolIds } from '../../utils/staffManagement';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -264,6 +267,9 @@ export default function StaffManagement() {
   const [showPermissionsPanel, setShowPermissionsPanel] = useState(false);
   const navigate = useNavigate();
   const [staff, setStaff] = useState([]);
+  const [staffChange, setStaffChange] = useState(null);
+  const [staffChangeBusy, setStaffChangeBusy] = useState(false);
+  const [staffChangeMessage, setStaffChangeMessage] = useState('');
   const [pendingUsers, setPendingUsers] = useState([]);
   const [viewMode, setViewMode] = useState('table');
   const [searchQuery, setSearchQuery] = useState('');
@@ -524,28 +530,50 @@ export default function StaffManagement() {
     }
   }
 
-  async function handleDelete(user) {
-    const userId = user.id;
-    const userName = user.fullName || 'איש הצוות';
-    const confirmation = isAdmin
-      ? `למחוק את ${userName} ואת חשבון המשתמש שלו מכל המערכת?`
-      : `להסיר את ${userName} מהמוסד? החשבון יישאר פעיל במוסדות אחרים, אם קיימים.`;
-    if (!confirm(confirmation)) return;
+  function handleDelete(user) {
+    setStaffChangeMessage('');
+    setStaffChange({ user, schoolId, operation: 'remove', requestId: crypto.randomUUID() });
+  }
+
+  function openJobTitle(user) {
+    setStaffChangeMessage('');
+    const title = schoolJobTitle(user, schoolId);
+    setStaffChange({ user, schoolId, operation: 'jobTitle', title, expectedTitle: title, requestId: crypto.randomUUID() });
+  }
+
+  async function saveStaffChange(event) {
+    event.preventDefault();
+    if (staffChangeBusy || !staffChange || staffChange.schoolId !== schoolId) return;
+    setStaffChangeBusy(true); setStaffChangeMessage('');
     try {
-      if (isAdmin) {
-        if (!confirm('אישור נוסף: זו מחיקה מלאה של החשבון. להמשיך?')) return;
-        await deleteStaffUser({ userId, schoolId, confirmDelete: true });
+      if (isAdmin && staffChange.operation === 'remove') {
+        await deleteStaffUser({ userId: staffChange.user.id, schoolId, confirmDelete: true });
       } else {
-        await removeSchoolMembership({ userId, schoolId });
+        await changeStaffMember({ db, actorId: userData.uid, schoolId, userId: staffChange.user.id,
+          operation: staffChange.operation, title: staffChange.title, expectedTitle: staffChange.expectedTitle,
+          requestId: staffChange.requestId, confirmed: true });
       }
-    } catch (caught) {
-      const reason = callableReason(caught);
-      const message = reason === 'permission-denied'
-        ? 'אין הרשאה להסיר את איש הצוות הזה. לא ניתן להסיר מנהל מוסד או את המשתמש הנוכחי.'
-        : 'לא ניתן להסיר את איש הצוות. בדקו את החיבור ונסו שוב.';
-      alert(message);
-    }
-    isAdmin ? loadAllStaff() : loadStaff();
+      setStaffChange(null);
+      if (isAdmin) await loadAllStaff(); else await loadStaff();
+    } catch (error) { setStaffChangeMessage(staffChangeError(error)); }
+    finally { setStaffChangeBusy(false); }
+  }
+
+  function memberActions(user) {
+    return [
+      { id: 'profile', label: 'כרטיס איש צוות', icon: User, onSelect: () => openProfilePopup(user) },
+      ...(canEditUser(user) ? [
+        ...(!isAdmin ? [{ id: 'jobTitle', label: 'עריכת התפקיד בבית הספר', icon: Briefcase, onSelect: () => openJobTitle(user) }] : []),
+        { id: 'edit', label: 'עריכת פרטים נוספים', icon: Edit3, onSelect: () => openEdit(user) },
+        { id: 'permissions', label: 'הרשאות גישה', icon: Shield, onSelect: () => openPermissions(user) },
+        { id: 'preview', label: 'בדיקת התצוגה של העובד', icon: Eye, onSelect: () => openPermissionPreview(user), disabled: previewLoadingId === user.id },
+      ] : []),
+      ...(canViewLoginActivity ? [{ id: 'activity', label: 'היסטוריית התחברות', icon: History, onSelect: () => openLoginActivity(user) }] : []),
+      ...(isPrincipal() && canEditUser(user) ? [{ id: 'forum', label: 'בקשת גישה לפורום בתי הספר', icon: MessagesSquare, onSelect: () => setForumRequestUser(user) }] : []),
+      { id: 'task', label: 'צירוף למשימה', icon: Briefcase, onSelect: () => handleAttachToTask(user) },
+      { id: 'message', label: 'שליחת הודעה', icon: MessageCircle, onSelect: () => handleSendMessage(user) },
+      ...(canDeleteUser(user) ? [{ id: 'remove', label: isAdmin ? 'מחיקת החשבון מהמערכת' : 'הסרה מהמוסד', icon: Trash2, danger: true, onSelect: () => handleDelete(user) }] : []),
+    ];
   }
 
   function openEdit(user) {
@@ -555,7 +583,7 @@ export default function StaffManagement() {
       email: user.email || '',
       phone: user.phone || '',
       role: user.role,
-      jobTitle: user.jobTitle || '',
+      jobTitle: schoolJobTitle(user, schoolId),
       assignedSchoolId: '',
       customRoleIds: user.customRoleIds || [],
       teamIds: user.teamIds || [],
@@ -774,20 +802,21 @@ export default function StaffManagement() {
     if (isAdmin) return true;
     if (!isPrincipal()) return false;
     // Principal can edit only viewer/editor in their own school (not other principals/admins)
-    const userSchoolIds = user.schoolIds || (user.schoolId ? [user.schoolId] : []);
+    const userSchoolIds = staffSchoolIds(user);
     const inMySchool = userSchoolIds.includes(schoolId);
-    const isHigherRole = ['principal', 'institution_manager', 'global_admin', 'platform_admin'].includes(user.role);
+    const isHigherRole = ['principal', 'institution_manager', 'global_admin', 'platform_admin'].includes(user.role) || ['principal','institution_manager','global_admin','platform_admin'].includes(user.rolesBySchool?.[schoolId]);
     return inMySchool && !isHigherRole;
   }
 
   // Can the logged-in user delete this staff member?
   // Principals can delete editors/viewers in their school; admins can delete anyone
   function canDeleteUser(user) {
+    if (user.id === userData?.uid) return false;
     if (isAdmin) return true;
     if (!isPrincipal()) return false;
-    const userSchoolIds = user.schoolIds || (user.schoolId ? [user.schoolId] : []);
+    const userSchoolIds = staffSchoolIds(user);
     const inMySchool = userSchoolIds.includes(schoolId);
-    const isHigherRole = ['principal', 'institution_manager', 'global_admin', 'platform_admin'].includes(user.role);
+    const isHigherRole = ['principal', 'institution_manager', 'global_admin', 'platform_admin'].includes(user.role) || ['principal','institution_manager','global_admin','platform_admin'].includes(user.rolesBySchool?.[schoolId]);
     return inMySchool && !isHigherRole;
   }
 
@@ -1020,7 +1049,7 @@ export default function StaffManagement() {
       const match =
         (user.fullName || '').toLowerCase().includes(q) ||
         (user.email || '').toLowerCase().includes(q) ||
-        (user.jobTitle || '').toLowerCase().includes(q) ||
+        schoolJobTitle(user, schoolId).toLowerCase().includes(q) ||
         (ROLE_LABELS[user.role] || '').includes(q);
       if (!match) return false;
     }
@@ -1187,7 +1216,7 @@ export default function StaffManagement() {
                           {user.fullName}
                         </div>
                       </td>
-                      <td>{user.jobTitle || '—'}</td>
+                      <td>{schoolJobTitle(user, schoolId) || '—'}</td>
                       <td dir="ltr">{user.email}</td>
                       <td>
                         <div className="td-actions" style={{ display: 'flex', gap: '0.5rem' }}>
@@ -1219,7 +1248,7 @@ export default function StaffManagement() {
                     <span className={`staff-online-dot ${isUserOnline(user) ? 'staff-online-dot--online' : ''}`} title={getLastSeenText(user)} />
                   </div>
                   <h4 className="staff-card-name">{user.fullName}</h4>
-                  <p className="staff-card-title">{user.jobTitle || '—'}</p>
+                  <p className="staff-card-title">{schoolJobTitle(user, schoolId) || '—'}</p>
                   {canManage && (
                     <p className="staff-card-lastseen">{getLastSeenText(user)}</p>
                   )}
@@ -1247,24 +1276,7 @@ export default function StaffManagement() {
                   )}
                   <p className="staff-card-email">{user.email}</p>
                   {canManage && (
-                    <div className="staff-card-actions">
-                      {canViewLoginActivity && <button className="icon-btn" onClick={() => openLoginActivity(user)} title="10 ההתחברויות האחרונות" aria-label={`היסטוריית התחברות של ${user.fullName}`}><History size={14} /></button>}
-                      {canEditUser(user) && <>
-                        <button className="icon-btn" disabled={previewLoadingId === user.id} onClick={() => openPermissionPreview(user)} title="תצוגה כמשתמש" aria-label={`תצוגה כמשתמש ${user.fullName}`}><Eye size={14} /></button>
-                        {isPrincipal() && <button className="icon-btn" onClick={() => setForumRequestUser(user)} title="בקשת גישה לפורום בתי הספר"><MessagesSquare size={14} /></button>}
-                        <button className="icon-btn" onClick={() => openPermissions(user)} title="הרשאות מפורטות">
-                          <Shield size={14} />
-                        </button>
-                        <button className="icon-btn" onClick={() => openEdit(user)} title="עריכה">
-                          <Edit3 size={14} />
-                        </button>
-                        {canDeleteUser(user) && (
-                          <button className="icon-btn icon-btn--danger" onClick={() => handleDelete(user)} title="הסרה מהמוסד">
-                            <Trash2 size={14} />
-                          </button>
-                        )}
-                      </>}
-                    </div>
+                    <div className="staff-card-actions"><StaffActions name={user.fullName} actions={memberActions(user)} /></div>
                   )}
                 </div>
               );
@@ -1294,7 +1306,7 @@ export default function StaffManagement() {
                           {user.fullName}
                         </div>
                       </td>
-                      <td>{user.jobTitle || '—'}</td>
+                      <td>{schoolJobTitle(user, schoolId) || '—'}</td>
                       <td dir="ltr">{user.email}</td>
                       <td>
                         <div className="td-schools">
@@ -1313,24 +1325,7 @@ export default function StaffManagement() {
                       </td>
                       {canEdit && (
                         <td>
-                          <div className="td-actions">
-                            {canViewLoginActivity && <button className="icon-btn" title="10 ההתחברויות האחרונות" aria-label={`היסטוריית התחברות של ${user.fullName}`} onClick={() => openLoginActivity(user)}><History size={15} /></button>}
-                            {canEditUser(user) && <>
-                                <button className="icon-btn" disabled={previewLoadingId === user.id} title="תצוגה כמשתמש" aria-label={`תצוגה כמשתמש ${user.fullName}`} onClick={() => openPermissionPreview(user)}><Eye size={15} /></button>
-                                {isPrincipal() && <button className="icon-btn" title="בקשת גישה לפורום בתי הספר" onClick={() => setForumRequestUser(user)}><MessagesSquare size={15} /></button>}
-                                <button className="icon-btn" title="הרשאות מפורטות" onClick={() => openPermissions(user)}>
-                                  <Shield size={15} />
-                                </button>
-                                <button className="icon-btn" title="עריכה" onClick={() => openEdit(user)}>
-                                  <Edit3 size={15} />
-                                </button>
-                                {canDeleteUser(user) && (
-                                  <button className="icon-btn icon-btn--danger" title="הסרה" onClick={() => handleDelete(user)}>
-                                    <Trash2 size={15} />
-                                  </button>
-                                )}
-                              </>}
-                          </div>
+                          <StaffActions name={user.fullName} actions={memberActions(user)} />
                         </td>
                       )}
                     </tr>
@@ -1886,6 +1881,12 @@ export default function StaffManagement() {
         )}
         </>}
 
+        {staffChange?.schoolId === schoolId && staffChange && <StaffChangeDialog busy={staffChangeBusy} onCancel={() => setStaffChange(null)} label={staffChange.operation === 'remove' ? 'הסרת איש צוות' : 'עריכת תפקיד'}>
+          <form onSubmit={saveStaffChange}><header className="modal-header"><h3>{staffChange.operation === 'remove' ? 'הסרת איש צוות' : 'התפקיד בבית הספר'}</h3><button type="button" className="modal-close" disabled={staffChangeBusy} onClick={() => setStaffChange(null)} aria-label="סגירה"><X size={18}/></button></header>
+          <div className="modal-body"><h4>{staffChange.user.fullName}</h4>{staffChange.operation === 'remove' ? <p>{isAdmin ? 'זו מחיקה מלאה של חשבון המשתמש מכל המערכת.' : 'איש הצוות יאבד את הגישה למוסד הנוכחי. החשבון, החברות במוסדות אחרים והמידע ההיסטורי יישמרו.'}</p> : <><label>שם התפקיד<input autoFocus required disabled={staffChangeBusy} maxLength={160} value={staffChange.title} onChange={event => setStaffChange({ ...staffChange, title: event.target.value, requestId: crypto.randomUUID() })}/></label><p>השינוי מעדכן את התפקיד המוצג בסגל ובזוקי. הרשאות הגישה נשארות ללא שינוי.</p></>}{staffChangeMessage && <p role="alert">{staffChangeMessage}</p>}</div>
+          <footer className="modal-footer"><button type="button" className="btn btn-secondary" disabled={staffChangeBusy} onClick={() => setStaffChange(null)}>ביטול</button><button type="submit" className="btn btn-primary" disabled={staffChangeBusy}>{staffChangeBusy ? 'שומר…' : staffChange.operation === 'remove' ? isAdmin ? 'מחיקת החשבון' : 'אישור הסרה מהמוסד' : 'שמירת התפקיד'}</button></footer></form>
+        </StaffChangeDialog>}
+
         {/* Context Menu */}
         {contextMenu && (
           <div
@@ -1998,8 +1999,8 @@ export default function StaffManagement() {
                   {profileUser.fullName?.charAt(0) || '?'}
                 </div>
                 <h3 className="staff-profile-name">{profileUser.fullName}</h3>
-                {profileUser.jobTitle && (
-                  <p className="staff-profile-job">{profileUser.jobTitle}</p>
+                {schoolJobTitle(profileUser, schoolId) && (
+                  <p className="staff-profile-job">{schoolJobTitle(profileUser, schoolId)}</p>
                 )}
                 <span className={`role-badge role-${profileUser.role}`}>
                   {ROLE_LABELS[profileUser.role] || 'צופה'}

@@ -1,3 +1,4 @@
+import { schoolJobTitle, zokiStaffFields, canManageStaffMember } from '../utils/staffManagement.js';
 import { privateSessionGuard, subscribePrivateSession } from '../utils/browserPrivacy.js';
 import { doc, getDocFromServer, runTransaction, setDoc } from 'firebase/firestore';
 import { auth, db, isFirebaseConfigured } from '../firebase.js';
@@ -15,12 +16,13 @@ export function zokiSourcePaths({ schoolId, uid, sources }) {
   for (let index = 0; candidates.length < ZOKI_CONTEXT_LIMITS.candidates && groups.some(group => index < group.length); index++) {
     for (const group of groups) if (group[index]) candidates.push(group[index]);
   }
-  return candidates.slice(0, ZOKI_CONTEXT_LIMITS.candidates).flatMap(({ type, item }) => {
+  const staffPaths = (sources.staff || []).filter(item => /^[\w-]{1,128}$/.test(item.id || item.uid || '')).slice(0, 160).map(item => `users/${item.id || item.uid}`);
+  return [...staffPaths, ...candidates.slice(0, ZOKI_CONTEXT_LIMITS.candidates).flatMap(({ type, item }) => {
     if (!/^[\w-]{1,128}$/u.test(item.id || '')) return [];
     if (type === 'tasks' && item._storageMode === 'personal') return [`users/${uid}/personalTasks/${item.id}`];
     const mode = ['legacy', 'nested'].includes(item._storageMode) ? item._storageMode : undefined;
     return [`${schoolCollectionPath(schoolId, type, mode)}/${item.id}`];
-  });
+  })].slice(0, ZOKI_CONTEXT_LIMITS.candidates);
 }
 const fail = (code, retryAfter = 0) => Object.assign(new Error(code), { code, retryAfter });
 const safeId = value => typeof value === 'string' && /^[\w-]{1,128}$/u.test(value);
@@ -103,7 +105,9 @@ export async function zokiRequest(path, schoolId, body = {}, method = 'POST', of
     if (!validSourcePath(sourcePath, schoolId, actor.uid)) return Promise.reject(fail('permission-denied'));
     if (!cache.has(sourcePath)) cache.set(sourcePath, getDocFromServer(doc(db, sourcePath)).then(snapshot => {
       const data = snapshot.data();
-      if (!data || (data.schoolId && data.schoolId !== schoolId)) throw fail('permission-denied');
+      if (!data || (sourcePath.startsWith('users/') && sourcePath.split('/').length === 2
+        ? !zokiStaffFields(data, schoolId)
+        : data.schoolId && data.schoolId !== schoolId)) throw fail('permission-denied');
       return data;
     }));
     return cache.get(sourcePath);
@@ -161,7 +165,8 @@ export async function zokiRequest(path, schoolId, body = {}, method = 'POST', of
   for (let offset = 0; offset < paths.length; offset += 12) {
     sources.push(...(await Promise.all(paths.slice(offset, offset + 12).map(async sourcePath => {
     try {
-      const data = await readSource(sourcePath);
+      const raw = await readSource(sourcePath);
+      const data = sourcePath.startsWith('users/') && sourcePath.split('/').length === 2 ? zokiStaffFields(raw, schoolId) : raw;
       const fields = Object.fromEntries(zokiContextFields.filter(key => data[key] !== undefined).map(key => [key, Array.isArray(data[key]) ? data[key].filter(value => typeof value === 'string').slice(0, 8).map(value => value.slice(0, 100)) : typeof data[key] === 'string' ? data[key].slice(0, 1500) : typeof data[key] === 'number' ? data[key] : null]));
       return { id: sourcePath, label: String(data.title || data.name || data.fullName || 'מידע מורשה').slice(0, 120), fields };
     } catch { return null; }
@@ -176,6 +181,7 @@ export async function zokiRequest(path, schoolId, body = {}, method = 'POST', of
   const { result, selectedSources } = await runSemanticZokiTurn({ provider: createZokiProvider(), sources, assertSession, input: { question: body.question,
     today: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(new Date()),
     profile: { uid: actor.uid, name: actor.data.fullName || '', role: actor.role, preferences: profile.preferences },
+    accessContext: { schoolId, role: actor.role, canManageStaff: ['principal','institution_manager'].includes(actor.role), explicitPermissions: actor.data.permissionsBySchool?.[schoolId] || actor.data.permissions || {}, privateRecordsExcluded: true, externalSystemsVerified: false },
     memories: selected, learningEnabled: profile.learningEnabled,
     coverage: { exhaustive: false, candidateCount: sources.length, limit: ZOKI_CONTEXT_LIMITS.candidates },
     history: boundedZokiHistory(Array.isArray(body.history) ? body.history : []),
@@ -197,8 +203,18 @@ export async function zokiRequest(path, schoolId, body = {}, method = 'POST', of
       });
     } catch { memoryStatus = 'failed'; }
   }
+  let staffRoleDraft = null;
+  if (result.actionIntent === 'update_staff_role') {
+    if (!['principal', 'institution_manager'].includes(actor.role) || !result.staffRoleDraft) throw fail('permission-denied');
+    const target = await readSource(result.staffRoleDraft.sourceId);
+    if (!canManageStaffMember({ ...actor.data, uid: actor.uid }, { ...target, uid: result.staffRoleDraft.sourceId.split('/')[1] }, schoolId)) throw fail('permission-denied');
+    assertSession();
+    staffRoleDraft = { userId: result.staffRoleDraft.sourceId.split('/')[1], fullName: target.fullName || 'איש צוות',
+      expectedTitle: schoolJobTitle(target, schoolId), jobTitle: result.staffRoleDraft.jobTitle };
+  }
   return {
     answer: result.answer,
+    staffRoleDraft,
     actionIntent: result.actionIntent,
     taskDraft: result.taskDraft,
     actionRequest: result.actionRequest,

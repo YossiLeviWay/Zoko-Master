@@ -2,11 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { validSourcePath, mergeMemories, normalizeMemories, selectRelevantMemories } from '../../src/utils/zokiMemory.js';
 
-test('retrieval accepts only current school records and own personal tasks', () => {
+test('source paths allow staff profiles for scoped validation, school records and own personal tasks', () => {
   assert.ok(validSourcePath('schools/a/students/student1', 'a', 'teacher'));
+  assert.ok(validSourcePath('users/teacher', 'a', 'teacher'));
   assert.ok(validSourcePath('tasks_a/task1', 'a', 'teacher'));
   assert.ok(validSourcePath('users/teacher/personalTasks/task1', 'a', 'teacher'));
-  for (const path of ['schools/b/students/student1', 'users/other/personalTasks/task1', 'users/teacher', 'schools/a/../users', 'schools/a/settings/private', 'schools/a/students/s/notes/n']) assert.equal(validSourcePath(path, 'a', 'teacher'), false);
+  for (const path of ['schools/b/students/student1', 'users/other/personalTasks/task1', 'schools/a/../users', 'schools/a/settings/private', 'schools/a/students/s/notes/n']) assert.equal(validSourcePath(path, 'a', 'teacher'), false);
 });
 
 test('memory rejects unsupported facts, secrets and forged sources; deduplicates preferences', () => {
