@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { registerHooks } from 'node:module';
+import { register } from 'node:module';
 import { invalidatePrivateSession } from '../../src/utils/browserPrivacy.js';
 
 const memory = { currentUser: { uid: 'a' }, reads: [], writes: [], state: null, delay: null };
@@ -22,14 +22,16 @@ export async function setDoc(path, data) { state.writes.push({path,data}); }
 export const runTransaction = () => { throw new Error('unexpected transaction'); };
 export const createZokiProvider = () => { throw new Error('No AI request in privacy tests'); };
 `;
-const hook = registerHooks({ resolve(specifier, context, nextResolve) {
+// Async module loaders work on the project's minimum Node 20 as well as Node 24.
+const mockUrl = `data:text/javascript,${encodeURIComponent(mock)}`;
+const loader = `export async function resolve(specifier, context, nextResolve) {
   if (context.parentURL?.endsWith('/src/services/zokiAgentService.js') && ['firebase/firestore', '../firebase.js', './zokiFirebaseProvider.js'].includes(specifier)) {
-    return { url: `data:text/javascript,${encodeURIComponent(mock)}`, shortCircuit: true };
+    return { url: ${JSON.stringify(mockUrl)}, shortCircuit: true };
   }
   return nextResolve(specifier, context);
-} });
+}`;
+register(`data:text/javascript,${encodeURIComponent(loader)}`, import.meta.url);
 const { syncPersonalAgentConversation, reserveZokiQuestion } = await import('../../src/services/zokiAgentService.js');
-hook.deregister();
 
 test('refresh hydration reads only the authorized Firebase conversation; missing copy stays empty', async () => {
   memory.state = { messages: [{ role: 'user', text: 'שם תלמיד וציון' }] };
