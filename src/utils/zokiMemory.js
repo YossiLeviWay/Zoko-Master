@@ -36,6 +36,7 @@ export function validSourcePath(path, schoolId, uid) {
   if (!parts.every(safeId)) return false;
   return (parts.length === 4 && parts[0] === 'schools' && parts[1] === schoolId && types.includes(parts[2]))
     || (parts.length === 2 && types.some(type => parts[0] === `${type}_${schoolId}`))
+    || (parts.length === 2 && parts[0] === 'users')
     || (parts.length === 4 && parts[0] === 'users' && parts[1] === uid && parts[2] === 'personalTasks');
 }
 

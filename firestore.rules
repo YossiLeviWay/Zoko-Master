@@ -3219,6 +3219,59 @@ service cloud.firestore {
         || classRolePermission(schoolId, 'students.viewSensitiveFields', studentData.classId);
     }
 
+    // Narrow Spark staff changes: only a school manager, only an ordinary
+    // member, with an atomic receipt and no global permission/account deletion.
+    function staffManagerFor(schoolId) {
+      return activeUser() && isSchoolMember(schoolId)
+        && currentUser().get('rolesBySchool', {}).get(schoolId, currentUser().get('role', '')) in ['principal', 'institution_manager'];
+    }
+    function ordinaryStaff(data, schoolId) {
+      return data.get('role', 'viewer') in ['viewer', 'editor']
+        && data.get('rolesBySchool', {}).get(schoolId, 'viewer') in ['viewer', 'editor']
+        && (data.get('schoolId', '') == schoolId || schoolId in data.get('schoolIds', []));
+    }
+    function staffMembershipIds(data) {
+      return data.get('schoolIds', []).toSet().union(data.get('schoolId', '') == '' ? [].toSet() : [data.schoolId].toSet());
+    }
+    function safeStaffTitleChange(schoolId) {
+      let next = request.resource.data;
+      return next.diff(resource.data).affectedKeys().hasOnly(['jobTitle', 'jobTitlesBySchool', 'staffChange', 'updatedAt'])
+        && next.jobTitlesBySchool is map
+        && next.jobTitlesBySchool.diff(resource.data.get('jobTitlesBySchool', {})).affectedKeys().hasOnly([schoolId])
+        && next.jobTitlesBySchool[schoolId] is string
+        && next.jobTitlesBySchool[schoolId].size() > 0 && next.jobTitlesBySchool[schoolId].size() <= 160
+        && (staffMembershipIds(resource.data).size() == 1
+          ? next.get('jobTitle', '') == next.jobTitlesBySchool[schoolId]
+          : next.get('jobTitle', '') == resource.data.get('jobTitle', ''));
+    }
+    function safeStaffRemoval(schoolId, userId) {
+      let next = request.resource.data;
+      let remaining = staffMembershipIds(resource.data).difference([schoolId].toSet());
+      let memberPath = /databases/$(database)/documents/schools/$(schoolId)/memberships/$(userId);
+      return next.diff(resource.data).affectedKeys().hasOnly(['schoolId', 'schoolIds', 'pendingSchools', 'accountStatus', 'staffChange', 'updatedAt'])
+        && next.schoolIds is list && next.schoolIds.toSet() == remaining
+        && next.pendingSchools.toSet() == resource.data.get('pendingSchools', []).toSet().difference([schoolId].toSet())
+        && (resource.data.get('schoolId', '') != schoolId ? next.schoolId == resource.data.get('schoolId', '')
+          : remaining.size() == 0 ? next.schoolId == '' : next.schoolId in remaining)
+        && next.accountStatus == (remaining.size() == 0 ? 'pending' : resource.data.get('accountStatus', 'active'))
+        && (!exists(memberPath) || getAfter(memberPath).data.status == 'revoked');
+    }
+    function safeManagerStaffUpdate(userId) {
+      let marker = request.resource.data.get('staffChange', {});
+      let schoolId = marker.get('schoolId', '');
+      let requestId = marker.get('requestId', '');
+      let path = /databases/$(database)/documents/schools/$(schoolId)/staffChanges/$(requestId);
+      let receipt = getAfter(path).data;
+      return request.auth.uid != userId && staffManagerFor(schoolId)
+        && ordinaryStaff(resource.data, schoolId)
+        && receipt.actorId == request.auth.uid && receipt.userId == userId && receipt.schoolId == schoolId
+        && receipt.createdAt == request.time && request.resource.data.updatedAt == request.time
+        && (!exists(/databases/$(database)/documents/schools/$(schoolId)/memberships/$(userId))
+          || get(/databases/$(database)/documents/schools/$(schoolId)/memberships/$(userId)).data.get('role', 'viewer') in ['viewer', 'editor'])
+        && (receipt.operation == 'jobTitle' ? safeStaffTitleChange(schoolId)
+          : receipt.operation == 'remove' && safeStaffRemoval(schoolId, userId));
+    }
+
     match /users/{userId} {
       allow read: if signedIn() && (
         request.auth.uid == userId
@@ -3226,9 +3279,13 @@ service cloud.firestore {
         || (!isPlatformAdmin() && sharesSchool(resource.data))
       );
       allow create: if false;
-      allow update: if signedIn()
-        && request.auth.uid == userId
-        && safeSelfProfileUpdate();
+      allow update: if signedIn() && ((request.auth.uid == userId && safeSelfProfileUpdate())
+        || (request.auth.uid != userId && 'staffChange' in request.resource.data
+          && request.resource.data.staffChange.schoolId is string
+          && request.resource.data.staffChange.schoolId.matches('^[A-Za-z0-9_-]{1,128}$')
+          && request.resource.data.staffChange.requestId is string
+          && request.resource.data.staffChange.requestId.matches('^[A-Za-z0-9_-]{1,128}$')
+          && safeManagerStaffUpdate(userId)));
       allow delete: if false;
 
       match /taskBoardPreferences/{schoolId} {
@@ -3433,9 +3490,28 @@ service cloud.firestore {
       allow read: if isPlatformAdmin() || isSchoolMember(schoolId);
       allow create, update, delete: if false;
 
+      match /staffChanges/{requestId} {
+        allow read: if staffManagerFor(schoolId);
+        allow create: if staffManagerFor(schoolId)
+          && request.resource.data.keys().hasOnly(['actorId', 'userId', 'schoolId', 'operation', 'payloadHash', 'createdAt'])
+          && request.resource.data.actorId == request.auth.uid
+          && request.resource.data.schoolId == schoolId
+          && request.resource.data.operation in ['jobTitle', 'remove']
+          && request.resource.data.payloadHash is string && request.resource.data.payloadHash.size() == 64
+          && request.resource.data.createdAt == request.time
+          && getAfter(/databases/$(database)/documents/users/$(request.resource.data.userId)).data.staffChange == {'schoolId': schoolId, 'requestId': requestId};
+        allow update, delete: if false;
+      }
       match /memberships/{userId} {
         allow read: if request.auth.uid == userId || canManageSchoolUsers(schoolId);
-        allow create, update, delete: if false;
+        allow update: if staffManagerFor(schoolId) && request.auth.uid != userId
+          && resource.data.get('role', 'viewer') in ['viewer', 'editor']
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt', 'staffChange'])
+          && request.resource.data.status == 'revoked' && request.resource.data.updatedAt == request.time
+          && getAfter(/databases/$(database)/documents/users/$(userId)).data.staffChange == request.resource.data.staffChange
+          && getAfter(/databases/$(database)/documents/users/$(userId)).data.schoolId != schoolId
+          && !(schoolId in getAfter(/databases/$(database)/documents/users/$(userId)).data.schoolIds);
+        allow create, delete: if false;
       }
 
       match /invitations/{invitationId} {
