@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../firebase';
 import {
@@ -68,6 +68,10 @@ function dateKey(date) {
 export default function GanttChart() {
   const { selectedSchool, userData, isGlobalAdmin, isPrincipal } = useAuth();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const requestedDate = params.get('date');
+  const validRequestedDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate || '') && !Number.isNaN(Date.parse(requestedDate)) && new Date(requestedDate).toISOString().slice(0,10) === requestedDate ? requestedDate : '';
+  useEffect(() => { if (validRequestedDate) { setYear(Number(validRequestedDate.slice(0,4))); setMonth(Number(validRequestedDate.slice(5,7))-1); } }, [validRequestedDate]);
   const [year, setYear] = useState(() => new Date().getFullYear());
   const [month, setMonth] = useState(() => new Date().getMonth());
   const [events, setEvents] = useState([]);
@@ -89,7 +93,7 @@ export default function GanttChart() {
   const [calendarTasks, setCalendarTasks] = useState([]);
   const [initiativeMilestones, setInitiativeMilestones] = useState([]);
   const [activeAcademicYear, setActiveAcademicYear] = useState(null);
-  const [pendingTodayNavigation, setPendingTodayNavigation] = useState(true);
+  const [pendingTodayNavigation, setPendingTodayNavigation] = useState(!validRequestedDate);
   const [todayPulse, setTodayPulse] = useState(false);
   const todayCellRef = useRef(null);
 
@@ -280,7 +284,7 @@ export default function GanttChart() {
       where('month', '==', month)
     );
     const unsub = onSnapshot(q, (snap) => {
-      setEvents(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setEvents(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(item => item.status !== 'archived'));
     });
     return unsub;
   }, [schoolId, year, month]);

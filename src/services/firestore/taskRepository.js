@@ -208,7 +208,7 @@ function subscribeToQuerySet(queryEntries, normalize, onData, onError) {
     const merged = new Map();
     [...resultSets.entries()].sort(([left], [right]) => left - right)
       .forEach(([, items]) => items.forEach(item => merged.set(item.id, item)));
-    onData([...merged.values()]);
+    onData([...merged.values()].filter(task => task.status !== 'archived'));
   };
 
   const unsubscribers = queryEntries.map((entry, index) => onSnapshot(

@@ -42,6 +42,8 @@ export async function sparkWorkspaceAction({ db, schoolId, user, tasks, input })
     return { taskIds };
   }
   const task = tasks.find(item => item.id === input.taskId && (item._source === 'personal' ? 'personal' : item._storageMode) === input.storage);
+  if (task?.localPilot && input.operation === 'progress') return (await import('./pilotTaskProgress.js')).updatePilotTaskProgress(input);
+  if (task?.localPilot && input.operation === 'edit') return (await import('./pilotTaskProgress.js')).updatePilotTaskDetails(input);
   if (!task || task.assignmentVersion === 2) throw new Error('shared-action-paused');
   if (input.operation === 'progress') return updateTaskStatus({ db, schoolId, uid: user.uid, task, status: input.status });
   if (input.operation === 'edit') return updateTask({ db, schoolId, uid: user.uid, task, input: { ...task, ...input } });

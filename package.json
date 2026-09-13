@@ -17,7 +17,10 @@
     "test:emulator": "node scripts/run-security-emulators.mjs",
     "test:pdf": "node --test tests/pdf/*.test.js",
     "check": "npm run lint && npm run build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "dev:codex": "node scripts/codex-pilot/server.mjs",
+    "check:codex": "node scripts/codex-pilot/check.mjs",
+    "test:codex": "node --test tests/unit/codexPilot.test.js"
   },
   "dependencies": {
     "dompurify": "^3.4.12",

@@ -1,3 +1,4 @@
+import ZokiCodexPanel from './ZokiCodexPanel.jsx';
 import { zokiDisplayText } from '../../utils/zokiDisplayText.js';
 import { changeStaffMember } from '../../services/firestore/staffManagementRepository';
 import { staffChangeError } from '../../utils/staffManagement';
@@ -65,13 +66,17 @@ function displayName(item, fallback) {
 
 export default function ZokiPage(props) {
   const { currentUser, userData, selectedSchool } = useAuth();
+  const [engine, setEngine] = useState('regular');
   const revision = useSyncExternalStore(subscribePrivateSession, privateSessionRevision);
   const schoolId = selectedSchool || userData?.schoolId;
   if (!currentUser?.uid || !userData || !schoolId) return null;
-  return <ScopedZokiPage key={`${currentUser.uid}:${schoolId}:${revision}`} {...props} />;
+  const localPilot = import.meta.env.VITE_ZOKO_CODEX_LOCAL === true && ['127.0.0.1', 'localhost'].includes(window.location.hostname);
+  const manager = ['principal', 'institution_manager'].includes(userData.rolesBySchool?.[schoolId] || userData.role);
+  if (localPilot && manager && engine === 'codex') return <div className={props.embedded ? 'zoki-floating-layer' : 'page zoki-page'}><div className={props.embedded ? 'zoki-window' : 'page-content zoki-shell'}><ZokiCodexPanel key={`${currentUser.uid}:${schoolId}:${revision}`} onBack={() => setEngine('regular')} onMinimize={props.embedded ? props.onMinimize : null} /></div></div>;
+  return <ScopedZokiPage key={`${currentUser.uid}:${schoolId}:${revision}`} {...props} onCodex={localPilot && manager ? () => setEngine('codex') : null} />;
 }
 
-function ScopedZokiPage({ embedded = false, onMinimize = () => undefined }) {
+function ScopedZokiPage({ embedded = false, onMinimize = () => undefined, onCodex = null }) {
   const { userData, currentUser, selectedSchool, isPrincipal, isGlobalAdmin } = useAuth();
   const navigate = useNavigate();
   const schoolId = selectedSchool || userData?.schoolId;
@@ -1047,6 +1052,7 @@ function ScopedZokiPage({ embedded = false, onMinimize = () => undefined }) {
       <header className="zoki-window-header">
         <div><img src={zokiAvatar} alt="" /><span><strong>{greeting}</strong><small>מידע ופעולות במקום אחד, לפי ההרשאות שלך</small></span></div>
         <nav aria-label="פעולות שיחה">
+          {onCodex && <button type="button" onClick={onCodex}>Codex שלי</button>}
           {isZokiAgentConfigured && <button type="button" onClick={() => setPersonalOpen(true)}>הזיכרון שלי</button>}
           {canManage && <button type="button" onClick={() => setBrainOpen(true)} aria-label="הגדרות העוזר" title="הגדרות העוזר"><Settings2 size={18} /></button>}
           {messages.length > 0 && <button type="button" className="zoki-end-conversation" onClick={() => finishConversation()} title="סיום ומחיקת השיחה"><CircleStop size={17} /><span>סיום שיחה</span></button>}

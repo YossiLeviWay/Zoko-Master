@@ -1,3 +1,5 @@
+import ImportReport from './components/Zoki/ImportReport.jsx';
+import PedagogicalMapping from './components/Students/PedagogicalMapping.jsx';
 import TaskWorkspace from './components/Tasks/TaskWorkspaceRoute';
 import { lazy, Suspense } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
@@ -119,6 +121,8 @@ export default function App() {
               <Route path="contacts" element={<ApprovedRoute><SchoolRequiredRoute><ContactsPage /></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="collective-brain" element={<ApprovedRoute><SchoolRequiredRoute><PageErrorBoundary><CollectiveBrainPage /></PageErrorBoundary></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="zoki" element={<Navigate to="/" replace />} />
+              <Route path="imports" element={<ApprovedRoute><SchoolRequiredRoute><ImportReport /></SchoolRequiredRoute></ApprovedRoute>} />
+              <Route path="mappings" element={<ApprovedRoute><SchoolRequiredRoute><PedagogicalMapping /></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="students" element={<ApprovedRoute><SchoolRequiredRoute><Students /></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="messages" element={<NonPlatformRoute><ApprovedRoute><Messages /></ApprovedRoute></NonPlatformRoute>} />
               <Route path="notifications" element={<NonPlatformRoute><Notifications /></NonPlatformRoute>} />

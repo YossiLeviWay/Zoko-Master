@@ -290,7 +290,7 @@ export default function Dashboard() {
     const nextWeekStr = nextWeek.toISOString().split('T')[0];
     const q = query(collection(db, `events_${selectedSchool}`), where('date', '>=', todayStr), where('date', '<=', nextWeekStr), orderBy('date', 'asc'));
     const unsub = onSnapshot(q, (snap) => {
-      setWeekTasks(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setWeekTasks(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(item => item.status !== 'archived'));
     }, () => setWeekTasks([]));
     return unsub;
   }, [selectedSchool]);

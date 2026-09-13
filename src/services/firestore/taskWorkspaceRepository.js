@@ -1,8 +1,14 @@
+import { updatePilotTaskProgress, updatePilotTaskDetails } from './pilotTaskProgress.js';
 import { collection, doc, onSnapshot, query, setDoc, where } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '../../firebase';
 const call = httpsCallable(functions, 'taskWorkspace');
 export const workspaceAction = async input => {
+  if (input.operation === 'edit') { const result = await updatePilotTaskDetails(input); if (result) return result; }
+  if (input.operation === 'progress') {
+    const result = await updatePilotTaskProgress(input);
+    if (result) return result;
+  }
   if (import.meta.env.VITE_TASK_WORKSPACE_ENABLED !== 'true') throw new Error('shared-action-paused');
   return (await call(input)).data;
 };

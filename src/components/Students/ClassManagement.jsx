@@ -1,3 +1,4 @@
+import { ClassPedagogicalMappings } from './PedagogicalMapping.jsx';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -235,6 +236,7 @@ export default function ClassManagement({
             {(item.trackIds || []).length > 0 && (
               <div className="class-tags">{item.trackIds.map(trackId => <span key={trackId}>{tracks.find(track => track.id === trackId)?.name || 'מגמה'}</span>)}</div>
             )}
+            <ClassPedagogicalMappings schoolId={schoolId} classId={item.id} />
             <div className="class-card-actions">
               <button className="btn btn-secondary btn-sm" onClick={() => onOpenStudents(item)}><Users size={14} /> תלמידי הכיתה</button>
               {canGraduateClass && item.status !== CLASS_STATUS.ARCHIVED && <button className="btn btn-secondary btn-sm" onClick={() => onGraduateClass(item)}><GraduationCap size={14} /> הפיכת הכיתה לבוגרים</button>}

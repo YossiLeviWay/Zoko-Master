@@ -22,6 +22,7 @@ export default function YearlyOverview({ year, schoolId, onClose }) {
       const snap = await getDocs(q);
       snap.docs.forEach(d => {
         const data = d.data();
+        if (data.status === 'archived') return;
         const m = data.month;
         if (!result[m]) result[m] = [];
         result[m].push({ id: d.id, ...data });

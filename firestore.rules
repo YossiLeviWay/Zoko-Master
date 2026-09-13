@@ -2,6 +2,70 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    match /users/{uid}/zokiPilot/{schoolId}/{document=**} {
+      allow read, write: if signedIn() && request.auth.uid == uid && staffManagerFor(schoolId);
+    }
+    function pilotTaskManager(schoolId, data) {
+      return data.get('localPilot', false) == true
+        && staffManagerFor(schoolId) && hasPermission(schoolId, 'tasks_assign') && data.schoolId == schoolId
+        && data.get('assignmentVersion', 1) == 2 && data.assigneeIds is list
+        && data.assigneeIds.size() > 0 && data.assigneeIds.size() <= 50
+        && data.progressBy is map && data.assignmentSources is map
+        && data.title is string && data.title.size() > 0 && data.title.size() <= 180
+        && data.get('scope', '') in ['assigned', 'team'] && data.updatedBy == request.auth.uid;
+    }
+    function pilotTaskOwnProgress(schoolId) {
+      let old = resource.data;
+      let next = request.resource.data;
+      let uid = request.auth.uid;
+      let before = old.get('progressBy', {}).get(uid, {}).get('status', 'todo');
+      let after = next.get('progressBy', {}).get(uid, {}).get('status', 'todo');
+      return old.get('localPilot', false) == true && activeUser() && isSchoolMember(schoolId)
+        && old.status != 'archived' && uid in old.assigneeIds && after in ['todo', 'in_progress', 'done']
+        && next.diff(old).affectedKeys().hasOnly(['progressBy', 'completionCount', 'startedCount', 'status', 'completedAt', 'updatedAt'])
+        && next.progressBy.diff(old.progressBy).affectedKeys().hasOnly([uid])
+        && next.progressBy[uid].keys().hasOnly(['status', 'updatedAt', 'inherited'])
+        && next.completionCount == old.completionCount + (after == 'done' ? 1 : 0) - (before == 'done' ? 1 : 0)
+        && next.startedCount == old.startedCount + (after != 'todo' ? 1 : 0) - (before != 'todo' ? 1 : 0)
+        && next.status == (next.completionCount == old.assigneeIds.size() ? 'done' : next.startedCount > 0 ? 'in_progress' : 'todo')
+        && next.updatedAt == request.time;
+    }
+    match /schools/{schoolId}/tasks/{taskId} {
+      allow create: if pilotTaskManager(schoolId, request.resource.data) && request.resource.data.createdBy == request.auth.uid;
+      allow update: if (pilotTaskManager(schoolId, request.resource.data)
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.progressBy.diff(resource.data.get('progressBy', {})).affectedKeys().hasOnly(request.resource.data.assigneeIds.removeAll(resource.data.get('assigneeIds', [])))
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'description', 'dueDate', 'priority', 'scope', 'ownerId', 'assigneeType', 'teamId', 'assigneeTeamId', 'assigneeIds', 'participantIds', 'assignmentVersion', 'assignmentSources', 'progressBy', 'status', 'completionCount', 'startedCount', 'localPilot', 'updatedBy', 'updatedAt']))
+        || pilotTaskOwnProgress(schoolId);
+    }
+    match /notifications/{notificationId} {
+      allow create: if request.resource.data.get('localPilot', false) == true
+        && staffManagerFor(request.resource.data.schoolId)
+        && request.resource.data.keys().hasOnly(['userId', 'schoolId', 'title', 'body', 'link', 'taskId', 'type', 'read', 'localPilot', 'updatedBy', 'createdBy', 'updatedAt', 'createdAt'])
+        && request.resource.data.type == 'task' && request.resource.data.read == false
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && userBelongsToSchool(get(/databases/$(database)/documents/users/$(request.resource.data.userId)).data, request.resource.data.schoolId)
+        && request.resource.data.userId in getAfter(/databases/$(database)/documents/schools/$(request.resource.data.schoolId)/tasks/$(request.resource.data.taskId)).data.assigneeIds;
+    }
+    match /schools/{schoolId}/pedagogicalMappings/{mappingId} {
+      allow read: if isSchoolMember(schoolId) && canViewGrades(schoolId, resource.data.classId);
+      allow create: if staffManagerFor(schoolId) && canManageGradebook(schoolId, request.resource.data.classId)
+        && request.resource.data.schoolId == schoolId && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.columns is list && request.resource.data.columns.size() <= 100
+        && request.resource.data.name is string && request.resource.data.academicYearId is string;
+      allow update: if staffManagerFor(schoolId) && canManageGradebook(schoolId, resource.data.classId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'columns', 'status', 'updatedBy', 'updatedAt']);
+      match /rows/{studentId} {
+        allow read: if isSchoolMember(schoolId) && canViewGrades(schoolId, get(/databases/$(database)/documents/schools/$(schoolId)/pedagogicalMappings/$(mappingId)).data.classId);
+        allow create, update: if staffManagerFor(schoolId)
+          && request.resource.data.schoolId == schoolId && request.resource.data.studentId == studentId
+          && request.resource.data.classId == get(/databases/$(database)/documents/schools/$(schoolId)/pedagogicalMappings/$(mappingId)).data.classId
+          && studentBelongsToClass(schoolId, studentId, request.resource.data.classId)
+          && request.resource.data.values is map && request.resource.data.updatedBy == request.auth.uid;
+      }
+    }
     match /zokiAgents/{agentId} {
       allow read: if activeUser() && request.auth.uid == agentId;
       allow create, update: if activeUser() && request.auth.uid == agentId
@@ -352,20 +416,21 @@ service cloud.firestore {
     }
 
     function validForumContentDelete() {
+      let d = request.resource.data;
       return (
           (resource.data.authorId == request.auth.uid && hasForumPermission('forum.deleteOwnPost'))
           || hasForumPermission('forum.moderate')
         )
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        && d.diff(resource.data).affectedKeys().hasOnly([
           'status', 'body', 'attachmentIds', 'deletedBy', 'deletedAt', 'updatedAt'
         ])
-        && request.resource.data.status == 'deleted'
-        && request.resource.data.body == ''
-        && request.resource.data.attachmentIds is list
-        && request.resource.data.attachmentIds.size() == 0
-        && request.resource.data.deletedBy == request.auth.uid
-        && request.resource.data.deletedAt == request.time
-        && request.resource.data.updatedAt == request.time;
+        && d.status == 'deleted'
+        && d.body == ''
+        && d.attachmentIds is list
+        && d.attachmentIds.size() == 0
+        && d.deletedBy == request.auth.uid
+        && d.deletedAt == request.time
+        && d.updatedAt == request.time;
     }
 
     function validForumModerationUpdate() {
@@ -678,28 +743,29 @@ service cloud.firestore {
     }
 
     function safeCollectiveBrainBoardUpdate(schoolId) {
-      let statusChanged = request.resource.data.status != resource.data.status;
+      let d = request.resource.data;
+      let statusChanged = d.status != resource.data.status;
       return canManageCollectiveBrain(schoolId)
-        && collectiveBrainBoardFieldsValid(schoolId, request.resource.data)
-        && request.resource.data.schoolId == resource.data.schoolId
-        && request.resource.data.createdBy == resource.data.createdBy
-        && request.resource.data.createdAt == resource.data.createdAt
-        && request.resource.data.updatedBy == request.auth.uid
-        && request.resource.data.updatedAt == request.time
+        && collectiveBrainBoardFieldsValid(schoolId, d)
+        && d.schoolId == resource.data.schoolId
+        && d.createdBy == resource.data.createdBy
+        && d.createdAt == resource.data.createdAt
+        && d.updatedBy == request.auth.uid
+        && d.updatedAt == request.time
         && (
           !statusChanged
-          || request.resource.data.status != 'archived'
+          || d.status != 'archived'
           || (
-            request.resource.data.archivedBy == request.auth.uid
-            && request.resource.data.archivedAt == request.time
+            d.archivedBy == request.auth.uid
+            && d.archivedAt == request.time
           )
         )
         && (
           !statusChanged
-          || request.resource.data.status != 'deleted'
+          || d.status != 'deleted'
           || (
-            request.resource.data.deletedBy == request.auth.uid
-            && request.resource.data.deletedAt == request.time
+            d.deletedBy == request.auth.uid
+            && d.deletedAt == request.time
           )
         );
     }
@@ -866,115 +932,116 @@ service cloud.firestore {
     }
 
     function safeOwnCollectiveBrainResponseUpdate(schoolId, boardId, responseId) {
+      let d = request.resource.data;
       let board = get(/databases/$(database)/documents/schools/$(schoolId)/collectiveBrainBoards/$(boardId)).data;
       return canContributeCollectiveBrainBoardById(schoolId, boardId)
         && resource.data.authorId == request.auth.uid
         && resource.data.status == 'active'
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        && d.diff(resource.data).affectedKeys().hasOnly([
           'body', 'contributorIds', 'contributorNames', 'updatedAt', 'editedAt'
         ])
-        && request.resource.data.body is string
-        && request.resource.data.body.size() > 0
-        && request.resource.data.body.size() <= 2000
-        && request.resource.data.get('contributorIds', [request.auth.uid]) is list
-        && request.resource.data.get('contributorIds', [request.auth.uid]).size() >= 1
-        && request.resource.data.get('contributorIds', [request.auth.uid]).size() <= 20
-        && request.auth.uid in request.resource.data.get('contributorIds', [request.auth.uid])
-        && request.resource.data.get('contributorNames', [resource.data.authorName]) is list
-        && request.resource.data.get('contributorNames', [resource.data.authorName]).size() >= 1
-        && request.resource.data.get('contributorNames', [resource.data.authorName]).size() <= 20
-        && request.resource.data.get('contributorNames', [resource.data.authorName]).size() == request.resource.data.get('contributorIds', [request.auth.uid]).size()
+        && d.body is string
+        && d.body.size() > 0
+        && d.body.size() <= 2000
+        && d.get('contributorIds', [request.auth.uid]) is list
+        && d.get('contributorIds', [request.auth.uid]).size() >= 1
+        && d.get('contributorIds', [request.auth.uid]).size() <= 20
+        && request.auth.uid in d.get('contributorIds', [request.auth.uid])
+        && d.get('contributorNames', [resource.data.authorName]) is list
+        && d.get('contributorNames', [resource.data.authorName]).size() >= 1
+        && d.get('contributorNames', [resource.data.authorName]).size() <= 20
+        && d.get('contributorNames', [resource.data.authorName]).size() == d.get('contributorIds', [request.auth.uid]).size()
         && (
           board.get('collaborationMode', 'individual') == 'group'
-          ? request.resource.data.get('contributorIds', [request.auth.uid]).hasOnly(board.get('collaborationUserIds', []))
-          : request.resource.data.get('contributorIds', [request.auth.uid]).size() == 1
+          ? d.get('contributorIds', [request.auth.uid]).hasOnly(board.get('collaborationUserIds', []))
+          : d.get('contributorIds', [request.auth.uid]).size() == 1
         )
         && (
           board.get('audienceMode', 'school') != 'restricted'
-          || request.resource.data.get('contributorIds', [request.auth.uid]).hasOnly(board.get('audienceUserIds', []))
+          || d.get('contributorIds', [request.auth.uid]).hasOnly(board.get('audienceUserIds', []))
         )
-        && request.resource.data.updatedAt == request.time
-        && request.resource.data.editedAt == request.time;
+        && d.updatedAt == request.time
+        && d.editedAt == request.time;
     }
 
     function safeOwnDeletedCollectiveBrainResponseReplacement(schoolId, boardId) {
+      let d = request.resource.data;
       let board = get(/databases/$(database)/documents/schools/$(schoolId)/collectiveBrainBoards/$(boardId)).data;
       return canContributeCollectiveBrainBoardById(schoolId, boardId)
         && resource.data.authorId == request.auth.uid
         && resource.data.status == 'deleted'
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        && d.diff(resource.data).affectedKeys().hasOnly([
           'body', 'contributorIds', 'contributorNames', 'status', 'createdAt', 'updatedAt', 'editedAt',
           'moderatedBy', 'moderatedAt', 'deletedBy', 'deletedAt'
         ])
-        && request.resource.data.body is string
-        && request.resource.data.body.size() > 0
-        && request.resource.data.body.size() <= 2000
-        && request.resource.data.get('contributorIds', [request.auth.uid]) is list
-        && request.resource.data.get('contributorIds', [request.auth.uid]).size() >= 1
-        && request.resource.data.get('contributorIds', [request.auth.uid]).size() <= 20
-        && request.auth.uid in request.resource.data.get('contributorIds', [request.auth.uid])
-        && request.resource.data.get('contributorNames', [resource.data.authorName]) is list
-        && request.resource.data.get('contributorNames', [resource.data.authorName]).size() >= 1
-        && request.resource.data.get('contributorNames', [resource.data.authorName]).size() <= 20
-        && request.resource.data.get('contributorNames', [resource.data.authorName]).size() == request.resource.data.get('contributorIds', [request.auth.uid]).size()
+        && d.body is string
+        && d.body.size() > 0
+        && d.body.size() <= 2000
+        && d.get('contributorIds', [request.auth.uid]) is list
+        && d.get('contributorIds', [request.auth.uid]).size() >= 1
+        && d.get('contributorIds', [request.auth.uid]).size() <= 20
+        && request.auth.uid in d.get('contributorIds', [request.auth.uid])
+        && d.get('contributorNames', [resource.data.authorName]) is list
+        && d.get('contributorNames', [resource.data.authorName]).size() >= 1
+        && d.get('contributorNames', [resource.data.authorName]).size() <= 20
+        && d.get('contributorNames', [resource.data.authorName]).size() == d.get('contributorIds', [request.auth.uid]).size()
         && (
           board.get('collaborationMode', 'individual') == 'group'
-          ? request.resource.data.get('contributorIds', [request.auth.uid]).hasOnly(board.get('collaborationUserIds', []))
-          : request.resource.data.get('contributorIds', [request.auth.uid]).size() == 1
+          ? d.get('contributorIds', [request.auth.uid]).hasOnly(board.get('collaborationUserIds', []))
+          : d.get('contributorIds', [request.auth.uid]).size() == 1
         )
         && (
           board.get('audienceMode', 'school') != 'restricted'
-          || request.resource.data.get('contributorIds', [request.auth.uid]).hasOnly(board.get('audienceUserIds', []))
+          || d.get('contributorIds', [request.auth.uid]).hasOnly(board.get('audienceUserIds', []))
         )
-        && request.resource.data.status == 'active'
-        && request.resource.data.createdAt == request.time
-        && request.resource.data.updatedAt == request.time
-        && request.resource.data.editedAt == null
-        && request.resource.data.moderatedBy == ''
-        && request.resource.data.moderatedAt == null
-        && request.resource.data.deletedBy == ''
-        && request.resource.data.deletedAt == null;
+        && d.status == 'active'
+        && d.createdAt == request.time
+        && d.updatedAt == request.time
+        && d.editedAt == null
+        && d.moderatedBy == ''
+        && d.moderatedAt == null
+        && d.deletedBy == ''
+        && d.deletedAt == null;
     }
 
     function safeManagedCollectiveBrainResponseUpdate(schoolId, boardId) {
-      let bodyChanged = request.resource.data.body != resource.data.body;
-      let statusChanged = request.resource.data.status != resource.data.status;
+      let d = request.resource.data;
+      let bodyChanged = d.body != resource.data.body;
+      let statusChanged = d.status != resource.data.status;
       return canManageCollectiveBrain(schoolId)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        && d.diff(resource.data).affectedKeys().hasOnly([
           'body', 'status', 'updatedAt', 'editedAt', 'moderatedBy',
           'moderatedAt', 'deletedBy', 'deletedAt'
         ])
-        && request.resource.data.body is string
-        && request.resource.data.body.size() > 0
-        && request.resource.data.body.size() <= 2000
-        && request.resource.data.status in ['active', 'deleted']
-        && request.resource.data.updatedAt == request.time
+        && d.body is string
+        && d.body.size() > 0
+        && d.body.size() <= 2000
+        && d.status in ['active', 'deleted']
+        && d.updatedAt == request.time
         && (
           !bodyChanged
           || (
-            request.resource.data.editedAt == request.time
-            && request.resource.data.moderatedBy == request.auth.uid
-            && request.resource.data.moderatedAt == request.time
+            d.editedAt == request.time
+            && d.moderatedBy == request.auth.uid
+            && d.moderatedAt == request.time
           )
         )
         && (
           !statusChanged
           || (
-            request.resource.data.status == 'deleted'
-            && request.resource.data.deletedBy == request.auth.uid
-            && request.resource.data.deletedAt == request.time
+            d.status == 'deleted'
+            && d.deletedBy == request.auth.uid
+            && d.deletedAt == request.time
           )
           || (
-            request.resource.data.status == 'active'
-            && request.resource.data.deletedBy == ''
-            && request.resource.data.deletedAt == null
+            d.status == 'active'
+            && d.deletedBy == ''
+            && d.deletedAt == null
           )
         );
     }
 
-    // Communication content is intentionally excluded from implicit manager or
-    // platform-wide access. A manager may create their own draft, but reading
-    // somebody else's private content requires an explicit permission grant.
+    // Private communication requires explicit read access, including for managers.
     function communicationPermission(schoolId, permission) {
       return isSchoolMember(schoolId)
         && !isPlatformAdmin()
@@ -1045,32 +1112,33 @@ service cloud.firestore {
     }
 
     function safeCommunicationTemplateUpdate(schoolId, ownerId, scope) {
-      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let d = request.resource.data;
+      let changed = d.diff(resource.data).affectedKeys();
       return resource.data.archived == false
-        && validCommunicationTemplate(request.resource.data, schoolId, ownerId, scope)
-        && request.resource.data.scope == resource.data.scope
-        && request.resource.data.schoolId == resource.data.schoolId
-        && request.resource.data.ownerId == resource.data.ownerId
-        && request.resource.data.createdBy == resource.data.createdBy
-        && request.resource.data.createdAt == resource.data.createdAt
-        && request.resource.data.schemaVersion == resource.data.schemaVersion
-        && request.resource.data.updatedBy == request.auth.uid
-        && request.resource.data.updatedAt == request.time
+        && validCommunicationTemplate(d, schoolId, ownerId, scope)
+        && d.scope == resource.data.scope
+        && d.schoolId == resource.data.schoolId
+        && d.ownerId == resource.data.ownerId
+        && d.createdBy == resource.data.createdBy
+        && d.createdAt == resource.data.createdAt
+        && d.schemaVersion == resource.data.schemaVersion
+        && d.updatedBy == request.auth.uid
+        && d.updatedAt == request.time
         && (
           (
             changed.hasOnly([
               'name', 'category', 'subjectTemplate', 'bodyTemplate', 'tone',
               'updatedBy', 'updatedAt'
             ])
-            && request.resource.data.archived == false
-            && request.resource.data.archivedBy == ''
-            && request.resource.data.archivedAt == null
+            && d.archived == false
+            && d.archivedBy == ''
+            && d.archivedAt == null
           )
           || (
             changed.hasOnly(['archived', 'archivedBy', 'archivedAt', 'updatedBy', 'updatedAt'])
-            && request.resource.data.archived == true
-            && request.resource.data.archivedBy == request.auth.uid
-            && request.resource.data.archivedAt == request.time
+            && d.archived == true
+            && d.archivedBy == request.auth.uid
+            && d.archivedAt == request.time
           )
         );
     }
@@ -1180,16 +1248,17 @@ service cloud.firestore {
     }
 
     function safeInstitutionalContactUpdate(schoolId) {
-      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let d = request.resource.data;
+      let changed = d.diff(resource.data).affectedKeys();
       let mergeChange = changed.hasAny(['mergedIntoId', 'mergedFromIds']);
       let archiveChange = changed.hasAny(['archived', 'archivedBy', 'archivedAt']);
       return isSchoolMember(schoolId)
-        && request.resource.data.createdBy == resource.data.createdBy
-        && request.resource.data.createdAt == resource.data.createdAt
-        && request.resource.data.scope == resource.data.scope
-        && request.resource.data.schoolId == resource.data.schoolId
-        && request.resource.data.updatedBy == request.auth.uid
-        && request.resource.data.updatedAt == request.time
+        && d.createdBy == resource.data.createdBy
+        && d.createdAt == resource.data.createdAt
+        && d.scope == resource.data.scope
+        && d.schoolId == resource.data.schoolId
+        && d.updatedBy == request.auth.uid
+        && d.updatedAt == request.time
         && (
           mergeChange
           ? (
@@ -1199,13 +1268,13 @@ service cloud.firestore {
               'mergedIntoId', 'mergedFromIds', 'archived', 'archivedBy',
               'archivedAt', 'updatedBy', 'updatedAt'
             ])
-            && validContactMergeValues(request.resource.data)
+            && validContactMergeValues(d)
             && (
-              request.resource.data.mergedIntoId == ''
+              d.mergedIntoId == ''
               || (
-                request.resource.data.archived == true
-                && request.resource.data.archivedBy == request.auth.uid
-                && request.resource.data.archivedAt == request.time
+                d.archived == true
+                && d.archivedBy == request.auth.uid
+                && d.archivedAt == request.time
               )
             )
           )
@@ -1215,14 +1284,14 @@ service cloud.firestore {
             && changed.hasOnly(['archived', 'archivedBy', 'archivedAt', 'updatedBy', 'updatedAt'])
             && (
               (
-                request.resource.data.archived == true
-                && request.resource.data.archivedBy == request.auth.uid
-                && request.resource.data.archivedAt == request.time
+                d.archived == true
+                && d.archivedBy == request.auth.uid
+                && d.archivedAt == request.time
               )
               || (
-                request.resource.data.archived == false
-                && request.resource.data.archivedBy == ''
-                && request.resource.data.archivedAt == null
+                d.archived == false
+                && d.archivedBy == ''
+                && d.archivedAt == null
               )
             )
           )
@@ -1233,7 +1302,7 @@ service cloud.firestore {
               'normalizedEmails', 'phone', 'category', 'tags', 'notes', 'ownerStaffIds',
               'visibility', 'linkedStaffId', 'updatedBy', 'updatedAt'
             ])
-            && validInstitutionalContactValues(schoolId, request.resource.data)
+            && validInstitutionalContactValues(schoolId, d)
           )
         );
     }
@@ -1300,18 +1369,19 @@ service cloud.firestore {
     }
 
     function safePrivateContactUpdate(userId) {
-      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let d = request.resource.data;
+      let changed = d.diff(resource.data).affectedKeys();
       let mergeChange = changed.hasAny(['mergedIntoId', 'mergedFromIds']);
       let archiveChange = changed.hasAny(['archived', 'archivedBy', 'archivedAt']);
       return signedIn()
         && request.auth.uid == userId
         && !isPlatformAdmin()
-        && request.resource.data.ownerId == resource.data.ownerId
-        && request.resource.data.schoolId == resource.data.schoolId
-        && request.resource.data.createdBy == resource.data.createdBy
-        && request.resource.data.createdAt == resource.data.createdAt
-        && request.resource.data.updatedBy == userId
-        && request.resource.data.updatedAt == request.time
+        && d.ownerId == resource.data.ownerId
+        && d.schoolId == resource.data.schoolId
+        && d.createdBy == resource.data.createdBy
+        && d.createdAt == resource.data.createdAt
+        && d.updatedBy == userId
+        && d.updatedAt == request.time
         && (
           mergeChange
           ? (
@@ -1320,13 +1390,13 @@ service cloud.firestore {
               'mergedIntoId', 'mergedFromIds', 'archived', 'archivedBy',
               'archivedAt', 'updatedBy', 'updatedAt'
             ])
-            && validContactMergeValues(request.resource.data)
+            && validContactMergeValues(d)
             && (
-              request.resource.data.mergedIntoId == ''
+              d.mergedIntoId == ''
               || (
-                request.resource.data.archived == true
-                && request.resource.data.archivedBy == userId
-                && request.resource.data.archivedAt == request.time
+                d.archived == true
+                && d.archivedBy == userId
+                && d.archivedAt == request.time
               )
             )
           )
@@ -1335,14 +1405,14 @@ service cloud.firestore {
             changed.hasOnly(['archived', 'archivedBy', 'archivedAt', 'updatedBy', 'updatedAt'])
             && (
               (
-                request.resource.data.archived == true
-                && request.resource.data.archivedBy == userId
-                && request.resource.data.archivedAt == request.time
+                d.archived == true
+                && d.archivedBy == userId
+                && d.archivedAt == request.time
               )
               || (
-                request.resource.data.archived == false
-                && request.resource.data.archivedBy == ''
-                && request.resource.data.archivedAt == null
+                d.archived == false
+                && d.archivedBy == ''
+                && d.archivedAt == null
               )
             )
           )
@@ -1351,7 +1421,7 @@ service cloud.firestore {
               'fullName', 'organization', 'jobTitle', 'primaryEmail', 'additionalEmails',
               'normalizedEmails', 'phone', 'category', 'tags', 'notes', 'updatedBy', 'updatedAt'
             ])
-            && validPrivateContactValues(userId, request.resource.data)
+            && validPrivateContactValues(userId, d)
           )
         );
     }
@@ -1407,15 +1477,16 @@ service cloud.firestore {
     }
 
     function safeCommunicationTaskStatusUpdate(userId) {
-      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let d = request.resource.data;
+      let changed = d.diff(resource.data).affectedKeys();
       let draftPath = /databases/$(database)/documents/schools/$(resource.data.schoolId)/communicationDrafts/$(resource.data.communicationDraftId);
-      let nextStatus = request.resource.data.communicationStatus;
+      let nextStatus = d.communicationStatus;
       return personalTaskOwner(userId, resource.data)
-        && personalTaskOwner(userId, request.resource.data)
+        && personalTaskOwner(userId, d)
         && resource.data.workflowType == 'external_email_followup'
-        && request.resource.data.workflowType == resource.data.workflowType
-        && request.resource.data.communicationDraftId == resource.data.communicationDraftId
-        && request.resource.data.communicationTrackingId == resource.data.communicationTrackingId
+        && d.workflowType == resource.data.workflowType
+        && d.communicationDraftId == resource.data.communicationDraftId
+        && d.communicationTrackingId == resource.data.communicationTrackingId
         && changed.hasOnly([
           'communicationStatus', 'taskStatus', 'status', 'completedAt', 'nextFollowUpAt',
           'dueDate', 'updatedAt'
@@ -1426,18 +1497,18 @@ service cloud.firestore {
         ]
         && existsAfter(draftPath)
         && getAfter(draftPath).data.communicationStatus == nextStatus
-        && getAfter(draftPath).data.nextFollowUpAt == request.resource.data.nextFollowUpAt
-        && request.resource.data.updatedAt == request.time
+        && getAfter(draftPath).data.nextFollowUpAt == d.nextFollowUpAt
+        && d.updatedAt == request.time
         && (nextStatus in ['resolved', 'closed_without_reply', 'cancelled']
           ? (
-            request.resource.data.taskStatus == 'done'
-            && request.resource.data.status == 'done'
-            && request.resource.data.completedAt == request.time
+            d.taskStatus == 'done'
+            && d.status == 'done'
+            && d.completedAt == request.time
           )
           : (
-            request.resource.data.taskStatus == 'todo'
-            && request.resource.data.status == 'todo'
-            && request.resource.data.completedAt == null
+            d.taskStatus == 'todo'
+            && d.status == 'todo'
+            && d.completedAt == null
           ));
     }
 
@@ -1547,45 +1618,46 @@ service cloud.firestore {
     }
 
     function safeCommunicationDraftUpdate(schoolId, draftId) {
-      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let d = request.resource.data;
+      let changed = d.diff(resource.data).affectedKeys();
       let taskPath = /databases/$(database)/documents/users/$(resource.data.createdBy)/personalTasks/$(resource.data.taskId);
-      let eventPath = /databases/$(database)/documents/schools/$(schoolId)/communicationEvents/$(request.resource.data.lastEventId);
-      let nextStatus = request.resource.data.communicationStatus;
+      let eventPath = /databases/$(database)/documents/schools/$(schoolId)/communicationEvents/$(d.lastEventId);
+      let nextStatus = d.communicationStatus;
       let managesOwn = resource.data.createdBy == request.auth.uid
         || resource.data.followUpAssigneeId == request.auth.uid;
       return resource.data.schoolId == schoolId
-        && request.resource.data.schoolId == resource.data.schoolId
-        && request.resource.data.createdBy == resource.data.createdBy
-        && request.resource.data.taskId == resource.data.taskId
-        && request.resource.data.trackingId == resource.data.trackingId
-        && request.resource.data.lastEventId is string
-        && request.resource.data.lastEventId.size() > 0
-        && request.resource.data.lastEventId != resource.data.get('lastEventId', '')
+        && d.schoolId == resource.data.schoolId
+        && d.createdBy == resource.data.createdBy
+        && d.taskId == resource.data.taskId
+        && d.trackingId == resource.data.trackingId
+        && d.lastEventId is string
+        && d.lastEventId.size() > 0
+        && d.lastEventId != resource.data.get('lastEventId', '')
         && !exists(eventPath)
         && existsAfter(eventPath)
         && getAfter(eventPath).data.actorId == request.auth.uid
         && getAfter(eventPath).data.draftId == draftId
         && getAfter(eventPath).data.taskId == resource.data.taskId
-        && request.resource.data.updatedAt == request.time
+        && d.updatedAt == request.time
         && (
           (
             resource.data.communicationStatus == 'awaiting_send'
-            && request.resource.data.communicationStatus == 'awaiting_send'
+            && d.communicationStatus == 'awaiting_send'
             && changed.hasOnly(['lastOpenedBy', 'lastOpenedAt', 'lastEventId', 'updatedAt'])
-            && request.resource.data.lastOpenedBy == request.auth.uid
-            && request.resource.data.lastOpenedAt == request.time
+            && d.lastOpenedBy == request.auth.uid
+            && d.lastOpenedAt == request.time
             && getAfter(eventPath).data.type == 'mailto_opened'
           )
           || (
             resource.data.createdBy == request.auth.uid
             &&
             resource.data.communicationStatus == 'awaiting_send'
-            && request.resource.data.communicationStatus == 'awaiting_reply'
+            && d.communicationStatus == 'awaiting_reply'
             && changed.hasOnly([
               'communicationStatus', 'confirmedSentBy', 'confirmedSentAt', 'lastEventId', 'updatedAt'
             ])
-            && request.resource.data.confirmedSentBy == request.auth.uid
-            && request.resource.data.confirmedSentAt == request.time
+            && d.confirmedSentBy == request.auth.uid
+            && d.confirmedSentAt == request.time
             && existsAfter(taskPath)
             && getAfter(taskPath).data.communicationStatus == 'awaiting_reply'
             && getAfter(eventPath).data.type == 'send_confirmed'
@@ -1594,12 +1666,12 @@ service cloud.firestore {
             resource.data.createdBy == request.auth.uid
             &&
             resource.data.communicationStatus == 'awaiting_send'
-            && request.resource.data.communicationStatus == 'cancelled'
+            && d.communicationStatus == 'cancelled'
             && changed.hasOnly([
               'communicationStatus', 'cancelledBy', 'cancelledAt', 'lastEventId', 'updatedAt'
             ])
-            && request.resource.data.cancelledBy == request.auth.uid
-            && request.resource.data.cancelledAt == request.time
+            && d.cancelledBy == request.auth.uid
+            && d.cancelledAt == request.time
             && existsAfter(taskPath)
             && getAfter(taskPath).data.communicationStatus == 'cancelled'
             && getAfter(eventPath).data.type == 'cancelled'
@@ -1623,17 +1695,17 @@ service cloud.firestore {
               || (
                 existsAfter(taskPath)
                 && getAfter(taskPath).data.communicationStatus == nextStatus
-                && getAfter(taskPath).data.nextFollowUpAt == request.resource.data.nextFollowUpAt
+                && getAfter(taskPath).data.nextFollowUpAt == d.nextFollowUpAt
               ))
             && (nextStatus == 'postponed'
               ? (
-                request.resource.data.nextFollowUpAt is string
-                && request.resource.data.nextFollowUpAt.size() >= 10
-                && request.resource.data.reminderNotifiedFor == ''
+                d.nextFollowUpAt is string
+                && d.nextFollowUpAt.size() >= 10
+                && d.reminderNotifiedFor == ''
               )
               : (
-                request.resource.data.nextFollowUpAt == resource.data.nextFollowUpAt
-                && request.resource.data.get('reminderNotifiedFor', '') == resource.data.get('reminderNotifiedFor', '')
+                d.nextFollowUpAt == resource.data.nextFollowUpAt
+                && d.get('reminderNotifiedFor', '') == resource.data.get('reminderNotifiedFor', '')
               ))
             && getAfter(eventPath).data.type in [
               'reply_received_resolved', 'reply_received', 'no_reply_reported',
@@ -1643,17 +1715,17 @@ service cloud.firestore {
           || (
             resource.data.communicationStatus in ['awaiting_reply', 'reply_received_in_progress', 'action_required', 'postponed']
             && managesOwn
-            && request.resource.data.communicationStatus == resource.data.communicationStatus
+            && d.communicationStatus == resource.data.communicationStatus
             && changed.hasOnly([
               'nextFollowUpAt', 'reminderNotifiedFor', 'lastEventId', 'updatedAt'
             ])
-            && request.resource.data.nextFollowUpAt is string
-            && request.resource.data.nextFollowUpAt.size() >= 10
-            && request.resource.data.reminderNotifiedFor == ''
+            && d.nextFollowUpAt is string
+            && d.nextFollowUpAt.size() >= 10
+            && d.reminderNotifiedFor == ''
             && (resource.data.createdBy != request.auth.uid
               || (
                 existsAfter(taskPath)
-                && getAfter(taskPath).data.nextFollowUpAt == request.resource.data.nextFollowUpAt
+                && getAfter(taskPath).data.nextFollowUpAt == d.nextFollowUpAt
               ))
             && getAfter(eventPath).data.type in [
               'follow_up_date_changed', 'follow_up_postponed', 'no_reply_reported'
@@ -1662,18 +1734,18 @@ service cloud.firestore {
           || (
             resource.data.communicationStatus in ['awaiting_reply', 'reply_received_in_progress', 'action_required', 'postponed']
             && communicationPermission(schoolId, 'communications.reassign')
-            && request.resource.data.communicationStatus == resource.data.communicationStatus
+            && d.communicationStatus == resource.data.communicationStatus
             && changed.hasOnly([
               'followUpAssigneeId', 'participantIds', 'lastEventId', 'updatedAt'
             ])
-            && request.resource.data.followUpAssigneeId is string
-            && request.resource.data.followUpAssigneeId.size() > 0
-            && request.resource.data.participantIds is list
-            && request.resource.data.participantIds.size() <= 100
-            && request.resource.data.followUpAssigneeId in request.resource.data.participantIds
-            && exists(/databases/$(database)/documents/users/$(request.resource.data.followUpAssigneeId))
+            && d.followUpAssigneeId is string
+            && d.followUpAssigneeId.size() > 0
+            && d.participantIds is list
+            && d.participantIds.size() <= 100
+            && d.followUpAssigneeId in d.participantIds
+            && exists(/databases/$(database)/documents/users/$(d.followUpAssigneeId))
             && userBelongsToSchool(
-              get(/databases/$(database)/documents/users/$(request.resource.data.followUpAssigneeId)).data,
+              get(/databases/$(database)/documents/users/$(d.followUpAssigneeId)).data,
               schoolId
             )
             && getAfter(eventPath).data.type == 'responsibility_reassigned'
@@ -1681,15 +1753,15 @@ service cloud.firestore {
           || (
             resource.data.communicationStatus in ['awaiting_reply', 'reply_received_in_progress', 'action_required', 'postponed']
             && resource.data.followUpAssigneeId == request.auth.uid
-            && request.resource.data.communicationStatus == resource.data.communicationStatus
+            && d.communicationStatus == resource.data.communicationStatus
             && changed.hasOnly(['reminderNotifiedFor', 'lastEventId', 'updatedAt'])
-            && request.resource.data.reminderNotifiedFor == request.resource.data.nextFollowUpAt
+            && d.reminderNotifiedFor == d.nextFollowUpAt
             && getAfter(eventPath).data.type == 'follow_up_reminder_due'
           )
           || (
             resource.data.communicationStatus in ['awaiting_reply', 'reply_received_in_progress', 'action_required', 'postponed']
             && managesOwn
-            && request.resource.data.communicationStatus == resource.data.communicationStatus
+            && d.communicationStatus == resource.data.communicationStatus
             && changed.hasOnly(['lastEventId', 'updatedAt'])
             && getAfter(eventPath).data.type == 'reminder_draft_created'
           )
@@ -1835,8 +1907,7 @@ service cloud.firestore {
             exists(/databases/$(database)/documents/schools/$(schoolId)/students/$(studentId))
             && get(/databases/$(database)/documents/schools/$(schoolId)/students/$(studentId)).data.classId == classId
           ) || (
-            exists(/databases/$(database)/documents/$(legacyStudents)/$(studentId))
-            && get(/databases/$(database)/documents/$(legacyStudents)/$(studentId)).data.classId == classId
+            get(/databases/$(database)/documents/$(legacyStudents)/$(studentId)).data.classId == classId
           )
         );
     }
@@ -2052,8 +2123,8 @@ service cloud.firestore {
 
     function canEditGrades(schoolId, classId) {
       return hasStudentDataAccess(schoolId) && classId is string && classExists(schoolId, classId) && (
-          assignedToClass(schoolId, classId) ||
         currentUser().role in ['principal', 'institution_manager']
+        || assignedToClass(schoolId, classId)
         || studentPermission('grades.edit')
         || rolePermission(schoolId, 'grades.edit')
         || classRolePermission(schoolId, 'grades.edit', classId)
@@ -2062,8 +2133,8 @@ service cloud.firestore {
 
     function canManageGradebook(schoolId, classId) {
       return hasStudentDataAccess(schoolId) && classId is string && classExists(schoolId, classId) && (
-          teachesClass(schoolId, classId) ||
         currentUser().role in ['principal', 'institution_manager']
+        || teachesClass(schoolId, classId)
         || studentPermission('gradebooks.manage')
         || rolePermission(schoolId, 'gradebooks.manage')
         || classRolePermission(schoolId, 'gradebooks.manage', classId)
@@ -2095,13 +2166,14 @@ service cloud.firestore {
     }
 
     function safeGradebookUpdate(schoolId) {
-      return request.resource.data.schoolId == resource.data.schoolId
-        && request.resource.data.classId == resource.data.classId
-        && request.resource.data.createdBy == resource.data.createdBy
-        && request.resource.data.createdAt == resource.data.createdAt
-        && request.resource.data.updatedBy == request.auth.uid
-        && request.resource.data.subjects is list
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+      let d = request.resource.data;
+      return d.schoolId == resource.data.schoolId
+        && d.classId == resource.data.classId
+        && d.createdBy == resource.data.createdBy
+        && d.createdAt == resource.data.createdAt
+        && d.updatedBy == request.auth.uid
+        && d.subjects is list
+        && d.diff(resource.data).affectedKeys().hasOnly([
           'className', 'academicYearId', 'academicYearLabel', 'academicYearRange',
           'status', 'subjects', 'updatedBy', 'updatedAt'
         ]);
@@ -2159,14 +2231,15 @@ service cloud.firestore {
     }
 
     function safeGradebookFileUpdate(schoolId) {
-      return canManageGradebook(schoolId, resource.data.classId) && request.resource.data.schoolId == resource.data.schoolId
-        && request.resource.data.classId == resource.data.classId
-        && request.resource.data.gradebookId == resource.data.gradebookId
-        && request.resource.data.fileType == resource.data.fileType
-        && request.resource.data.createdBy == resource.data.createdBy
-        && request.resource.data.createdAt == resource.data.createdAt
-        && request.resource.data.updatedBy == request.auth.uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+      let d = request.resource.data;
+      return canManageGradebook(schoolId, resource.data.classId) && d.schoolId == resource.data.schoolId
+        && d.classId == resource.data.classId
+        && d.gradebookId == resource.data.gradebookId
+        && d.fileType == resource.data.fileType
+        && d.createdBy == resource.data.createdBy
+        && d.createdAt == resource.data.createdAt
+        && d.updatedBy == request.auth.uid
+        && d.diff(resource.data).affectedKeys().hasOnly([
           'name', 'className', 'folderId', 'academicYearId', 'academicYear',
           'academicYearRange', 'status', 'updatedBy', 'updatedAt', 'pinnedBy'
         ]);
@@ -2275,27 +2348,28 @@ service cloud.firestore {
     }
 
     function safeAttendanceFileUpdate(schoolId) {
+      let d = request.resource.data;
       return (
           (
             canInitializeAttendance(schoolId, resource.data)
-            && request.resource.data.setupStatus in ['ready', 'error']
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            && d.setupStatus in ['ready', 'error']
+            && d.diff(resource.data).affectedKeys().hasOnly([
               'setupStatus', 'studentCount', 'scheduledDayCount', 'updatedBy', 'updatedAt'
             ])
           )
           || canEditAttendance(schoolId, resource.data)
         )
-        && request.resource.data.schoolId == resource.data.schoolId
-        && request.resource.data.classId == resource.data.classId
-        && request.resource.data.fileType == resource.data.fileType
-        && request.resource.data.createdBy == resource.data.createdBy
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        && d.schoolId == resource.data.schoolId
+        && d.classId == resource.data.classId
+        && d.fileType == resource.data.fileType
+        && d.createdBy == resource.data.createdBy
+        && d.diff(resource.data).affectedKeys().hasOnly([
           'name', 'description', 'folderId', 'setupStatus', 'status', 'studentCount',
           'scheduledDayCount', 'updatedBy', 'updatedAt', 'pinnedBy'
         ])
         && (
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pinnedBy'])
-          || request.resource.data.updatedBy == request.auth.uid
+          d.diff(resource.data).affectedKeys().hasOnly(['pinnedBy'])
+          || d.updatedBy == request.auth.uid
         );
     }
 
@@ -2325,8 +2399,8 @@ service cloud.firestore {
         && data.classId is string
         && classExists(schoolId, data.classId)
         && (
-          teachesClass(schoolId, data.classId)
-          || currentUser().role in ['principal', 'institution_manager']
+          currentUser().role in ['principal', 'institution_manager']
+          || teachesClass(schoolId, data.classId)
           || studentPermission('students_create')
           || studentPermission('students_edit')
           || rolePermission(schoolId, 'students.create')
@@ -2429,18 +2503,19 @@ service cloud.firestore {
     }
 
     function safeAcademicYearUpdate(schoolId) {
+      let d = request.resource.data;
       return canManageAcademicYears(schoolId)
-        && request.resource.data.schoolId == resource.data.schoolId
-        && request.resource.data.startYear == resource.data.startYear
-        && request.resource.data.endYear == resource.data.endYear
-        && request.resource.data.createdBy == resource.data.createdBy
-        && request.resource.data.createdAt == resource.data.createdAt
-        && request.resource.data.updatedBy == request.auth.uid
-        && request.resource.data.label is string
-        && request.resource.data.label.size() > 0
-        && request.resource.data.label.size() <= 30
-        && request.resource.data.status in ['active', 'future', 'closed', 'archived']
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        && d.schoolId == resource.data.schoolId
+        && d.startYear == resource.data.startYear
+        && d.endYear == resource.data.endYear
+        && d.createdBy == resource.data.createdBy
+        && d.createdAt == resource.data.createdAt
+        && d.updatedBy == request.auth.uid
+        && d.label is string
+        && d.label.size() > 0
+        && d.label.size() <= 30
+        && d.status in ['active', 'future', 'closed', 'archived']
+        && d.diff(resource.data).affectedKeys().hasOnly([
           'label', 'status', 'updatedBy', 'updatedAt'
         ]);
     }
@@ -2492,8 +2567,7 @@ service cloud.firestore {
         );
     }
 
-    // Promotion touches four documents atomically. Keep the exact-permission path
-    // compact enough for the Rules runtime's per-request expression budget.
+    // Keep atomic promotion within the Rules expression budget.
     function directPromotionPermission(schoolId) {
       return hasStudentDataAccess(schoolId)
         && studentPermission('students.promote');
@@ -2549,17 +2623,18 @@ service cloud.firestore {
     }
 
     function safeDirectLifecycleEnrollmentUpdate(schoolId, enrollmentId) {
-      let changed = request.resource.data.diff(resource.data).affectedKeys();
-      return directLifecyclePermission(schoolId, request.resource.data.enrollmentStatus)
+      let d = request.resource.data;
+      let changed = d.diff(resource.data).affectedKeys();
+      return directLifecyclePermission(schoolId, d.enrollmentStatus)
         && resource.data.schoolId == schoolId
         && enrollmentId == resource.data.studentId + '__' + resource.data.academicYearId
-        && request.resource.data.studentId == resource.data.studentId
-        && request.resource.data.schoolId == resource.data.schoolId
-        && request.resource.data.academicYearId == resource.data.academicYearId
-        && request.resource.data.classId == resource.data.classId
-        && request.resource.data.createdBy == resource.data.createdBy
-        && request.resource.data.createdAt == resource.data.createdAt
-        && request.resource.data.updatedBy == request.auth.uid
+        && d.studentId == resource.data.studentId
+        && d.schoolId == resource.data.schoolId
+        && d.academicYearId == resource.data.academicYearId
+        && d.classId == resource.data.classId
+        && d.createdBy == resource.data.createdBy
+        && d.createdAt == resource.data.createdAt
+        && d.updatedBy == request.auth.uid
         && changed.hasOnly([
           'enrollmentStatus', 'endDate', 'exitReason', 'exitNote',
           'graduationYear', 'updatedBy', 'updatedAt'
@@ -2567,31 +2642,33 @@ service cloud.firestore {
     }
 
     function safeDirectPromotionEnrollmentUpdate(schoolId, enrollmentId) {
-      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let d = request.resource.data;
+      let changed = d.diff(resource.data).affectedKeys();
       return directPromotionPermission(schoolId)
         && resource.data.schoolId == schoolId
         && enrollmentId == resource.data.studentId + '__' + resource.data.academicYearId
-        && request.resource.data.studentId == resource.data.studentId
-        && request.resource.data.schoolId == resource.data.schoolId
-        && request.resource.data.academicYearId == resource.data.academicYearId
-        && request.resource.data.classId == resource.data.classId
-        && request.resource.data.createdBy == resource.data.createdBy
-        && request.resource.data.createdAt == resource.data.createdAt
-        && request.resource.data.enrollmentStatus == 'completed'
-        && request.resource.data.updatedBy == request.auth.uid
+        && d.studentId == resource.data.studentId
+        && d.schoolId == resource.data.schoolId
+        && d.academicYearId == resource.data.academicYearId
+        && d.classId == resource.data.classId
+        && d.createdBy == resource.data.createdBy
+        && d.createdAt == resource.data.createdAt
+        && d.enrollmentStatus == 'completed'
+        && d.updatedBy == request.auth.uid
         && changed.hasOnly(['enrollmentStatus', 'endDate', 'updatedBy', 'updatedAt']);
     }
 
     function safeEnrollmentUpdate(schoolId, enrollmentId) {
-      let changed = request.resource.data.diff(resource.data).affectedKeys();
-      return validEnrollmentBase(schoolId, request.resource.data)
+      let d = request.resource.data;
+      let changed = d.diff(resource.data).affectedKeys();
+      return validEnrollmentBase(schoolId, d)
         && enrollmentId == resource.data.studentId + '__' + resource.data.academicYearId
-        && request.resource.data.studentId == resource.data.studentId
-        && request.resource.data.schoolId == resource.data.schoolId
-        && request.resource.data.academicYearId == resource.data.academicYearId
-        && request.resource.data.createdBy == resource.data.createdBy
-        && request.resource.data.createdAt == resource.data.createdAt
-        && request.resource.data.updatedBy == request.auth.uid
+        && d.studentId == resource.data.studentId
+        && d.schoolId == resource.data.schoolId
+        && d.academicYearId == resource.data.academicYearId
+        && d.createdBy == resource.data.createdBy
+        && d.createdAt == resource.data.createdAt
+        && d.updatedBy == request.auth.uid
         && changed.hasOnly([
           'classId', 'className', 'grade', 'majorIds', 'studyProgramIds',
           'enrollmentStatus', 'startDate', 'endDate', 'exitReason', 'exitNote',
@@ -2612,10 +2689,10 @@ service cloud.firestore {
             changed.hasAny(['enrollmentStatus', 'endDate', 'exitReason', 'exitNote', 'graduationYear'])
             && (
               (
-                request.resource.data.enrollmentStatus == 'completed'
+                d.enrollmentStatus == 'completed'
                 && canPromoteStudents(schoolId)
               )
-              || canSetEnrollmentStatus(schoolId, request.resource.data.enrollmentStatus)
+              || canSetEnrollmentStatus(schoolId, d.enrollmentStatus)
             )
           )
           || (
@@ -3078,15 +3155,16 @@ service cloud.firestore {
     }
 
     function safeStudentUpdate(schoolId) {
-      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let d = request.resource.data;
+      let changed = d.diff(resource.data).affectedKeys();
       return hasStudentDataAccess(schoolId)
-        && request.resource.data.schoolId == resource.data.schoolId
-        && request.resource.data.createdBy == resource.data.createdBy
-        && request.resource.data.createdAt == resource.data.createdAt
-        && request.resource.data.updatedBy == request.auth.uid
-        && request.resource.data.fullName is string
-        && request.resource.data.fullName.size() > 0
-        && request.resource.data.status in ['active', 'transferred', 'graduated', 'withdrawn', 'dropout', 'archived']
+        && d.schoolId == resource.data.schoolId
+        && d.createdBy == resource.data.createdBy
+        && d.createdAt == resource.data.createdAt
+        && d.updatedBy == request.auth.uid
+        && d.fullName is string
+        && d.fullName.size() > 0
+        && d.status in ['active', 'transferred', 'graduated', 'withdrawn', 'dropout', 'archived']
         && (
           changed.hasAny(['classId', 'className', 'gradeLevel', 'academicYear', 'joinedAt'])
           ? (
@@ -3100,7 +3178,7 @@ service cloud.firestore {
                 'classId', 'className', 'gradeLevel', 'academicYear', 'joinedAt',
                 'currentEnrollmentId', 'status', 'endDate', 'updatedBy', 'updatedAt'
               ])
-              && classExists(schoolId, request.resource.data.classId)
+              && classExists(schoolId, d.classId)
             )
           : changed.hasAny(['status', 'endDate'])
           ? (
@@ -3108,7 +3186,7 @@ service cloud.firestore {
                 currentUser().role in ['principal', 'institution_manager']
                 || studentPermission('students_archive')
                 || studentPermission('students.archive')
-                || canSetEnrollmentStatus(schoolId, request.resource.data.status)
+                || canSetEnrollmentStatus(schoolId, d.status)
               )
               && changed.hasOnly(['status', 'endDate', 'updatedBy', 'updatedAt'])
             )
@@ -3127,16 +3205,17 @@ service cloud.firestore {
     }
 
     function safeDirectPromotionStudentUpdate(schoolId) {
-      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let d = request.resource.data;
+      let changed = d.diff(resource.data).affectedKeys();
       return directPromotionPermission(schoolId)
         && resource.data.schoolId == schoolId
-        && request.resource.data.schoolId == resource.data.schoolId
-        && request.resource.data.createdBy == resource.data.createdBy
-        && request.resource.data.createdAt == resource.data.createdAt
-        && request.resource.data.updatedBy == request.auth.uid
-        && request.resource.data.status == 'active'
-        && request.resource.data.classId is string
-        && classExists(schoolId, request.resource.data.classId)
+        && d.schoolId == resource.data.schoolId
+        && d.createdBy == resource.data.createdBy
+        && d.createdAt == resource.data.createdAt
+        && d.updatedBy == request.auth.uid
+        && d.status == 'active'
+        && d.classId is string
+        && classExists(schoolId, d.classId)
         && changed.hasOnly([
           'classId', 'className', 'gradeLevel', 'academicYear', 'joinedAt',
           'currentEnrollmentId', 'status', 'endDate', 'updatedBy', 'updatedAt'
@@ -3144,29 +3223,31 @@ service cloud.firestore {
     }
 
     function safeDirectLifecycleStudentUpdate(schoolId) {
-      let changed = request.resource.data.diff(resource.data).affectedKeys();
-      return directLifecyclePermission(schoolId, request.resource.data.status)
+      let d = request.resource.data;
+      let changed = d.diff(resource.data).affectedKeys();
+      return directLifecyclePermission(schoolId, d.status)
         && resource.data.schoolId == schoolId
-        && request.resource.data.schoolId == resource.data.schoolId
-        && request.resource.data.createdBy == resource.data.createdBy
-        && request.resource.data.createdAt == resource.data.createdAt
-        && request.resource.data.classId == resource.data.classId
-        && request.resource.data.updatedBy == request.auth.uid
+        && d.schoolId == resource.data.schoolId
+        && d.createdBy == resource.data.createdBy
+        && d.createdAt == resource.data.createdAt
+        && d.classId == resource.data.classId
+        && d.updatedBy == request.auth.uid
         && changed.hasOnly(['status', 'endDate', 'updatedBy', 'updatedAt']);
     }
 
     function safeDirectScopedRoleStudentUpdate(schoolId) {
-      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let d = request.resource.data;
+      let changed = d.diff(resource.data).affectedKeys();
       return hasStudentDataAccess(schoolId)
         && resource.data.schoolId == schoolId
         && resource.data.classId is string
         && classRolePermission(schoolId, 'students.update', resource.data.classId)
-        && request.resource.data.schoolId == resource.data.schoolId
-        && request.resource.data.classId == resource.data.classId
-        && request.resource.data.createdBy == resource.data.createdBy
-        && request.resource.data.createdAt == resource.data.createdAt
-        && request.resource.data.status == resource.data.status
-        && request.resource.data.updatedBy == request.auth.uid
+        && d.schoolId == resource.data.schoolId
+        && d.classId == resource.data.classId
+        && d.createdBy == resource.data.createdBy
+        && d.createdAt == resource.data.createdAt
+        && d.status == resource.data.status
+        && d.updatedBy == request.auth.uid
         && changed.hasOnly([
           'firstName', 'lastName', 'fullName', 'idNumber', 'phone', 'parentPhone',
           'additionalSubjects', 'updatedBy', 'updatedAt'
@@ -3267,8 +3348,7 @@ service cloud.firestore {
         || classRolePermission(schoolId, 'students.viewSensitiveFields', studentData.classId);
     }
 
-    // Narrow Spark staff changes: only a school manager, only an ordinary
-    // member, with an atomic receipt and no global permission/account deletion.
+    // Scoped staff changes preserve protected accounts.
     function staffManagerFor(schoolId) {
       return activeUser() && isSchoolMember(schoolId)
         && currentUser().get('rolesBySchool', {}).get(schoolId, currentUser().get('role', '')) in ['principal', 'institution_manager'];
@@ -5277,19 +5357,19 @@ service cloud.firestore {
           legacyCollection.matches('^student_enrollments_[A-Za-z0-9_-]+$')
           && request.resource.data.schoolId is string
           && legacyCollection == 'student_enrollments_' + request.resource.data.schoolId
-          && validDirectTeacherEnrollmentCreate(
+          && ((currentUser().role in ['principal', 'institution_manager'] && legacyEnrollmentCreateAllowed(legacyCollection, documentId, request.resource.data)) || validDirectTeacherEnrollmentCreate(
             request.resource.data.schoolId,
             documentId,
             request.resource.data
-          )
+          ) || legacyEnrollmentCreateAllowed(legacyCollection, documentId, request.resource.data))
         ) || (
           legacyCollection.matches('^students_[A-Za-z0-9_-]+$')
           && request.resource.data.schoolId is string
           && legacyCollection == 'students_' + request.resource.data.schoolId
-          && validDirectTeacherStudentCreate(
+          && ((currentUser().role in ['principal', 'institution_manager'] && legacyStudentCreateAllowed(legacyCollection, request.resource.data)) || validDirectTeacherStudentCreate(
             request.resource.data.schoolId,
             request.resource.data
-          )
+          ) || legacyStudentCreateAllowed(legacyCollection, request.resource.data))
         ) || legacyTopLevelCreateAllowed(
           legacyCollection,
           documentId,
