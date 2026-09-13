@@ -1,0 +1,25 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Narrow transition from the currently deployed signed-in baseline. This
+    // does not replace the full authorization migration in firestore.rules.
+    // Existing paths keep their current behavior; the pilot namespace is closed.
+    match /{collection}/{id} {
+      allow read, write: if request.auth != null;
+    }
+    match /{collection}/{id}/{subcollection}/{document=**} {
+      allow read, write: if request.auth != null
+        && !(collection == 'users' && subcollection == 'zokiPilot');
+    }
+    function pilotOwner(uid, schoolId) {
+      let profile = get(/databases/$(database)/documents/users/$(uid)).data;
+      return request.auth != null && request.auth.uid == uid
+        && profile.get('accountStatus', 'active') == 'active'
+        && (profile.get('schoolId', '') == schoolId || schoolId in profile.get('schoolIds', []))
+        && profile.get('rolesBySchool', {}).get(schoolId, profile.get('role', '')) in ['principal', 'institution_manager'];
+    }
+    match /users/{uid}/zokiPilot/{schoolId}/{document=**} {
+      allow read, write: if pilotOwner(uid, schoolId);
+    }
+  }
+}

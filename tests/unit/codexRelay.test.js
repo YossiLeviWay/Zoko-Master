@@ -53,9 +53,9 @@ test('public relay uses memory-only transport, transactional approval and no aut
   assert.doesNotMatch(source, /getIdToken|refreshToken|Authorization/);
   assert.match(source, /runTransaction/); assert.match(source, /signal\?\.aborted/);
   const panel = await readFile('src/components/Zoki/ZokiCodexPanel.jsx', 'utf8');
-  assert.match(panel, /operation === 'connect' && \['codex-offline', 'codex-public-disabled'\]\.includes/);
+  assert.match(panel, /!local && !busy && !question && !file/);assert.doesNotMatch(panel,/onBack\(failure.code\)/);
   const page = await readFile('src/components/Zoki/ZokiPage.jsx', 'utf8');
-  assert.match(page, /onCodex=\{localCodex && manager \?/);
+  assert.match(page, /onCodex=\{manager \?/);
 });
 
 test('disabled production gate never accesses Firebase or queues sensitive input', async () => {
@@ -65,4 +65,13 @@ test('disabled production gate never accesses Firebase or queues sensitive input
   await assert.rejects(client.request('approve',{hash:'synthetic'}),/codex-public-disabled/);
   assert.equal(bridgeAvailable({online:true,bridgeId:'id',expiresAt:99},100),false);
   assert.equal(bridgeAvailable({online:true,bridgeId:'id',expiresAt:101},100),true);
+});
+
+test('paired worker renews credentials without a browser heartbeat and clears them on stop',async()=>{
+ const db=memoryDb();let refreshed=0,cleared=0;
+ const handler=async(_req,res)=>{res.statusCode=200;res.end(JSON.stringify({connected:true}));};
+ const relay=createRelay({projectId:'demo-relay',origin,handler,dbFactory:()=>db});
+ await relay.session({operation:'connect',actor,token:'initial',sessionId:'private',credentials:{token:async()=>{refreshed++;return 'renewed';},clear:()=>cleared++}});
+ await relay.tick();assert.ok(refreshed>=2);assert.equal(db.records.get(`${root}/state/bridge`).data.online,true);
+ await relay.close();assert.equal(cleared,1);assert.equal(db.records.get(`${root}/state/bridge`).data.online,false);
 });

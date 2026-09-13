@@ -44,7 +44,7 @@ export function createRelay({ projectId, origin, handler, dbFactory = options =>
       await db.commit([{ path: presence.path, version: presence.version, data: { bridgeId: state.id, online: false, expiresAt: 0 } }]).catch(() => {});
       await clean(db, state.root, true).catch(() => {});
     }
-    state.token = ''; state.sessionId = '';
+    state.credentials?.clear(); state.token = ''; state.sessionId = '';
   }
   async function session(event) {
     if (event.operation === 'disconnect') { await stop(); return; }
@@ -56,7 +56,7 @@ export function createRelay({ projectId, origin, handler, dbFactory = options =>
       if (previous?.data.online && previous.data.expiresAt > Date.now()) throw new PilotError('codex-busy');
       const id = randomUUID();
       await db.commit([{ path, version: previous?.version, data: { bridgeId: id, online: true, expiresAt: Date.now() + 90000 } }]);
-      current = { id, actor: event.actor, root: relayRoot(event.actor), token: event.token, sessionId: event.sessionId, active: true, renewedAt: Date.now(), heartbeat: 0, cleaned: 0 };
+      current = { id, actor: event.actor, root: relayRoot(event.actor), token: event.token, sessionId: event.sessionId, active: true, renewedAt: Date.now(), heartbeat: 0, cleaned: 0, credentials: event.credentials };
     } else if (current?.sessionId === event.sessionId) { current.token = event.token; current.renewedAt = Date.now(); }
     if (event.operation === 'connect') await tick();
   }
@@ -94,6 +94,7 @@ export function createRelay({ projectId, origin, handler, dbFactory = options =>
     if (ticking || !current) return;
     ticking = true; const state = current;
     try {
+      if (state.credentials) { state.token = await state.credentials.token(); state.renewedAt = Date.now(); }
       if (Date.now() - state.renewedAt > 90000) { await stop(); return; }
       const db = dbFor(state);
       // Revalidate institution role; an old lease cannot grant access.
@@ -117,7 +118,7 @@ export function createRelay({ projectId, origin, handler, dbFactory = options =>
         } else await db.commit([{ path: row.path, version: row.version, patch: { status: 'expired' } }]);
       }
       if (!state.running && Date.now() - state.cleaned > 300000) { await clean(db, state.root); state.cleaned = Date.now(); }
-    } catch { /* Fail closed; lease expires without publishing raw errors. */ }
+    } catch { await stop(); /* Re-pair locally after revocation or a failed credential refresh. */ }
     finally { ticking = false; }
   }
   const timer = setInterval(tick, 10000).unref();

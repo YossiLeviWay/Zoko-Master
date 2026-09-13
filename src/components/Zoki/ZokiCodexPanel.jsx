@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Paperclip, Send, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { subscribePrivateSession } from '../../utils/browserPrivacy.js';
-import { isLocalCodex } from '../../services/zoki/codexRelay.js';
+import { db } from '../../firebase.js';
+import { createCodexRelay, isLocalCodex } from '../../services/zoki/codexRelay.js';
 import './ZokiCodex.css';
 
 const phaseNames = { reading: 'קורא קובץ', matching: 'מתאים לכיתות ולנתונים', preparing: 'מכין הצעה', executing: 'מבצע' };
@@ -36,6 +37,7 @@ export default function ZokiCodexPanel({ onBack, onMinimize }) {
   const { currentUser, userData, selectedSchool } = useAuth();
   const schoolId = selectedSchool || userData?.schoolId;
   const local = isLocalCodex();
+  const relay = useMemo(() => createCodexRelay({uid:currentUser.uid,schoolId,db,enabled:true}),[currentUser.uid,schoolId]);
   const [connected, setConnected] = useState(false);
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState('');
@@ -51,45 +53,45 @@ export default function ZokiCodexPanel({ onBack, onMinimize }) {
   const [page, setPage] = useState(0);
   const session = useRef(null), controller = useRef(null), alive = useRef(true), fileInput = useRef(null);
   const request = useCallback(async (operation, body = {}, signal) => {
-    if (!local) throw Object.assign(new Error(),{code:'local-origin-required'});
+    if (!local) return relay.request(operation, body, signal);
     const sessionId = session.current;
-    const token = await currentUser.getIdToken();
+    const token = await currentUser.getIdToken(operation === 'connect');
     if (!alive.current && operation !== 'disconnect') throw Object.assign(new Error(), { code: 'session-expired' });
-    const response = await fetch(`/__zoki_codex/${operation}`, { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(sessionId ? { 'X-Zoki-Session': sessionId } : {}) }, body: JSON.stringify({ ...body, schoolId }), signal });
+    const response = await fetch(`/__zoki_codex/${operation}`, { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(sessionId ? { 'X-Zoki-Session': sessionId } : {}) }, body: JSON.stringify({ ...body, schoolId, ...(operation === 'connect' ? { refreshToken: currentUser.refreshToken } : {}) }), signal });
     const result = await response.json(); if (!response.ok) throw Object.assign(new Error(), { code: result.code });
     return result;
-  }, [currentUser, schoolId, local]);
+  }, [currentUser, schoolId, local, relay]);
   useEffect(() => {
     alive.current = true;
     const clear = () => {
       controller.current?.abort();
       // Best effort server disposal; a short server TTL also clears RAM after
-      // a closed tab/network failure. No token is stored outside memory.
-      if (session.current) request('disconnect').catch(() => {});
+      // public tab closure cancels its request; it does not unpair the device.
+      if (session.current && !local) request('disconnect').catch(() => {});
       session.current = null; setConnected(false); setFile(null); setHistory([]); setProposal(null); setDraft([]); setQuestion(''); setResults([]);
     };
-    const unsubscribe = subscribePrivateSession(clear);
+    const unsubscribe = subscribePrivateSession(() => { if(local && session.current) request('disconnect').catch(() => {}); clear(); });
     return () => { clear(); alive.current = false; unsubscribe(); };
-  }, [request]); // The parent is keyed by UID, school and private-session revision.
+  }, [request, local]); // The parent is keyed by UID, school and private-session revision.
   useEffect(() => {
     if (!connected) return;
     const timer = setInterval(() => {
       request('status').then(state => {
         if (alive.current && !state.connected) {
-          if (!local && !busy && !question && !file) { onBack('codex-offline'); return; }
+          if (!local && !busy && !question && !file && !proposal && !edited) { onBack('codex-offline'); return; }
           setError(errors['codex-offline']);
         }
       }).catch(() => { if (alive.current && !local) { setConnected(false); setError(errors['codex-offline']); } });
     }, 30000);
     return () => clearInterval(timer);
-  }, [connected, request, local, busy, question, file, onBack]);
+  }, [connected, request, local, busy, question, file, proposal, edited, onBack]);
   const acceptProposal = next => { setProposal(next); setDraft(next?.items || []); setEdited(false); setPage(0); setResults([]); };
   async function perform(operation, body = {}) {
     if (busy) return;
     setBusy(true); setError(''); setPhase(operation === 'connect' ? 'בודק התחברות ופרטיות עם נתונים סינתטיים' : operation === 'approve' ? 'מבצע' : 'מכין הצעה');
     controller.current = new AbortController();
     let poll;
-    if (connected && local) poll = setInterval(() => { request('status').then(state => { if (alive.current) setPhase(phaseNames[state.phase] || 'מכין הצעה'); }).catch(() => {}); }, 3000);
+    if (connected) poll = setInterval(() => { request('status').then(state => { if (alive.current) setPhase(phaseNames[state.phase] || 'מכין הצעה'); }).catch(() => {}); }, 3000);
     try {
       const result = await request(operation, body, controller.current.signal);
       if (!alive.current) return;
@@ -99,7 +101,7 @@ export default function ZokiCodexPanel({ onBack, onMinimize }) {
       if (operation === 'analyze') { setQuestion(''); setFile(null); if (fileInput.current) fileInput.current.value = ''; }
       if (result.results) setResults(result.results);
       if (result.reportRoute) setReportRoute(result.reportRoute);
-    } catch (failure) { if (!local && operation === 'connect' && ['codex-offline', 'codex-public-disabled'].includes(failure.code) && !question && !file && !proposal) { onBack(failure.code); return; } if (alive.current && failure.name !== 'AbortError') setError(messageFor(failure)); }
+    } catch (failure) { if (alive.current && failure.name !== 'AbortError') setError(messageFor(failure)); }
     finally { clearInterval(poll); if (alive.current) { setBusy(false); setPhase(''); } }
   }
   async function send(event) {
@@ -118,8 +120,9 @@ export default function ZokiCodexPanel({ onBack, onMinimize }) {
   const unresolved = active.filter(item => item.needsReview || item.errors?.length);
   const completed = results.filter(item => item.status === 'done').length;
   return <section className="zoki-codex" dir="rtl" aria-label="זוקי עם Codex">
-    <header><div><strong>Codex שלי</strong><small>{connected ? 'מחובר · לפי ההרשאות שלך' : 'חיבור לחשבון Codex שלך'}</small></div><nav><button type="button" onClick={onBack}>זוקי רגיל</button>{onMinimize && <button type="button" onClick={onMinimize}>מזעור</button>}</nav></header>
-    {!connected ? <div className="zoki-codex-welcome"><h2>מה תרצו לארגן היום?</h2><p>לוח גאנט, מיפוי כיתה או מטלות לצוות — כתבו את הבקשה וצרפו קובץ. השינויים יוצגו לבדיקה לפני שמירה.</p><p>חיבור מקומי לחשבון Codex במחשב הזה בלבד. אין אפשרות להפעיל אותו מהאתר הציבורי.</p><button className="btn btn-primary" disabled={busy} onClick={() => perform('connect')}>חיבור ובדיקת פרטיות</button></div> : <>
+    <header><div><strong>Codex שלי</strong><small>{connected ? 'המחשב מחובר · לפי ההרשאות שלך' : 'חיבור לחשבון Codex שלך'}</small></div><nav><button type="button" onClick={onBack}>זוקי רגיל</button>{onMinimize && <button type="button" onClick={onMinimize}>מזעור</button>}</nav></header>
+    {!connected ? <div className="zoki-codex-welcome"><h2>מה תרצו לארגן היום?</h2><p>לוח גאנט, מיפוי כיתה או מטלות לצוות — כתבו את הבקשה וצרפו קובץ. השינויים יוצגו לבדיקה לפני שמירה.</p><p>{local ? 'חבר את המחשב פעם אחת לחשבון שלך. לאחר מכן אפשר לסגור את החלון הזה ולהמשיך באתר הרגיל כל עוד תוכנת החיבור פועלת.' : 'הבקשות יעברו למחשב שחיברת לחשבון שלך. כאשר המחשב אינו מחובר, זוקי הרגיל נשאר זמין.'}</p>{!local && <a href="http://127.0.0.1:5189/Zoko-Master/#/zoki" target="_blank" rel="noreferrer">חיבור המחשב שלי לאתר</a>}<button className="btn btn-primary" disabled={busy} onClick={() => perform('connect')}>{local ? 'חיבור המחשב לאתר' : 'התחברות ל־Codex שלי'}</button></div> : <>
+      {local && <p role="status">המחשב מחובר. <a href="https://yossileviway.github.io/Zoko-Master/#/zoki" target="_blank" rel="noreferrer">המשך באתר הרגיל</a> · <button type="button" onClick={async()=>{await request('disconnect');setConnected(false);session.current=null;}}>ניתוק המחשב מהאתר</button></p>}
       <div className="zoki-codex-history" aria-live="polite">{history.map((entry, index) => <p key={index} className={`zoki-codex-${entry.role}`}>{entry.text}</p>)}</div>
       {proposal && <section className="zoki-codex-proposal"><header><strong>הצעה לבדיקה · גרסה {proposal.revision}</strong><span>{active.length} פריטים · {unresolved.length} לבירור</span></header>
         {proposal.excludedSources?.length > 0 && <details><summary>{proposal.excludedSources.length} שורות או עמודים שאינם נכללים בייבוא</summary>{proposal.excludedSources.map(row => <p key={row.id}>{row.label || row.id} — {row.reason}</p>)}</details>}

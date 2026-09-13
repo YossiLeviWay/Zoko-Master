@@ -1,3 +1,5 @@
+import { createRelay } from './relay.mjs';
+import { memoryCredentials } from './credentials.mjs';
 import { createServer } from 'node:http';
 import { mkdtemp, rm, readdir, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -83,13 +85,13 @@ export async function createPilotHandler({ origin, projectId, cwd, clientFactory
         if (restored.proposal) verifyProposalSeal(integrityKey, restored.proposal);
         Object.assign(session, restored); session.revision = restored.proposal?.revision || 0;
         sessions.set(session.id, session);
-        if (!req.relayInternal) await onSession({ operation, actor, token, sessionId: session.id });
+        if (!req.relayInternal) await onSession({ operation, actor, token, refreshToken: operation === 'connect' ? input.refreshToken : undefined, sessionId: session.id });
         send(200, { sessionId: session.id, connected: true, privacy: result, history: session.history, proposal: session.proposal }); return true;
       }
       const session = sessions.get(req.headers['x-zoki-session']);
       if (!session || actor.uid !== session.actor.uid || actor.schoolId !== session.actor.schoolId) throw new PilotError('session-expired');
       ensureActive(session); session.expiresAt = Date.now() + SESSION_MS;
-      if (!req.relayInternal) await onSession({ operation, actor, token, sessionId: session.id });
+      if (!req.relayInternal) await onSession({ operation, actor, token, refreshToken: operation === 'connect' ? input.refreshToken : undefined, sessionId: session.id });
       if (operation === 'resume') { send(200, { sessionId: session.id, connected: true, history: session.history, proposal: session.proposal }); return true; }
       if (operation === 'disconnect') { dispose(session); send(200, { connected: false }); return true; }
       if (operation === 'cancel') { session.client?.interrupt(); session.revision++; send(200, { cancelled: true }); return true; }
@@ -162,16 +164,21 @@ export async function startPilot() {
   }
   const cwd = await mkdtemp(join(tmpdir(), `zoko-pilot-work-${process.pid}-`)); await chmod(cwd, 0o700);
   const integrityKey = await loadIntegrityKey(join(root, '.zoki-local'));
-  const pilot = await createPilotHandler({ origin, projectId: environment.VITE_FIREBASE_PROJECT_ID, cwd, integrityKey });
-  const vite = await createVite({ root, server: { middlewareMode: true, hmr: false, fs: { deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**', '**/.zoki-local/**', '**/integrity.key'] } }, define: { 'import.meta.env.VITE_ZOKO_CODEX_LOCAL': 'true', 'import.meta.env.VITE_ZOKO_CODEX_PUBLIC_RELAY': 'false' } });
+  let relay;
+  const pilot = await createPilotHandler({ origin, projectId: environment.VITE_FIREBASE_PROJECT_ID, cwd, integrityKey, onSession: event => relay.session({
+    ...event, credentials: event.operation === 'connect' && event.refreshToken ? memoryCredentials({ token: event.token, refreshToken: event.refreshToken, apiKey: environment.VITE_FIREBASE_API_KEY }) : undefined,
+  }) });
+  relay = createRelay({ projectId: environment.VITE_FIREBASE_PROJECT_ID, origin, handler: pilot.handler });
+  const vite = await createVite({ root, server: { middlewareMode: true, hmr: false, fs: { deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**', '**/.zoki-local/**', '**/integrity.key'] } }, define: { 'import.meta.env.VITE_ZOKO_CODEX_LOCAL': 'true', 'import.meta.env.VITE_ZOKO_CODEX_PUBLIC_RELAY': 'true' } });
   const server = createServer(async (req, res) => {
     let requestPath; try { requestPath = decodeURIComponent(req.url || ''); } catch { res.writeHead(400).end(); return; }
     if (requestPath.includes('.zoki-local') || requestPath.includes('integrity.key')) { res.writeHead(403).end(); return; }
     if (req.headers.host !== new URL(origin).host) { res.writeHead(403).end(); return; }
+    if (req.method === 'GET' && requestPath === '/__zoki_health') { res.setHeader('Content-Type','application/json');res.setHeader('Cache-Control','no-store');res.end(JSON.stringify({application:'zoko-connector',ready:true}));return; }
     if (!await pilot.handler(req, res)) vite.middlewares(req, res);
   });
   server.listen(port, '127.0.0.1', () => console.log(`Zoki local pilot: ${origin}/Zoko-Master/#/zoki`));
-  const close = async () => { pilot.close(); server.close(); await vite.close(); await rm(cwd, { recursive: true, force: true }); };
+  const close = async () => { await relay.close(); pilot.close(); server.close(); await vite.close(); await rm(cwd, { recursive: true, force: true }); };
   process.once('SIGINT', () => { close().finally(() => process.exit(0)); });
   process.once('SIGTERM', () => { close().finally(() => process.exit(0)); });
   return { server, close };
