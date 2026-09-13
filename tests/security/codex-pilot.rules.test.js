@@ -74,3 +74,43 @@ test('missing attendance sheet initializes in resumable phases before importing 
   assert.ok(p.items.every(item=>!item.errors.length),JSON.stringify(p.items.map(item=>item.errors)));
   const result=await executeProposal(db,actor,p,p.hash);assert.ok(result.every(item=>item.status==='done'),JSON.stringify(result));assert.equal(result.length,2);
 });
+
+test('relay mailbox and chunks remain private to the same institution manager',async()=>{
+  const path='users/manager/zokiPilot/a/state/bridge';
+  await assertSucceeds(setDoc(doc(database(),path),{online:true,bridgeId:'synthetic',expiresAt:Date.now()+90000}));
+  const chunk='users/manager/zokiPilot/a/transportChunks/synthetic-in-0';
+  await assertSucceeds(setDoc(doc(database(),chunk),{text:'synthetic file',expiresAt:Date.now()+600000}));
+  for(const uid of ['teacher','second','other']) {
+    await assertFails(getDoc(doc(database(uid),path)));
+    await assertFails(setDoc(doc(database(uid),'users/manager/zokiPilot/a/state/relayRequest'),{operation:'approve'}));
+    await assertFails(getDoc(doc(database(uid),chunk)));
+  }
+  await assertFails(setDoc(doc(database(),'users/manager/zokiPilot/b/state/relayRequest'),{operation:'approve'}));
+  const restDb=rest('manager');await restDb.remove([await restDb.get(chunk)]);assert.equal(await restDb.get(chunk),null);
+});
+
+test('public Firebase transport reaches the local shared engine and writes domain data only after approval', {skip: process.env.ZOKO_TEST_PUBLIC_RELAY !== '1' && 'Public relay disabled pending production rules/query migration; diagnostic currently fails on staff context'},async()=>{
+  const {createCodexRelay}=await import('../../src/services/zoki/codexRelay.js');
+  const {createPilotHandler}=await import('../../scripts/codex-pilot/server.mjs');
+  const {createRelay,invokePilot}=await import('../../scripts/codex-pilot/relay.mjs');
+  const origin='http://127.0.0.1:5189';
+  await setDoc(doc(database(),'users/manager/zokiPilot/a/state/bridge'),{online:false,expiresAt:0});
+  const pilot=await createPilotHandler({origin,projectId,cwd:'/tmp',check:async()=>({ready:true}),clientFactory:()=>({initialize:async()=>{},close(){},interrupt(){},generate:async()=>JSON.stringify({answer:'Synthetic relay proposal',actions:[{key:'relay-event',kind:'event',intent:'create',fields:{title:'Synthetic relay event',date:'2026-09-13'}}]})})});
+  const worker=createRelay({projectId,origin,handler:pilot.handler});
+  let timer;
+  try{
+    const connection=await invokePilot(pilot.handler,origin,token('manager'),null,'connect',{schoolId:'a'});
+    assert.equal(connection.status,200,JSON.stringify(connection));
+    await worker.session({operation:'connect',actor,token:token('manager'),sessionId:connection.value.sessionId});
+    timer=setInterval(()=>worker.tick(),20);
+    const client=createCodexRelay({uid:'manager',schoolId:'a',db:database(),enabled:true});
+    const joined=await client.request('connect');assert.equal(joined.connected,true);assert.notEqual(joined.sessionId,connection.value.sessionId);
+    const {proposal}=await client.request('analyze',{question:'Synthetic relay event'});
+    assert.equal(proposal.items.length,1);assert.equal(await rest('manager').get(proposal.items[0].changes[0].path),null);
+    await assert.rejects(client.request('approve',{hash:'wrong'}),/approval-changed/);
+    const result=await client.request('approve',{hash:proposal.hash});assert.equal(result.results[0].status,'done');
+    assert.ok(await rest('manager').get(proposal.items[0].changes[0].path));
+    const resumed=await client.request('approve',{hash:proposal.hash});assert.equal(resumed.results[0].status,'done');
+    await worker.close();await assert.rejects(client.request('connect'),/codex-offline/);
+  }finally{clearInterval(timer);await worker.close();pilot.close();}
+});

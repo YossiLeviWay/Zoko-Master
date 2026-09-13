@@ -52,6 +52,10 @@ export class UserFirestore {
     if (!data || ![data.schoolId, ...(data.schoolIds || [])].includes(schoolId) || (data.accountStatus && data.accountStatus !== 'active') || !['principal', 'institution_manager'].includes(data.rolesBySchool?.[schoolId] || data.role)) throw new PilotError('permission-denied');
     return { uid, schoolId, fullName: data.fullName || '', role: data.rolesBySchool?.[schoolId] || data.role };
   }
+  async remove(rows) {
+    if (!rows.length) return;
+    return this.request(':commit', { writes: rows.map(row => ({ delete: `${this.prefix}${row.path}`, currentDocument: { updateTime: row.version } })) });
+  }
   async commit(changes) {
     return this.request(':commit', { writes: changes.map(change => ({ update: { name: `${this.prefix}${change.path}`, fields: encodeFields(change.patch || change.data) }, ...(change.patch ? { updateMask: { fieldPaths: Object.keys(change.patch).map(key => '`' + key + '`') } } : {}), currentDocument: change.version ? { updateTime: change.version } : { exists: false }, ...(change.timestamps?.length ? { updateTransforms: change.timestamps.map(fieldPath => ({ fieldPath, setToServerValue: 'REQUEST_TIME' })) } : {}) })) });
   }
