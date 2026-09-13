@@ -55,7 +55,7 @@ test('public relay uses memory-only transport, transactional approval and no aut
   const panel = await readFile('src/components/Zoki/ZokiCodexPanel.jsx', 'utf8');
   assert.match(panel, /operation === 'connect' && \['codex-offline', 'codex-public-disabled'\]\.includes/);
   const page = await readFile('src/components/Zoki/ZokiPage.jsx', 'utf8');
-  assert.match(page, /onCodex=\{manager \?/);
+  assert.match(page, /onCodex=\{localCodex && manager \?/);
 });
 
 test('disabled production gate never accesses Firebase or queues sensitive input', async () => {

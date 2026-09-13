@@ -12,6 +12,8 @@ function dateKey(date) {
 
 export default function EventModal({
   event,
+  saving = false,
+  error = '',
   date,
   category,
   categories,
@@ -54,7 +56,8 @@ export default function EventModal({
   }, [schoolId]);
 
   function handleChange(e) {
-    setForm(prev => ({ ...prev, [e.target.name]: e.target.value }));
+    const { name, value } = e.target;
+    setForm(prev => ({ ...prev, [name]: value }));
   }
 
   function handleTeamToggle(teamId) {
@@ -86,15 +89,16 @@ export default function EventModal({
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={e => e.stopPropagation()}>
+      <div className="modal-content" role="dialog" aria-modal="true" aria-labelledby="calendar-event-heading" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <h3>{event ? 'עריכת אירוע' : 'אירוע חדש'}</h3>
+          <h3 id="calendar-event-heading">{event?.id ? 'עריכת אירוע' : 'אירוע חדש'}</h3>
           <button className="modal-close" onClick={onClose}>
             <X size={18} />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="modal-form">
+          {error && <p role="alert" className="calendar-action-error">{error}</p>}
           <div className="form-group">
             <label>כותרת</label>
             <input
@@ -117,6 +121,8 @@ export default function EventModal({
               rows={3}
             />
           </div>
+
+          <div className="form-group"><label htmlFor="calendar-event-date">תאריך</label><input id="calendar-event-date" name="date" type="date" required value={form.date} onChange={handleChange} onInput={handleChange} dir="ltr"/></div>
 
           <div className="form-row">
             <div className="form-group">
@@ -211,8 +217,8 @@ export default function EventModal({
 
           <div className="modal-actions">
             {event?.id && <CommunicationLauncherButton context={{ type: 'event', id: event.id, label: form.title, description: `${form.date}${form.time ? ` ${form.time}` : ''}`, eventId: event.id, participantIds: teams.filter(team => selectedTeams.includes(team.id) || editableBy.includes(team.id)).flatMap(team => team.memberIds || []) }} className="btn btn-secondary">מייל ומעקב</CommunicationLauncherButton>}
-            <button type="submit" className="btn btn-primary">
-              {event ? 'עדכון' : 'הוספה'}
+            <button disabled={saving} type="submit" className="btn btn-primary">
+              {event?.id ? 'עדכון' : 'הוספה'}
             </button>
             {onDelete && (
               <button type="button" className="btn btn-danger" onClick={onDelete}>

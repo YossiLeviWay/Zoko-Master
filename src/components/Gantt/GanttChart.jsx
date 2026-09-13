@@ -15,6 +15,10 @@ import {
   setDoc
 } from 'firebase/firestore';
 import Header from '../Layout/Header';
+import CategoryManager from './CategoryManager';
+import CalendarDialog from './CalendarDialog';
+import EventBank from './EventBank';
+import { calendarDateFields, sortCalendarCategories, DEFAULT_EVENT_TEMPLATES } from '../../utils/calendarInteractions';
 import EventModal from './EventModal';
 import YearlyOverview from './YearlyOverview';
 import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
@@ -74,6 +78,17 @@ export default function GanttChart() {
   useEffect(() => { if (validRequestedDate) { setYear(Number(validRequestedDate.slice(0,4))); setMonth(Number(validRequestedDate.slice(5,7))-1); } }, [validRequestedDate]);
   const [year, setYear] = useState(() => new Date().getFullYear());
   const [month, setMonth] = useState(() => new Date().getMonth());
+  const [bankOpen, setBankOpen] = useState(false);
+  const [categoryOpen, setCategoryOpen] = useState(params.get('categories') === '1');
+  const [templates, setTemplates] = useState(DEFAULT_EVENT_TEMPLATES);
+  const [templateDraft, setTemplateDraft] = useState(null);
+  const [actionError, setActionError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [menu, setMenu] = useState(null);
+  const [categoriesReady, setCategoriesReady] = useState(false);
+  const tableRef = useRef(null);
+  const menuRef = useRef(null);
+  const touchDrag = useRef(null);
   const [events, setEvents] = useState([]);
   const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
   const [modalOpen, setModalOpen] = useState(false);
@@ -171,18 +186,21 @@ export default function GanttChart() {
   }
 
   useEffect(() => {
-    if (!pendingTodayNavigation) return;
+    if (!pendingTodayNavigation || !categoriesReady) return;
     const frame = requestAnimationFrame(() => {
       const cell = todayCellRef.current;
       if (!cell) return;
       const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      cell.scrollIntoView({ block: 'center', inline: 'center', behavior: reduceMotion ? 'auto' : 'smooth' });
+      const wrap=tableRef.current;
+      const head=wrap.querySelector('thead').getBoundingClientRect().height;
+      const top=wrap.scrollTop+cell.getBoundingClientRect().top-wrap.getBoundingClientRect().top-head-18;
+      wrap.scrollTo({top:Math.max(0,top),behavior:reduceMotion?'auto':'smooth'});
       cell.focus({ preventScroll: true });
       setTodayPulse(true);
       setPendingTodayNavigation(false);
     });
     return () => cancelAnimationFrame(frame);
-  }, [month, pendingTodayNavigation, visibleDays, year]);
+  }, [month, pendingTodayNavigation, visibleDays, year, categoriesReady, categories]);
 
   useEffect(() => {
     if (!todayPulse) return;
@@ -219,6 +237,7 @@ export default function GanttChart() {
     async function loadDaySettings() {
       try {
         const docSnap = await getDoc(doc(db, `settings_${schoolId}`, 'calendar'));
+        if (docSnap.exists() && Array.isArray(docSnap.data().eventTemplates)) setTemplates(docSnap.data().eventTemplates);
         if (docSnap.exists() && docSnap.data().visibleDays) {
           const todayDay = new Date().getDay();
           const savedDays = docSnap.data().visibleDays;
@@ -294,11 +313,12 @@ export default function GanttChart() {
     const unsub = onSnapshot(collection(db, `categories_${schoolId}`), (snap) => {
       const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       if (docs.length > 0) {
-        setCategories(docs.map(d => d.name));
+        setCategories(sortCalendarCategories(docs).map(d => d.name));
       } else {
         setCategories(DEFAULT_CATEGORIES);
       }
-    });
+      setCategoriesReady(true);
+    }, () => { setCategoriesReady(true); setActionError('לא ניתן לטעון קטגוריות. נסו לרענן.'); });
     return unsub;
   }, [schoolId]);
 
@@ -341,12 +361,14 @@ export default function GanttChart() {
     setSelectedDate(date);
     setSelectedCategory(category);
     setEditingEvent(null);
+    setTemplateDraft(null);
     setModalOpen(true);
   }
 
   function handleEventClick(e, event) {
     e.stopPropagation();
     if (!canEditCalendar) return;
+    setTemplateDraft(null);
     setEditingEvent(event);
     setSelectedDate(null);
     setSelectedCategory(event.category);
@@ -355,24 +377,24 @@ export default function GanttChart() {
 
   async function handleSaveEvent(eventData) {
     if (!(editingEvent ? canEditCalendar : canCreateCalendar) || !schoolId) return;
+    if(saving)return;
+    setSaving(true);setActionError('');
     try {
+      const dated={...eventData,...calendarDateFields(eventData.date)};
       const colRef = collection(db, `events_${schoolId}`);
       if (editingEvent) {
-        await updateDoc(doc(db, `events_${schoolId}`, editingEvent.id), eventData);
+        await updateDoc(doc(db, `events_${schoolId}`, editingEvent.id), dated);
       } else {
         await addDoc(colRef, {
-          ...eventData,
-          year,
-          month,
+          ...dated,
           createdBy: userData?.uid || '',
           createdAt: new Date().toISOString()
         });
       }
       setModalOpen(false);
     } catch (err) {
-      console.error('Error saving event:');
-      alert('שגיאה בשמירת האירוע: ');
-    }
+      setActionError('האירוע לא נשמר. הטיוטה פתוחה ואפשר לנסות שוב.');
+    } finally {setSaving(false);}
   }
 
   async function handleDeleteEvent() {
@@ -384,6 +406,42 @@ export default function GanttChart() {
       alert('שגיאה במחיקת האירוע: ');
     }
   }
+
+  async function saveTemplates(next) {
+    if(!canEditCalendar || saving)return false;
+    setSaving(true);setActionError('');
+    try {await setDoc(doc(db, `settings_${schoolId}`, 'calendar'),{eventTemplates:next},{merge:true});setTemplates(next);return true;}
+    catch {setActionError('התבניות לא נשמרו. נסו שוב.');return false;} finally {setSaving(false);}
+  }
+  function openTemplate(template, date=new Date(), category=categories[0]) {
+    if(!canCreateCalendar)return;
+    setEditingEvent(null);setTemplateDraft({title:template.title,description:template.description || '',color:template.color,date:dateKey(date),category});setSelectedDate(date);setSelectedCategory(category);setModalOpen(true);
+  }
+  async function dropCalendar(event,date,category) {
+    event.preventDefault();event.currentTarget.classList.remove('calendar-drop');
+    if(saving)return;
+    let payload;try{payload=JSON.parse(event.dataTransfer.getData('application/x-zoko-calendar'));}catch{return;}
+    if(payload.templateId){const template=templates.find(item=>item.id===payload.templateId);if(template)openTemplate(template,date,category);return;}
+    const item=events.find(item=>item.id===payload.eventId);
+    if(!item || !canEditCalendar || !isEventVisible(item))return;
+    setSaving(true);setActionError('');
+    try {await updateDoc(doc(db,`events_${schoolId}`,item.id),{...calendarDateFields(dateKey(date)),category});}
+    catch{setActionError('האירוע לא הועבר. הוא נשאר בתאריך המקורי.');}finally{setSaving(false);}
+  }
+  function touchHandle(payload) {
+    return {
+      onPointerDown:event=>{if(event.pointerType!=='touch'||saving)return;event.stopPropagation();event.currentTarget.setPointerCapture(event.pointerId);touchDrag.current={payload,target:null};},
+      onPointerMove:event=>{const drag=touchDrag.current;if(!drag)return;const target=document.elementFromPoint(event.clientX,event.clientY)?.closest('[data-calendar-date]');if(drag.target!==target){drag.target?.classList.remove('calendar-drop');target?.classList.add('calendar-drop');drag.target=target;}const wrap=tableRef.current;const bounds=wrap.getBoundingClientRect();wrap.scrollBy({top:event.clientY<bounds.top+35?-22:event.clientY>bounds.bottom-35?22:0,left:event.clientX<bounds.left+35?-22:event.clientX>bounds.right-35?22:0});},
+      onPointerUp:event=>{event.stopPropagation();const drag=touchDrag.current;touchDrag.current=null;if(!drag?.target)return;const target=drag.target;target.classList.remove('calendar-drop');dropCalendar({preventDefault(){},currentTarget:target,dataTransfer:{getData:()=>JSON.stringify(drag.payload)}},new Date(target.dataset.calendarDate+'T12:00:00'),target.dataset.calendarCategory);},
+      onPointerCancel:()=>{touchDrag.current?.target?.classList.remove('calendar-drop');touchDrag.current=null;},
+      onClick:event=>event.stopPropagation(),
+    };
+  }
+  function openMenu(event,date,category,item) {
+    event.preventDefault();event.stopPropagation();setTooltip(null);
+    setMenu({date,category,item,x:Math.min(event.clientX,window.innerWidth-240),y:Math.min(event.clientY,window.innerHeight-220)});
+  }
+  useEffect(()=>{if(!menu)return;menuRef.current?.querySelector('button')?.focus();const close=()=>setMenu(null);const key=event=>{if(event.key==='Escape')close();};window.addEventListener('click',close);window.addEventListener('keydown',key);return()=>{window.removeEventListener('click',close);window.removeEventListener('keydown',key);};},[menu]);
 
   function handleMouseEnter(e, event) {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -465,6 +523,7 @@ export default function GanttChart() {
       <Header title="לוח שנה" onPermissions={() => setShowPermissionsPanel(true)} />
       {showPermissionsPanel && <PagePermissionsPanel feature="calendar" onClose={() => setShowPermissionsPanel(false)} />}
 
+      {actionError && <p className="calendar-action-error" role="alert">{actionError}</p>}
       <div className="gantt-controls">
         <div className="gantt-nav">
           <div className="gantt-select-wrap">
@@ -537,6 +596,8 @@ export default function GanttChart() {
             <Settings size={16} />
             ימים
           </button>
+        {canCreateCalendar && <button className="gantt-yearly-btn" aria-expanded={bankOpen} onClick={()=>setBankOpen(!bankOpen)}>{bankOpen?'הסתרת בנק אירועים':'בנק אירועים'}</button>}
+        {permissions.categories_view && <button className="gantt-yearly-btn" onClick={()=>setCategoryOpen(true)}>קטגוריות</button>}
           <button className="gantt-yearly-btn" onClick={() => setYearlyOpen(true)}>
             <Eye size={16} />
             מבט שנתי
@@ -561,7 +622,8 @@ export default function GanttChart() {
         </div>
       )}
 
-      <div className="gantt-table-wrap">
+      {bankOpen && <EventBank touchHandle={touchHandle} templates={templates} onSave={saveTemplates} onUse={openTemplate} busy={saving} canManage={canEditCalendar}/>}
+      <div className="gantt-table-wrap" ref={tableRef}>
         <table className="gantt-table">
           <thead>
             <tr>
@@ -659,24 +721,36 @@ export default function GanttChart() {
                       return (
                         <td
                           key={di}
+                          data-calendar-date={dateKey(date)} data-calendar-category={cat}
                           className={`gantt-cell ${!isCurrentMonth ? 'gantt-cell--dim' : ''} ${isToday ? 'gantt-cell--today' : ''} ${isHoliday ? 'gantt-cell--holiday' : ''}`}
                           style={{
                             width: `${(visibleColumnWidths[vi] / totalFlex) * 100}%`,
                             height: rowH
                           }}
+                          tabIndex={canCreateCalendar ? 0 : undefined}
+                          onKeyDown={event=>{if(event.target!==event.currentTarget)return;if(event.key==='Enter')handleCellClick(date,cat);if(event.key==='ContextMenu'||(event.shiftKey&&event.key==='F10'))openMenu(event,date,cat);}}
+                          onContextMenu={event=>openMenu(event,date,cat)}
+                          onDragOver={event=>{if(event.dataTransfer.types.includes('application/x-zoko-calendar')){event.preventDefault();event.currentTarget.classList.add('calendar-drop');}}}
+                          onDragLeave={event=>event.currentTarget.classList.remove('calendar-drop')}
+                          onDrop={event=>dropCalendar(event,date,cat)}
                           onClick={() => handleCellClick(date, cat)}
                         >
                           <div className="gantt-cell-cat">{cat}</div>
                           {cellEvents.map(ev => (
                             <div
                               key={ev.id}
+                              role="button" tabIndex={0}
+                              draggable={canEditCalendar && !saving}
+                              onDragStart={event=>{event.stopPropagation();setTooltip(null);event.dataTransfer.setData('application/x-zoko-calendar',JSON.stringify({eventId:ev.id}));event.dataTransfer.effectAllowed='move';}}
+                              onKeyDown={event=>{if(event.key==='Enter')handleEventClick(event,ev);if(event.key==='ContextMenu'||(event.shiftKey&&event.key==='F10'))openMenu(event,date,cat,ev);}}
+                              onContextMenu={event=>openMenu(event,date,cat,ev)}
                               className={`gantt-event ${searchQuery.trim() ? (ev._searchMatch ? 'gantt-event--highlight' : 'gantt-event--dim') : ''}`}
                               style={{ background: ev.color || PASTEL_COLORS[0] }}
                               onClick={e => handleEventClick(e, ev)}
                               onMouseEnter={e => handleMouseEnter(e, ev)}
                               onMouseLeave={handleMouseLeave}
                             >
-                              {ev.title}
+                              {canEditCalendar && <button className="calendar-touch-grip" type="button" aria-label={`גרירת ${ev.title}`} {...touchHandle({eventId:ev.id})}>⠿</button>}{ev.title}
                             </div>
                           ))}
                           {isLastVisible && (
@@ -697,6 +771,13 @@ export default function GanttChart() {
         </table>
       </div>
 
+{menu && <div ref={menuRef} className="calendar-context-menu" role="menu" onKeyDown={event=>{if(!['ArrowDown','ArrowUp'].includes(event.key))return;event.preventDefault();const buttons=[...event.currentTarget.querySelectorAll('button')];const i=buttons.indexOf(document.activeElement);buttons[(i+(event.key==='ArrowDown'?1:buttons.length-1))%buttons.length]?.focus();}} style={{left:Math.max(8,menu.x||8),top:Math.max(8,menu.y||8)}}>
+        {menu.item && canEditCalendar && <button role="menuitem" onClick={event=>{handleEventClick(event,menu.item);setMenu(null);}}>עריכת האירוע / שינוי תאריך</button>}
+        {menu.item && canCreateCalendar && <button role="menuitem" onClick={()=>openTemplate(menu.item,menu.date,menu.category)}>שכפול האירוע</button>}
+        {canCreateCalendar && <button role="menuitem" onClick={()=>handleCellClick(menu.date,menu.category)}>אירוע חדש ביום הזה</button>}
+        <button role="menuitem" onClick={()=>setMenu(null)}>סגירה</button>
+      </div>}
+      {categoryOpen && <CalendarDialog title="קטגוריות לוח שנה" onClose={()=>setCategoryOpen(false)}><CategoryManager/></CalendarDialog>}
       {tooltip && (
         <div
           className="gantt-tooltip"
@@ -714,12 +795,14 @@ export default function GanttChart() {
 
       {modalOpen && (
         <EventModal
-          event={editingEvent}
+          event={editingEvent || templateDraft}
           date={selectedDate}
           category={selectedCategory}
           categories={categories}
           colors={PASTEL_COLORS}
           schoolId={schoolId}
+          error={actionError}
+          saving={saving}
           onSave={handleSaveEvent}
           onDelete={editingEvent && canDeleteCalendar ? handleDeleteEvent : null}
           onClose={() => setModalOpen(false)}

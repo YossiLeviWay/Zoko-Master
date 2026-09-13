@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Paperclip, Send, X } from 'lucide-react';
-import { db } from '../../firebase.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { subscribePrivateSession } from '../../utils/browserPrivacy.js';
-import { createCodexRelay, isLocalCodex } from '../../services/zoki/codexRelay.js';
+import { isLocalCodex } from '../../services/zoki/codexRelay.js';
 import './ZokiCodex.css';
 
 const phaseNames = { reading: 'קורא קובץ', matching: 'מתאים לכיתות ולנתונים', preparing: 'מכין הצעה', executing: 'מבצע' };
@@ -37,7 +36,6 @@ export default function ZokiCodexPanel({ onBack, onMinimize }) {
   const { currentUser, userData, selectedSchool } = useAuth();
   const schoolId = selectedSchool || userData?.schoolId;
   const local = isLocalCodex();
-  const relay = useMemo(() => createCodexRelay({ uid: currentUser.uid, schoolId, db, enabled: [true, 'true'].includes(import.meta.env.VITE_ZOKO_CODEX_PUBLIC_RELAY) }), [currentUser.uid, schoolId]);
   const [connected, setConnected] = useState(false);
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState('');
@@ -53,14 +51,14 @@ export default function ZokiCodexPanel({ onBack, onMinimize }) {
   const [page, setPage] = useState(0);
   const session = useRef(null), controller = useRef(null), alive = useRef(true), fileInput = useRef(null);
   const request = useCallback(async (operation, body = {}, signal) => {
-    if (!local) return relay.request(operation, body, signal);
+    if (!local) throw Object.assign(new Error(),{code:'local-origin-required'});
     const sessionId = session.current;
     const token = await currentUser.getIdToken();
     if (!alive.current && operation !== 'disconnect') throw Object.assign(new Error(), { code: 'session-expired' });
     const response = await fetch(`/__zoki_codex/${operation}`, { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(sessionId ? { 'X-Zoki-Session': sessionId } : {}) }, body: JSON.stringify({ ...body, schoolId }), signal });
     const result = await response.json(); if (!response.ok) throw Object.assign(new Error(), { code: result.code });
     return result;
-  }, [currentUser, schoolId, local, relay]);
+  }, [currentUser, schoolId, local]);
   useEffect(() => {
     alive.current = true;
     const clear = () => {
@@ -121,7 +119,7 @@ export default function ZokiCodexPanel({ onBack, onMinimize }) {
   const completed = results.filter(item => item.status === 'done').length;
   return <section className="zoki-codex" dir="rtl" aria-label="זוקי עם Codex">
     <header><div><strong>Codex שלי</strong><small>{connected ? 'מחובר · לפי ההרשאות שלך' : 'חיבור לחשבון Codex שלך'}</small></div><nav><button type="button" onClick={onBack}>זוקי רגיל</button>{onMinimize && <button type="button" onClick={onMinimize}>מזעור</button>}</nav></header>
-    {!connected ? <div className="zoki-codex-welcome"><h2>מה תרצו לארגן היום?</h2>{!local && ![true, 'true'].includes(import.meta.env.VITE_ZOKO_CODEX_PUBLIC_RELAY) && <p role="status">{errors['codex-public-disabled']}</p>}<p>לוח גאנט, מיפוי כיתה או מטלות לצוות — כתבו את הבקשה וצרפו קובץ. השינויים יוצגו לבדיקה לפני שמירה.</p><p>{local && import.meta.env.VITE_ZOKO_CODEX_PUBLIC_RELAY !== true ? 'החיבור המקומי זמין. החיבור מהאתר הציבורי טרם הופעל: נדרש להשלים את פרסום כללי ההרשאות.' : local ? 'השאירו את השירות ואת החלון הזה פעילים במחשב כדי להשתמש ב־Codex גם באתר הציבורי. בדיקת הפרטיות משתמשת בנתונים סינתטיים בלבד.' : 'הפעילו במחשב את שירות החיבור, פתחו את האפליקציה המקומית והתחברו בה לאותו חשבון זוקו ולאותו מוסד. השירות והחלון המקומי צריכים להישאר פתוחים. אין צורך בשדרוג Blaze.'}</p><button className="btn btn-primary" disabled={busy} onClick={() => perform('connect')}>{local ? 'חיבור ובדיקת פרטיות' : 'התחברות ל־Codex במחשב שלי'}</button>{!local && <p><a href="http://127.0.0.1:5189/Zoko-Master/" target="_blank" rel="noreferrer">פתיחת החיבור המקומי במחשב הזה</a></p>}</div> : <>
+    {!connected ? <div className="zoki-codex-welcome"><h2>מה תרצו לארגן היום?</h2><p>לוח גאנט, מיפוי כיתה או מטלות לצוות — כתבו את הבקשה וצרפו קובץ. השינויים יוצגו לבדיקה לפני שמירה.</p><p>חיבור מקומי לחשבון Codex במחשב הזה בלבד. אין אפשרות להפעיל אותו מהאתר הציבורי.</p><button className="btn btn-primary" disabled={busy} onClick={() => perform('connect')}>חיבור ובדיקת פרטיות</button></div> : <>
       <div className="zoki-codex-history" aria-live="polite">{history.map((entry, index) => <p key={index} className={`zoki-codex-${entry.role}`}>{entry.text}</p>)}</div>
       {proposal && <section className="zoki-codex-proposal"><header><strong>הצעה לבדיקה · גרסה {proposal.revision}</strong><span>{active.length} פריטים · {unresolved.length} לבירור</span></header>
         {proposal.excludedSources?.length > 0 && <details><summary>{proposal.excludedSources.length} שורות או עמודים שאינם נכללים בייבוא</summary>{proposal.excludedSources.map(row => <p key={row.id}>{row.label || row.id} — {row.reason}</p>)}</details>}

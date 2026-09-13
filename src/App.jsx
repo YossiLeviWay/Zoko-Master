@@ -11,7 +11,6 @@ import PageErrorBoundary from './components/Common/PageErrorBoundary';
 
 const Dashboard = lazy(() => import('./components/Dashboard/Dashboard'));
 const GanttChart = lazy(() => import('./components/Gantt/GanttChart'));
-const CategoryManager = lazy(() => import('./components/Gantt/CategoryManager'));
 const StaffManagement = lazy(() => import('./components/Staff/StaffManagement'));
 const TaskBoard = lazy(() => import('./components/Tasks/TaskBoard'));
 const FileManager = lazy(() => import('./components/Files/FileManager'));
@@ -112,7 +111,7 @@ export default function App() {
             <Route path="/" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
               <Route index element={<HomeRoute />} />
               <Route path="calendar" element={<ApprovedRoute><SchoolRequiredRoute><GanttChart /></SchoolRequiredRoute></ApprovedRoute>} />
-              <Route path="categories" element={<ApprovedRoute><SchoolRequiredRoute><CategoryManager /></SchoolRequiredRoute></ApprovedRoute>} />
+              <Route path="categories" element={<ApprovedRoute><SchoolRequiredRoute><Navigate to="/calendar?categories=1" replace /></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="staff" element={<ApprovedRoute><SchoolRequiredRoute><StaffManagement /></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="tasks" element={<ApprovedRoute><SchoolRequiredRoute><PageErrorBoundary><TaskWorkspace /></PageErrorBoundary></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="tasks/advanced" element={<ApprovedRoute><SchoolRequiredRoute><PageErrorBoundary><TaskBoard /></PageErrorBoundary></SchoolRequiredRoute></ApprovedRoute>} />

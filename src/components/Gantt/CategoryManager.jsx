@@ -8,9 +8,10 @@ import {
   updateDoc,
   deleteDoc,
   doc,
+  writeBatch,
   onSnapshot
 } from 'firebase/firestore';
-import Header from '../Layout/Header';
+import { sortCalendarCategories } from '../../utils/calendarInteractions';
 import { Plus, Edit3, Trash2, Save, X } from 'lucide-react';
 import './Gantt.css';
 import './Categories.css';
@@ -24,6 +25,8 @@ export default function CategoryManager() {
   const { userData, selectedSchool } = useAuth();
   const { permissions } = usePermissions();
   const canEdit = permissions.categories_edit;
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
   const [categories, setCategories] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -34,15 +37,27 @@ export default function CategoryManager() {
   useEffect(() => {
     if (!schoolId) return;
     const unsub = onSnapshot(collection(db, `categories_${schoolId}`), (snap) => {
-      setCategories(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setCategories(sortCalendarCategories(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
     });
     return unsub;
   }, [schoolId]);
+
+  async function moveCategory(index, direction) {
+    if(!canEdit || saving) return;
+    const next=[...categories];const target=index+direction;
+    if(target<0 || target>=next.length)return;
+    [next[index],next[target]]=[next[target],next[index]];
+    setSaving(true);setError('');
+    try { const batch=writeBatch(db);next.forEach((cat,order)=>batch.update(doc(db, `categories_${schoolId}`, cat.id),{order}));await batch.commit(); }
+    catch { setError('לא ניתן לשמור את הסדר. נסו שוב.'); } finally {setSaving(false);}
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
     if (!canEdit || !form.name.trim() || !schoolId) return;
 
+    setSaving(true); setError('');
+    try {
     if (editing) {
       await updateDoc(doc(db, `categories_${schoolId}`, editing), {
         name: form.name,
@@ -59,6 +74,7 @@ export default function CategoryManager() {
     setForm({ name: '', color: CATEGORY_COLORS[0] });
     setShowForm(false);
     setEditing(null);
+    } catch {setError('לא ניתן לשמור את הקטגוריה. הטיוטה נשארה לעריכה.');} finally {setSaving(false);}
   }
 
   async function handleDelete(id) {
@@ -75,9 +91,10 @@ export default function CategoryManager() {
   }
 
   return (
-    <div className="page">
-      <Header title="ניהול קטגוריות" />
-      <div className="page-content">
+<div className="calendar-categories">
+      <div>
+        <p>סדר הקטגוריות נשמר בלוח המוסד. השתמשו בחצים כדי לשנות את הסדר.</p>
+        {error && <p role="alert">{error}</p>}
         <div className="page-toolbar">
           {canEdit && (
             <button className="btn btn-primary" onClick={() => { setShowForm(true); setEditing(null); setForm({ name: '', color: CATEGORY_COLORS[0] }); }}>
@@ -115,7 +132,7 @@ export default function CategoryManager() {
                 </div>
               </div>
               <div className="form-actions">
-                <button type="submit" className="btn btn-primary">
+                <button type="submit" disabled={saving} className="btn btn-primary">
                   {editing ? 'עדכון' : 'הוספה'}
                 </button>
                 <button type="button" className="btn btn-secondary" onClick={() => { setShowForm(false); setEditing(null); }}>
@@ -127,12 +144,14 @@ export default function CategoryManager() {
         )}
 
         <div className="categories-grid">
-          {categories.map(cat => (
+          {categories.map((cat, index) => (
             <div key={cat.id} className="category-card" style={{ borderColor: cat.color }}>
               <div className="category-color" style={{ background: cat.color }} />
               <span className="category-name">{cat.name}</span>
               {canEdit && (
                 <div className="category-actions">
+                  <button disabled={saving || index===0} onClick={()=>moveCategory(index,-1)} aria-label={`העלאת ${cat.name}`}>↑</button>
+                  <button disabled={saving || index===categories.length-1} onClick={()=>moveCategory(index,1)} aria-label={`הורדת ${cat.name}`}>↓</button>
                   <button className="icon-btn" onClick={() => startEdit(cat)} title="עריכה">
                     <Edit3 size={14} />
                   </button>

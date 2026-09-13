@@ -58,7 +58,6 @@ const NAV_ITEMS = [
   { path: '/contacts', icon: ContactRound, label: 'אנשי קשר', requiresSchool: true, permission: 'contacts.view' },
   { path: '/collective-brain', icon: Brain, label: 'מוח משותף', requiresSchool: true },
   { path: '/messages', icon: MessageCircle, label: 'הודעות', permission: 'messages_send' },
-  { path: '/categories', icon: LayoutGrid, label: 'קטגוריות לוח שנה', requiresSchool: true, permission: 'categories_view' },
   { path: '/holidays', icon: Sun, label: 'חופשות וחגים', requiresSchool: true, permission: 'holidays_view' },
   { path: '/forum', icon: MessagesSquare, label: 'פורום בתי הספר', forumOnly: true, platformAllowed: true },
   { path: '/support', icon: LifeBuoy, label: 'תמיכה', requiresSchool: true, permission: 'support.create' },

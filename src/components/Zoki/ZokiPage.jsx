@@ -71,9 +71,10 @@ export default function ZokiPage(props) {
   const revision = useSyncExternalStore(subscribePrivateSession, privateSessionRevision);
   const schoolId = selectedSchool || userData?.schoolId;
   if (!currentUser?.uid || !userData || !schoolId) return null;
+  const localCodex = import.meta.env.VITE_ZOKO_CODEX_LOCAL === true && ['127.0.0.1','localhost'].includes(window.location.hostname);
   const manager = ['principal', 'institution_manager'].includes(userData.rolesBySchool?.[schoolId] || userData.role);
-  if (manager && engine === 'codex') return <div className={props.embedded ? 'zoki-floating-layer' : 'page zoki-page'}><div className={props.embedded ? 'zoki-window' : 'page-content zoki-shell'}><ZokiCodexPanel key={`${currentUser.uid}:${schoolId}:${revision}`} onBack={reason => { setEngineNotice(reason === 'codex-public-disabled' ? 'החיבור הציבורי ל־Codex ממתין לתיקון הרשאות Firebase. זוקי הרגיל פעיל.' : reason === 'codex-offline' ? 'Codex אינו זמין כרגע. זוקי הרגיל פעיל; לא הועברה אליו פעולה לביצוע.' : ''); setEngine('regular'); }} onMinimize={props.embedded ? props.onMinimize : null} /></div></div>;
-  return <ScopedZokiPage key={`${currentUser.uid}:${schoolId}:${revision}`} {...props} engineNotice={engineNotice} onCodex={manager ? () => setEngine('codex') : null} />;
+  if (localCodex && manager && engine === 'codex') return <div className={props.embedded ? 'zoki-floating-layer' : 'page zoki-page'}><div className={props.embedded ? 'zoki-window' : 'page-content zoki-shell'}><ZokiCodexPanel key={`${currentUser.uid}:${schoolId}:${revision}`} onBack={reason => { setEngineNotice(reason === 'codex-public-disabled' ? 'החיבור הציבורי ל־Codex ממתין לתיקון הרשאות Firebase. זוקי הרגיל פעיל.' : reason === 'codex-offline' ? 'Codex אינו זמין כרגע. זוקי הרגיל פעיל; לא הועברה אליו פעולה לביצוע.' : ''); setEngine('regular'); }} onMinimize={props.embedded ? props.onMinimize : null} /></div></div>;
+  return <ScopedZokiPage key={`${currentUser.uid}:${schoolId}:${revision}`} {...props} engineNotice={engineNotice} onCodex={localCodex && manager ? () => setEngine('codex') : null} />;
 }
 
 function ScopedZokiPage({ embedded = false, onMinimize = () => undefined, onCodex = null, engineNotice = '' }) {
