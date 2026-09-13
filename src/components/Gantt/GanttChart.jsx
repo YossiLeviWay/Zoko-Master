@@ -40,8 +40,7 @@ const HEBREW_MONTHS = [
 const DEFAULT_CATEGORIES = ['כללי'];
 
 const PASTEL_COLORS = [
-  '#fecdd3', '#fed7aa', '#fef08a', '#bbf7d0', '#99f6e4',
-  '#bae6fd', '#c4b5fd', '#e9d5ff', '#eadfe2', '#ffffff'
+  '#f4512c', '#94a3b8', '#cbd5e1'
 ];
 
 function getWeeksInMonth(year, month) {
@@ -415,7 +414,7 @@ export default function GanttChart() {
   }
   function openTemplate(template, date=new Date(), category=categories[0]) {
     if(!canCreateCalendar)return;
-    setEditingEvent(null);setTemplateDraft({title:template.title,description:template.description || '',color:template.color,date:dateKey(date),category});setSelectedDate(date);setSelectedCategory(category);setModalOpen(true);
+    setEditingEvent(null);setTemplateDraft({title:template.title,description:template.description || '',color:template.color,date:dateKey(date),category});setSelectedDate(date);setSelectedCategory(category);setBankOpen(false);setModalOpen(true);
   }
   async function dropCalendar(event,date,category) {
     event.preventDefault();event.currentTarget.classList.remove('calendar-drop');
@@ -622,7 +621,8 @@ export default function GanttChart() {
         </div>
       )}
 
-      {bankOpen && <EventBank touchHandle={touchHandle} templates={templates} onSave={saveTemplates} onUse={openTemplate} busy={saving} canManage={canEditCalendar}/>}
+      <div className="calendar-workspace">
+      {bankOpen && <EventBank onClose={()=>setBankOpen(false)} touchHandle={touchHandle} templates={templates} onSave={saveTemplates} onUse={openTemplate} busy={saving} canManage={canEditCalendar}/>}
       <div className="gantt-table-wrap" ref={tableRef}>
         <table className="gantt-table">
           <thead>
@@ -745,7 +745,7 @@ export default function GanttChart() {
                               onKeyDown={event=>{if(event.key==='Enter')handleEventClick(event,ev);if(event.key==='ContextMenu'||(event.shiftKey&&event.key==='F10'))openMenu(event,date,cat,ev);}}
                               onContextMenu={event=>openMenu(event,date,cat,ev)}
                               className={`gantt-event ${searchQuery.trim() ? (ev._searchMatch ? 'gantt-event--highlight' : 'gantt-event--dim') : ''}`}
-                              style={{ background: ev.color || PASTEL_COLORS[0] }}
+                              style={{ '--event-color': ev.color || PASTEL_COLORS[0] }}
                               onClick={e => handleEventClick(e, ev)}
                               onMouseEnter={e => handleMouseEnter(e, ev)}
                               onMouseLeave={handleMouseLeave}
@@ -769,6 +769,7 @@ export default function GanttChart() {
             })}
           </tbody>
         </table>
+      </div>
       </div>
 
 {menu && <div ref={menuRef} className="calendar-context-menu" role="menu" onKeyDown={event=>{if(!['ArrowDown','ArrowUp'].includes(event.key))return;event.preventDefault();const buttons=[...event.currentTarget.querySelectorAll('button')];const i=buttons.indexOf(document.activeElement);buttons[(i+(event.key==='ArrowDown'?1:buttons.length-1))%buttons.length]?.focus();}} style={{left:Math.max(8,menu.x||8),top:Math.max(8,menu.y||8)}}>

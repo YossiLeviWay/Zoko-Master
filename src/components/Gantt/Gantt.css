@@ -974,3 +974,45 @@
 .calendar-tools{display:flex;gap:8px;margin:0 24px 12px;flex-wrap:wrap}.event-bank{margin:0 24px 16px;padding:16px;border:1px solid var(--border-color,#dbe3eb);background:var(--bg-card,#fff);border-radius:16px}.event-bank>p{font-size:13px;color:var(--color-text-secondary);margin:0 0 12px}.event-bank-items{display:flex;gap:12px;overflow-x:auto;padding-bottom:12px}.event-bank article{flex:0 0 240px;border:1px solid var(--border-color,#dbe3eb);border-radius:12px;padding:12px;cursor:grab}.event-bank article>div{display:flex;gap:6px;margin-top:12px}.event-bank-editor{display:flex;flex-wrap:wrap;gap:12px;padding-top:16px}.event-bank-editor label{display:flex;flex-direction:column;gap:6px;flex:1;min-width:180px}.event-bank-editor>div{display:flex;align-items:end;gap:8px}.calendar-dialog{width:min(760px,calc(100vw - 32px));max-height:85dvh;border:1px solid var(--border-color,#dbe3eb);border-radius:20px;background:var(--bg-card,#fff);color:var(--color-text);padding:24px}.calendar-dialog::backdrop{background:#14253c66}.calendar-dialog header{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:16px}.calendar-dialog h2{margin:0;font-size:22px}.calendar-context-menu{position:fixed;z-index:1200;width:230px;border:1px solid var(--border-color,#dbe3eb);border-radius:12px;background:white;box-shadow:0 8px 28px #172b4d26;padding:6px;display:flex;flex-direction:column}.calendar-context-menu button{border:0;background:transparent;text-align:start;padding:12px;border-radius:8px;color:var(--color-text);font:inherit;cursor:pointer}.calendar-context-menu button:hover,.calendar-context-menu button:focus-visible{background:#fff3ed;color:var(--color-primary)}.calendar-drop{outline:3px solid var(--color-primary);outline-offset:-3px;background:#fff3ed!important}.calendar-action-error{margin:12px 24px;color:#a52a21}.gantt-event[draggable=true]{cursor:grab}.gantt-event:focus-visible{outline:3px solid var(--color-primary);outline-offset:2px}.calendar-categories .category-actions button{min-width:32px;min-height:32px}.calendar-categories .categories-grid{display:flex;flex-direction:column}
 @media(max-width:767px){.calendar-tools,.event-bank{margin-inline:12px}.calendar-dialog{padding:16px}.event-bank-editor{flex-direction:column}}
 .event-bank{max-height:42vh;overflow:auto}.calendar-touch-grip{display:none;touch-action:none;border:0;background:transparent;color:var(--color-text-secondary);padding:4px 8px;font:inherit}.calendar-touch-grip:focus-visible{outline:2px solid var(--color-primary)}@media(pointer:coarse){.calendar-touch-grip{display:inline-block;min-width:36px;min-height:36px}.gantt-event{min-height:40px}}
+
+/* Keep the calendar viewport height unchanged when the bank opens. */
+.calendar-workspace{position:relative;display:flex;flex:1;min-height:0;min-width:0;gap:12px;margin:1rem 1.25rem 1.25rem}
+.calendar-workspace>.gantt-table-wrap{margin:0;min-width:0;min-height:0}
+.calendar-workspace>.event-bank{flex:0 0 260px;box-sizing:border-box;min-height:0;max-height:none;margin:0;padding:14px;overflow:auto;display:flex;flex-direction:column;gap:12px;border-radius:14px}
+.event-bank header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.event-bank h2{font-size:16px;margin:0}
+.event-bank header button{display:flex;align-items:center;justify-content:center;border:0;background:transparent;color:var(--color-text-secondary);padding:6px;cursor:pointer}
+.event-bank>p{margin:0;font-size:12px;line-height:1.5}
+.event-bank-search{box-sizing:border-box;width:100%;padding:9px 10px;border:1px solid var(--color-border);border-radius:8px;font:inherit;font-size:13px}
+.event-bank .event-bank-items{display:flex;flex-direction:column;gap:8px;overflow:visible;padding:0}
+.event-bank article{display:flex;align-items:center;flex:0 0 auto;gap:6px;padding:8px;border-radius:9px;background:#fff}
+.event-bank-use{display:flex;flex-direction:column;align-items:start;gap:4px;min-width:0;flex:1;border:0;background:transparent;color:var(--color-text);font:inherit;font-size:13px;font-weight:600;text-align:start;cursor:pointer;overflow-wrap:anywhere;padding:4px}
+.event-bank-use span{font-size:11px;font-weight:400;color:var(--color-text-secondary)}
+.event-bank-edit{border:0;background:transparent;color:var(--color-text-secondary);font:inherit;font-size:12px;padding:6px;cursor:pointer}
+.event-bank article:hover{background:#f8fafc;border-color:#cbd5e1}
+.event-bank .event-bank-new{min-height:36px;font-size:13px;color:var(--color-text-secondary);box-shadow:none}
+.event-bank .event-bank-editor{display:flex;flex-direction:column;padding:0;gap:12px}
+.event-bank-editor label{flex:0 0 auto;min-width:0;font-size:13px}
+.event-bank-editor input,.event-bank-editor textarea{box-sizing:border-box;width:100%;font:inherit;padding:9px;border:1px solid var(--color-border);border-radius:8px}
+.event-bank-editor small{color:var(--color-text-secondary);line-height:1.5}
+.event-bank-editor .btn{padding:8px;font-size:12px;min-height:36px}
+@media(max-width:900px){
+  .calendar-workspace{margin-inline:.65rem}
+  .calendar-workspace>.event-bank{position:absolute;inset-block:8px;inset-inline-start:8px;width:min(280px,calc(100% - 16px));z-index:12;box-shadow:0 8px 28px #172b4d26}
+}
+/* Neutral surfaces; color is reserved for today, selection and a small event marker. */
+.gantt-table th,.gantt-date-header-cell{background:#f8fafc}
+.gantt-cell-cat{background:transparent;border:0;border-radius:0;color:#64748b;font-weight:500}
+.gantt-cell--holiday,.gantt-cell--holiday:hover{background:#fafafa}
+.gantt-holiday-tag,.gantt-holiday-badge{background:#f1f5f9;color:#52606d}
+.gantt-cell--today{background:#fffaf7;box-shadow:none}
+.gantt-date-header-cell.gantt-cell--today{background:#fff3ed;box-shadow:inset 0 -3px var(--color-primary)}
+.gantt-date-header-cell.gantt-cell--today .gantt-date-header-num{color:var(--color-primary)}
+.gantt-cell--selected,.gantt-date-header-cell:focus{box-shadow:inset 0 0 0 2px var(--color-primary);outline:0}
+.gantt-cell--today-pulse{animation:none}
+.gantt-today-btn{background:#fff3ed;border-color:#ffdacb;color:var(--color-primary)}
+.gantt-today-btn:hover{background:#ffeadf}
+.gantt-yearly-btn{color:var(--color-text-secondary)}
+.gantt-event{background:#fff;border:1px solid #dbe3eb;border-inline-start:3px solid var(--event-color,#f4512c);color:var(--color-text);font-weight:600}
+.gantt-event:hover{filter:none;transform:none;background:#f8fafc}
+.gantt-event--highlight{box-shadow:0 0 0 2px var(--color-primary);transform:none}

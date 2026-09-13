@@ -21,3 +21,14 @@ test('calendar changes also reach the legacy production rollout',async()=>{
  assert.match(snapshot['src/components/Gantt/GanttChart.jsx'],/categoriesReady/);
  assert.doesNotMatch(snapshot['src/components/Layout/Sidebar.jsx'],/path: '\/categories'/);
 });
+
+test('manager sees engine choice publicly while Codex activation stays local', async () => {
+ const page=await readFile('src/components/Zoki/ZokiPage.jsx','utf8');
+ assert.match(page,/showEnginePicker=\{manager\}/);
+ assert.match(page,/onCodex=\{localCodex && manager/);
+ const picker=await readFile('src/components/Zoki/ZokiEnginePicker.jsx','utf8');
+ assert.match(picker,/disabled=\{!onCodex\}/);
+ assert.doesNotMatch(picker,/fetch\(|localStorage|sessionStorage/);
+ const snapshot=JSON.parse(await readFile('scripts/simple-access-legacy.json','utf8'));
+ assert.match(snapshot['src/components/Gantt/GanttChart.jsx'],/className="calendar-workspace"/);
+});
