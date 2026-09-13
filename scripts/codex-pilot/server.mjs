@@ -1,3 +1,4 @@
+import { pairHtml, pairScript } from './pair-page.mjs';
 import { createRelay } from './relay.mjs';
 import { memoryCredentials } from './credentials.mjs';
 import { createServer } from 'node:http';
@@ -174,6 +175,12 @@ export async function startPilot() {
     let requestPath; try { requestPath = decodeURIComponent(req.url || ''); } catch { res.writeHead(400).end(); return; }
     if (requestPath.includes('.zoki-local') || requestPath.includes('integrity.key')) { res.writeHead(403).end(); return; }
     if (req.headers.host !== new URL(origin).host) { res.writeHead(403).end(); return; }
+    if (req.method === 'GET' && (requestPath.split('?')[0] === '/__zoki_pair' || requestPath === '/__zoki_pair.js')) {
+      res.setHeader('Cache-Control','no-store');res.setHeader('X-Content-Type-Options','nosniff');
+      res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'");
+      res.setHeader('Content-Type',requestPath === '/__zoki_pair.js' ? 'text/javascript; charset=utf-8' : 'text/html; charset=utf-8');
+      res.end(requestPath === '/__zoki_pair.js' ? pairScript : pairHtml);return;
+    }
     if (req.method === 'GET' && requestPath === '/__zoki_health') { res.setHeader('Content-Type','application/json');res.setHeader('Cache-Control','no-store');res.end(JSON.stringify({application:'zoko-connector',ready:true}));return; }
     if (!await pilot.handler(req, res)) vite.middlewares(req, res);
   });

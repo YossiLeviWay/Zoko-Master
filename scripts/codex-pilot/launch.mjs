@@ -12,5 +12,5 @@ if (!await ready()) {
 }
 for(let attempt=0;attempt<30 && !await ready();attempt++)await new Promise(resolve=>setTimeout(resolve,300));
 if(!await ready())throw Error('לא ניתן להפעיל את החיבור. בדוק שהפורט המקומי פנוי.');
-if (process.platform==='darwin' && !process.argv.includes('--no-open')) spawn('/usr/bin/open',['http://127.0.0.1:5189/Zoko-Master/#/zoki'],{stdio:'ignore'}).unref();
-console.log('תוכנת החיבור פועלת ברקע. חבר את החשבון בחלון המקומי, ולאחר מכן המשך באתר הרגיל.');
+if (process.platform==='darwin' && !process.argv.includes('--no-open')) spawn('/usr/bin/open',['https://yossileviway.github.io/Zoko-Master/#/zoki'],{stdio:'ignore'}).unref();
+console.log('תוכנת החיבור פועלת ברקע. באתר הרגיל בחר Codex שלי ואז חיבור המחשב שלי לאתר.');
