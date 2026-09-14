@@ -20,7 +20,11 @@ export function parseCsv(input) {
   if (lines.length > FILE_LIMITS.rows) fail('too-many-rows');
   return lines;
 }
-export async function extractPilotFile({ name, base64 }, recognize) {
+export async function extractPilotFile(file, recognize) {
+  try { return await extractFile(file, recognize); }
+  catch (error) { if (error instanceof PilotError) throw error; throw new PilotError('file-read-failed'); }
+}
+async function extractFile({ name, base64 }, recognize) {
   if (typeof name !== 'string' || name.length > 250 || typeof base64 !== 'string' || base64.length > Math.ceil(FILE_LIMITS.bytes * 4 / 3) + 4) fail('invalid-file');
   if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) fail('invalid-file');
   const bytes = Buffer.from(base64, 'base64');
@@ -48,6 +52,9 @@ export async function extractPilotFile({ name, base64 }, recognize) {
             else if (value.richText) value = value.richText.map(part => part.text).join('');
             else value = value.text ?? cell.text;
           }
+          // Cached formulas may themselves return Date objects. Normalize them
+          // after unwrapping, just like literal Excel dates.
+          if (value instanceof Date) value = value.toISOString().slice(0, 10);
           cells.push({ column, cell: cell.address, value, ...(warning ? { warning } : {}), ...(cell.isMerged ? { mergedFrom: cell.master.address } : {}) });
         });
         rows.push({ row: number, cells });

@@ -1,3 +1,4 @@
+import { errors, messageFor } from '../../services/zoki/codexErrors.js';
 import { pairComputer } from '../../services/zoki/pairComputer.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Paperclip, Send, X } from 'lucide-react';
@@ -7,35 +8,10 @@ import { db } from '../../firebase.js';
 import { createCodexRelay, isLocalCodex } from '../../services/zoki/codexRelay.js';
 import './ZokiCodex.css';
 
-const phaseNames = { reading: 'קורא קובץ', matching: 'מתאים לכיתות ולנתונים', preparing: 'מכין הצעה', executing: 'מבצע' };
-const errors = {
-  'popup-blocked': 'יש לאפשר פתיחת חלון חיבור למחשב בדפדפן ולנסות שוב.',
-  'computer-pairing-failed': 'החיבור למחשב לא הושלם. ודא ש־Codex מחובר לחשבון שלך ונסה שוב.',
-  'computer-pairing-cancelled': 'חלון החיבור נסגר. אפשר לפתוח אותו שוב.',
-  'computer-pairing-timeout': 'לא התקבל אישור מהמחשב. הפעל את קובץ חיבור זוקו שבמחשב ונסה שוב.',
-  'codex-public-disabled': 'החיבור הציבורי ל־Codex ממתין לתיקון הרשאות Firebase. זוקי הרגיל זמין בינתיים.',
-  'codex-offline': 'המחשב המחובר ל־Codex אינו זמין. אפשר להמשיך בזוקי הרגיל.',
-  'relay-timeout': 'לא התקבלה תשובה בזמן. אין לשלוח ביצוע למנוע אחר; התחברו מחדש ובדקו את דוח הייבוא לפני חידוש.',
-  'relay-expired': 'החיבור השתנה. התחברו מחדש; פעולה שכבר נשלחה לא תבוצע דרך מנוע אחר.',
-  'codex-login-required': 'יש להתחבר לחשבון האישי באפליקציית Codex במחשב ולנסות שוב.',
-  'codex-not-installed': 'Codex לא נמצא. יש להתקין אותו במחשב ולהגדיר את נתיב ההפעלה לפי הוראות הפיילוט.',
-  'permission-denied': 'הפעולה נחסמה בהרשאות Firebase. לא נרחיב הרשאות באופן אוטומטי.',
-  'session-expired': 'החיבור הסתיים. התחברו מחדש כדי לטעון רק את השיחה המורשית מ־Firebase.',
-  'file-too-large': 'אפשר לצרף קובץ אחד עד 20MB.',
-  'too-many-rows': 'הקובץ חורג מ־10,000 שורות. יש לפצל אותו לפני הייבוא.',
-  'too-many-pages': 'הקובץ חורג מ־100 עמודי PDF.',
-  'incomplete-source-coverage': 'לא התקבל פירוט מלא לכל שורות הקובץ. לא יובא דבר; אפשר לבקש ניסיון נוסף או לפצל את הקובץ.',
-  'context-too-large': 'המידע גדול מדי לבקשה אחת. צמצמו את הקובץ או את תחום הבקשה; לא יובא חלק ממנו.',
-  'data-changed': 'הנתונים השתנו מאז הכנת ההצעה. בקשו הצעה מעודכנת לפני ניסיון נוסף.',
-  'unresolved-proposal': 'יש להשלים את הבירורים או להסיר את השורות שלא אושרו.',
-  'approval-changed': 'ההצעה השתנתה. יש לבדוק ולאשר את הגרסה העדכנית.',
-  'codex-privacy-check-failed': 'בדיקת הפרטיות לא עברה. לא יועברו נתוני מוסד ל־Codex.',
-  'legacy-task-server-required': 'זו משימה ישנה עם מנגנון התקדמות שמנוהל בשרת. נדרש להתאים את מסלול העדכון לפני שניתן לערוך אותה בפיילוט.',
-  'codex-busy': 'כבר מתבצעת פעולה. המתינו לסיומה או בטלו אותה.',
-};
+const phaseNames = { reading: 'קורא קובץ', matching: 'מתאים לכיתות ולנתונים', preparing: 'מכין הצעה', saving: 'שומר הצעה לבדיקה', executing: 'מבצע' };
+
 const kindNames = { event: 'אירוע', class: 'כיתה', student: 'תלמיד', gradebook: 'מיפוי ציונים', grade: 'ציון', attendance: 'נוכחות', attendanceSheet: 'גיליון נוכחות חדש', mapping: 'מיפוי פדגוגי', mappingRow: 'שורת מיפוי', task: 'משימה' };
 const fieldNames = { title: 'כותרת', name: 'שם', fullName: 'שם מלא', firstName: 'שם פרטי', lastName: 'שם משפחה', description: 'תיאור', date: 'תאריך', endDate: 'עד תאריך', dateKey: 'תאריך', dueDate: 'מועד יעד', value: 'ערך', clear: 'מחיקת הציון הקיים', note: 'הערה', category: 'קטגוריה', gradeLevel: 'שכבה', academicYear: 'שנת לימודים', priority: 'עדיפות', skipWeekends: 'לדלג על שישי ושבת' };
-const messageFor = error => errors[error?.code] || 'הפעולה לא הושלמה. הטיוטה נשמרה במסך ואפשר לנסות שוב.';
 const describe = value => value == null ? '—' : typeof value === 'object' ? Object.entries(value).map(([key, entry]) => `${fieldNames[key] || key}: ${describe(entry)}`).join(' · ') : String(value);
 
 export default function ZokiCodexPanel({ onBack, onMinimize }) {

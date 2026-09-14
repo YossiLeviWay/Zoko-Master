@@ -5,13 +5,23 @@ import { createInterface } from 'node:readline';
 export class PilotError extends Error {
   constructor(code) { super(code); this.code = code; }
 }
+// Only structured error categories are inspected; never expose provider messages or details.
+export function codexFailureCode(error) {
+  const info = error?.codexErrorInfo;
+  const kind = (typeof info === 'string' ? info : Object.keys(info || {})[0] || '').toLowerCase();
+  if (kind === 'usagelimitexceeded') return 'codex-usage-limit';
+  if (kind === 'contextwindowexceeded') return 'codex-context-limit';
+  if (kind === 'unauthorized') return 'codex-login-required';
+  if (['httpconnectionfailed', 'responsestreamconnectionfailed', 'responsestreamdisconnected', 'responsetoomanyfailedattempts'].includes(kind)) return 'codex-connection-failed';
+  return 'codex-turn-failed';
+}
 const disabled = ['analytics.enabled', 'features.shell_tool', 'features.unified_exec', 'features.apps', 'features.plugins', 'features.hooks', 'features.memories', 'features.browser_use', 'features.browser_use_external', 'features.in_app_browser', 'features.shell_snapshot', 'features.remote_plugin', 'features.tool_suggest'];
 export const privacyConfig = Object.freeze({ ...Object.fromEntries(disabled.map(key => [key, false])), 'history.persistence': 'none', 'otel.log_user_prompt': false, 'otel.exporter': 'none', 'otel.trace_exporter': 'none', 'otel.metrics_exporter': 'none', notify: [], web_search: 'disabled' });
 
 // Protocol traffic is intentionally never logged. The child retains its own
 // supported account authentication; no credential files are read or copied.
 export class CodexPilotClient {
-  constructor({ cwd, executable = process.env.ZOKO_CODEX_BIN || (process.platform === 'darwin' && existsSync('/Applications/ChatGPT.app/Contents/Resources/codex') ? '/Applications/ChatGPT.app/Contents/Resources/codex' : 'codex'), spawnProcess = spawn, timeoutMs = 180000 } = {}) {
+  constructor({ cwd, executable = process.env.ZOKO_CODEX_BIN || (process.platform === 'darwin' && existsSync('/Applications/ChatGPT.app/Contents/Resources/codex') ? '/Applications/ChatGPT.app/Contents/Resources/codex' : 'codex'), spawnProcess = spawn, timeoutMs = 480000 } = {}) {
     this.cwd = cwd; this.pending = new Map(); this.sequence = 0; this.timeoutMs = timeoutMs;
     const args = ['app-server', '--stdio', ...Object.entries(privacyConfig).flatMap(([key, value]) => ['-c', `${key}=${JSON.stringify(value)}`])];
     this.process = spawnProcess(executable, args, { cwd, stdio: ['pipe', 'pipe', 'ignore'], env: { ...process.env, RUST_LOG: 'off' } });
@@ -29,7 +39,7 @@ export class CodexPilotClient {
       } else if (message.method === 'turn/completed' && this.turn) {
         const turn = this.turn; this.turn = null; clearTimeout(turn.timer);
         if (message.params?.turn?.status === 'completed') turn.resolve(this.answer || '');
-        else turn.reject(new PilotError('codex-turn-failed'));
+        else turn.reject(new PilotError(codexFailureCode(message.params?.turn?.error)));
       }
     });
     this.process.on('error', () => this.fail('codex-not-installed'));
@@ -70,7 +80,7 @@ export class CodexPilotClient {
     if (!thread?.ephemeral) throw new PilotError('codex-privacy-unavailable');
     this.threadId = thread.id; this.answer = '';
     const completion = new Promise((resolve, reject) => {
-      this.turn = { resolve, reject, timer: setTimeout(() => { this.interrupt(); }, this.timeoutMs) };
+      this.turn = { resolve, reject, timer: setTimeout(() => { this.fail('codex-timeout'); this.process.kill(); }, this.timeoutMs) };
     });
     // Attach rejection before starting the turn, including immediate process exits.
     completion.catch(() => {});

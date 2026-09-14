@@ -40,7 +40,7 @@ test('class matching uses teacher, grade and year and retains ambiguity', () => 
   assert.equal(matchCandidates({name:'שרון',academicYearId:'2025'},records).length,0);
 });
 test('untrusted model output cannot request arbitrary collections or code', () => {
-  assert.throws(()=>parseAnswer('not json'),/invalid-proposal/);
+  for(const text of ['not json','null','[]','{"answer":"test"}'])assert.throws(()=>parseAnswer(text),/invalid-proposal/);
   const db=memoryDb();
   return assert.rejects(prepareProposal(db,actor,{answer:'',actions:[action('users',{role:'admin'})]},{records:[]}),/invalid-action/);
 });
@@ -141,9 +141,9 @@ test('file coverage rejects omitted rows and marks uncertain cells for explicit 
 });
 test('Excel keeps sheets, merged sources, cached formulas and missing-value warnings',async()=>{
   const {createRequire}=await import('node:module');const require=createRequire(new URL('../../functions/package.json',import.meta.url));const ExcelJS=require('exceljs');
-  const book=new ExcelJS.Workbook();const sheet=book.addWorksheet('Synthetic');sheet.mergeCells('A1:B1');sheet.getCell('A1').value='Header';sheet.getCell('A2').value={formula:'1+1',result:2};sheet.getCell('B2').value={formula:'2+2'};book.addWorksheet('Second').getCell('A1').value=new Date('2026-09-10T00:00:00Z');
+  const book=new ExcelJS.Workbook();const sheet=book.addWorksheet('Synthetic');sheet.mergeCells('A1:B1');sheet.getCell('A1').value='Header';sheet.getCell('A2').value={formula:'1+1',result:2};sheet.getCell('B2').value={formula:'2+2'};sheet.getCell('C2').value={formula:'DATE(2026,9,11)',result:new Date('2026-09-11T00:00:00Z')};sheet.getCell('C2').numFmt='yyyy-mm-dd';book.addWorksheet('Second').getCell('A1').value=new Date('2026-09-10T00:00:00Z');
   const file=await extractPilotFile({name:'fixture.xlsx',base64:Buffer.from(await book.xlsx.writeBuffer()).toString('base64')});
-  assert.equal(file.pages.length,2);assert.equal(file.pages[0].rows[0].cells[1].mergedFrom,'A1');assert.equal(file.pages[0].rows[1].cells[0].value,2);assert.equal(file.pages[0].rows[1].cells[1].warning,'formula-without-cached-value');assert.equal(file.pages[1].rows[0].cells[0].value,'2026-09-10');
+  assert.equal(file.pages.length,2);assert.equal(file.pages[0].rows[0].cells[1].mergedFrom,'A1');assert.equal(file.pages[0].rows[1].cells[0].value,2);assert.equal(file.pages[0].rows[1].cells[1].warning,'formula-without-cached-value');assert.equal(file.pages[1].rows[0].cells[0].value,'2026-09-10');assert.equal(file.pages[0].rows[1].cells[2].value,'2026-09-11');
 });
 test('scanned PDF and image use vision while PDF over 100 pages is rejected',async()=>{
   const {jsPDF}=await import('jspdf');const {canaryPng}=await import('../../scripts/codex-pilot/canary.mjs');const png=canaryPng('SYNTHETIC');let calls=0;
@@ -168,4 +168,20 @@ test('HTTP analysis can save a private draft but only UI approval can write even
     const run=await call('approve',{hash:proposal.hash},connection.sessionId);assert.equal(run.results[0].status,'done');
     await call('disconnect',{},connection.sessionId);assert.equal((await call('approve',{hash:proposal.hash},connection.sessionId)).code,'session-expired');
   }finally{pilot.close();}
+});
+
+test('weekly Excel analysis preserves full provenance and cannot write calendar before approval',async()=>{
+ const {createRequire}=await import('node:module');const require=createRequire(new URL('../../functions/package.json',import.meta.url));const ExcelJS=require('exceljs');
+ const book=new ExcelJS.Workbook(),sheet=book.addWorksheet('Synthetic');
+ sheet.addRow(['תאריך',new Date('2026-09-01T00:00:00Z'),new Date('2026-09-02T00:00:00Z')]);sheet.addRow(['צוות']);sheet.addRow(['כללי','Synthetic opening']);
+ const db=memoryDb(),origin='http://127.0.0.1:5189';
+ const pilot=await createPilotHandler({origin,projectId:'demo_project',cwd:'/tmp',check:async()=>({ready:true}),dbFactory:()=>db,clientFactory:()=>({initialize:async()=>({authenticated:true}),close(){},generate:async({text})=>{
+  const input=JSON.parse(text);assert.deepEqual(input.sourceManifest.map(r=>r.id),['S1R3']);assert.equal(input.file.pages[0].rows[0].cells[1].value,'2026-09-01');
+  return JSON.stringify({answer:'Synthetic preview',actions:[{...action('event',{title:'Synthetic opening',date:'2026-09-01'}),sources:['S1R3']}]});
+ }})});
+ const call=async(operation,body={},session)=>{let result;const req=Readable.from([Buffer.from(JSON.stringify({schoolId:actor.schoolId,...body}))]);Object.assign(req,{headers:{host:'127.0.0.1:5189',origin,'content-type':'application/json',authorization:'Bearer synthetic','x-zoki-session':session},method:'POST',url:`/__zoki_codex/${operation}`});await pilot.handler(req,{setHeader(){},end(value){result=JSON.parse(value);}});return result;};
+ try{
+  const {sessionId}=await call('connect');const result=await call('analyze',{question:'Synthetic import preview',file:{name:'synthetic.xlsx',base64:Buffer.from(await book.xlsx.writeBuffer()).toString('base64')}},sessionId);
+  assert.ok(result.proposal,result.code);assert.deepEqual(result.proposal.excludedSources.map(r=>r.id),['S1R1','S1R2']);assert.equal(result.proposal.items[0].changes[0].data.date,'2026-09-01');assert.equal([...db.store.keys()].filter(path=>path.startsWith('events_')).length,0);
+ }finally{pilot.close();}
 });

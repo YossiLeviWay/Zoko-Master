@@ -99,12 +99,15 @@ export function createRelay({ projectId, origin, handler, dbFactory = options =>
       const db = dbFor(state);
       // Revalidate institution role; an old lease cannot grant access.
       await db.actor(state.actor.schoolId);
-      if (Date.now() - state.heartbeat > 45000) {
+      if (state.running || Date.now() - state.heartbeat > 45000) {
         const status = await invokePilot(handler, origin, state.token, state.sessionId, 'status', { schoolId: state.actor.schoolId });
         if (status.status !== 200) { await stop(); return; }
+        const phase = ['reading', 'matching', 'preparing', 'saving', 'executing'].includes(status.value.phase) ? status.value.phase : '';
         const presence = await db.get(`${state.root}/state/bridge`);
         if (presence?.data.bridgeId !== state.id) { await stop(); return; }
-        await db.commit([{ path: presence.path, version: presence.version, data: { bridgeId: state.id, online: true, expiresAt: Date.now() + 90000, busy: !!state.running } }]); state.heartbeat = Date.now();
+        if (Date.now() - state.heartbeat > 45000 || presence.data.phase !== phase || presence.data.busy !== !!state.running) {
+          await db.commit([{ path: presence.path, version: presence.version, data: { bridgeId: state.id, online: true, expiresAt: Date.now() + 90000, busy: !!state.running, phase } }]); state.heartbeat = Date.now();
+        }
       }
       const row = await db.get(`${state.root}/state/relayRequest`);
       if (row?.data.cancel === true && row.data.status === 'running' && row.data.id === state.running) await invokePilot(handler, origin, state.token, state.sessionId, 'cancel', { schoolId: state.actor.schoolId });

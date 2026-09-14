@@ -75,3 +75,42 @@ test('paired worker renews credentials without a browser heartbeat and clears th
  await relay.tick();assert.ok(refreshed>=2);assert.equal(db.records.get(`${root}/state/bridge`).data.online,true);
  await relay.close();assert.equal(cleared,1);assert.equal(db.records.get(`${root}/state/bridge`).data.online,false);
 });
+
+test('worker exposes only safe progress stages, never model or file text',async()=>{
+ const db=memoryDb();let phase='reading';
+ const handler=async(_req,res)=>{res.statusCode=200;res.end(JSON.stringify({connected:true,phase}));};
+ const relay=createRelay({projectId:'demo-relay',origin,handler,dbFactory:()=>db});
+ try{
+  await relay.session({operation:'connect',actor,token:'synthetic',sessionId:'private'});
+  assert.equal(db.records.get(`${root}/state/bridge`).data.phase,'reading');
+  // Force next idle heartbeat without exposing timestamps or inputs.
+  phase='private-file-content';
+  await relay.close();
+  await relay.session({operation:'connect',actor,token:'synthetic',sessionId:'private'});
+  assert.equal(db.records.get(`${root}/state/bridge`).data.phase,'');
+  assert.doesNotMatch(JSON.stringify([...db.records.values()]),/private-file-content/);
+ }finally{await relay.close();}
+});
+
+test('long analysis survives renewal and the original queue admission deadline',async t=>{
+ let now=100000; t.mock.method(Date,'now',()=>now);
+ const db=memoryDb();let complete,analyses=0,cancelled=0;
+ const finished=new Promise(resolve=>{complete=resolve;});
+ const handler=async(req,res)=>{
+  const operation=req.url.split('/').pop();
+  if(operation==='analyze'){analyses++;await finished;}
+  if(operation==='cancel')cancelled++;
+  res.statusCode=200;res.end(JSON.stringify({connected:true,phase:'preparing'}));
+ };
+ const relay=createRelay({projectId:'demo-relay',origin,handler,dbFactory:()=>db});
+ try{
+  await relay.session({operation:'connect',actor,token:'synthetic',sessionId:'private',credentials:{token:async()=> 'renewed',clear(){}}});
+  const bridge=(await db.get(`${root}/state/bridge`)).data;
+  await db.commit([{path:`${root}/transportChunks/long-in-0`,data:{text:'{}',expiresAt:now+600000}},{path:`${root}/state/relayRequest`,data:{id:'long',bridgeId:bridge.bridgeId,operation:'analyze',parts:1,status:'queued',expiresAt:now+180000}}]);
+  await relay.tick();for(let i=0;i<10&&!analyses;i++)await new Promise(resolve=>setImmediate(resolve));
+  for(let i=0;i<3;i++){now+=120000;await relay.tick();}
+  assert.equal(cancelled,0);assert.equal(analyses,1);assert.equal((await db.get(`${root}/state/bridge`)).data.phase,'preparing');
+  complete();for(let i=0;i<30&&(await db.get(`${root}/state/relayRequest`)).data.status!=='done';i++)await new Promise(resolve=>setImmediate(resolve));
+  assert.equal((await db.get(`${root}/state/relayRequest`)).data.status,'done');
+ }finally{complete();await relay.close();}
+});
