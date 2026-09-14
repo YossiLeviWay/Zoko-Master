@@ -1,3 +1,4 @@
+import { createAuthLoadingGate } from '../utils/authLoadingGate.js';
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { auth, db } from '../firebase';
 import {
@@ -274,8 +275,11 @@ export function AuthProvider({ children }) {
   }
 
   useEffect(() => {
+    const blocksInterface = createAuthLoadingGate();
     const unsubscribe = onIdTokenChanged(auth, async user => {
-      setLoading(true);
+      // Refreshing the same account must not unmount authenticated routes.
+      // Pairing asks Firebase for a fresh token; unmounting aborts that handshake.
+      if (blocksInterface(user)) setLoading(true);
       setCurrentUser(user);
       if (!user) {
         invalidatePrivateSession();
