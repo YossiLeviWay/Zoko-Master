@@ -11,3 +11,10 @@ test('device refreshes credentials in memory and clears them on disconnect',asyn
 test('revoked Firebase credentials never fall back to the stale token',async()=>{
  let now=0;const credentials=memoryCredentials({token:'first',refreshToken:'refresh',apiKey:'test',now:()=>now,fetchImpl:async()=>({ok:false})});now=41*60*1000;await assert.rejects(credentials.token(),/session-expired/);
 });
+
+test('temporary refresh failures retry without returning an expired token', async()=>{
+ let now=0,fail=true;
+ const credentials=memoryCredentials({token:'first',refreshToken:'refresh',apiKey:'test',now:()=>now,fetchImpl:async()=>fail?{ok:false,status:503}:{ok:true,json:async()=>({id_token:'renewed',refresh_token:'rotated',expires_in:3600})}});
+ now=41*60*1000;await assert.rejects(credentials.token(),/firebase-unavailable/);
+ fail=false;assert.equal(await credentials.token(),'renewed');credentials.clear();
+});

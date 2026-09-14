@@ -27,7 +27,7 @@ export class UserFirestore {
     this.token = token; this.fetch = fetchImpl;
   }
   async request(path, body) {
-    const response = await this.fetch(`${this.base}${path}`, { method: body ? 'POST' : 'GET', headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(30000) });
+    const response = await this.fetch(`${this.base}${path}`, { method: body ? 'POST' : 'GET', headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(30000) }).catch(() => { throw new PilotError('firebase-unavailable'); });
     if (response.status === 404) return null;
     if (!response.ok) throw new PilotError(response.status === 403 ? 'permission-denied' : response.status === 401 ? 'session-expired' : response.status === 409 ? 'data-changed' : 'firebase-unavailable');
     return response.json();

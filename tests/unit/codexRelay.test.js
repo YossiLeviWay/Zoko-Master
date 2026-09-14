@@ -114,3 +114,29 @@ test('long analysis survives renewal and the original queue admission deadline',
   assert.equal((await db.get(`${root}/state/relayRequest`)).data.status,'done');
  }finally{complete();await relay.close();}
 });
+
+test('brief Firebase outage preserves pairing, revalidates role, and revocation stops immediately', async () => {
+  const db=memoryDb();let fail=false,revoked=false,cleared=0,checks=0;
+  db.actor=async()=>{checks++;if(fail)throw Object.assign(new Error(),{code:'firebase-unavailable'});if(revoked)throw Object.assign(new Error(),{code:'permission-denied'});return actor;};
+  const handler=async(_req,res)=>{res.statusCode=200;res.end('{"connected":true}');};
+  const relay=createRelay({projectId:'demo-relay',origin,handler,dbFactory:()=>db});
+  try {
+    await relay.session({operation:'connect',actor,token:'synthetic',sessionId:'private',credentials:{token:async()=>'synthetic',clear:()=>cleared++}});
+    const bridge=(await db.get(`${root}/state/bridge`)).data.bridgeId;
+    fail=true;await relay.tick();assert.equal(cleared,0);
+    fail=false;await relay.tick();assert.equal((await db.get(`${root}/state/bridge`)).data.bridgeId,bridge);assert.ok(checks>=3);
+    revoked=true;await relay.tick();assert.equal(cleared,1);assert.equal((await db.get(`${root}/state/bridge`)).data.online,false);
+  } finally { await relay.close(); }
+});
+
+test('prolonged outage clears credentials after bounded retry window', async t => {
+  let now=100000; t.mock.method(Date,'now',()=>now);
+  const db=memoryDb();let fail=false,cleared=0;
+  db.actor=async()=>{if(fail)throw Object.assign(new Error(),{code:'firebase-unavailable'});return actor;};
+  const relay=createRelay({projectId:'demo-relay',origin,dbFactory:()=>db,handler:async(_req,res)=>{res.statusCode=200;res.end('{"connected":true}');}});
+  try {
+    await relay.session({operation:'connect',actor,token:'synthetic',sessionId:'private',credentials:{token:async()=>'synthetic',clear:()=>cleared++}});
+    fail=true;await relay.tick();now+=59000;await relay.tick();assert.equal(cleared,0);
+    now+=1000;await relay.tick();assert.equal(cleared,1);
+  } finally { await relay.close(); }
+});

@@ -101,7 +101,7 @@ export function createRelay({ projectId, origin, handler, dbFactory = options =>
       await db.actor(state.actor.schoolId);
       if (state.running || Date.now() - state.heartbeat > 45000) {
         const status = await invokePilot(handler, origin, state.token, state.sessionId, 'status', { schoolId: state.actor.schoolId });
-        if (status.status !== 200) { await stop(); return; }
+        if (status.status !== 200) throw new PilotError(status.value.code || 'session-expired');
         const phase = ['reading', 'matching', 'preparing', 'saving', 'executing'].includes(status.value.phase) ? status.value.phase : '';
         const presence = await db.get(`${state.root}/state/bridge`);
         if (presence?.data.bridgeId !== state.id) { await stop(); return; }
@@ -121,7 +121,18 @@ export function createRelay({ projectId, origin, handler, dbFactory = options =>
         } else await db.commit([{ path: row.path, version: row.version, patch: { status: 'expired' } }]);
       }
       if (!state.running && Date.now() - state.cleaned > 300000) { await clean(db, state.root); state.cleaned = Date.now(); }
-    } catch { await stop(); /* Re-pair locally after revocation or a failed credential refresh. */ }
+      state.failureSince = null;
+    } catch (error) {
+      if (current !== state) return;
+      // Retain RAM credentials across a brief outage; do not advertise a fresh
+      // lease or dispatch work until role validation succeeds on a later tick.
+      // Expired/revoked credentials and permission failures never retry here.
+      if (error.code === 'firebase-unavailable') {
+        state.failureSince ??= Date.now();
+        if (Date.now() - state.failureSince < 60000) return;
+      }
+      await stop();
+    }
     finally { ticking = false; }
   }
   const timer = setInterval(tick, 10000).unref();

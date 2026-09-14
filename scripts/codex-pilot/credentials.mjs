@@ -13,7 +13,8 @@ export function memoryCredentials({ token, refreshToken, apiKey, fetchImpl = fet
           method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: renewal }),
           signal: AbortSignal.timeout(20000),
-        });
+        }).catch(() => { throw new PilotError('firebase-unavailable'); });
+        if (response.status === 429 || response.status >= 500) throw new PilotError('firebase-unavailable');
         if (!response.ok) throw new PilotError('session-expired');
         const result = await response.json();
         if (!active || typeof result.id_token !== 'string' || typeof result.refresh_token !== 'string') throw new PilotError('session-expired');
