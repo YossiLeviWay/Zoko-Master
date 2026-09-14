@@ -1,4 +1,5 @@
 import { errors, messageFor } from '../../services/zoki/codexErrors.js';
+import { resumeComputer } from '../../services/zoki/resumeComputer.js';
 import { pairComputer } from '../../services/zoki/pairComputer.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Paperclip, Send, X } from 'lucide-react';
@@ -22,6 +23,7 @@ export default function ZokiCodexPanel({ onBack, onMinimize }) {
   const [connected, setConnected] = useState(false);
   const [busy, setBusy] = useState(false);
   const [pairing, setPairing] = useState(false);
+  const [checkingComputer, setCheckingComputer] = useState(!local);
   const [phase, setPhase] = useState('');
   const [question, setQuestion] = useState('');
   const [file, setFile] = useState(null);
@@ -55,6 +57,19 @@ export default function ZokiCodexPanel({ onBack, onMinimize }) {
     const unsubscribe = subscribePrivateSession(() => { if(local && session.current) request('disconnect').catch(() => {}); clear(); });
     return () => { clear(); alive.current = false; unsubscribe(); };
   }, [request, local]); // The parent is keyed by UID, school and private-session revision.
+  useEffect(() => {
+    if (local) return;
+    const probe = new AbortController();
+    resumeComputer(relay, probe.signal).then(result => {
+      if (probe.signal.aborted || !alive.current || !result) return;
+      session.current = result.sessionId; setConnected(true);
+      setHistory(result.history || []); setProposal(result.proposal || null);
+      setDraft(result.proposal?.items || []);
+    }).catch(failure => {
+      if (!probe.signal.aborted && alive.current && failure.code !== 'codex-offline') setError(messageFor(failure));
+    }).finally(() => { if (!probe.signal.aborted && alive.current) setCheckingComputer(false); });
+    return () => probe.abort();
+  }, [local, relay]);
   useEffect(() => {
     if (!connected) return;
     const timer = setInterval(() => {
@@ -103,12 +118,12 @@ export default function ZokiCodexPanel({ onBack, onMinimize }) {
   const completed = results.filter(item => item.status === 'done').length;
   return <section className="zoki-codex" dir="rtl" aria-label="זוקי עם Codex">
     <header><div><strong>Codex שלי</strong><small>{connected ? 'המחשב מחובר · לפי ההרשאות שלך' : 'חיבור לחשבון Codex שלך'}</small></div><nav><button type="button" onClick={onBack}>זוקי רגיל</button>{onMinimize && <button type="button" onClick={onMinimize}>מזעור</button>}</nav></header>
-    {!connected ? <div className="zoki-codex-welcome"><h2>מה תרצו לארגן היום?</h2><p>לוח גאנט, מיפוי כיתה או מטלות לצוות — כתבו את הבקשה וצרפו קובץ. השינויים יוצגו לבדיקה לפני שמירה.</p><p>{local ? 'חבר את המחשב פעם אחת לחשבון שלך. לאחר מכן אפשר לסגור את החלון הזה ולהמשיך באתר הרגיל כל עוד תוכנת החיבור פועלת.' : 'הבקשות יעברו למחשב שחיברת לחשבון שלך. כאשר המחשב אינו מחובר, זוקי הרגיל נשאר זמין.'}</p>{!local && <button className="btn btn-secondary" type="button" disabled={busy || pairing} onClick={async()=>{
+    {!connected ? <div className="zoki-codex-welcome"><h2>מה תרצו לארגן היום?</h2><p>לוח גאנט, מיפוי כיתה או מטלות לצוות — כתבו את הבקשה וצרפו קובץ. השינויים יוצגו לבדיקה לפני שמירה.</p><p>{local ? 'חבר את המחשב פעם אחת לחשבון שלך. לאחר מכן אפשר לסגור את החלון הזה ולהמשיך באתר הרגיל כל עוד תוכנת החיבור פועלת.' : 'מחשב שכבר חובר יזוהה אוטומטית. בחיבור ראשון ייפתח חלון נוסף: לחצו בו על ״אישור חיבור המחשב לחשבון שלי״. השירות המקומי צריך לפעול; פתיחת אפליקציית Codex בלבד אינה מפעילה אותו.'}</p>{!local && <button className="btn btn-primary" type="button" disabled={busy || pairing || checkingComputer} onClick={async()=>{
       setPairing(true);setError('');controller.current=new AbortController();
       try{await pairComputer(currentUser,schoolId,controller.current.signal);if(alive.current)await perform('connect');}
       catch(failure){if(alive.current&&failure.name!=='AbortError')setError(messageFor(failure));}
       finally{if(alive.current)setPairing(false);}
-    }}>{pairing?'ממתין לאישור במחשב…':'חיבור המחשב שלי לאתר'}</button>}<button className="btn btn-primary" disabled={busy || pairing} onClick={() => perform('connect')}>{local ? 'חיבור המחשב לאתר' : 'התחברות ל־Codex שלי'}</button></div> : <>
+    }}>{checkingComputer?'בודק את החיבור למחשב…':pairing?'ממתין לאישור בחלון שנפתח…':'חיבור Codex שלי'}</button>}<button className="btn btn-secondary" disabled={busy || pairing || checkingComputer} onClick={() => perform('connect')}>{local ? 'חיבור המחשב לאתר' : 'בדיקה מחדש של חיבור קיים'}</button></div> : <>
       {local && <p role="status">המחשב מחובר. <a href="https://yossileviway.github.io/Zoko-Master/#/zoki" target="_blank" rel="noreferrer">המשך באתר הרגיל</a> · <button type="button" onClick={async()=>{await request('disconnect');setConnected(false);session.current=null;}}>ניתוק המחשב מהאתר</button></p>}
       <div className="zoki-codex-history" aria-live="polite">{history.map((entry, index) => <p key={index} className={`zoki-codex-${entry.role}`}>{entry.text}</p>)}</div>
       {proposal && <section className="zoki-codex-proposal"><header><strong>הצעה לבדיקה · גרסה {proposal.revision}</strong><span>{active.length} פריטים · {unresolved.length} לבירור</span></header>
