@@ -185,3 +185,34 @@ test('weekly Excel analysis preserves full provenance and cannot write calendar 
   assert.ok(result.proposal,result.code);assert.deepEqual(result.proposal.excludedSources.map(r=>r.id),['S1R1','S1R2']);assert.equal(result.proposal.items[0].changes[0].data.date,'2026-09-01');assert.equal([...db.store.keys()].filter(path=>path.startsWith('events_')).length,0);
  }finally{pilot.close();}
 });
+
+test('conversation answers preserve pending proposals and write only private conversation state', async () => {
+  const db = memoryDb();
+  const headers = {host:'127.0.0.1:5189',origin:'http://127.0.0.1:5189','content-type':'application/json',authorization:'Bearer synthetic'};
+  let answer = {answer:'We can discuss the calendar.',actions:[]};
+  const pilot = await createPilotHandler({origin:headers.origin,projectId:'demo_project',cwd:'/tmp',check:async()=>({ready:true}),dbFactory:()=>db,clientFactory:()=>({initialize:async()=>({authenticated:true}),close(){},generate:async()=>JSON.stringify(answer)})});
+  const call = async(operation,body={},sessionId)=>{
+    const req=Readable.from([Buffer.from(JSON.stringify({schoolId:actor.schoolId,...body}))]);
+    Object.assign(req,{headers:{...headers,...(sessionId?{'x-zoki-session':sessionId}:{})},method:'POST',url:`/__zoki_codex/${operation}`});
+    let result; await pilot.handler(req,{setHeader(){},end(value){result=JSON.parse(value);}}); return result;
+  };
+  try {
+    const {sessionId} = await call('connect');
+    const first = await call('analyze',{question:'What can you do?'},sessionId);
+    assert.equal(first.proposal,undefined);
+    assert.equal(first.history.at(-1).text,answer.answer);
+    assert.equal([...db.store.keys()].some(path=>path.includes('/proposals/')),false);
+    answer={answer:'An event to review',actions:[action('event',{title:'Synthetic event',date:'2026-09-15'})]};
+    const {proposal} = await call('analyze',{question:'Prepare an event'},sessionId);
+    assert.ok(proposal?.hash);
+    const before = new Set(db.store.keys());
+    answer={answer:'After approval I can add the event.',actions:[]};
+    const reply=await call('analyze',{question:'Can you actually add it?'},sessionId);
+    assert.equal(reply.proposal,undefined);
+    assert.equal(reply.history.at(-1).text,answer.answer);
+    assert.deepEqual(new Set(db.store.keys()),before);
+    assert.equal((await call('resume',{},sessionId)).proposal.hash,proposal.hash);
+    assert.equal([...db.store.keys()].some(path=>path.startsWith('events_')),false);
+    assert.equal((await call('approve',{hash:proposal.hash},sessionId)).results[0].status,'done');
+  } finally { pilot.close(); }
+});
