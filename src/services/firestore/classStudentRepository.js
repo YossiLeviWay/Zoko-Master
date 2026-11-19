@@ -218,9 +218,11 @@ function studentFields(input, classItem) {
   };
 }
 
-export async function createStudent({ db, schoolId, actor, input, classItem }) {
+// `studentId` is optional: pass it to create the card for an id that other records (for example an
+// attendance sheet) already point to.
+export async function createStudent({ db, schoolId, actor, input, classItem, studentId = '' }) {
   if (!actor?.uid || !classItem?.id) throw new Error('INVALID_STUDENT');
-  const studentRef = doc(schoolCollection(db, schoolId, 'students'));
+  const studentRef = studentId ? doc(schoolCollection(db, schoolId, 'students'), studentId) : doc(schoolCollection(db, schoolId, 'students'));
   const historyRef = doc(collection(studentRef, 'history'));
   const yearId = classItem?.academicYearId || academicYearIdFromLegacy(classItem?.academicYear);
   if (!yearId) throw new Error('AMBIGUOUS_ACADEMIC_YEAR');

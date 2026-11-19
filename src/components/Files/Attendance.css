@@ -190,3 +190,15 @@
   .attendance-legend-form { grid-template-columns: 1fr 70px 45px; }
   .attendance-status-options { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* Quick marking bar: sticky so it is always within reach while scrolling a long list. */
+.attendance-quickbar { position: sticky; bottom: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; padding: .55rem .7rem; margin-top: .6rem; border: 1px solid var(--color-border); border-radius: 14px; background: rgba(255, 255, 255, .97); box-shadow: 0 -6px 18px rgba(35, 20, 27, .1); }
+.attendance-quickbar > span { display: inline-flex; align-items: center; gap: .3rem; font-weight: 700; color: var(--color-text); }
+.attendance-quickbar button { min-height: 40px; padding: 0 .7rem; border: 2px solid var(--legend-color, var(--color-border)); border-radius: 999px; background: #fff; color: var(--color-text); font: inherit; font-size: .88rem; cursor: pointer; display: inline-flex; align-items: center; gap: .3rem; }
+.attendance-quickbar button.is-active { background: var(--legend-color, var(--color-primary)); color: #fff; }
+.attendance-quickbar button.is-active:not([style]) { background: var(--color-primary); border-color: var(--color-primary); }
+.attendance-quickbar-all { margin-inline-start: auto; border-color: var(--color-primary) !important; color: var(--color-primary-text) !important; font-weight: 700; }
+.attendance-quickbar small { flex-basis: 100%; color: var(--color-text-muted); }
+.attendance-student-link { padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; text-align: start; }
+.attendance-student-link:hover strong, .attendance-student-link:focus-visible strong { color: var(--color-primary-text); text-decoration: underline; }
+.attendance-feedback--warning { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; padding: .6rem .8rem; border: 1px solid #f3c58b; border-radius: 12px; background: #fff7ec; color: #7a4a00; }
