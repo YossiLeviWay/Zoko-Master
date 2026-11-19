@@ -100,8 +100,16 @@ try {
     for (const route of routes) {
       current = route;
       const t0 = Date.now();
-      await page.goto(base + '/#' + route, { waitUntil: 'networkidle' }).catch(() => add('high', route, viewport.name, 'הדף לא נטען'));
-      await page.waitForTimeout(800);
+      // Navigate like a user would: click the menu link. The app keeps the login in memory
+      // only, so a full page load would sign the persona out.
+      const link = page.locator(`a[href="#${route}"]`).first();
+      if (route === '/' || await link.count() === 0) {
+        if (route !== '/') add('medium', route, viewport.name, 'אין קישור בתפריט למסך הזה (או שהוא מוסתר לתפקיד) — מורה מתחיל לא יגיע אליו', route);
+        await page.evaluate(h => { location.hash = h; }, route);
+      } else {
+        await link.click({ timeout: 3000 }).catch(async () => { add('medium', route, viewport.name, 'קישור התפריט קיים אך לא לחיץ בגודל המסך הזה', route); await page.evaluate(h => { location.hash = h; }, route); });
+      }
+      await page.waitForTimeout(3000);
       const loadMs = Date.now() - t0;
       if (loadMs > 4000) add('medium', route, viewport.name, `טעינה איטית (${loadMs}ms)`);
       const text = (await page.innerText('body').catch(() => '')).trim();
