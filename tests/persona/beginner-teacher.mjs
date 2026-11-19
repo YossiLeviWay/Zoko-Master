@@ -85,7 +85,7 @@ try {
     // Optional login as a test teacher (credentials step, then school choice).
     if (process.env.PERSONA_EMAIL) {
       current = '/login';
-      await page.goto(base + '/login');
+      await page.goto(base + '/#/login');
       await page.locator('input[type=email], input[type=text]').first().fill(process.env.PERSONA_EMAIL);
       await page.locator('input[type=password]').first().fill(process.env.PERSONA_PASSWORD || '');
       await page.locator('button[type=submit]').first().click();
@@ -100,7 +100,7 @@ try {
     for (const route of routes) {
       current = route;
       const t0 = Date.now();
-      await page.goto(base + route, { waitUntil: 'networkidle' }).catch(() => add('high', route, viewport.name, 'הדף לא נטען'));
+      await page.goto(base + '/#' + route, { waitUntil: 'networkidle' }).catch(() => add('high', route, viewport.name, 'הדף לא נטען'));
       await page.waitForTimeout(800);
       const loadMs = Date.now() - t0;
       if (loadMs > 4000) add('medium', route, viewport.name, `טעינה איטית (${loadMs}ms)`);

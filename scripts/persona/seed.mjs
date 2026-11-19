@@ -25,7 +25,7 @@ for (const person of people) {
     if (error.code !== 'auth/uid-already-exists' && error.code !== 'auth/email-already-exists') throw error;
   });
   await db.doc(`users/${person.uid}`).set({
-    email: person.email, name: person.name, displayName: person.name, fullName: person.name, role: person.role,
+    uid: person.uid, email: person.email, name: person.name, displayName: person.name, fullName: person.name, role: person.role,
     rolesBySchool: { [SCHOOL]: person.role }, schoolId: SCHOOL, schoolIds: [SCHOOL], accountStatus: 'active', permissions: {},
   });
   await db.doc(`schools/${SCHOOL}/memberships/${person.uid}`).set({ status: 'active', role: person.role, userId: person.uid });
