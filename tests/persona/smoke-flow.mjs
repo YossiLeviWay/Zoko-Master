@@ -9,7 +9,7 @@ const errs = []; p.on('pageerror', e => errs.push(String(e).slice(0, 140)));
 const log = (k, v) => console.log('CHECK', k, v);
 await p.goto('http://localhost:5173/Zoko-Master/#/login');
 await p.locator('input[type=email]').fill('principal@persona.test');
-await p.locator('input[type=password]').fill('Persona-Test-1234');
+await p.locator('input[type=password]').fill(process.env.PERSONA_PASSWORD || '');
 await p.locator('button[type=submit]').click();
 await p.locator('select').waitFor({ timeout: 10000 });
 await p.locator('select').selectOption({ index: 1 });

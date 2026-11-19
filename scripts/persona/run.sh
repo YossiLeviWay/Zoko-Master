@@ -4,7 +4,10 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 export VITE_FIREBASE_API_KEY=demo-key VITE_FIREBASE_AUTH_DOMAIN=localhost VITE_FIREBASE_PROJECT_ID=demo-zoko-persona \
   VITE_FIREBASE_STORAGE_BUCKET=demo-zoko-persona.appspot.com VITE_FIREBASE_MESSAGING_SENDER_ID=1 VITE_FIREBASE_APP_ID=1:1:web:1 \
-  VITE_USE_FIREBASE_EMULATORS=true PERSONA_EMAIL=teacher@persona.test PERSONA_PASSWORD=Persona-Test-1234
+  VITE_USE_FIREBASE_EMULATORS=true PERSONA_EMAIL=teacher@persona.test
+# A fresh random password for the throw-away emulator accounts every run, so no credential is ever committed.
+PERSONA_PASSWORD="$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 20)"
+export PERSONA_PASSWORD
 # The smoke flow needs the dev server (the beginner-teacher script starts its own when missing).
 if [ -n "${PERSONA_SMOKE:-}" ] && ! curl -fs -o /dev/null http://localhost:5173/Zoko-Master/; then
   npx vite --port 5173 --strictPort >/dev/null 2>&1 &

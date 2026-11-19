@@ -1,0 +1,4 @@
+# Throw-away password of local Firebase *emulator* test accounts, committed once in bc0f1b56 and since removed
+# (the persona runner now generates a random password per run). It never protected real data.
+bc0f1b56d012d6fd12bfab0f6e2f2f416a7516fd:scripts/persona/seed.mjs:generic-api-key:17
+bc0f1b56d012d6fd12bfab0f6e2f2f416a7516fd:scripts/persona/run.sh:generic-api-key:7

@@ -14,7 +14,8 @@ admin.initializeApp({ projectId });
 const db = admin.firestore();
 const auth = admin.auth();
 const SCHOOL = 'demo-school';
-const PASSWORD = 'Persona-Test-1234';
+const PASSWORD = process.env.PERSONA_PASSWORD;
+if (!PASSWORD) { console.error('Set PERSONA_PASSWORD (scripts/persona/run.sh does this for you).'); process.exit(2); }
 
 const people = [
   { uid: 'principal-1', email: 'principal@persona.test', name: 'מנהל לדוגמה', role: 'principal' },
@@ -33,4 +34,4 @@ for (const person of people) {
 await db.doc(`schools/${SCHOOL}`).set({ name: 'בית ספר לדוגמה', code: 'DEMO', status: 'active' });
 await db.doc(`schools/${SCHOOL}/classes/class-10`).set({ name: 'י׳1', grade: 'י', teacherId: 'teacher-1', status: 'active' });
 await db.doc(`folders_${SCHOOL}/seed-folder`).set({ name: 'נוכחות', visibility: 'all', allowedUsers: [], allowCreate: [], createdBy: 'מנהל לדוגמה', createdAt: new Date().toISOString() });
-console.log(`Seeded school "${SCHOOL}". Test logins (emulator only): teacher@persona.test / principal@persona.test, password ${PASSWORD}`);
+console.log(`Seeded school "${SCHOOL}". Test logins (emulator only): teacher@persona.test and principal@persona.test, with the password from PERSONA_PASSWORD`);
