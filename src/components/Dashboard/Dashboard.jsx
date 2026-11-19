@@ -22,6 +22,7 @@ import {
   taskDueDate,
   updateTaskStatus,
 } from '../../services/firestore/taskRepository';
+import { eventRelevantFor } from '../../../functions/src/eventAudience.js';
 import { DASHBOARD_TASK_SORTS, dashboardTaskStats, sortDashboardTasks } from '../../utils/dashboardTasks';
 import './Dashboard.css';
 
@@ -134,6 +135,7 @@ export default function Dashboard() {
   const [teamActivity, setTeamActivity] = useState([]);
   const [trackedFiles, setTrackedFiles] = useState([]);
   const [weekTasks, setWeekTasks] = useState([]);
+  const [schoolClasses, setSchoolClasses] = useState([]);
   const [staffTaskActivity, setStaffTaskActivity] = useState([]);
 
   // Filter preferences state
@@ -281,6 +283,13 @@ export default function Dashboard() {
     return unsub;
   }, [selectedSchool]);
 
+  // Classes (read-only) let us tell which events concern this person; if they cannot be read the
+  // person simply gets role-based relevance only.
+  useEffect(() => {
+    if (!selectedSchool) return undefined;
+    return onSnapshot(collection(db, `classes_${selectedSchool}`), snap => setSchoolClasses(snap.docs.map(d => ({ id: d.id, ...d.data() }))), () => setSchoolClasses([]));
+  }, [selectedSchool]);
+
   // Load upcoming week events
   useEffect(() => {
     if (!selectedSchool) return;
@@ -315,7 +324,14 @@ export default function Dashboard() {
   const eventCategories = [...new Set(events.map(e => e.category).filter(Boolean))];
 
   // Filtered events and holidays
-  const filteredEvents = events.filter(e => !e.category || !hiddenEventCategories.includes(e.category));
+  const canSeeEverything = Boolean(isPrincipal() || isGlobalAdmin());
+  const relevanceUser = {
+    id: currentUser?.uid,
+    roleIds: [userData?.accessProfilesBySchool?.[selectedSchool]?.presetId, ...(schoolClasses.some(c => c.teacherId === currentUser?.uid) ? ['homeroom'] : [])].filter(Boolean),
+    subjects: Array.isArray(userData?.subjects) ? userData.subjects : [],
+  };
+  const isRelevant = event => eventRelevantFor(event, relevanceUser, schoolClasses, { manager: canSeeEverything });
+  const filteredEvents = events.filter(e => (!e.category || !hiddenEventCategories.includes(e.category)) && isRelevant(e));
   const filteredHolidays = holidays.filter(h => !h.type || !hiddenHolidayTypes.includes(h.type));
   const filteredTodayHolidays = todayHolidays.filter(h => !h.type || !hiddenHolidayTypes.includes(h.type));
 
@@ -922,10 +938,10 @@ export default function Dashboard() {
           </div>
         );
       case 'upcoming_week':
-        if (weekTasks.length === 0) return <p className="section-empty">אין אירועים השבוע</p>;
+        if (weekTasks.filter(isRelevant).length === 0) return <p className="section-empty">אין אירועים השבוע</p>;
         return (
           <div className="event-list">
-            {weekTasks.map(event => (
+            {weekTasks.filter(isRelevant).map(event => (
               <div key={event.id} className="event-card" style={{ cursor: 'pointer' }} onClick={() => { const d = new Date(event.date + 'T00:00:00'); navigate(`/calendar?year=${d.getFullYear()}&month=${d.getMonth()}`); }}>
                 <div className="event-date-badge">
                   <span className="event-day">{new Date(event.date + 'T00:00:00').getDate()}</span>
