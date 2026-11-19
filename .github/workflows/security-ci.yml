@@ -3,7 +3,7 @@ name: Security CI
 on:
   pull_request:
   push:
-    branches: [development, security-hardening]
+    branches: [main, master, development, security-hardening]
 
 permissions:
   contents: read
@@ -13,8 +13,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Scan current source tree with Gitleaks
         run: docker run --rm -v "${{ github.workspace }}:/repo" zricethezav/gitleaks:v8.28.0 dir /repo --redact --no-banner
+      - name: Scan the full git history with Gitleaks
+        run: docker run --rm -v "${{ github.workspace }}:/repo" zricethezav/gitleaks:v8.28.0 git /repo --redact --no-banner
+
+  dependency-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Server dependencies must have no high or critical advisories
+        run: npm --prefix functions audit --omit=dev --audit-level=high
+      - name: Client dependencies must have no critical advisories
+        run: npm audit --omit=dev --audit-level=critical
 
   verify:
     runs-on: ubuntu-latest
