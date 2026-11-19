@@ -82,13 +82,20 @@ try {
     page.on('pageerror', e => add('high', current, viewport.name, 'חריגה לא מטופלת בדף', String(e).slice(0, 200)));
     page.on('requestfailed', r => { if (!/fonts\.g/.test(r.url())) add('medium', current, viewport.name, 'בקשה נכשלה', r.url().slice(0, 120)); });
 
-    // Optional login as a test teacher.
+    // Optional login as a test teacher (credentials step, then school choice).
     if (process.env.PERSONA_EMAIL) {
+      current = '/login';
       await page.goto(base + '/login');
-      await page.getByRole('textbox').first().fill(process.env.PERSONA_EMAIL);
+      await page.locator('input[type=email], input[type=text]').first().fill(process.env.PERSONA_EMAIL);
       await page.locator('input[type=password]').first().fill(process.env.PERSONA_PASSWORD || '');
-      await page.getByRole('button', { name: /כניסה|התחבר/ }).first().click().catch(() => add('high', '/login', viewport.name, 'לא נמצא כפתור כניסה ברור'));
+      await page.locator('button[type=submit]').first().click();
+      const select = page.locator('select').first();
+      if (await select.waitFor({ timeout: 8000 }).then(() => true).catch(() => false)) {
+        await select.selectOption({ index: 1 });
+        await page.locator('button[type=submit]').first().click();
+      } else add('high', '/login', viewport.name, 'אחרי הזנת פרטים לא הוצגה בחירת מוסד ולא הייתה כניסה');
       await page.waitForTimeout(2500);
+      if (/\/login/.test(page.url())) add('high', '/login', viewport.name, 'הכניסה לא הושלמה — המשתמש נשאר במסך הכניסה', (await page.innerText('body')).slice(0, 160));
     }
     for (const route of routes) {
       current = route;
