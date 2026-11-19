@@ -21,10 +21,12 @@ import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
 import CommunicationLauncherButton from '../Shared/CommunicationLauncherButton';
 import { usePermissions } from '../../hooks/usePermissions';
 import { Plus, Trash2, Edit3, Users, X, Search, UserPlus, UserMinus, Shield } from 'lucide-react';
+import { useContextMenu } from '../Common/ContextMenu';
 import '../Gantt/Gantt.css';
 import './Teams.css';
 
 export default function Teams() {
+  const { menuProps } = useContextMenu();
   const { userData, selectedSchool, isPrincipal, isGlobalAdmin } = useAuth();
   const { permissions } = usePermissions();
   const [showPermissionsPanel, setShowPermissionsPanel] = useState(false);
@@ -317,7 +319,7 @@ export default function Teams() {
 
         <div className="teams-grid">
           {filteredTeams.map(team => (
-            <div key={team.id} className="team-card">
+            <div key={team.id} className="team-card" {...menuProps(() => canManageTeam(team) ? [{ label: 'ניהול חברים', icon: UserPlus, onClick: () => { setManageTeam(team.id); setMemberSearch(''); } }, canEdit && { label: 'עריכה', icon: Edit3, onClick: () => handleEdit(team) }, canEdit && { separator: true }, canEdit && { label: 'מחיקה', icon: Trash2, danger: true, onClick: () => handleDelete(team.id) }] : [])}>
               <div className="team-card-header">
                 <div className="team-card-icon">
                   <Users size={20} />
