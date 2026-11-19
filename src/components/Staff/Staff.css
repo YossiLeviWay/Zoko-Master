@@ -69,7 +69,7 @@
   height: 48px;
   border-radius: 50%;
   background: var(--color-accent-soft);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -192,7 +192,7 @@
   height: 28px;
   border-radius: 50%;
   background: var(--color-accent-soft);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -372,7 +372,7 @@
 
 .staff-filter-btn--active {
   border-color: var(--color-primary);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   background: var(--color-primary-soft);
 }
 
@@ -442,7 +442,7 @@
   padding: 0.1rem 0.45rem;
   border-radius: 5px;
   background: var(--color-primary-soft);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   font-size: 0.7rem;
   font-weight: 600;
   white-space: nowrap;
@@ -450,7 +450,7 @@
 
 .staff-card-school {
   font-size: 0.72rem;
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   margin: 0.25rem 0 0;
   font-weight: 500;
 }
@@ -540,7 +540,7 @@
 
 .staff-context-menu-item:hover {
   background: var(--color-surface-muted);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
 }
 
 .staff-context-menu-item svg {
@@ -549,7 +549,7 @@
 }
 
 .staff-context-menu-item:hover svg {
-  color: var(--color-primary);
+  color: var(--color-primary-text);
 }
 
 /* ===== Profile Popup ===== */
@@ -715,7 +715,7 @@
 }
 
 .permission-preview-modal { max-width: 900px; }
-.permission-preview-banner { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 10px; padding: 12px 16px; color: var(--color-primary); background: var(--color-accent-soft); border-bottom: 1px solid var(--color-accent-border); }
+.permission-preview-banner { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 10px; padding: 12px 16px; color: var(--color-primary-text); background: var(--color-accent-soft); border-bottom: 1px solid var(--color-accent-border); }
 .permission-preview-banner span { color: var(--color-text-muted); font-size: 12px; }
 .permission-preview-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; max-height: 360px; overflow: auto; }
 .permission-preview-list > div { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; padding: 10px; border: 1px solid var(--color-border); border-radius: 9px; background: var(--color-surface); direction: ltr; text-align: left; }
@@ -1202,7 +1202,7 @@
 .role-form-intro { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 0.15rem 0 0.25rem; }
 .role-form-intro h4 { margin: 0.15rem 0; color: var(--color-text); font-size: 1rem; }
 .role-form-intro p { margin: 0; color: var(--color-text-subtle); font-size: 0.76rem; }
-.role-form-eyebrow { color: var(--color-primary); font-size: 0.68rem; font-weight: 700; }
+.role-form-eyebrow { color: var(--color-primary-text); font-size: 0.68rem; font-weight: 700; }
 .role-form-section { margin: 0; padding: 0.85rem; border: 1px solid var(--color-border); border-radius: 12px; background: #fff; }
 .role-section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.7rem; }
 .role-section-heading strong { color: var(--color-text); font-size: 0.84rem; }

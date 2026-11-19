@@ -102,7 +102,7 @@ try {
       const t0 = Date.now();
       // Navigate like a user would: click the menu link. The app keeps the login in memory
       // only, so a full page load would sign the persona out.
-      const link = page.locator(`a[href="#${route}"]`).first();
+      const link = page.locator(`a[href$="#${route}"]`).first();
       if (route === '/' || await link.count() === 0) {
         if (route !== '/') add('medium', route, viewport.name, 'אין קישור בתפריט למסך הזה (או שהוא מוסתר לתפקיד) — מורה מתחיל לא יגיע אליו', route);
         await page.evaluate(h => { location.hash = h; }, route);

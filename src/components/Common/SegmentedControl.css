@@ -20,7 +20,7 @@
   border: 1px solid var(--color-accent-soft);
   border-radius: var(--control-radius-small);
   background: var(--color-surface-raised);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   font: inherit;
   font-size: 0.82rem;
   font-weight: 650;

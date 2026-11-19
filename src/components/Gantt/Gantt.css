@@ -137,7 +137,7 @@
   min-height: var(--control-height);
   padding: 0.55rem 1rem;
   background: var(--color-surface-raised);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   border: 1px solid var(--color-border);
   border-radius: var(--control-radius);
   font-size: 0.82rem;
@@ -763,7 +763,7 @@
 
 .yearly-more {
   font-size: 0.7rem;
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   font-weight: 500;
 }
 

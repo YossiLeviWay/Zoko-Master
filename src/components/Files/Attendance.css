@@ -99,7 +99,7 @@
 
 .attendance-final-preview { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; }
 .attendance-date-preview { display: flex; flex-direction: column; gap: .55rem; }
-.attendance-date-preview article { display: flex; align-items: center; gap: .65rem; padding: .7rem; border: 1px solid var(--color-border); border-radius: 9px; color: var(--color-primary); }
+.attendance-date-preview article { display: flex; align-items: center; gap: .65rem; padding: .7rem; border: 1px solid var(--color-border); border-radius: 9px; color: var(--color-primary-text); }
 .attendance-date-preview article div { display: flex; flex-direction: column; gap: .12rem; color: var(--color-text-secondary); }
 .attendance-date-preview span,
 .attendance-date-preview small { color: var(--color-text-subtle); font-size: .72rem; }

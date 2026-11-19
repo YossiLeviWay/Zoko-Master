@@ -70,7 +70,7 @@
 .sidebar-logo {
   font-size: 1.3rem;
   font-weight: 800;
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   letter-spacing: -0.5px;
 }
 
@@ -162,7 +162,7 @@
 
 .sidebar-link--active {
   background: var(--color-primary-soft);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   font-weight: 600;
   box-shadow: inset -3px 0 0 var(--color-primary);
 }
@@ -194,7 +194,7 @@
   height: 32px;
   border-radius: 50%;
   background: var(--color-accent-soft);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -319,7 +319,7 @@
 
 .context-option.active {
   background: var(--color-primary-soft);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   font-weight: 600;
 }
 
@@ -366,7 +366,7 @@
 }
 
 .context-check {
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   flex-shrink: 0;
 }
 
@@ -417,7 +417,7 @@
 
 .header-notif-btn:hover {
   background: var(--color-surface-muted);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   border-color: var(--color-accent-soft);
 }
 
@@ -493,7 +493,7 @@
 /* ===== Avatar Styles ===== */
 .avatar-style--default {
   background: var(--color-accent-soft);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
 }
 
 .avatar-style--sunset {
@@ -620,7 +620,7 @@
   gap: 0.25rem;
   background: none;
   border: none;
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   font-size: 0.7rem;
   font-weight: 500;
   cursor: pointer;
@@ -682,7 +682,7 @@
 
 .notif-popup-item--unread .notif-popup-item-icon {
   background: var(--color-accent-soft);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
 }
 
 .notif-popup-item-content {
@@ -721,7 +721,7 @@
 .notif-popup-view-all {
   background: none;
   border: none;
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   font-size: 0.78rem;
   font-weight: 600;
   cursor: pointer;
@@ -1039,3 +1039,11 @@
   color: var(--color-text-faint);
   text-align: center;
 }
+
+/* Comfortable touch targets (44px) on phones. */
+@media (max-width: 768px) {
+  .sidebar-link, .sidebar-more-toggle, .sidebar-logout { min-height: 44px; }
+  .sidebar-toggle, .sidebar-mobile-toggle { min-width: 44px; min-height: 44px; }
+  .app-header button, .app-header a { min-width: 44px; min-height: 44px; }
+}
+.header-title { margin: 0; }

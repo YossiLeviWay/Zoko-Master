@@ -151,7 +151,7 @@
 }
 
 .conv-unread-dot {
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   flex-shrink: 0;
 }
 
@@ -229,7 +229,7 @@
   height: 30px;
   border-radius: 50%;
   background: var(--color-accent-soft);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -383,7 +383,7 @@
 .msg-image-btn:hover:not(:disabled) {
   background: var(--color-primary-soft);
   border-color: var(--color-primary);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
 }
 
 .msg-image-btn:disabled {
@@ -748,7 +748,7 @@
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   font-size: 0.78rem;
 }
 

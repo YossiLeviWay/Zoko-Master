@@ -44,7 +44,7 @@
 }
 
 .school-selector-icon {
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   margin-bottom: 0.5rem;
 }
 
@@ -161,7 +161,7 @@
 .school-selector-item:hover .school-selector-item-icon,
 .school-selector-item.selected .school-selector-item-icon {
   background: var(--color-accent-soft);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
 }
 
 .school-selector-item-info {
@@ -190,7 +190,7 @@
 }
 
 .school-selector-item-check {
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   flex-shrink: 0;
 }
 
@@ -263,7 +263,7 @@
 
 .school-selector-inline-item.active {
   background: var(--color-primary-soft);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   font-weight: 600;
 }
 

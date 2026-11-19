@@ -124,7 +124,7 @@
 
 .stat-icon--tasks {
   background: var(--color-accent-soft);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
 }
 
 .stat-icon--completed {
@@ -181,7 +181,7 @@
   gap: 0.5rem;
   padding: 0.85rem 1rem;
   border-bottom: 1px solid var(--color-surface-muted);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
 }
 
 .section-title {
@@ -240,7 +240,7 @@
 .event-day {
   font-size: 1rem;
   font-weight: 700;
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   line-height: 1;
 }
 
@@ -274,7 +274,7 @@
 
 .event-countdown {
   font-size: 0.72rem;
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   font-weight: 500;
 }
 
@@ -336,7 +336,7 @@
 
 .holiday-countdown {
   font-size: 0.72rem;
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   font-weight: 500;
   white-space: nowrap;
 }
@@ -383,7 +383,7 @@
 
 .activity-icon--school {
   background: var(--color-accent-soft);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
 }
 
 .activity-icon--principal {
@@ -647,7 +647,7 @@
 
 .filter-gear-btn:hover {
   background: var(--color-surface-muted);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   border-color: var(--color-accent-soft);
 }
 
@@ -761,7 +761,7 @@
 
 .widget-size-btn:hover {
   background: var(--color-surface-muted);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
 }
 
 .widget-size-btn--danger:hover {

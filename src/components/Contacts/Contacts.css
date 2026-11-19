@@ -5,11 +5,11 @@
   padding: 1.35rem 1.5rem; border: 1px solid var(--color-border); border-radius: 18px;
   background: linear-gradient(120deg, #fff 0%, var(--color-primary-soft) 100%);
 }
-.contacts-hero > div:first-child > span { display: inline-flex; align-items: center; gap: .4rem; color: var(--color-primary); font-size: .78rem; font-weight: 700; }
+.contacts-hero > div:first-child > span { display: inline-flex; align-items: center; gap: .4rem; color: var(--color-primary-text); font-size: .78rem; font-weight: 700; }
 .contacts-hero h1 { margin: .35rem 0 .2rem; font-size: 1.55rem; color: var(--color-text); }
 .contacts-hero p { margin: 0; color: var(--color-text-muted); font-size: .88rem; }
 .contacts-hero-count { min-width: 120px; padding: .9rem 1.1rem; text-align: center; border-radius: 14px; background: rgba(255,255,255,.8); border: 1px solid var(--color-border); }
-.contacts-hero-count strong { display: block; color: var(--color-primary); font-size: 1.45rem; }
+.contacts-hero-count strong { display: block; color: var(--color-primary-text); font-size: 1.45rem; }
 .contacts-hero-count span { color: var(--color-text-muted); font-size: .72rem; }
 
 .contacts-feedback { display: flex; align-items: center; justify-content: space-between; padding: .7rem 1rem; border-radius: 10px; background: #ecfdf5; color: #047857; font-size: .82rem; }
@@ -33,14 +33,14 @@
 .contact-card:hover { transform: translateY(-2px); border-color: var(--color-accent-soft); box-shadow: 0 8px 24px rgba(64, 14, 34, .07); }
 .contact-card--archived { opacity: .7; background: var(--color-surface-muted); }
 .contact-card > header { display: flex; align-items: center; gap: .65rem; }
-.contact-avatar { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 12px; background: var(--color-primary-soft); color: var(--color-primary); font-weight: 800; }
+.contact-avatar { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 12px; background: var(--color-primary-soft); color: var(--color-primary-text); font-weight: 800; }
 .contact-card header > div:nth-child(2) { flex: 1; min-width: 0; }
 .contact-card h2 { margin: 0; font-size: .98rem; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .contact-card header p { margin: .16rem 0 0; color: var(--color-text-muted); font-size: .75rem; }
 .contact-private-badge { padding: .2rem .45rem; border-radius: 999px; background: #ecfdf5; color: #047857; font-size: .65rem; font-weight: 700; }
 .contact-details { display: flex; flex-direction: column; gap: .3rem; color: var(--color-text-muted); font-size: .78rem; }
 .contact-details > span { align-self: flex-start; display: inline-flex; align-items: center; gap: .35rem; }
-.contact-details button { align-self: flex-start; display: inline-flex; align-items: center; gap: .35rem; border: 0; padding: 0; background: transparent; color: var(--color-primary); cursor: pointer; }
+.contact-details button { align-self: flex-start; display: inline-flex; align-items: center; gap: .35rem; border: 0; padding: 0; background: transparent; color: var(--color-primary-text); cursor: pointer; }
 .contact-tags { display: flex; align-items: center; flex-wrap: wrap; gap: .3rem; color: var(--color-text-faint); }
 .contact-tags span { padding: .18rem .42rem; border-radius: 999px; background: var(--color-surface-muted); color: var(--color-text-muted); font-size: .65rem; }
 .contact-notes { margin: 0; color: var(--color-text-muted); font-size: .75rem; line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -53,7 +53,7 @@
 .contacts-modal { width: min(720px, 96vw); max-height: 92vh; overflow: auto; border-radius: 18px; background: #fff; box-shadow: 0 24px 70px rgba(30,0,12,.22); }
 .contacts-modal--small { width: min(480px, 96vw); }
 .contacts-modal > header { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.2rem; border-bottom: 1px solid var(--color-border); background: #fff; }
-.contacts-modal > header span { color: var(--color-primary); font-size: .7rem; font-weight: 700; }
+.contacts-modal > header span { color: var(--color-primary-text); font-size: .7rem; font-weight: 700; }
 .contacts-modal > header h2 { margin: .2rem 0 0; font-size: 1.15rem; }
 .contacts-modal form { display: flex; flex-direction: column; gap: .8rem; padding: 1.1rem 1.2rem; }
 .contacts-modal .form-group { display: flex; flex-direction: column; gap: .3rem; flex: 1; }
