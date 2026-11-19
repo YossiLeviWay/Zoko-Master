@@ -2,6 +2,7 @@
 // role catalog. A profile is data (prompt + reminders + allowed tool names), so
 // the manager can see and limit exactly what each sub-agent may do.
 import { SCHOOL_ROLES } from './schoolRoleCatalog.js';
+import { knowledgePromptFor } from './zokiKnowledge.js';
 
 // Tools a role agent may use, mapped to the capability that must ALSO be granted
 // to the human, so the agent can never exceed its user's own permissions.
@@ -30,6 +31,7 @@ export function roleAgentProfile(roleId) {
       `תחומי אחריות: ${role.duties.join('; ')}.`,
       'פעל רק במסגרת ההרשאות של המשתמש. אל תמציא נתונים. הצע פעולה, וחכה לאישור לפני שינוי.',
       'כשנפתחת השיחה, הזכר משימות פתוחות, תאריכים קרובים והסדירויות החוזרות של התפקיד.',
+      knowledgePromptFor(role.id),
     ].filter(Boolean).join('\n'),
     reminders: role.reminders,
     tools: Object.keys(AGENT_TOOLS),
