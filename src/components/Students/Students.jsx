@@ -21,7 +21,6 @@ import {
 } from 'lucide-react';
 import MoreMenu from '../Common/MoreMenu';
 import MissingInfoMark from './MissingInfoMark';
-import { addStudentToClassSheets } from '../../services/firestore/attendanceRepository';
 import { useContextMenu } from '../Common/ContextMenu';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -394,10 +393,7 @@ export default function Students() {
     try {
       const input = { ...form, fullName };
       if (editingStudent) await updateStudent({ db, schoolId, actor, student: editingStudent, input, classItem: selectedClass });
-      else {
-        const newStudentId = await createStudent({ db, schoolId, actor, input, classItem: selectedClass });
-        addStudentToClassSheets({ db, schoolId, actor, studentId: newStudentId, student: input, classItem: selectedClass }).catch(() => undefined);
-      }
+      else await createStudent({ db, schoolId, actor, input, classItem: selectedClass });
       showSuccess(editingStudent ? 'פרטי התלמיד עודכנו.' : 'התלמיד והתיק השנתי נוצרו בהצלחה.');
       if (keepOpen && !editingStudent) setForm(previous => ({ ...emptyStudent(), classId: previous.classId, joinedAt: previous.joinedAt }));
       else setShowForm(false);

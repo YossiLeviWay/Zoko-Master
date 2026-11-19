@@ -1,3 +1,4 @@
+import { addStudentToClassSheets } from './attendanceRepository.js';
 import {
   collection,
   doc,
@@ -276,6 +277,11 @@ export async function createStudent({ db, schoolId, actor, input, classItem, stu
     updatedAt: serverTimestamp(),
   });
   await batch.commit();
+  // Every way of adding a student (students page, attendance sheet, bulk import) ends here, so the new
+  // student also appears in the attendance sheets of their class. Best effort: the card is already saved.
+  if (!studentId) {
+    addStudentToClassSheets({ db, schoolId, actor, studentId: studentRef.id, student: { ...studentData, id: studentRef.id }, classItem }).catch(() => undefined);
+  }
   return studentRef.id;
 }
 

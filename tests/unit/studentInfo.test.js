@@ -14,8 +14,15 @@ test('missing fields are listed by name', () => {
 test('the legacy rollout snapshot of the students page has the same simplifications as the source', async () => {
   const legacy = JSON.parse(await readFile('scripts/simple-access-legacy.json', 'utf8'))['src/components/Students/Students.jsx'];
   const current = await readFile('src/components/Students/Students.jsx', 'utf8');
-  for (const marker of ['<MoreMenu', 'MissingInfoMark', 'addStudentToClassSheets', "get('student')"]) {
+  for (const marker of ['<MoreMenu', 'MissingInfoMark', "get('student')"]) {
     assert.ok(legacy.includes(marker), `legacy missing ${marker}`);
     assert.ok(current.includes(marker), `current missing ${marker}`);
   }
+});
+
+test('every route that creates a student syncs them into the class attendance sheets from one place', async () => {
+  const repo = await readFile('src/services/firestore/classStudentRepository.js', 'utf8');
+  assert.match(repo, /addStudentToClassSheets\(/);
+  const editor = await readFile('src/components/Files/AttendanceSheetEditor.jsx', 'utf8');
+  assert.match(editor, /students_create/);
 });

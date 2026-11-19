@@ -9,7 +9,6 @@ import { createStudent, subscribeStudents } from '../../services/firestore/class
 import {
   addAttendanceLegendItem,
   addAttendanceMember,
-  addStudentToClassSheets,
   deleteAttendanceLegendItem,
   markAttendanceDate,
   saveAttendanceCell,
@@ -63,6 +62,8 @@ export default function AttendanceSheetEditor({ file, schoolId, actor, permissio
   const isTeacher = classItem?.teacherId === actor.uid;
   const canEdit = canManage || permissions.attendance_edit || isTeacher;
   const canManageLegend = canManage || permissions.attendance_manage_legend;
+  // Adding a student is a student permission, not an attendance one. The database rules enforce it too.
+  const canAddStudents = Boolean(canManage || permissions.students_create || permissions['students.create']);
 
   useEffect(() => {
     const common = { db, schoolId, fileId: file.id, mode: file._dataMode || 'nested', onError: () => setError('לא ניתן לטעון את נתוני הנוכחות.') };
@@ -213,7 +214,6 @@ export default function AttendanceSheetEditor({ file, schoolId, actor, permissio
       const studentId = await createStudent({ db, schoolId, actor, input, classItem });
       const student = { ...input, id: studentId };
       await addAttendanceMember({ db, schoolId, file, actor, student, classId: classItem.id });
-      addStudentToClassSheets({ db, schoolId, actor, studentId, student, classItem }).catch(() => undefined); // other sheets of the same class
       setAddForm({ firstName: '', lastName: '', parentPhone: '' });
       setAddOpen(false);
     } catch {
@@ -266,14 +266,14 @@ export default function AttendanceSheetEditor({ file, schoolId, actor, permissio
         <div><strong>{file.className}</strong><span>{file.academicYear}{file.academicYearRange ? ` (${file.academicYearRange})` : ''} · {file.dateRange?.start}–{file.dateRange?.end}</span></div>
         <div className="attendance-toolbar-actions">
           <label className="attendance-search">חיפוש תלמיד<input value={search} onChange={event => setSearch(event.target.value)} /></label>
-          {canEdit && classItem?.id && <button className="btn btn-secondary btn-sm" onClick={() => setAddOpen(true)}><UserPlus size={14} /> הוספת תלמיד</button>}
+          {canAddStudents && classItem?.id && <button className="btn btn-secondary btn-sm" onClick={() => setAddOpen(true)}><UserPlus size={14} /> הוספת תלמיד</button>}
           <button className="btn btn-secondary btn-sm" onClick={() => setShowLegend(previous => !previous)}><Settings2 size={14} /> מקראה</button>
           <span className={`attendance-save-state attendance-save-state--${saveState}`}><Save size={13} /> {saveState === 'saving' ? 'שומר…' : saveState === 'error' ? 'שגיאה' : 'נשמר'}</span>
         </div>
       </div>
 
       {error && <div className="attendance-feedback attendance-feedback--error" role="alert">{error}</div>}
-      {canEdit && orphans.length > 0 && <div className="attendance-feedback attendance-feedback--warning" role="status">ל־{orphans.length} תלמידים בגיליון אין עדיין כרטיס תלמיד. <button type="button" className="btn btn-secondary btn-sm" disabled={repairing} onClick={repairOrphans}>{repairing ? 'יוצר…' : 'יצירת כרטיסים'}</button></div>}
+      {canAddStudents && orphans.length > 0 && <div className="attendance-feedback attendance-feedback--warning" role="status">ל־{orphans.length} תלמידים בגיליון אין עדיין כרטיס תלמיד. <button type="button" className="btn btn-secondary btn-sm" disabled={repairing} onClick={repairOrphans}>{repairing ? 'יוצר…' : 'יצירת כרטיסים'}</button></div>}
       {showLegend && (
         <aside className="attendance-legend-panel">
           <div className="attendance-legend-list">{legend.map(item => <span key={item.id} style={{ '--legend-color': item.color }}><b>{item.shortCode}</b>{item.label}{canManageLegend && <button className="icon-btn icon-btn--danger" onClick={() => deleteLegendItem(item)} aria-label={`מחיקה לצמיתות של ${item.label}`} title="מחיקה לצמיתות"><Trash2 size={12} /></button>}</span>)}</div>
