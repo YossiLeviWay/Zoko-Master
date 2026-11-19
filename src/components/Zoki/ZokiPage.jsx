@@ -1,5 +1,3 @@
-import ZokiEnginePicker from './ZokiEnginePicker.jsx';
-import ZokiCodexPanel from './ZokiCodexPanel.jsx';
 import { zokiDisplayText } from '../../utils/zokiDisplayText.js';
 import { changeStaffMember } from '../../services/firestore/staffManagementRepository';
 import { staffChangeError } from '../../utils/staffManagement';
@@ -8,7 +6,7 @@ import { workspaceAction } from '../../services/firestore/taskWorkspaceRepositor
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getDocs, query, where } from 'firebase/firestore';
-import { ArrowDown, CheckCircle2, CircleStop, Minus, Pencil, Plus, Save, Send, Settings2, ShieldCheck, Trash2, X } from 'lucide-react';
+import { ArrowDown, CheckCircle2, CircleStop, MoreHorizontal, Minus, Pencil, Plus, Save, Send, Settings2, ShieldCheck, Trash2, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { db } from '../../firebase.js';
 import { callableReason, executeZokiAttendance, executeZokiCalendarEvent, executeZokiCalendarEventCancel, executeZokiCalendarEventUpdate, executeZokiContact, executeZokiDirectPermission, executeZokiGrade, executeZokiResourceAccess, executeZokiResourceCreate, executeZokiResourceMove, executeZokiResourceRename, executeZokiRoleAssignment, executeZokiStudentNote, executeZokiStudentTrack, executeZokiStudentTransfer, executeZokiTask, executeZokiTaskAssignment, executeZokiTaskDetails, executeZokiTaskStatus, executeZokiTeamCreate, executeZokiTeamManager, executeZokiTeamMembership, fileTrashAction } from '../../services/adminUserService.js';
@@ -29,10 +27,10 @@ import ZokiPersonalSettings from './ZokiPersonalSettings.jsx';
 import { isZokiAgentConfigured, zokiRequest, zokiSourcePaths, syncPersonalAgentConversation } from '../../services/zokiAgentService.js';
 
 const STARTERS = [
-  'באיזו כיתה לומד תלמיד מסוים?',
-  'איפה נמצא קובץ מסוים?',
+  'מה המשימות הפתוחות שלי?',
+  'מה קורה השבוע בלוח השנה?',
   'איך יוצרים משימה חדשה?',
-  'מה הנוהל הבית־ספרי בנושא טיולים?',
+  'איפה נמצא קובץ מסוים?',
 ];
 
 const EMPTY_ENTRY = { title: '', body: '', category: 'נוהל', validUntil: '', status: 'published', audience: { type: 'school', roleIds: [], userIds: [] } };
@@ -67,17 +65,13 @@ function displayName(item, fallback) {
 
 export default function ZokiPage(props) {
   const { currentUser, userData, selectedSchool } = useAuth();
-  const [engine, setEngine] = useState('regular');
-  const [engineNotice, setEngineNotice] = useState('');
   const revision = useSyncExternalStore(subscribePrivateSession, privateSessionRevision);
   const schoolId = selectedSchool || userData?.schoolId;
   if (!currentUser?.uid || !userData || !schoolId) return null;
-  const manager = ['principal', 'institution_manager'].includes(userData.rolesBySchool?.[schoolId] || userData.role);
-  if (manager && engine === 'codex') return <div className={props.embedded ? 'zoki-floating-layer' : 'page zoki-page'}><div className={props.embedded ? 'zoki-window' : 'page-content zoki-shell'}><ZokiCodexPanel key={`${currentUser.uid}:${schoolId}:${revision}`} onBack={reason => { setEngineNotice(reason === 'codex-public-disabled' ? 'החיבור הציבורי ל־Codex ממתין לתיקון הרשאות Firebase. זוקי הרגיל פעיל.' : reason === 'codex-offline' ? 'Codex אינו זמין כרגע. זוקי הרגיל פעיל; לא הועברה אליו פעולה לביצוע.' : ''); setEngine('regular'); }} onMinimize={props.embedded ? props.onMinimize : null} /></div></div>;
-  return <ScopedZokiPage key={`${currentUser.uid}:${schoolId}:${revision}`} {...props} engineNotice={engineNotice} showEnginePicker={manager} onCodex={manager ? () => setEngine('codex') : null} />;
+  return <ScopedZokiPage key={`${currentUser.uid}:${schoolId}:${revision}`} {...props} />;
 }
 
-function ScopedZokiPage({ embedded = false, onMinimize = () => undefined, onCodex = null, showEnginePicker = false, engineNotice = '' }) {
+function ScopedZokiPage({ embedded = false, onMinimize = () => undefined }) {
   const { userData, currentUser, selectedSchool, isPrincipal, isGlobalAdmin } = useAuth();
   const navigate = useNavigate();
   const schoolId = selectedSchool || userData?.schoolId;
@@ -88,6 +82,13 @@ function ScopedZokiPage({ embedded = false, onMinimize = () => undefined, onCode
   const [loading, setLoading] = useState(false);
   const [brainOpen, setBrainOpen] = useState(false);
   const [personalOpen, setPersonalOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const close = event => { if (event.type === 'keydown' ? event.key === 'Escape' : !event.target.closest?.('.zoki-menu')) setMenuOpen(false); };
+    document.addEventListener('mousedown', close); document.addEventListener('keydown', close);
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', close); };
+  }, [menuOpen]);
   const [brain, setBrain] = useState({ instructions: '', entries: [] });
   const [brainDraft, setBrainDraft] = useState({ instructions: '', entries: [] });
   const [savingBrain, setSavingBrain] = useState(false);
@@ -1051,14 +1052,17 @@ function ScopedZokiPage({ embedded = false, onMinimize = () => undefined, onCode
   return <div className={embedded ? 'zoki-floating-layer' : 'page zoki-page'}>
     <div className={embedded ? 'zoki-window' : 'page-content zoki-shell'}>
       <header className="zoki-window-header">
-        <div><img src={zokiAvatar} alt="" /><span><strong>{greeting}</strong><small>מידע ופעולות במקום אחד, לפי ההרשאות שלך</small></span></div>
+        <div><img src={zokiAvatar} alt="" /><span><strong>{greeting}</strong><small>שאלו, בקשו פעולה או צרו משימה</small></span></div>
         <nav aria-label="פעולות שיחה">
-          {engineNotice && <small role="status">{engineNotice}</small>}
-          {showEnginePicker && <ZokiEnginePicker onCodex={onCodex}/>}
-          {isZokiAgentConfigured && <button type="button" onClick={() => setPersonalOpen(true)}>הזיכרון שלי</button>}
-          {canManage && <button type="button" onClick={() => setBrainOpen(true)} aria-label="הגדרות העוזר" title="הגדרות העוזר"><Settings2 size={18} /></button>}
-          {messages.length > 0 && <button type="button" className="zoki-end-conversation" onClick={() => finishConversation()} title="סיום ומחיקת השיחה"><CircleStop size={17} /><span>סיום שיחה</span></button>}
-          {embedded && <button type="button" className="zoki-minimize-button" onClick={onMinimize} aria-label="מזעור" title="מזעור"><Minus size={16} /></button>}
+          <div className="zoki-menu">
+            <button type="button" className="zoki-menu-button" aria-haspopup="menu" aria-expanded={menuOpen} aria-label="עוד אפשרויות" title="עוד אפשרויות" onClick={() => setMenuOpen(open => !open)}><MoreHorizontal size={20} /></button>
+            {menuOpen && <ul className="zoki-menu-list" role="menu" onClick={() => setMenuOpen(false)}>
+              {isZokiAgentConfigured && <li role="none"><button role="menuitem" type="button" onClick={() => setPersonalOpen(true)}>הזיכרון שלי</button></li>}
+              {canManage && <li role="none"><button role="menuitem" type="button" onClick={() => setBrainOpen(true)}><Settings2 size={15} /> הגדרות העוזר</button></li>}
+              {messages.length > 0 && <li role="none"><button role="menuitem" type="button" className="is-danger" onClick={() => finishConversation()}><CircleStop size={15} /> סיום ומחיקת השיחה</button></li>}
+            </ul>}
+          </div>
+          {embedded && <button type="button" className="zoki-minimize-button" onClick={onMinimize} aria-label="מזעור" title="מזעור"><Minus size={18} /></button>}
         </nav>
       </header>
 
@@ -1066,7 +1070,7 @@ function ScopedZokiPage({ embedded = false, onMinimize = () => undefined, onCode
         {showHistoryJump && <button type="button" className="zoki-history-jump" onClick={scrollToLatestMessage}><ArrowDown size={14} /> להודעה האחרונה</button>}
         <div ref={messagesRef} className="zoki-messages" aria-live="polite" onScroll={event => { const element = event.currentTarget; setShowHistoryJump(element.scrollHeight - element.scrollTop - element.clientHeight > 100); }}>
           {messages.length > 0 && <div className="zoki-messages-spacer" aria-hidden="true" />}
-          {messages.length === 0 && <div className="zoki-empty"><img src={zokiAvatar} alt="" /><h2>אפשר לשאול אותי על כל מה שנמצא במערכת</h2><p>אם המידע אינו בהרשאה שלך, לא אחשוף אם הוא קיים.</p><div>{STARTERS.map(starter => <button type="button" key={starter} onClick={() => submitQuestion(starter)}>{starter}</button>)}</div></div>}
+          {messages.length === 0 && <div className="zoki-empty"><img src={zokiAvatar} alt="" /><h2>במה אפשר לעזור?</h2><div>{STARTERS.map(starter => <button type="button" key={starter} onClick={() => submitQuestion(starter)}>{starter}</button>)}</div></div>}
           {messages.map(message => <article key={message.id} className={`zoki-message zoki-message--${message.role}${message.error ? ' is-error' : ''}`}>
             {message.role === 'zoki' && <img src={zokiAvatar} alt="" />}
             <div><p>{['assistant', 'zoki'].includes(message.role) ? zokiDisplayText(message.text, message.sources) : message.text}</p>{message.followUpQuestion && <button type="button" className="zoki-follow-up" onClick={() => setQuestion(message.followUpQuestion)}>{message.followUpQuestion}</button>}
@@ -1105,7 +1109,7 @@ function ScopedZokiPage({ embedded = false, onMinimize = () => undefined, onCode
           {loading && <article className="zoki-message zoki-message--zoki"><img src={zokiAvatar} alt="" /><div className="zoki-thinking"><span /><span /><span /></div></article>}
           <div ref={endRef} />
         </div>
-        <form className="zoki-composer" onSubmit={event => { event.preventDefault(); submitQuestion(); }}><textarea id="zoki-question" aria-label="כתיבה לעוזר" value={question} onChange={event => setQuestion(event.target.value)} maxLength={2000} rows={2} placeholder="אפשר לשאול, לבקש פעולה או ליצור משימה…" onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submitQuestion(); } }} /><button type="submit" disabled={loading || question.trim().length < 2} aria-label="שליחה"><Send size={19} /></button><small><ShieldCheck size={13} /> מידע ופעולות מוגבלים להרשאות שלך</small></form>
+        <form className="zoki-composer" onSubmit={event => { event.preventDefault(); submitQuestion(); }}><textarea id="zoki-question" aria-label="כתיבה לעוזר" value={question} onChange={event => setQuestion(event.target.value)} maxLength={2000} rows={2} placeholder="כתבו כאן…" onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submitQuestion(); } }} /><button type="submit" disabled={loading || question.trim().length < 2} aria-label="שליחה"><Send size={19} /></button></form>
       </section>
     </div>
 

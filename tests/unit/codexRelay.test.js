@@ -52,10 +52,6 @@ test('public relay uses memory-only transport, transactional approval and no aut
   assert.doesNotMatch(source, /localStorage|sessionStorage|indexedDB|console\./);
   assert.doesNotMatch(source, /getIdToken|refreshToken|Authorization/);
   assert.match(source, /runTransaction/); assert.match(source, /signal\?\.aborted/);
-  const panel = await readFile('src/components/Zoki/ZokiCodexPanel.jsx', 'utf8');
-  assert.match(panel, /!local && !busy && !question && !file/);assert.doesNotMatch(panel,/onBack\(failure.code\)/);
-  const page = await readFile('src/components/Zoki/ZokiPage.jsx', 'utf8');
-  assert.match(page, /onCodex=\{manager \?/);
 });
 
 test('disabled production gate never accesses Firebase or queues sensitive input', async () => {

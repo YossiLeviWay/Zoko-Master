@@ -110,7 +110,7 @@ test('same-origin API rejects cross-site, rebound hosts and credentials in URLs'
   }finally{pilot.close();}
 });
 test('pilot never writes browser storage or operational payload logs',async()=>{
-  for(const path of ['src/components/Zoki/ZokiCodexPanel.jsx','scripts/codex-pilot/client.mjs','scripts/codex-pilot/files.mjs','scripts/codex-pilot/imports.mjs']){
+  for(const path of ['scripts/codex-pilot/client.mjs','scripts/codex-pilot/files.mjs','scripts/codex-pilot/imports.mjs']){
     const source=await readFile(path,'utf8');assert.doesNotMatch(source,/localStorage|sessionStorage|indexedDB|console\.(?:log|error|warn)/);
   }
   assert.equal(digest({a:1,b:2}),digest({b:2,a:1}));
