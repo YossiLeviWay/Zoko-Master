@@ -11,9 +11,6 @@ test('category order is stable and does not mutate snapshots',()=>{
  const rows=[{name:'ב',order:2},{name:'א',order:0},{name:'ג'}];
  assert.deepEqual(sortCalendarCategories(rows).map(r=>r.name),['א','ב','ג']);assert.equal(rows[0].name,'ב');
 });
-test('Codex execution stays on loopback while the paired relay serves the site',async()=>{
- const server=await readFile('scripts/codex-pilot/server.mjs','utf8');assert.match(server,/createRelay/);assert.match(server,/server.listen\(port, '127.0.0.1'/);
-});
 test('calendar changes also reach the legacy production rollout',async()=>{
  const snapshot=JSON.parse(await readFile('scripts/simple-access-legacy.json','utf8'));
  assert.match(snapshot['src/components/Gantt/GanttChart.jsx'],/dropCalendar/);

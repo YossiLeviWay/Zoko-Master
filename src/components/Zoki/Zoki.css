@@ -95,3 +95,8 @@
 .zoki-composer > button:disabled { opacity: .5; }
 .zoki-window button:focus-visible, .zoki-window textarea:focus-visible { outline: 3px solid #1d4ed8; outline-offset: 2px; }
 @media (max-width: 768px) { .zoki-window { inset: 0; width: auto; height: auto; border-radius: 0; } }
+
+/* The chat must shrink to the window: the composer is always fully visible, only the messages scroll. */
+.zoki-window .zoki-chat { grid-template-rows: minmax(0, 1fr) auto; min-height: 0; }
+.zoki-window .zoki-messages { min-height: 0; }
+.zoki-window .zoki-composer { flex-shrink: 0; }
