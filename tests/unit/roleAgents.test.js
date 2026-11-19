@@ -50,3 +50,14 @@ test('an agent never offers a tool its user lacks the capability for', () => {
   assert.equal(tools.includes('read_class_grades'), false);
   assert.equal(tools.includes('create_event'), false);
 });
+
+test('single-person relevance: events without an audience stay visible; audience events are filtered', async () => {
+  const { eventRelevantFor } = await import('../../functions/src/eventAudience.js');
+  const cls = [{ id: 'c10', grade: 'י', teacherId: 'home10' }, { id: 'c11', grade: 'יא', teacherId: 'home11' }];
+  const exam = { audience: { kind: 'exam', subject: 'english', grade: 'י' } };
+  assert.equal(eventRelevantFor({ title: 'x' }, { id: 'anyone' }, cls), true);
+  assert.equal(eventRelevantFor(exam, { id: 'home10', roleIds: [] }, cls), true);
+  assert.equal(eventRelevantFor(exam, { id: 'home11', roleIds: [] }, cls), false);
+  assert.equal(eventRelevantFor(exam, { id: 'ped', roleIds: ['pedagogical_coordinator'] }, cls), true);
+  assert.equal(eventRelevantFor(exam, { id: 'x', roleIds: [] }, cls, { manager: true }), true);
+});

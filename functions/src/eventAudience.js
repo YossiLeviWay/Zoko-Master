@@ -46,3 +46,18 @@ export function eventAudience(event, staff = [], classes = [], { managementRoleI
   }
   return result;
 }
+
+// Is this event relevant to ONE person? Events without an audience keep their existing
+// behaviour (everyone who can see them). Managers always see everything.
+export function eventRelevantFor(event, person, classes = [], { manager = false, managementRoleIds = [] } = {}) {
+  const audience = event?.audience;
+  if (!audience || manager) return true;
+  const own = { id: person.id, roleIds: person.roleIds || [], subjects: person.subjects || [], homeroomClassIds: [], teachingClassIds: [], grades: [] };
+  for (const cls of classes) {
+    if (cls.status === 'archived') continue;
+    if (cls.teacherId === person.id) { own.homeroomClassIds.push(cls.id); own.teachingClassIds.push(cls.id); if (cls.grade) own.grades.push(cls.grade); }
+    else if ((cls.staffIds || []).includes(person.id)) { own.teachingClassIds.push(cls.id); if (cls.grade) own.grades.push(cls.grade); }
+  }
+  const flat = { kind: audience.kind, subject: audience.subject, grade: audience.grade, classIds: audience.classIds, roleIds: audience.roleIds, userIds: audience.userIds, schoolWide: audience.schoolWide };
+  return eventAudience(flat, [own], classes, { managementRoleIds }).length > 0;
+}

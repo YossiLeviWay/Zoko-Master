@@ -843,7 +843,9 @@
 }
 
 @media (max-width: 480px) {
-  .sidebar {
+  /* Only an OPEN sidebar gets this width; a closed one must stay at width 0 (set in the 768px block),
+     otherwise it keeps covering more than half of a phone screen. */
+  .sidebar:not(.sidebar--collapsed) {
     width: 220px;
   }
 
