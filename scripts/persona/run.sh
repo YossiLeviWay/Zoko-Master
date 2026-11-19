@@ -14,4 +14,4 @@ if [ "${PERSONA_OPEN_RULES:-}" = "1" ]; then
   CONFIG_ARGS=(--config "$TMP/firebase.json")
 fi
 npx firebase emulators:exec "${CONFIG_ARGS[@]}" --only auth,firestore --project demo-zoko-persona \
-  "node scripts/persona/seed.mjs && node tests/persona/beginner-teacher.mjs --routes ${PERSONA_ROUTES:-/,/tasks,/calendar,/files,/staff,/students,/settings}"
+  "node scripts/persona/seed.mjs && ${PERSONA_SMOKE:+node tests/persona/smoke-flow.mjs}${PERSONA_SMOKE:-node tests/persona/beginner-teacher.mjs --routes ${PERSONA_ROUTES:-/,/tasks,/calendar,/files,/staff,/students,/settings}}"

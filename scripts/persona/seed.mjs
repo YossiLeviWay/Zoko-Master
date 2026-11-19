@@ -32,4 +32,5 @@ for (const person of people) {
 }
 await db.doc(`schools/${SCHOOL}`).set({ name: 'בית ספר לדוגמה', code: 'DEMO', status: 'active' });
 await db.doc(`schools/${SCHOOL}/classes/class-10`).set({ name: 'י׳1', grade: 'י', teacherId: 'teacher-1', status: 'active' });
+await db.doc(`folders_${SCHOOL}/seed-folder`).set({ name: 'נוכחות', visibility: 'all', allowedUsers: [], allowCreate: [], createdBy: 'מנהל לדוגמה', createdAt: new Date().toISOString() });
 console.log(`Seeded school "${SCHOOL}". Test logins (emulator only): teacher@persona.test / principal@persona.test, password ${PASSWORD}`);

@@ -202,3 +202,6 @@
 .attendance-student-link { padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; text-align: start; }
 .attendance-student-link:hover strong, .attendance-student-link:focus-visible strong { color: var(--color-primary-text); text-decoration: underline; }
 .attendance-feedback--warning { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; padding: .6rem .8rem; border: 1px solid #f3c58b; border-radius: 12px; background: #fff7ec; color: #7a4a00; }
+/* Keep the bar clear of the floating Zoki button in the bottom corner. */
+.attendance-quickbar { padding-left: 5.5rem; }
+@media (max-width: 768px) { .attendance-quickbar { padding-left: .7rem; padding-bottom: 4.2rem; } }
