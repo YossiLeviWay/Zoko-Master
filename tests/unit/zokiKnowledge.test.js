@@ -13,13 +13,13 @@ test('every entry has a source; verified entries carry a retrieval date and cont
   }
 });
 test('unverified circulars never produce rule text, only a check list and a deferral', () => {
-  const [suspension] = searchKnowledge('איך משעים תלמיד?');
-  assert.equal(suspension.id, 'circular-suspension');
-  const policy = answerPolicy(suspension);
+  const [curricula] = searchKnowledge('מה תוכנית הלימודים באנגלית?');
+  assert.equal(curricula.id, 'circular-curricula');
+  const policy = answerPolicy(curricula);
   assert.equal(policy.mode, 'defer');
   assert.match(policy.text, /לא בדקתי/);
   assert.ok(policy.checklist.length > 0);
-  assert.ok(policy.leads.length > 0 && policy.leads.every(lead => /לא נקרא|לא נבדק/.test(lead)));
+  assert.deepEqual(policy.leads, []);
 });
 test('verified entries are cited with their source', () => {
   const [entry] = searchKnowledge('כמה נקודות זכות מקבל רכז שכבה?', { roleId: 'grade_coordinator' });
@@ -32,7 +32,7 @@ test('verified entries are cited with their source', () => {
 test('role agent prompt carries the no-invention rule and open topics', () => {
   const prompt = roleAgentProfile('discipline_climate_coordinator').systemPrompt;
   assert.match(prompt, /אל תמציא חוזר מנכ״ל/);
-  assert.match(prompt, /השעיית תלמידים/);
+  assert.match(prompt, /הרחקת תלמיד/);
   assert.match(knowledgePromptFor('pedagogical_coordinator'), /ידע מאומת/);
 });
 test('unrelated questions return nothing', () => assert.deepEqual(searchKnowledge('מה מזג האוויר'), []));
@@ -65,8 +65,15 @@ test('trips and bagrut circulars are verified, dated and cite their official PDF
   assert.equal(trips.id, 'circular-trips');
   const policy = answerPolicy(trips);
   assert.equal(policy.mode, 'cite');
-  assert.match(policy.text, /מהדורת 2016/);
-  assert.match(policy.source.url, /teyulim2016\.pdf$/);
+  assert.match(policy.text, /20\.05/);
+  assert.match(policy.text, /ירושלים/);
+  assert.match(policy.source.url, /pedagogiamh\.co\.il\/tiyulim\.html$/);
+  const [suspension] = searchKnowledge('כמה ימים מנהל יכול להשעות תלמיד?');
+  assert.equal(suspension.id, 'circular-suspension');
+  assert.match(answerPolicy(suspension).text, /עד 3 ימים/);
+  assert.match(answerPolicy(suspension).text, /14 ימים/);
+  const [attendance] = searchKnowledge('מה עושים כשתלמיד נעדר יותר משבעה ימים בחודש?');
+  assert.equal(attendance.id, 'procedure-attendance');
   const [bagrut] = searchKnowledge('מתי מועד חורף של הבגרויות ומה המועד האחרון להזמנת שאלונים?');
   assert.equal(bagrut.id, 'circular-bagrut');
   assert.match(answerPolicy(bagrut).text, /28\.12\.2026/);
