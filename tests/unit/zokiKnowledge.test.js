@@ -35,3 +35,26 @@ test('role agent prompt carries the no-invention rule and open topics', () => {
   assert.match(knowledgePromptFor('pedagogical_coordinator'), /ידע מאומת/);
 });
 test('unrelated questions return nothing', () => assert.deepEqual(searchKnowledge('מה מזג האוויר'), []));
+
+test('official role definitions: every definition maps to a real role and carries its source', async () => {
+  const { ROLE_DEFINITIONS, roleBrief } = await import('../../functions/src/roleDefinitions.js');
+  const { SCHOOL_ROLES } = await import('../../functions/src/schoolRoleCatalog.js');
+  const known = new Set([...SCHOOL_ROLES.map(role => role.id), 'homeroom']);
+  const ids = Object.keys(ROLE_DEFINITIONS);
+  assert.ok(ids.length >= 16);
+  for (const id of ids) {
+    assert.ok(known.has(id), `unknown role ${id}`);
+    assert.ok(ROLE_DEFINITIONS[id].summary.length > 40);
+    assert.ok(roleBrief(id).length <= 1800);
+  }
+  assert.ok(ids.filter(id => ROLE_DEFINITIONS[id].complete).length >= 11);
+  assert.ok(KNOWLEDGE.filter(entry => entry.topic === 'role-definition').every(entry => entry.source.status === 'verified'));
+});
+test('a question about a role reaches its official definition, not a topic stub', () => {
+  assert.equal(searchKnowledge('מה התפקיד של רכז טיולים?')[0].id, 'role-def-trips_coordinator');
+  assert.equal(searchKnowledge('מה אחראי יועץ חינוכי')[0].id, 'role-def-counselor');
+});
+test('role agents receive their official brief', async () => {
+  const { roleAgentProfile } = await import('../../functions/src/roleAgents.js');
+  assert.match(roleAgentProfile('counselor').systemPrompt, /הגדרת התפקיד הרשמית/);
+});

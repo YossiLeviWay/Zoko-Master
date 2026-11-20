@@ -8,12 +8,15 @@
 // To add a circular: paste its text (or upload the PDF) and replace the stub with a verified
 // entry carrying the circular number, date and URL. `retrieved` is the date it was read.
 
+import { ROLE_DEFINITIONS, ROLE_DEFINITIONS_SOURCE, roleBrief } from './roleDefinitions.js';
+import { SCHOOL_ROLES } from './schoolRoleCatalog.js';
+
 const PMH = 'https://pedagogiamh.co.il';
 const MANKAL = 'https://apps.education.gov.il/mankal/';
 const verified = (name, url, retrieved = '2026-11-19') => ({ name, url, retrieved, status: 'verified' });
 const awaiting = (name, url) => ({ name, url, retrieved: '', status: 'awaiting-source' });
 
-export const KNOWLEDGE = Object.freeze([
+const STATIC_KNOWLEDGE = [
   {
     id: 'appointments-duty', topic: 'role-appointments', title: 'חובת מינוי בעלי תפקידים והגשת נספח',
     keywords: ['מינוי', 'בעלי תפקידים', 'נספח', 'מפקח', 'החלפת בעל תפקיד', 'שעות תפקיד'],
@@ -112,7 +115,22 @@ export const KNOWLEDGE = Object.freeze([
     roles: ['institution_manager', 'deputy_principal'],
     checklist: ['הגדרת התפקיד הרשמית', 'היקף משרה וגמול', 'הכשרה נדרשת'],
     summary: '', points: [], source: awaiting('חוזרי מנכ״ל על בעלי תפקידים בבית הספר', MANKAL) },
-]);
+];
+
+// One verified entry per official role definition (11 complete, 5 summary-only).
+const ROLE_ENTRIES = Object.entries(ROLE_DEFINITIONS).map(([roleId, def]) => {
+  const label = SCHOOL_ROLES.find(role => role.id === roleId)?.label || def.title;
+  const goals = def.sections.filter(section => /מטרות|תחומי אחריות|עיקרי הפעולות/.test(section.heading)).flatMap(section => section.items.slice(0, 5));
+  return {
+    id: `role-def-${roleId}`, topic: 'role-definition', title: `הגדרת תפקיד: ${label}`,
+    keywords: [...new Set([label, def.title, ...label.split(/[\s/·,()]+/).filter(word => word.length > 2)])],
+    roles: [roleId, 'institution_manager', 'deputy_principal'],
+    summary: def.summary, points: [...def.chips, ...goals].slice(0, 12), complete: def.complete,
+    source: { name: ROLE_DEFINITIONS_SOURCE.name, url: def.link ? new URL(def.link, 'https://pedagogiamh.co.il/').href : ROLE_DEFINITIONS_SOURCE.page, retrieved: ROLE_DEFINITIONS_SOURCE.retrieved, status: 'verified' },
+  };
+});
+
+export const KNOWLEDGE = Object.freeze([...STATIC_KNOWLEDGE, ...ROLE_ENTRIES]);
 
 const normalize = text => String(text || '').toLowerCase().replace(/[֑-ׇ"׳'״]/gu, '').replace(/\s+/gu, ' ').trim();
 
@@ -120,8 +138,12 @@ export function searchKnowledge(query, { roleId = '', limit = 3 } = {}) {
   const text = normalize(query);
   if (!text) return [];
   return KNOWLEDGE.map(entry => {
-    const hits = entry.keywords.filter(word => text.includes(normalize(word))).length;
-    return { entry, score: hits * 2 + (hits && entry.roles.includes(roleId) ? 1 : 0) };
+    // A longer phrase ("נקודות זכות") is stronger evidence than a single word, so it weighs by its word count.
+    const matched = [...new Set(entry.keywords)].filter(word => text.includes(normalize(word)));
+    const hits = matched.reduce((sum, word) => sum + normalize(word).split(' ').length, 0);
+    // A question about "the role of X" should reach X's official definition before a topic stub.
+    const asksAboutRole = /תפקיד|הגדרה|אחריות|מה עושה|מה אחראי/.test(text);
+    return { entry, score: hits * 2 + (hits && entry.roles.includes(roleId) ? 1 : 0) + (hits && asksAboutRole && entry.topic === 'role-definition' ? 3 : 0) };
   }).filter(item => item.score > 0).sort((a, b) => b.score - a.score).slice(0, limit).map(item => item.entry);
 }
 
@@ -142,7 +164,9 @@ export function knowledgePromptFor(roleId) {
   const own = KNOWLEDGE.filter(entry => entry.roles.includes(roleId));
   const cites = own.filter(entry => entry.source.status === 'verified').map(entry => `• ${entry.title}: ${entry.summary} (מקור: ${entry.source.name})`);
   const open = own.filter(entry => entry.source.status !== 'verified').map(entry => entry.title);
+  const brief = roleBrief(roleId);
   return [
+    brief,
     cites.length ? `ידע מאומת:\n${cites.join('\n')}` : '',
     open.length ? `נושאים שעדיין לא נבדקו מול המקור הרשמי (${open.join(', ')}): אל תצטט כללים בהם. אמור שהנוסח לא נבדק, הצע רשימת בדיקה והפנה למנהל או למפקח.` : '',
     'כלל ברזל: אל תמציא חוזר מנכ״ל, מספר חוזר, סעיף, מועד או סכום. אם אין לך מקור מאומת, אמור זאת.',
