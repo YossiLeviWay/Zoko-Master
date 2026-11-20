@@ -90,21 +90,52 @@ const STATIC_KNOWLEDGE = [
     source: verified('ארגז הכלים של הרכז.ת הפדגוגי.ת', `${PMH}/rakaz-pedagogi-klim.html`),
   },
   // ---- Ministry of Education circulars: NOT yet read. Zoki must not answer from memory. ----
-  { id: 'circular-trips', topic: 'trips', title: 'יציאה לטיולים ופעילות מחוץ לבית הספר',
-    keywords: ['טיול', 'טיולים', 'יציאה', 'סיור', 'יום עיון', 'אישור הורים', 'מלווים', 'בטיחות'],
-    roles: ['trips_coordinator', 'homeroom', 'institution_manager'],
-    checklist: ['תכנון ואישור מנהל', 'אישורי הורים', 'מלווים ובטיחות', 'ביטוח', 'דיווח לגורמים הרלוונטיים'],
-    summary: '', points: [], source: awaiting('חוזר מנכ״ל בנושא טיולים, סיורים ופעילות מחוץ לבית הספר', MANKAL) },
+  { id: 'circular-trips', topic: 'trips', title: 'יציאה לטיולים ופעילות חוץ־בית־ספרית (חוזר הוראות קבע 6.2-33, מהדורת 2016)',
+    keywords: ['טיול', 'טיולים', 'יציאה לטיול', 'סיור', 'יום עיון', 'אישור הורים', 'מלווים', 'בטיחות', 'רכז טיולים', 'אחראי טיול', 'תיק אחראי הטיול'],
+    roles: ['trips_coordinator', 'homeroom', 'institution_manager', 'deputy_principal'],
+    edition: '2016', mayBeSuperseded: true,
+    checklist: ['אישור מנהל ותוכנית טיולים רב־שנתית', 'הודעה ואישור הורים', 'מלווים, בטיחות וביטחון', 'ביטוח', 'דיווח לגורמים הרלוונטיים'],
+    summary: 'חוזר הוראות הקבע "טיולים ופעילויות חוץ־בית־ספריות במערכת החינוך — היבטים פדגוגיים, ארגוניים, בטיחותיים וביטחוניים" (עו(7/ב), מרץ 2016) מרכז את ההוראות המחייבות לתכנון, ארגון וביצוע של טיולים. נוסח זה הוא מהדורת 2016 ויש לוודא באתר משרד החינוך אם עודכן.',
+    points: [
+      'החוזר חל על בתי ספר יסודיים, על־יסודיים וחינוך מיוחד עד גיל 21, ומתייחס לארבעה היבטים: פדגוגי, ארגוני, בטיחותי וביטחוני.',
+      'רכז הטיולים מתמנה מדי שנה בכתב מינוי של מנהל בית הספר. עליו לוודא שהמועצה הפדגוגית תדון בטיולים לפחות פעם בשנה ובתוכנית טיולים רב־שנתית לפי "תכנית הליבה להכרת הארץ ואהבת מולדת".',
+      'לכל טיול יש "אחראי טיול" שעובר על "תיק אחראי הטיול": שלבי התיאום והטפסים להגשה.',
+      'ההורים מקבלים הודעה על השתתפות בפעילות חוץ־בית־ספרית במהלך השנה, אישור לפעילות הטיולים הכללית, והודעה על כל טיול עם רשימת ציוד וכללי התנהגות (נספחים 2–4 בחוזר).',
+      'מספר המלווים, כולל המחנך, לא יפחת מהמפורט בטבלת החוזר; גורמי הביטחון רשאים לדרוש יותר. להלכה יש לעיין בטבלה עצמה לפי שלב החינוך וסוג הטיול.',
+      'חריגה של יותר משעה מזמן החזרה שנמסר להורים: אחראי הטיול מדווח למנהל, ובית הספר מעביר להורים הודעה.',
+      'אטרקציות (פעילויות מים, שטח ושדה) מחייבות בדיקת הנחיות הבטיחות המיוחדות שלהן בחוזר הנפרד על פעילויות חוץ־בית־ספריות.',
+      'הנחיות רכז הטיולים בבתי ספר של משרד העבודה נגזרות מחוזר זה ומהנחיות ועדת הטיולים (לפי אתר מינהל הכשרה מקצועית).',
+    ],
+    source: verified('חוזר המנהלת הכללית, הוראות קבע עו(7/ב), 6.2-33 (מרץ 2016)', 'https://meyda.education.gov.il/files/Bitachon/teyulim2016.pdf') },
   { id: 'circular-suspension', topic: 'suspension', title: 'השעיית תלמידים',
-    keywords: ['השעיה', 'להשעות', 'הרחקה', 'משמעת', 'שימוע', 'ועדת משמעת'],
+    keywords: ['השעיה', 'השעיית', 'להשעות', 'משעים', 'מושעה', 'הרחקה', 'משמעת', 'שימוע', 'ועדת משמעת'],
     roles: ['discipline_climate_coordinator', 'institution_manager', 'deputy_principal'],
     checklist: ['תיעוד האירוע', 'הודעה והזמנה להורים', 'זכות טיעון/שימוע', 'החלטת מנהל ודיווח', 'מעקב והחזרה לשגרה'],
+    leads: [
+      'ייתכן שהנוסח הרלוונטי הוא הוראת קבע 0470 "אקלים חינוכי מיטבי והתמודדות מוסדות חינוך עם אירועי אלימות וסיכון" (לפי סיכומים משניים; לא נקרא במקור).',
+      'הרחקה לצמיתות מוסדרת, לפי סיכום משני, בנפרד (הוראת קבע 0416) ובתקנות זכויות התלמיד (תשס״ב־2002). לא נבדק.',
+    ],
     summary: '', points: [], source: awaiting('חוזר מנכ״ל בנושא משמעת, השעיה והרחקה של תלמידים', MANKAL) },
-  { id: 'circular-bagrut', topic: 'bagrut', title: 'בגרויות: חוזר מעודכן',
-    keywords: ['בגרות', 'בגרויות', 'מועד', 'מועד ב', 'התאמות', 'זכאות', 'שאלון'],
-    roles: ['bagrut_coordinator', 'pedagogical_coordinator', 'subject_coordinator'],
-    checklist: ['מועדי הבחינות', 'התאמות בבחינה', 'תנאי זכאות', 'נהלי הרשמה'],
-    summary: '', points: [], source: awaiting('חוזר מנכ״ל/הוראות על בחינות הבגרות (העדכני)', MANKAL) },
+  { id: 'circular-bagrut', topic: 'bagrut', title: 'חוזר שנתי: בחינות הבגרות תשפ״ז (2027)',
+    keywords: ['בגרות', 'בגרויות', 'מועד חורף', 'מועד קיץ', 'התאמות בבחינה', 'התאמות בדרכי ההיבחנות', 'טוהר הבחינות', 'הזמנת שאלונים', 'דיווח ציונים', 'רכז בגרויות', 'בגרות גמישה', 'ערעור על ציון', 'השגחה', 'מועד ב'],
+    roles: ['bagrut_coordinator', 'pedagogical_coordinator', 'subject_coordinator', 'institution_manager', 'deputy_principal'],
+    edition: 'תשפ״ז, 3.9.2026',
+    summary: 'החוזר השנתי של אגף בכיר בחינות (המינהל הפדגוגי), מ־3.9.2026, למנהלי בתי הספר העל־יסודיים ולרכזי הבגרויות. הוא קובע מועדים, מתווה היבחנות, טוהר בחינות, התאמות, דיווח ציונים והיערכות ליום בחינה.',
+    points: [
+      'מועד חורף תשפ״ז: 28.12.2026–4.2.2027. תלמידי י״א–י״ב רשאים לגשת לכלל השאלונים. בקיץ, תלמידי י׳ רשאים לבחינה חיצונית במקצועות ההומניסטיקה לפי המתווה החדש בלבד (35%).',
+      'מקצועות ההומניסטיקה: חיצוני בלבד. על בית הספר לבחור לכל קבוצת לימוד מתווה ישן (חיצוני 70% והערכה חלופית 30%) או מתווה חדש, "בגרות גמישה" (חיצוני 35%, משימות מקוונות ומבוקרות 35%, הערכה חלופית 30%). המתווה הגמיש דורש תוכנה לניהול פדגוגי, ורכז הבגרויות משייך את קבוצת הלימוד לשאלון במערכת.',
+      'הזמנת שאלונים: חורף 6.9.2026–1.11.2026; קיץ 13.12.2026–1.2.2027. בקשות לבחינות חופפות: עד 4.3.2027 דרך המערכת בלבד.',
+      'התאמות: בקשות לוועדת חריגים: חורף 6.9–15.11.2026, קיץ 1.12.2026–15.3.2027. דיווח התאמות: חורף 6.9–13.12.2026, קיץ 6.12.2026–13.4.2027. חובה לדווח התאמות לכלל תלמידי החינוך המיוחד לפי החלטת הוועדה הפדגוגית.',
+      'טוהר הבחינות: טלפון, שעון חכם או אוזניות אצל נבחן, גם ללא שימוש, פוסלים את הבחינה לאלתר ומעכבים אותו במקצוע לשנה לפחות. נבחן צריך להיות בחדר 15 דקות לפני התחלה ולהפקיד טלפון אצל המשגיח. מי שמגיע אחרי שעת ההתחלה לא ייכנס.',
+      'בתי ספר מסווגים אדומים, צהובים וירוקים לפי פגיעה בטוהר הבחינות. בבית ספר אדום הבחינה מנוהלת בידי צוות חיצוני. ההודעה על הסיווג נשלחה בנובמבר 2026 דרך פורטל מוסדות.',
+      'דיווח ציונים: ציון שנתי להיבחנות חיצונית עד 20:00 ביום שלפני הבחינה. הערכה חלופית ופנימית: חורף 19.10.2026–15.2.2027, קיץ 7.3–15.7.2027. עבודות והערכה חלופית נשמרות 3 שנים.',
+      'ערעור על ציון: דרך "השילובית" בלבד, עד 21 ימי עבודה מפרסום הציונים, עם נימוק לפער של לפחות 10 נקודות בין הציון להערכת המורה. הציון בערעור עלול גם לרדת והוא סופי.',
+      'בגרות גמישה: מנהל בית הספר מאשר את ציוני משימות הביצוע עד 20.6.2027. משימות שלא הסתיימו עד המועד נמחקות ואינן עוברות לשנה הבאה.',
+      'השגחה: משגיח כיתה לכל 19 נבחנים. לפחות כ־15 נבחנים בכיתה לפני פתיחת כיתה נוספת. תפקיד הנאמן החיצוני בוטל מתשפ״ו, ומחברות מוחזרות לתחנת הקליטה בידי נאמן פנימי שהמנהל ממנה.',
+      'היבחנות בבית או בבית חולים: בקשה 48 שעות לפני הבחינה לכל המאוחר, עם אישור מתאים.',
+      'ליווי: מטה הבחינות 073-3932222; מרכז המידע של אגף הבחינות 073-3938866, mmbhinot@education.gov.il.',
+    ],
+    source: verified('חוזר שנתי: בחינות הבגרות לשנה״ל תשפ״ז (2027), אגף בכיר בחינות, 3.9.2026', 'https://meyda.education.gov.il/files/Exams/HozerYearTashpaz2027.pdf', '2026-11-20') },
   { id: 'circular-curricula', topic: 'curricula', title: 'תוכניות לימודים ויעדי למידה',
     keywords: ['תוכנית לימודים', 'תכנית לימודים', 'יעדי למידה', 'סילבוס', 'תכנים'],
     roles: ['subject_coordinator', 'track_coordinator', 'pedagogical_coordinator', 'teacher'],
@@ -126,7 +157,7 @@ const ROLE_ENTRIES = Object.entries(ROLE_DEFINITIONS).map(([roleId, def]) => {
   const goals = def.sections.filter(section => /מטרות|תחומי אחריות|עיקרי הפעולות/.test(section.heading)).flatMap(section => section.items.slice(0, 5));
   return {
     id: `role-def-${roleId}`, topic: 'role-definition', title: `הגדרת תפקיד: ${label}`,
-    keywords: [...new Set([label, def.title, ...label.split(/[\s/·,()]+/).filter(word => word.length > 2 && !GENERIC_WORDS.has(word))])],
+    keywords: [...new Set([label, label.replace(/[./]ת/g, ''), def.title, ...label.split(/[\s/·,()]+/).filter(word => word.length > 2 && !GENERIC_WORDS.has(word))])],
     roles: [roleId, 'institution_manager', 'deputy_principal'],
     summary: def.summary, points: [...def.chips, ...goals].slice(0, 12), complete: def.complete,
     source: { name: ROLE_DEFINITIONS_SOURCE.name, url: def.link ? new URL(def.link, 'https://pedagogiamh.co.il/').href : ROLE_DEFINITIONS_SOURCE.page, retrieved: ROLE_DEFINITIONS_SOURCE.retrieved, status: 'verified' },
@@ -146,19 +177,22 @@ export function searchKnowledge(query, { roleId = '', limit = 3 } = {}) {
     const hits = matched.reduce((sum, word) => sum + normalize(word).split(' ').length, 0);
     // A question about "the role of X" should reach X's official definition before a topic stub.
     const asksAboutRole = /תפקיד|הגדרה|אחריות|מה עושה|מה אחראי/.test(text);
-    return { entry, score: hits * 2 + (hits && entry.roles.includes(roleId) ? 1 : 0) + (hits && asksAboutRole && entry.topic === 'role-definition' ? 3 : 0) };
+    // A role name inside a question about something else (credits, hours...) must not outrank that topic.
+    if (entry.topic === 'role-definition') return { entry, score: asksAboutRole ? hits * 2 + 3 : hits };
+    return { entry, score: hits * 2 + (hits && entry.roles.includes(roleId) ? 1 : 0) };
   }).filter(item => item.score > 0).sort((a, b) => b.score - a.score).slice(0, limit).map(item => item.entry);
 }
 
 // What Zoki may say about an entry. Unverified entries never produce rule text.
 export function answerPolicy(entry) {
   if (entry.source.status === 'verified') {
-    return { mode: 'cite', text: [entry.summary, ...entry.points].filter(Boolean).join('\n'), source: entry.source };
+    const caution = entry.mayBeSuperseded ? `שימו לב: זו מהדורת ${entry.edition}. ייתכן שעודכנה, ויש לוודא מול המקור הרשמי לפני פעולה.` : '';
+    return { mode: 'cite', text: [entry.summary, ...entry.points, caution].filter(Boolean).join('\n'), source: entry.source, edition: entry.edition || '' };
   }
   return {
     mode: 'defer',
     text: `לא בדקתי עדיין את הנוסח העדכני של "${entry.source.name}", ולכן אינני מצטט ממנו כללים. כדאי לאמת מול המנהל או המפקח, או מול המקור הרשמי.`,
-    checklist: entry.checklist || [], source: entry.source,
+    checklist: entry.checklist || [], leads: entry.leads || [], source: entry.source,
   };
 }
 

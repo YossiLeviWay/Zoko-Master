@@ -13,12 +13,13 @@ test('every entry has a source; verified entries carry a retrieval date and cont
   }
 });
 test('unverified circulars never produce rule text, only a check list and a deferral', () => {
-  const [trip] = searchKnowledge('מתי אפשר לצאת לטיול עם הכיתה?');
-  assert.equal(trip.id, 'circular-trips');
-  const policy = answerPolicy(trip);
+  const [suspension] = searchKnowledge('איך משעים תלמיד?');
+  assert.equal(suspension.id, 'circular-suspension');
+  const policy = answerPolicy(suspension);
   assert.equal(policy.mode, 'defer');
   assert.match(policy.text, /לא בדקתי/);
   assert.ok(policy.checklist.length > 0);
+  assert.ok(policy.leads.length > 0 && policy.leads.every(lead => /לא נקרא|לא נבדק/.test(lead)));
 });
 test('verified entries are cited with their source', () => {
   const [entry] = searchKnowledge('כמה נקודות זכות מקבל רכז שכבה?', { roleId: 'grade_coordinator' });
@@ -29,9 +30,9 @@ test('verified entries are cited with their source', () => {
   assert.match(policy.source.url, /pedagogiamh/);
 });
 test('role agent prompt carries the no-invention rule and open topics', () => {
-  const prompt = roleAgentProfile('trips_coordinator').systemPrompt;
+  const prompt = roleAgentProfile('discipline_climate_coordinator').systemPrompt;
   assert.match(prompt, /אל תמציא חוזר מנכ״ל/);
-  assert.match(prompt, /טיולים/);
+  assert.match(prompt, /השעיית תלמידים/);
   assert.match(knowledgePromptFor('pedagogical_coordinator'), /ידע מאומת/);
 });
 test('unrelated questions return nothing', () => assert.deepEqual(searchKnowledge('מה מזג האוויר'), []));
@@ -57,4 +58,17 @@ test('a question about a role reaches its official definition, not a topic stub'
 test('role agents receive their official brief', async () => {
   const { roleAgentProfile } = await import('../../functions/src/roleAgents.js');
   assert.match(roleAgentProfile('counselor').systemPrompt, /הגדרת התפקיד הרשמית/);
+});
+
+test('trips and bagrut circulars are verified, dated and cite their official PDF', () => {
+  const [trips] = searchKnowledge('מה צריך לאשר לפני טיול של הכיתה?', { roleId: 'trips_coordinator' });
+  assert.equal(trips.id, 'circular-trips');
+  const policy = answerPolicy(trips);
+  assert.equal(policy.mode, 'cite');
+  assert.match(policy.text, /מהדורת 2016/);
+  assert.match(policy.source.url, /teyulim2016\.pdf$/);
+  const [bagrut] = searchKnowledge('מתי מועד חורף של הבגרויות ומה המועד האחרון להזמנת שאלונים?');
+  assert.equal(bagrut.id, 'circular-bagrut');
+  assert.match(answerPolicy(bagrut).text, /28\.12\.2026/);
+  assert.match(answerPolicy(bagrut).source.url, /HozerYearTashpaz2027\.pdf$/);
 });
