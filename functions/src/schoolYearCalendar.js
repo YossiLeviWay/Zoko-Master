@@ -16,6 +16,11 @@ const BAGRUT = 'https://meyda.education.gov.il/files/Exams/HozerYearTashpaz2027.
 const TRIPS = 'https://pedagogiamh.co.il/tiyulim.html';
 const ATTENDANCE = 'https://pedagogiamh.co.il/bikur-sadir.html';
 
+const BUDGETS = 'https://pedagogiamh.co.il/takzivim.html';
+const INCLUSION = 'https://pedagogiamh.co.il/hachala.html';
+const TRACKS = 'https://pedagogiamh.co.il/bchirat-megama.html';
+const ADMISSIONS = 'https://pedagogiamh.co.il/klita-miyun.html';
+
 const MGR = ['institution_manager', 'deputy_principal'];
 const item = (id, text, window, roles, source, extra = {}) => ({ id, text, from: window[0], to: window[1], roles, source, mandatory: false, ...extra });
 
@@ -52,6 +57,15 @@ export const MILESTONES = Object.freeze([
   item('may-jul-annual-grades', 'קביעת ציונים שנתיים (גמר ובגרות) לפי המחוון: מתועד ושקוף', ['2027-05-01', '2027-07-31'], ['bagrut_coordinator', 'subject_coordinator', 'track_coordinator', 'pedagogical_coordinator'], TASHPAZ),
   item('may-jul-third-persistence', 'ועדת התמדה שלישית, וסיכום נתוני התמדה ונשירה', ['2027-05-01', '2027-07-31'], [...MGR, 'discipline_climate_coordinator', 'counselor'], TASHPAZ),
   item('may-jul-lessons-and-next-year', 'הפקת לקחים ותכנון שנת תשפ״ח', ['2027-06-01', '2027-07-31'], MGR, TASHPAZ),
+  // ---- Labor Ministry procedures (dates from the published procedures)
+  item('dec-1-roster-close', 'סגירת מצבת התלמידים תשפ״ז, ב־1.12.2026: המצבת קובעת את תקציב הבסיס', ['2026-11-01', '2026-12-01'], [...MGR, 'secretary'], BUDGETS, { mandatory: true }),
+  item('nov-30-inclusion-tahi', 'תח״י חתום ואישור התוכנית הבית־ספרית להכלה, עד 30.11', ['2026-09-01', '2026-11-30'], ['inclusion_coordinator', 'learning_function_specialist', ...MGR], INCLUSION, { mandatory: true }),
+  item('feb-28-inclusion-formative', 'הערכה מעצבת של תוכניות ההכלה והתח״י, ב־28.2', ['2027-02-01', '2027-02-28'], ['inclusion_coordinator', 'learning_function_specialist'], INCLUSION, { mandatory: true }),
+  item('jun-30-inclusion-summative', 'הערכה מסכמת של תוכנית ההכלה, עד 30.6; ובקשת סלי שילוב לוותיקים עד 30.6', ['2027-04-01', '2027-06-30'], ['inclusion_coordinator', 'learning_function_specialist', ...MGR], INCLUSION, { mandatory: true }),
+  item('aug-31-inclusion-plan', 'תוכנית הכלה בית־ספרית וקליטת זכאים חדשים, עד 31.8', ['2027-07-01', '2027-08-31'], ['inclusion_coordinator', ...MGR], INCLUSION, { mandatory: true }),
+  item('dec-feb-track-decision-table', 'שולחן ההחלטה לפתיחת מגמות מתכנס בשבוע הראשון של דצמבר ושל פברואר', ['2026-11-15', '2026-12-10'], ['institution_manager', 'track_coordinator'], TRACKS),
+  item('admissions-grade-10-11-dec-31', 'קליטת תלמידים לכיתות י׳–י״א עד 31.12 (אחר כך רק באישור המפקח הפדגוגי)', ['2026-09-01', '2026-12-31'], [...MGR, 'counselor', 'secretary'], ADMISSIONS, { mandatory: true }),
+  item('admissions-grade-9-mar-31', 'קליטת תלמידים לכיתות ט׳ עד 31.3 (אחר כך רק באישור המפקח הפדגוגי)', ['2027-01-01', '2027-03-31'], [...MGR, 'counselor', 'secretary'], ADMISSIONS, { mandatory: true }),
   // ---- Bagrut annual circular (exact dates)
   item('bagrut-winter-order', 'הזמנת שאלונים למועד חורף (בגרות)', ['2026-09-06', '2026-11-01'], ['bagrut_coordinator'], BAGRUT, { mandatory: true }),
   item('bagrut-winter-exceptions', 'בקשות לוועדת חריגים: מועד חורף', ['2026-09-06', '2026-11-15'], ['bagrut_coordinator', 'inclusion_coordinator', 'learning_function_specialist'], BAGRUT, { mandatory: true }),

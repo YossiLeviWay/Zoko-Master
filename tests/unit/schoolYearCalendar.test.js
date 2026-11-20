@@ -40,5 +40,5 @@ test('role filtering, routines and the reminder text', () => {
   const text = remindersText({ today: '2026-09-10', roleId: 'institution_manager' });
   assert.match(text, /אבני דרך קרובות/);
   assert.match(text, /20\.09\.2026|20\.9/);
-  assert.equal(remindersText({ today: '2026-09-10', roleId: 'secretary' }), '');
+  assert.equal(remindersText({ today: '2026-09-10', roleId: 'asa_coordinator' }), '');
 });
