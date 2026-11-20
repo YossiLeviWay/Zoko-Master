@@ -117,13 +117,16 @@ const STATIC_KNOWLEDGE = [
     summary: '', points: [], source: awaiting('חוזרי מנכ״ל על בעלי תפקידים בבית הספר', MANKAL) },
 ];
 
+// Words shared by many role names carry no signal on their own.
+const GENERIC_WORDS = new Set(['רכז', 'רכזת', 'רכז.ת', 'מורה', 'מורה/ית']);
+
 // One verified entry per official role definition (11 complete, 5 summary-only).
 const ROLE_ENTRIES = Object.entries(ROLE_DEFINITIONS).map(([roleId, def]) => {
   const label = SCHOOL_ROLES.find(role => role.id === roleId)?.label || def.title;
   const goals = def.sections.filter(section => /מטרות|תחומי אחריות|עיקרי הפעולות/.test(section.heading)).flatMap(section => section.items.slice(0, 5));
   return {
     id: `role-def-${roleId}`, topic: 'role-definition', title: `הגדרת תפקיד: ${label}`,
-    keywords: [...new Set([label, def.title, ...label.split(/[\s/·,()]+/).filter(word => word.length > 2)])],
+    keywords: [...new Set([label, def.title, ...label.split(/[\s/·,()]+/).filter(word => word.length > 2 && !GENERIC_WORDS.has(word))])],
     roles: [roleId, 'institution_manager', 'deputy_principal'],
     summary: def.summary, points: [...def.chips, ...goals].slice(0, 12), complete: def.complete,
     source: { name: ROLE_DEFINITIONS_SOURCE.name, url: def.link ? new URL(def.link, 'https://pedagogiamh.co.il/').href : ROLE_DEFINITIONS_SOURCE.page, retrieved: ROLE_DEFINITIONS_SOURCE.retrieved, status: 'verified' },
