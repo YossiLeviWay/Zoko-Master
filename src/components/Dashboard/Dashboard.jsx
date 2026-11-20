@@ -23,6 +23,7 @@ import {
   updateTaskStatus,
 } from '../../services/firestore/taskRepository';
 import { eventRelevantFor } from '../../../functions/src/eventAudience.js';
+import { milestonesFor } from '../../../functions/src/schoolYearCalendar.js';
 import { DASHBOARD_TASK_SORTS, dashboardTaskStats, sortDashboardTasks } from '../../utils/dashboardTasks';
 import './Dashboard.css';
 
@@ -34,11 +35,13 @@ const WIDGET_TYPES = {
   team_activity: { label: 'פעילות צוות', icon: Users, defaultSize: 'half' },
   file_tracker: { label: 'מעקב קבצים', icon: FileText, defaultSize: 'half' },
   upcoming_week: { label: 'השבוע הקרוב', icon: Calendar, defaultSize: 'full' },
+  milestones: { label: 'מועדים חשובים', icon: Clock, defaultSize: 'full' },
   staff_tasks: { label: 'משימות שהוסיפו אנשי צוות', icon: UserPlus, defaultSize: 'half' },
 };
 
 const DEFAULT_WIDGETS = [
   { type: 'my_tasks', size: 'full' },
+  { type: 'milestones', size: 'full' },
   { type: 'announcements', size: 'full' },
   { type: 'events', size: 'half' },
   { type: 'holidays', size: 'half' },
@@ -181,6 +184,26 @@ export default function Dashboard() {
       });
     } catch (err) {
       console.error('Error saving widget config:');
+    }
+  }
+
+  // Important dates for this person's role(s). "Done" is remembered per person in their dashboard preferences.
+  const doneMilestones = userData?.dashboardPreferences?.doneMilestones || {};
+  const milestoneRoleIds = [
+    userData?.accessProfilesBySchool?.[selectedSchool]?.presetId,
+    isPrincipal() || isGlobalAdmin() ? 'institution_manager' : '',
+    schoolClasses.some(item => item.teacherId === currentUser?.uid) ? 'homeroom' : '',
+  ].filter(Boolean);
+  const visibleMilestones = milestoneRoleIds.length
+    ? milestonesFor({ today: localDateKey(), roleIds: milestoneRoleIds }).filter(entry => !doneMilestones[entry.id]).slice(0, 6)
+    : [];
+
+  async function markMilestoneDone(id) {
+    if (!currentUser?.uid) return;
+    try {
+      await updateDoc(doc(db, 'users', currentUser.uid), { [`dashboardPreferences.doneMilestones.${id}`]: true });
+    } catch {
+      // Not saved: the item simply stays on the list.
     }
   }
 
@@ -935,6 +958,28 @@ export default function Dashboard() {
                 </div>
               </div>
             ))}
+          </div>
+        );
+      case 'milestones':
+        if (visibleMilestones.length === 0) return <p className="section-empty">אין מועדים קרובים לתפקיד שלך</p>;
+        return (
+          <div className="milestone-list">
+            {visibleMilestones.map(entry => (
+              <div key={entry.id} className={`milestone-item ${entry.mandatory ? 'milestone-item--mandatory' : ''}`}>
+                <div className="milestone-main">
+                  <span className="milestone-text">{entry.text}</span>
+                  <span className="milestone-meta">
+                    {entry.state === 'active'
+                      ? `עד ${entry.to.split('-').reverse().join('.')}${entry.daysLeft <= 7 ? ` · נותרו ${entry.daysLeft} ימים` : ''}`
+                      : `מתחיל בעוד ${entry.startsInDays} ימים`}
+                    {entry.mandatory && <b className="milestone-badge">מועד מחייב</b>}
+                    <a href={entry.source} target="_blank" rel="noopener noreferrer">מקור</a>
+                  </span>
+                </div>
+                <button className="icon-btn" onClick={() => markMilestoneDone(entry.id)} aria-label={`סימון כבוצע: ${entry.text}`} title="סימון כבוצע"><CheckCircle size={18} /></button>
+              </div>
+            ))}
+            <small className="milestone-note">התאריכים לקוחים מהנחיות משרד העבודה ומשרד החינוך. שיוך המועדים לתפקידים הוא הצעה.</small>
           </div>
         );
       case 'upcoming_week':

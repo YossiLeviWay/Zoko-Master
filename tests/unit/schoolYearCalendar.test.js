@@ -42,3 +42,10 @@ test('role filtering, routines and the reminder text', () => {
   assert.match(text, /20\.09\.2026|20\.9/);
   assert.equal(remindersText({ today: '2026-09-10', roleId: 'asa_coordinator' }), '');
 });
+
+test('a person with several roles sees the union of their milestones', () => {
+  const both = milestonesFor({ today: '2026-10-25', roleIds: ['bagrut_coordinator', 'inclusion_coordinator'] }).map(entry => entry.id);
+  assert.ok(both.includes('bagrut-winter-order'));
+  assert.ok(both.includes('nov-30-inclusion-tahi'));
+  assert.deepEqual(milestonesFor({ today: '2026-10-25', roleIds: [] }).map(e => e.id).sort(), milestonesFor({ today: '2026-10-25' }).map(e => e.id).sort());
+});

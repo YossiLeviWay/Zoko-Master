@@ -98,10 +98,12 @@ const DAY = 86400000;
 
 // Milestones that are running today or begin within `horizonDays`, for one role (or everyone when roleId is empty).
 // Items already past their window are not returned. We cannot know whether a task was completed.
-export function milestonesFor({ today, roleId = '', horizonDays = 30 } = {}) {
+// `roleIds` (several roles of one person) can be used instead of `roleId`.
+export function milestonesFor({ today, roleId = '', roleIds = [], horizonDays = 30 } = {}) {
   const now = day(today);
+  const wanted = [...new Set([roleId, ...roleIds].filter(Boolean))];
   return MILESTONES
-    .filter(entry => !roleId || entry.roles.includes(roleId))
+    .filter(entry => wanted.length === 0 || entry.roles.some(role => wanted.includes(role)))
     .map(entry => {
       const from = day(entry.from), to = day(entry.to);
       if (now > to + DAY - 1) return null;

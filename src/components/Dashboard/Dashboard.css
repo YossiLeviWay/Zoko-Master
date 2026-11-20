@@ -847,3 +847,14 @@
   color: #ef4444;
   font-weight: 600;
 }
+
+/* Important dates for the user's role */
+.milestone-list { display: grid; gap: .5rem; }
+.milestone-item { display: flex; align-items: center; gap: .75rem; padding: .65rem .8rem; border: 1px solid var(--color-border); border-radius: 12px; background: #fff; }
+.milestone-item--mandatory { border-inline-start: 4px solid var(--color-primary); }
+.milestone-main { flex: 1; min-width: 0; display: grid; gap: .2rem; }
+.milestone-text { color: var(--color-text); font-weight: 600; line-height: 1.4; }
+.milestone-meta { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; color: var(--color-text-muted); font-size: .82rem; }
+.milestone-meta a { color: var(--color-primary-text); }
+.milestone-badge { padding: .1rem .5rem; border-radius: 999px; background: var(--color-primary-soft); color: var(--color-primary-text); font-size: .75rem; }
+.milestone-note { color: var(--color-text-muted); font-size: .75rem; }
