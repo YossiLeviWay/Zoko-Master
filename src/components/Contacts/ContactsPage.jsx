@@ -14,6 +14,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
+import { useContextMenu } from '../Common/ContextMenu';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -63,6 +64,7 @@ function contactEmail(contact) {
 }
 
 export default function ContactsPage() {
+  const { menuProps } = useContextMenu();
   const { currentUser, userData, selectedSchool, isPrincipal, isGlobalAdmin } = useAuth();
   const { permissions } = usePermissions();
   const schoolId = selectedSchool || userData?.schoolId;
@@ -273,7 +275,7 @@ export default function ContactsPage() {
 
         {loading ? <div className="contacts-empty">טוען אנשי קשר...</div> : filtered.length === 0 ? <div className="contacts-empty"><Users size={34} /><h2>אין אנשי קשר להצגה</h2><p>{tab === CONTACT_SCOPE.PRIVATE ? 'אנשי קשר פרטיים גלויים רק לך.' : 'אפשר ליצור איש קשר חדש או לשנות את הסינון.'}</p></div> : (
           <div className="contacts-grid">
-            {filtered.map(contact => <article className={`contact-card ${contact.archived ? 'contact-card--archived' : ''}`} key={`${contact.scope}:${contact.id}`}>
+            {filtered.map(contact => <article className={`contact-card ${contact.archived ? 'contact-card--archived' : ''}`} key={`${contact.scope}:${contact.id}`} {...menuProps(() => [{ label: 'עריכה', icon: Edit3, onClick: () => startEdit(contact) }, { label: contact.archived ? 'שחזור' : 'העברה לארכיון', icon: contact.archived ? ArchiveRestore : Archive, danger: !contact.archived, onClick: () => toggleArchive(contact) }])}>
               <header><div className="contact-avatar">{contact.fullName?.charAt(0) || '?'}</div><div><h2>{contact.fullName || 'ללא שם'}</h2><p>{contact.jobTitle || (contact.scope === CONTACT_SCOPE.INTERNAL ? 'איש צוות' : 'איש קשר')} {contact.organization ? `· ${contact.organization}` : ''}</p></div>{contact.scope === CONTACT_SCOPE.PRIVATE && <span className="contact-private-badge">פרטי</span>}</header>
               <div className="contact-details">{contactEmail(contact) && <span dir="ltr"><Mail size={14} /> {contactEmail(contact)}</span>}{contact.phone && <span dir="ltr">{contact.phone}</span>}</div>
               {(contact.category || contact.tags?.length > 0) && <div className="contact-tags"><Tags size={13} />{contact.category && <span>{contact.category}</span>}{(contact.tags || []).map(tag => <span key={tag}>{tag}</span>)}</div>}

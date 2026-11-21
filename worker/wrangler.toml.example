@@ -11,6 +11,8 @@ GEMINI_MODEL = "gemini-flash-latest"
 
 # Configure these with `wrangler secret put`:
 # GEMINI_API_KEY
+# ANTHROPIC_API_KEY   (Claude; console.anthropic.com API key — a Max subscription does not include API access)
+# optional var: CLAUDE_MODEL (defaults to claude-sonnet-5-5)
 # FIREBASE_WEB_API_KEY
 # FIREBASE_PROJECT_ID
 # FIREBASE_PROJECT_NUMBER

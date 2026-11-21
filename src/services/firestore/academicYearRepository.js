@@ -77,11 +77,12 @@ export function subscribeAcademicYearSettings({ db, schoolId, onData, onError })
 export async function ensureInitialAcademicYears({ db, schoolId, actor }) {
   const settingsRef = schoolDoc(db, schoolId, 'settings', 'academic_years');
   await runTransaction(db, async transaction => {
+    // Firestore transactions require every read to happen before the first write, so all reads go first.
     const settingsSnapshot = await transaction.get(settingsRef);
-    for (const year of DEFAULT_ACADEMIC_YEARS) {
-      const yearRef = schoolDoc(db, schoolId, 'academicYears', year.id);
-      const snapshot = await transaction.get(yearRef);
-      if (!snapshot.exists()) transaction.set(yearRef, {
+    const yearRefs = DEFAULT_ACADEMIC_YEARS.map(year => schoolDoc(db, schoolId, 'academicYears', year.id));
+    const yearSnapshots = await Promise.all(yearRefs.map(ref => transaction.get(ref)));
+    DEFAULT_ACADEMIC_YEARS.forEach((year, index) => {
+      if (!yearSnapshots[index].exists()) transaction.set(yearRefs[index], {
         ...year,
         schoolId,
         createdBy: actor.uid,
@@ -89,7 +90,7 @@ export async function ensureInitialAcademicYears({ db, schoolId, actor }) {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
-    }
+    });
     if (!settingsSnapshot.exists()) transaction.set(settingsRef, {
       schoolId,
       activeAcademicYearId: INITIAL_ACTIVE_ACADEMIC_YEAR_ID,

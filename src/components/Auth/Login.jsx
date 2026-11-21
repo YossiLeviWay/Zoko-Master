@@ -120,8 +120,9 @@ export default function Login() {
               <fieldset className="auth-step">
                 <legend><span>1</span> פרטי התחברות</legend>
               <div className="form-group">
-                <label>דוא"ל</label>
+                <label htmlFor="login-email">דוא"ל</label>
                 <input
+                  id="login-email"
                   type="email"
                   value={email}
                   onChange={event => setEmail(event.target.value)}
@@ -132,8 +133,9 @@ export default function Login() {
                 />
               </div>
               <div className="form-group">
-                <label>סיסמה</label>
+                <label htmlFor="login-password">סיסמה</label>
                 <input
+                  id="login-password"
                   type="password"
                   value={password}
                   onChange={event => setPassword(event.target.value)}
@@ -173,7 +175,7 @@ export default function Login() {
             <p className="auth-link" style={{ marginTop: '0.75rem', marginBottom: 0 }}>
               <button
                 onClick={() => { setShowReset(true); setResetEmail(email); setResetStatus(''); }}
-                style={{ background: 'none', border: 'none', color: '#870335', fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem', fontFamily: 'Inter, sans-serif' }}
+                style={{ background: 'none', border: 'none', color: '#870335', fontWeight: 600, cursor: 'pointer', fontSize: '0.9rem', minHeight: 44, padding: '0 0.75rem', fontFamily: 'Inter, sans-serif' }}
               >
                 שכחתי סיסמה
               </button>

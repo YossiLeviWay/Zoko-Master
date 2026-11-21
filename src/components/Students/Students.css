@@ -100,7 +100,7 @@
 
 .student-program--full_matriculation {
   background: var(--color-primary-soft);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
 }
 
 .student-program--tech_matriculation {
@@ -175,7 +175,7 @@
   align-items: center;
   gap: 0.3rem;
   background: var(--color-primary-soft);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   border-radius: 20px;
   padding: 0.2rem 0.6rem;
   font-size: 0.78rem;
@@ -498,7 +498,7 @@
 .personal-file-sections button.active {
   border-color: var(--color-accent-soft);
   background: #fff;
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   box-shadow: 0 1px 3px rgb(15 23 42 / 8%);
 }
 
@@ -707,7 +707,7 @@
 
 .class-perm-class-item--active {
   background: var(--color-primary-soft);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   font-weight: 600;
 }
 
@@ -790,7 +790,7 @@
 .class-perm-team-chip--active {
   background: var(--color-primary-soft);
   border-color: var(--color-accent-soft);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   font-weight: 600;
 }
 
@@ -926,7 +926,7 @@
   border-radius: 10px;
   background: var(--color-primary-soft);
   font-size: 0.78rem;
-  color: var(--color-primary);
+  color: var(--color-primary-text);
 }
 
 .students-bulk-bar label,
@@ -935,7 +935,7 @@
 .student-card-select { align-self: flex-start; font-size: 0.72rem; color: var(--color-text-subtle); }
 
 .lifecycle-dialog { max-width: 760px; }
-.lifecycle-summary { padding: 0.7rem; border-radius: 9px; background: var(--color-primary-soft); color: var(--color-primary); font-size: 0.82rem; }
+.lifecycle-summary { padding: 0.7rem; border-radius: 9px; background: var(--color-primary-soft); color: var(--color-primary-text); font-size: 0.82rem; }
 .lifecycle-student-list { display: grid; gap: 0.4rem; max-height: 260px; overflow-y: auto; padding: 0.2rem; }
 .lifecycle-student-list label { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 0.55rem; padding: 0.55rem 0.65rem; border: 1px solid var(--color-border); border-radius: 8px; }
 .lifecycle-student-list span { font-size: 0.84rem; font-weight: 600; color: var(--color-text-secondary); }
@@ -951,7 +951,7 @@
 
 .class-card-details span { display: flex; align-items: center; gap: 0.4rem; }
 .class-tags { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.8rem; }
-.class-tags span { padding: 0.16rem 0.45rem; border-radius: 99px; background: var(--color-primary-soft); color: var(--color-primary); font-size: 0.7rem; }
+.class-tags span { padding: 0.16rem 0.45rem; border-radius: 99px; background: var(--color-primary-soft); color: var(--color-primary-text); font-size: 0.7rem; }
 .class-card-actions { padding-top: 0.75rem; border-top: 1px solid var(--color-surface-muted); flex-wrap: wrap; }
 .classes-empty,
 .students-empty { grid-column: 1 / -1; }
@@ -970,7 +970,7 @@
 .students-check-row label { display: flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; color: var(--color-text-secondary); }
 .students-inline-input { margin-top: 0.45rem; }
 .students-inline-input input { flex: 1; }
-.students-transfer-summary { padding: 0.7rem; border-radius: 8px; background: var(--color-primary-soft); color: var(--color-primary); font-size: 0.82rem; }
+.students-transfer-summary { padding: 0.7rem; border-radius: 8px; background: var(--color-primary-soft); color: var(--color-primary-text); font-size: 0.82rem; }
 
 .student-profile-modal { max-width: 760px; max-height: 90vh; overflow: hidden; }
 .student-profile-heading h3 { margin: 0; }

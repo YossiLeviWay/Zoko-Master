@@ -2,7 +2,10 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
   onSnapshot,
+  query,
+  where,
   serverTimestamp,
   setDoc,
   updateDoc,
@@ -307,4 +310,45 @@ export async function archiveAttendanceSheet({ db, schoolId, fileId, actor, mode
     updatedBy: actor.uid,
     updatedAt: serverTimestamp(),
   });
+}
+
+// Adds one student (who already has a student card) to one attendance sheet.
+export async function addAttendanceMember({ db, schoolId, file, actor, student, classId }) {
+  if (!actor?.uid || !file?.id || !student?.id) throw new Error('INVALID_ATTENDANCE_MEMBER');
+  const memberRef = doc(childCollection(db, schoolId, file.id, 'attendanceMembers', file._dataMode || DATA_MODE), student.id);
+  await setDoc(memberRef, {
+    schoolId,
+    fileId: file.id,
+    classId: classId || file.classId || '',
+    studentId: student.id,
+    displayName: student.fullName || `${student.firstName || ''} ${student.lastName || ''}`.trim(),
+    joinedAt: student.joinedAt || '',
+    endDate: student.endDate || '',
+    status: student.status || 'active',
+    included: true,
+    order: Date.now(),
+    createdBy: actor.uid,
+    createdAt: serverTimestamp(),
+  });
+}
+
+// A new student joins every active attendance sheet of their class. Best effort: the student card
+// is already saved, so a permission problem here must never undo or block it.
+export async function addStudentToClassSheets({ db, schoolId, actor, studentId, student, classItem }) {
+  if (!studentId || !classItem?.id) return 0;
+  const snapshot = await getDocs(query(
+    schoolCollection(db, schoolId, 'files', DATA_MODE),
+    where('fileType', '==', 'attendance'),
+    where('classId', '==', classItem.id),
+  ));
+  let added = 0;
+  for (const item of snapshot.docs) {
+    const file = { id: item.id, ...item.data() };
+    if (file.status === 'archived') continue;
+    try {
+      await addAttendanceMember({ db, schoolId, file, actor, student: { ...student, id: studentId }, classId: classItem.id });
+      added += 1;
+    } catch { /* leave the sheet as is; the student card exists */ }
+  }
+  return added;
 }

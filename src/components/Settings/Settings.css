@@ -26,7 +26,7 @@
   height: 64px;
   border-radius: 50%;
   background: var(--color-accent-soft);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -92,7 +92,7 @@
   transition: all 0.2s;
   position: relative;
   background: var(--color-accent-soft);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
 }
 
 .avatar-option:hover {
@@ -140,7 +140,7 @@
 
 .role-principal {
   background: var(--color-primary-soft);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
 }
 
 .role-editor {

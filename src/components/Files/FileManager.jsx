@@ -1,3 +1,4 @@
+import { sanitizeDocumentHtml } from '../../services/htmlSanitizer';
 import { changeRecycleBin } from '../../services/firestore/recycleBinRepository';
 import { useSharedFiles } from '../../hooks/useSharedFiles';
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -595,14 +596,18 @@ export default function FileManager() {
     if (!file) return;
     if (file.fileType === 'document') {
       // Export document as HTML → print/PDF
-      const content = typeof file.content === 'string' ? file.content : '';
-      const printWindow = window.open('', '_blank');
+      // File names and bodies are user-controlled and the print window shares this origin,
+      // so both are sanitised/escaped: an unsanitised document could run script with the viewer's session.
+      const content = sanitizeDocumentHtml(typeof file.content === 'string' ? file.content : '');
+      const title = String(file.name ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
+      const printWindow = window.open('', '_blank', 'noopener=no');
+      if (!printWindow) return;
       printWindow.document.write(`
         <!DOCTYPE html>
         <html dir="rtl" lang="he">
         <head>
           <meta charset="UTF-8">
-          <title>${file.name}</title>
+          <title>${title}</title>
           <style>
             body { font-family: Arial, sans-serif; padding: 2cm; direction: rtl; }
             @media print { body { padding: 1cm; } }

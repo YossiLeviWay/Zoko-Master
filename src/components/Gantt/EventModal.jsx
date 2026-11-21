@@ -4,6 +4,7 @@ import { db } from '../../firebase';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { useAuth } from '../../contexts/AuthContext';
 import CommunicationLauncherButton from '../Shared/CommunicationLauncherButton';
+import { SCHOOL_ROLES } from '../../../functions/src/schoolRoleCatalog.js';
 import './Gantt.css';
 
 function dateKey(date) {
@@ -36,6 +37,15 @@ export default function EventModal({
   const [editableBy, setEditableBy] = useState(
     Array.isArray(event?.editableBy) ? event.editableBy : []
   );
+
+  // "Who is this for?" Optional. Without it the event behaves exactly as before.
+  const [audience, setAudience] = useState({
+    kind: event?.audience?.kind || '',
+    grade: event?.audience?.grade || '',
+    subject: event?.audience?.subject || '',
+    roleIds: Array.isArray(event?.audience?.roleIds) ? event.audience.roleIds : [],
+  });
+  const audienceRoles = [{ id: 'homeroom', label: 'מחנכים' }, ...SCHOOL_ROLES.map(role => ({ id: role.id, label: role.label }))];
 
   const [form, setForm] = useState({
     title: event?.title || '',
@@ -80,10 +90,13 @@ export default function EventModal({
     e.preventDefault();
     if (!form.title.trim()) return;
     const visibleTo = visibilityMode === 'all' ? 'all' : selectedTeams;
+    const hasAudience = audience.kind || audience.grade || audience.subject.trim() || audience.roleIds.length;
     onSave({
       ...form,
       visibleTo,
-      editableBy
+      editableBy,
+      // null (not undefined) so editing an event can also clear a previous audience.
+      audience: hasAudience ? { kind: audience.kind, grade: audience.grade, subject: audience.subject.trim(), roleIds: audience.roleIds } : null
     });
   }
 
@@ -214,6 +227,42 @@ export default function EventModal({
               </div>
             )}
           </div>
+
+          <details className="event-audience" open={Boolean(event?.audience)}>
+            <summary>למי זה רלוונטי? (אופציונלי)</summary>
+            <p className="event-audience-hint">מי שלא קשור לאירוע לא יראה אותו בדשבורד. אם לא תבחרו כלום, כולם יראו.</p>
+            <div className="form-row">
+              <div className="form-group">
+                <label htmlFor="event-audience-kind">סוג</label>
+                <select id="event-audience-kind" value={audience.kind} onChange={e => setAudience(a => ({ ...a, kind: e.target.value }))}>
+                  <option value="">אירוע רגיל</option>
+                  <option value="exam">מבחן</option>
+                  <option value="meeting">פגישה</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label htmlFor="event-audience-grade">שכבה</label>
+                <select id="event-audience-grade" value={audience.grade} onChange={e => setAudience(a => ({ ...a, grade: e.target.value }))}>
+                  <option value="">כל השכבות</option>
+                  {['ט', 'י', 'יא', 'יב'].map(grade => <option key={grade} value={grade}>{grade}׳</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="form-group">
+              <label htmlFor="event-audience-subject">מקצוע</label>
+              <input id="event-audience-subject" value={audience.subject} maxLength={60} placeholder="למשל: אנגלית" onChange={e => setAudience(a => ({ ...a, subject: e.target.value }))} />
+            </div>
+            <div className="form-group">
+              <label htmlFor="event-audience-role">הוספת בעלי תפקיד</label>
+              <select id="event-audience-role" value="" onChange={e => e.target.value && setAudience(a => ({ ...a, roleIds: [...new Set([...a.roleIds, e.target.value])] }))}>
+                <option value="">בחרו תפקיד…</option>
+                {audienceRoles.filter(role => !audience.roleIds.includes(role.id)).map(role => <option key={role.id} value={role.id}>{role.label}</option>)}
+              </select>
+              {audience.roleIds.length > 0 && <div className="event-audience-chips">
+                {audience.roleIds.map(id => <button type="button" key={id} onClick={() => setAudience(a => ({ ...a, roleIds: a.roleIds.filter(item => item !== id) }))} aria-label={`הסרת ${audienceRoles.find(role => role.id === id)?.label || id}`}>{audienceRoles.find(role => role.id === id)?.label || id} ✕</button>)}
+              </div>}
+            </div>
+          </details>
 
           <div className="modal-actions">
             {event?.id && <CommunicationLauncherButton context={{ type: 'event', id: event.id, label: form.title, description: `${form.date}${form.time ? ` ${form.time}` : ''}`, eventId: event.id, participantIds: teams.filter(team => selectedTeams.includes(team.id) || editableBy.includes(team.id)).flatMap(team => team.memberIds || []) }} className="btn btn-secondary">מייל ומעקב</CommunicationLauncherButton>}

@@ -32,3 +32,6 @@ dist-ssr
 
 # Local pilot integrity key (no transcripts or uploads are stored here).
 .zoki-local/
+
+tests/persona/report.*
+tests/persona/shot-*.png

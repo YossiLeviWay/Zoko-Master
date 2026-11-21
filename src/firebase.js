@@ -1,9 +1,9 @@
 import { initializeApp, setLogLevel } from 'firebase/app';
 import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check';
-import { getAuth, inMemoryPersistence, setPersistence } from 'firebase/auth';
-import { initializeFirestore, memoryLocalCache } from 'firebase/firestore';
-import { getFunctions } from 'firebase/functions';
-import { getStorage } from 'firebase/storage';
+import { connectAuthEmulator, getAuth, inMemoryPersistence, setPersistence } from 'firebase/auth';
+import { connectFirestoreEmulator, initializeFirestore, memoryLocalCache } from 'firebase/firestore';
+import { connectFunctionsEmulator, getFunctions } from 'firebase/functions';
+import { connectStorageEmulator, getStorage } from 'firebase/storage';
 
 const environmentConfig = {
   VITE_FIREBASE_API_KEY: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -50,5 +50,14 @@ export const authPrivacyReady = setPersistence(auth, inMemoryPersistence);
 export const db = initializeFirestore(app, { localCache: memoryLocalCache() });
 export const functions = getFunctions(app, import.meta.env.VITE_FIREBASE_FUNCTIONS_REGION || 'europe-west1');
 export const storage = getStorage(app);
+
+// Local testing only: the flag is honoured exclusively by the Vite dev server, so a
+// production bundle can never be redirected to an emulator.
+if (import.meta.env.DEV && import.meta.env.VITE_USE_FIREBASE_EMULATORS === 'true') {
+  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+  connectFirestoreEmulator(db, '127.0.0.1', 8080);
+  connectStorageEmulator(storage, '127.0.0.1', 9199);
+  connectFunctionsEmulator(functions, '127.0.0.1', 5001);
+}
 
 export default app;

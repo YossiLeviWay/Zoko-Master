@@ -17,8 +17,10 @@
   --atid-warm-white: #fff8f5;
   --atid-white: var(--surface);
 
-  --color-primary: var(--brand-orange);
-  --color-primary-hover: #d93c1c;
+  /* Slightly deeper than the logo orange so white text on it and orange text on white both reach WCAG AA (4.5:1). */
+  --color-primary: #d1381a;
+  --color-primary-hover: #b92d17;
+  --color-primary-text: #b92d17;
   --color-primary-soft: #fff2ed;
   --color-accent: var(--atid-orange);
   --color-accent-soft: var(--atid-peach);
@@ -27,8 +29,8 @@
   --color-text: var(--atid-ink);
   --color-text-secondary: var(--text-secondary);
   --color-text-muted: #52606d;
-  --color-text-subtle: #637181;
-  --color-text-faint: #768596;
+  --color-text-subtle: #4d5b69;
+  --color-text-faint: #566575;
   --color-surface: var(--surface);
   --color-surface-muted: var(--page-background);
   --color-surface-raised: var(--surface);
@@ -117,7 +119,7 @@
 .btn-secondary {
   border-color: var(--color-border);
   background: var(--color-surface-raised);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
 }
 
 .btn-secondary:hover:not(:disabled) {
@@ -148,7 +150,7 @@
   min-height: auto;
   border-color: transparent;
   background: transparent;
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   box-shadow: none;
 }
 
@@ -166,5 +168,5 @@
 .icon-btn:hover:not(:disabled) {
   border-color: var(--color-accent-border);
   background: var(--color-surface-muted);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
 }
