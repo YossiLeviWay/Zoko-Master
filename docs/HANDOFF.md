@@ -42,6 +42,12 @@ few menus and little text, high contrast, mobile friendly, and a beginner-teache
   browser. `meyda.education.gov.il` and `pedagogiamh.co.il` work.
 - The repo is public until the owner changes it; GitHub Pages is the live host (still v1.32 until a deploy).
 
+## Hosting move (in progress)
+Prepared in the repo: `VITE_BASE` env in `vite.config.js` (default `/Zoko-Master/` for Pages, `/` for Firebase), workflow
+`.github/workflows/deploy-firebase.yml` (idle until `FIREBASE_SERVICE_ACCOUNT` secret and `FIREBASE_PROJECT_ID` variable
+exist) and `docs/operations/firebase-hosting.md`. Nothing is deployed from here: the owner adds the secret, authorizes the domain,
+runs the workflow, then disables the Pages workflow and makes the repo private.
+
 ## Waiting on the owner
 1. Anthropic API key (console.anthropic.com, funds needed; a Max subscription does not include API access) stored as
    the Worker secret `ANTHROPIC_API_KEY`; set `VITE_ZOKI_WORKER_URL`.

@@ -28,7 +28,8 @@ function emulatorCsp(enabled) {
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => ({
   plugins: [simpleAccessRollout(loadEnv(mode, process.cwd(), '').VITE_SIMPLE_ACCESS_ENABLED === 'true'), react(), emulatorCsp(loadEnv(mode, process.cwd(), '').VITE_USE_FIREBASE_EMULATORS === 'true' || process.env.VITE_USE_FIREBASE_EMULATORS === 'true')],
-  base: '/Zoko-Master/',
+  // GitHub Pages serves under /Zoko-Master/; Firebase Hosting serves from the root (set VITE_BASE=/).
+  base: process.env.VITE_BASE || '/Zoko-Master/',
   define: {
     'import.meta.env.APP_BUILD_DATE': JSON.stringify(new Date().toISOString()),
     'import.meta.env.APP_COMMIT_SHA': JSON.stringify(currentCommit()),

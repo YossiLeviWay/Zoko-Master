@@ -1,0 +1,69 @@
+name: Deploy to Firebase Hosting
+
+# Publishes the site to Firebase Hosting (free Spark plan is enough). It only runs once the secret
+# FIREBASE_SERVICE_ACCOUNT and the repository variable FIREBASE_PROJECT_ID exist, so it is safe to merge first.
+# Rules and functions are NOT deployed here: they follow the staged order in docs/security/operations.md.
+
+on:
+  push:
+    branches: ['main', 'master']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firebase-hosting
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      HAS_FIREBASE: ${{ secrets.FIREBASE_SERVICE_ACCOUNT != '' && vars.FIREBASE_PROJECT_ID != '' }}
+    steps:
+      - name: Skip when Firebase deployment is not configured yet
+        if: env.HAS_FIREBASE != 'true'
+        run: echo "FIREBASE_SERVICE_ACCOUNT or FIREBASE_PROJECT_ID is not set; nothing to deploy. See docs/operations/firebase-hosting.md."
+
+      - uses: actions/checkout@v4
+        if: env.HAS_FIREBASE == 'true'
+
+      - uses: actions/setup-node@v4
+        if: env.HAS_FIREBASE == 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install and verify
+        if: env.HAS_FIREBASE == 'true'
+        run: |
+          npm ci
+          npm run lint
+          npm run test:unit
+
+      - name: Build for the site root
+        if: env.HAS_FIREBASE == 'true'
+        run: npm run build
+        env:
+          VITE_BASE: /
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+          VITE_FIREBASE_APPCHECK_SITE_KEY: ${{ secrets.VITE_FIREBASE_APPCHECK_SITE_KEY }}
+          VITE_FIREBASE_AI_MODEL: ${{ vars.VITE_FIREBASE_AI_MODEL }}
+          VITE_ZOKI_AI_MODEL: ${{ vars.VITE_ZOKI_AI_MODEL }}
+          VITE_ZOKI_WORKER_URL: ${{ vars.VITE_ZOKI_WORKER_URL }}
+          VITE_TASK_WORKSPACE_ENABLED: ${{ vars.VITE_TASK_WORKSPACE_ENABLED }}
+          VITE_SIMPLE_ACCESS_ENABLED: ${{ vars.VITE_SIMPLE_ACCESS_ENABLED }}
+
+      - name: Deploy the site (hosting only)
+        if: env.HAS_FIREBASE == 'true'
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          projectId: ${{ vars.FIREBASE_PROJECT_ID }}
+          channelId: live
