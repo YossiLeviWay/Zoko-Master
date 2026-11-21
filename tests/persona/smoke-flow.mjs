@@ -53,6 +53,21 @@ if (await p.locator('.milestone-item').count()) {
   const after = await p.locator('.milestone-item .milestone-text').first().innerText().catch(() => '');
   log('milestone-done-hides-item', first !== after);
 }
+// ---- dashboard customisation: settings window, custom title, a second task list
+const gear = p.getByRole('button', { name: /התאמת התצוגה: המשימות שלי/ });
+log('settings-button', await gear.count());
+await gear.first().click(); await p.waitForTimeout(500);
+log('settings-dialog-open', await p.locator('.widget-settings').count());
+log('settings-has-staff-team-priority-due', JSON.stringify(await Promise.all(['#ws-team', '#ws-staff', '#ws-priority', '#ws-due', '#ws-limit'].map(sel => p.locator(sel).count()))));
+await p.locator('#ws-title').fill('הדחופות שלי'); await p.locator('#ws-priority').selectOption('high'); await p.locator('#ws-limit').selectOption('3');
+await p.locator('.widget-settings button.btn-primary').click(); await p.waitForTimeout(600);
+log('custom-title-shown', await p.locator('.section-title', { hasText: 'הדחופות שלי' }).count());
+log('filter-empty-message', await p.getByText('אין משימות שמתאימות לסינון שבחרת.').count());
+await p.getByRole('button', { name: /הוספת תצוגה/ }).click(); await p.waitForTimeout(300);
+await p.locator('.context-menu-item', { hasText: 'המשימות שלי' }).click(); await p.waitForTimeout(600);
+log('second-task-list-added', await p.locator('.dashboard-widget .section-title', { hasText: 'המשימות שלי' }).count());
+await p.getByRole('button', { name: /הוספת תצוגה/ }).click(); await p.waitForTimeout(300);
+await p.keyboard.press('Escape');
 await p.screenshot({ path: 'tests/persona/f-dashboard.png' });
 
 // ---- students page
