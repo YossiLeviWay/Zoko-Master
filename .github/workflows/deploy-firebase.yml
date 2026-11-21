@@ -26,7 +26,7 @@ jobs:
         if: env.HAS_FIREBASE != 'true'
         run: echo "FIREBASE_SERVICE_ACCOUNT or FIREBASE_PROJECT_ID is not set; nothing to deploy. See docs/operations/firebase-hosting.md."
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: env.HAS_FIREBASE == 'true'
 
       - uses: actions/setup-node@v4
