@@ -139,6 +139,7 @@ export default function Dashboard() {
   const [trackedFiles, setTrackedFiles] = useState([]);
   const [weekTasks, setWeekTasks] = useState([]);
   const [schoolClasses, setSchoolClasses] = useState([]);
+  const [doneNow, setDoneNow] = useState({});
   const [staffTaskActivity, setStaffTaskActivity] = useState([]);
 
   // Filter preferences state
@@ -188,7 +189,8 @@ export default function Dashboard() {
   }
 
   // Important dates for this person's role(s). "Done" is remembered per person in their dashboard preferences.
-  const doneMilestones = userData?.dashboardPreferences?.doneMilestones || {};
+  // The saved marks plus the ones just made in this session (the user profile is not re-read after a save).
+  const doneMilestones = { ...(userData?.dashboardPreferences?.doneMilestones || {}), ...doneNow };
   const milestoneRoleIds = [
     userData?.accessProfilesBySchool?.[selectedSchool]?.presetId,
     isPrincipal() || isGlobalAdmin() ? 'institution_manager' : '',
@@ -199,11 +201,12 @@ export default function Dashboard() {
     : [];
 
   async function markMilestoneDone(id) {
+    setDoneNow(previous => ({ ...previous, [id]: true }));
     if (!currentUser?.uid) return;
     try {
       await updateDoc(doc(db, 'users', currentUser.uid), { [`dashboardPreferences.doneMilestones.${id}`]: true });
     } catch {
-      // Not saved: the item simply stays on the list.
+      // Saving failed: it stays hidden for this session and returns on the next visit.
     }
   }
 

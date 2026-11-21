@@ -42,6 +42,19 @@ const seeded = await p.evaluate(async () => {
 });
 log('seeded', JSON.stringify(seeded));
 
+// ---- dashboard: important dates for the principal's role
+await p.evaluate(() => { location.hash = '/'; }); await p.waitForTimeout(2500);
+log('milestones-widget', await p.locator('.milestone-list, .milestone-item').count() > 0 || (await p.locator('.section-empty', { hasText: 'אין מועדים קרובים' }).count()) > 0);
+log('milestone-items', await p.locator('.milestone-item').count());
+log('milestone-has-source-link', await p.locator('.milestone-item a[href^="https://"]').count() > 0);
+if (await p.locator('.milestone-item').count()) {
+  const first = await p.locator('.milestone-item .milestone-text').first().innerText();
+  await p.locator('.milestone-item button').first().click(); await p.waitForTimeout(1200);
+  const after = await p.locator('.milestone-item .milestone-text').first().innerText().catch(() => '');
+  log('milestone-done-hides-item', first !== after);
+}
+await p.screenshot({ path: 'tests/persona/f-dashboard.png' });
+
 // ---- students page
 await p.evaluate(() => { location.hash = '/students'; }); await p.waitForTimeout(3000);
 log('student-rows', await p.locator('tbody tr').count());
