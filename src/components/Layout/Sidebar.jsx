@@ -40,29 +40,38 @@ import {
   ShieldCheck,
   ContactRound,
   ChevronDown,
-  Brain
+  Brain,
+  UsersRound
 } from 'lucide-react';
 import UserAvatar from '../Shared/UserAvatar';
 import NavPermissionsPanel, { PATH_TO_PERMISSION as PATH_TO_PERMISSION_SIDEBAR } from '../Shared/NavPermissionsPanel';
 import { usePermissions } from '../../hooks/usePermissions';
 import './Layout.css';
 
+// Always visible (when permitted): the few places people use every day.
+// Everything else lives under "עוד", grouped by purpose, so a new user is never
+// facing a long flat list.
 const NAV_ITEMS = [
   { path: '/', icon: Home, label: 'דשבורד', platformAllowed: true, primary: true },
   { path: '/tasks', icon: CheckSquare, label: 'המשימות שלי', requiresSchool: true, permission: 'tasks_view', primary: true },
   { path: '/calendar', icon: Calendar, label: 'לוח שנה', requiresSchool: true, permission: 'calendar_view', primary: true },
-  { path: '/staff', icon: Users, label: 'סגל וקהילה', requiresSchool: true, permission: 'staff_view' },
-  { path: '/teams', icon: Users, label: 'צוותים', requiresSchool: true, permission: 'teams_view' },
-  { path: '/students', icon: GraduationCap, label: 'תלמידים', requiresSchool: true, permission: 'students_view' },
-  { path: '/files', icon: FolderOpen, label: 'קבצים', requiresSchool: true, permission: 'files_view' },
-  { path: '/contacts', icon: ContactRound, label: 'אנשי קשר', requiresSchool: true, permission: 'contacts.view' },
-  { path: '/collective-brain', icon: Brain, label: 'מוח משותף', requiresSchool: true },
-  { path: '/messages', icon: MessageCircle, label: 'הודעות', permission: 'messages_send' },
-  { path: '/holidays', icon: Sun, label: 'חופשות וחגים', requiresSchool: true, permission: 'holidays_view' },
-  { path: '/forum', icon: MessagesSquare, label: 'פורום בתי הספר', forumOnly: true, platformAllowed: true },
-  { path: '/support', icon: LifeBuoy, label: 'תמיכה', requiresSchool: true, permission: 'support.create' },
-  { path: '/platform', icon: ShieldCheck, label: 'ניהול הפלטפורמה', adminOnly: true, platformAllowed: true },
-  { path: '/settings', icon: Settings, label: 'הגדרות', permission: 'settings_edit' }
+  { path: '/students', icon: GraduationCap, label: 'תלמידים', requiresSchool: true, permission: 'students_view', primary: true },
+  { path: '/files', icon: FolderOpen, label: 'קבצים', requiresSchool: true, permission: 'files_view', primary: true },
+  { path: '/staff', icon: Users, label: 'אנשי צוות', requiresSchool: true, permission: 'staff_view', group: 'people' },
+  { path: '/teams', icon: UsersRound, label: 'צוותים', requiresSchool: true, permission: 'teams_view', group: 'people' },
+  { path: '/contacts', icon: ContactRound, label: 'אנשי קשר', requiresSchool: true, permission: 'contacts.view', group: 'people' },
+  { path: '/messages', icon: MessageCircle, label: 'הודעות', permission: 'messages_send', group: 'content' },
+  { path: '/collective-brain', icon: Brain, label: 'מוח משותף', requiresSchool: true, group: 'content' },
+  { path: '/holidays', icon: Sun, label: 'חופשות וחגים', requiresSchool: true, permission: 'holidays_view', group: 'content' },
+  { path: '/forum', icon: MessagesSquare, label: 'פורום בתי הספר', forumOnly: true, platformAllowed: true, group: 'system' },
+  { path: '/support', icon: LifeBuoy, label: 'עזרה ודיווח על תקלה', requiresSchool: true, permission: 'support.create', group: 'system' },
+  { path: '/platform', icon: ShieldCheck, label: 'ניהול הפלטפורמה', adminOnly: true, platformAllowed: true, group: 'system' },
+  { path: '/settings', icon: Settings, label: 'הגדרות', permission: 'settings_edit', group: 'system' }
+];
+const NAV_GROUPS = [
+  { id: 'people', label: 'אנשים' },
+  { id: 'content', label: 'תקשורת ותוכן' },
+  { id: 'system', label: 'מערכת ועזרה' },
 ];
 
 const NOTIF_TYPE_ICONS = {
@@ -251,6 +260,7 @@ export default function Sidebar() {
       {isMobile && collapsed && (
         <button
           className="sidebar-mobile-toggle"
+          aria-label="פתיחת תפריט"
           onClick={() => setCollapsed(false)}
           style={{
             position: 'fixed',
@@ -260,8 +270,8 @@ export default function Sidebar() {
             background: '#fff',
             border: '1px solid #eadfe2',
             borderRadius: 8,
-            width: 36,
-            height: 36,
+            width: 44,
+            height: 44,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -389,21 +399,27 @@ export default function Sidebar() {
             className={`sidebar-more-toggle ${showMore ? 'is-open' : ''}`}
             onClick={() => setShowMore(value => !value)}
             aria-expanded={showMore}
-            title={collapsed ? 'כלים נוספים' : undefined}
+            title={collapsed ? 'עוד' : undefined}
           >
             <LayoutGrid size={19} />
-            {!collapsed && <><span>כלים נוספים</span><ChevronDown size={16} /></>}
+            {!collapsed && <><span>עוד</span><ChevronDown size={16} /></>}
           </button>
-          {showMore && <div className="sidebar-secondary" aria-label="כלים נוספים">
-            {!collapsed && <span className="sidebar-section-label">ניהול וכלים</span>}
-            {NAV_ITEMS.filter(item => !item.primary).filter(canSeeItem).map(item => (
-              <div key={item.path} className="sidebar-link-wrapper" onContextMenu={event => handleNavContextMenu(event, item)}>
-                <NavLink to={item.path} className={({ isActive }) => `sidebar-link ${isActive ? 'sidebar-link--active' : ''}`} title={collapsed ? item.label : undefined}>
-                  {item.image ? <img src={item.image} alt="" style={{ width: 25, height: 25, objectFit: 'contain' }} /> : <item.icon size={20} />}
-                  {!collapsed && <span>{item.label}</span>}
-                </NavLink>
-              </div>
-            ))}
+          {showMore && <div className="sidebar-secondary" aria-label="עוד">
+            {NAV_GROUPS.map(group => {
+              const items = NAV_ITEMS.filter(item => !item.primary && item.group === group.id).filter(canSeeItem);
+              if (!items.length) return null;
+              return <div key={group.id} role="group" aria-label={group.label}>
+                {!collapsed && <span className="sidebar-section-label">{group.label}</span>}
+                {items.map(item => (
+                  <div key={item.path} className="sidebar-link-wrapper" onContextMenu={event => handleNavContextMenu(event, item)}>
+                    <NavLink to={item.path} className={({ isActive }) => `sidebar-link ${isActive ? 'sidebar-link--active' : ''}`} title={collapsed ? item.label : undefined}>
+                      {item.image ? <img src={item.image} alt="" style={{ width: 25, height: 25, objectFit: 'contain' }} /> : <item.icon size={20} />}
+                      {!collapsed && <span>{item.label}</span>}
+                    </NavLink>
+                  </div>
+                ))}
+              </div>;
+            })}
           </div>}
         </>}
       </nav>

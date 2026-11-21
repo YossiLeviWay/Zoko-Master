@@ -71,3 +71,32 @@
 .zoki-audience-picker { margin: 0; padding: .75rem; border: 1px solid #eadde2; border-radius: 12px; background: #fffafb; }.zoki-audience-picker legend { padding-inline: .35rem; color: #57414b; font-size: .82rem; font-weight: 700; }.zoki-audience-picker > span { color: #8b747d; font-size: .8rem; }.zoki-audience-picker > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem .8rem; max-height: 180px; overflow-y: auto; }.zoki-audience-picker label { display: flex; grid-template-columns: none; align-items: center; gap: .45rem; padding: .4rem .5rem; border-radius: 8px; background: white; font-weight: 500; }.zoki-audience-picker input { width: auto; margin: 0; }
 .zoki-brain-actions { display: flex; align-items: center; justify-content: flex-end; gap: .7rem; padding: 1rem 1.5rem; border-top: 1px solid #eadde2; }.zoki-brain-actions > span { margin-left: auto; color: #6f5963; font-size: .8rem; }
 @media (max-width: 768px) { .zoki-shell { padding-inline: .7rem; }.zoki-hero { align-items: flex-start; }.zoki-identity > img { width: 78px; height: 78px; }.zoki-hero > button { font-size: 0; padding: .65rem; }.zoki-messages { max-height: calc(100vh - 300px); padding: 1rem; }.zoki-empty { margin: 1rem auto; }.zoki-empty > div, .zoki-window .zoki-empty > div { grid-template-columns: 1fr; }.zoki-message { max-width: 92%; }.zoki-inline-action > div { grid-template-columns: 1fr; }.zoki-task-confirmation dl { grid-template-columns: 1fr; }.zoki-task-result { align-items: flex-start; flex-wrap: wrap; }.zoki-task-result button { margin-right: 0; }.zoki-launcher { left: .75rem; bottom: .75rem; width: 56px; min-width: 56px; height: 56px; }.zoki-launcher img { width: 56px; height: 56px; }.zoki-window { inset: .5rem; width: auto; height: auto; border-radius: 18px; }.zoki-window-header small { display: none; }.zoki-window-header nav .zoki-end-conversation span { display: none; }.zoki-knowledge-card footer, .zoki-audience-picker > div { grid-template-columns: 1fr; } }
+
+/* ===== Simple chat window ===== */
+.zoki-window { width: min(420px, calc(100vw - 2rem)); height: min(620px, calc(100vh - 2rem)); border: 0; border-radius: 24px; box-shadow: 0 20px 60px rgba(35, 20, 27, .28), 0 0 0 1px rgba(111, 74, 88, .10); }
+.zoki-window-header { min-height: 64px; padding: .6rem .8rem; background: linear-gradient(180deg, #fff 0%, #fbf4f6 100%); border-bottom: 1px solid #f0e4e8; }
+.zoki-window-header img { width: 44px; height: 44px; }
+.zoki-window-header strong { font-size: 1rem; color: #2d1d24; }
+.zoki-window-header small { color: #6b5560; font-size: .78rem; }
+.zoki-window-header nav { gap: .2rem; }
+.zoki-window-header nav button, .zoki-menu-button { width: 40px; height: 40px; min-width: 40px; padding: 0; border-radius: 12px; }
+.zoki-menu { position: relative; }
+.zoki-menu-list { position: absolute; inset-inline-end: 0; top: calc(100% + 6px); z-index: 20; min-width: 200px; margin: 0; padding: .35rem; list-style: none; border: 1px solid #eadde2; border-radius: 14px; background: #fff; box-shadow: 0 12px 32px rgba(35, 20, 27, .18); }
+.zoki-menu-list button { width: 100%; height: 42px; justify-content: flex-start; padding: 0 .75rem; border-radius: 10px; color: #3b2730; font-size: .9rem; text-align: start; }
+.zoki-menu-list button.is-danger { color: #a52a3e; }
+.zoki-window .zoki-messages { padding: 1rem .9rem; background: #fdf9fa; }
+.zoki-window .zoki-empty { margin: 1rem auto; }
+.zoki-window .zoki-empty h2 { font-size: 1.15rem; }
+.zoki-window .zoki-empty > div { grid-template-columns: 1fr; gap: .5rem; }
+.zoki-window .zoki-empty button { min-height: 46px; text-align: start; font-size: .92rem; }
+.zoki-composer { padding: .7rem .8rem .8rem; gap: .5rem; align-items: end; }
+.zoki-composer textarea { min-height: 48px; max-height: 140px; padding: .75rem .9rem; border-radius: 16px; font-size: 1rem; }
+.zoki-composer > button { align-self: end; width: 48px; height: 48px; border-radius: 16px; }
+.zoki-composer > button:disabled { opacity: .5; }
+.zoki-window button:focus-visible, .zoki-window textarea:focus-visible { outline: 3px solid #1d4ed8; outline-offset: 2px; }
+@media (max-width: 768px) { .zoki-window { inset: 0; width: auto; height: auto; border-radius: 0; } }
+
+/* The chat must shrink to the window: the composer is always fully visible, only the messages scroll. */
+.zoki-window .zoki-chat { grid-template-rows: minmax(0, 1fr) auto; min-height: 0; }
+.zoki-window .zoki-messages { min-height: 0; }
+.zoki-window .zoki-composer { flex-shrink: 0; }

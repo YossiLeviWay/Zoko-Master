@@ -141,7 +141,7 @@ export default function Header({ title, onPermissions }) {
   return (
     <header className="app-header">
       <div className="header-right">
-        <h2 className="header-title">{title}</h2>
+        <h1 className="header-title">{title}</h1>
       </div>
 
       <div className="header-left">

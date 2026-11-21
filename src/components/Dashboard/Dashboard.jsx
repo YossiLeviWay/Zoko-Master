@@ -22,6 +22,10 @@ import {
   taskDueDate,
   updateTaskStatus,
 } from '../../services/firestore/taskRepository';
+import { eventRelevantFor } from '../../../functions/src/eventAudience.js';
+import { milestonesFor } from '../../../functions/src/schoolYearCalendar.js';
+import WidgetSettings from './WidgetSettings.jsx';
+import { MULTI_INSTANCE_TYPES, TASK_VIEW_PRESETS, filterEvents, filterTasks, hasFilters, normalizeConfig, normalizeWidget, tagsInTasks, widgetTitle } from '../../utils/dashboardWidgets';
 import { DASHBOARD_TASK_SORTS, dashboardTaskStats, sortDashboardTasks } from '../../utils/dashboardTasks';
 import './Dashboard.css';
 
@@ -33,11 +37,13 @@ const WIDGET_TYPES = {
   team_activity: { label: 'פעילות צוות', icon: Users, defaultSize: 'half' },
   file_tracker: { label: 'מעקב קבצים', icon: FileText, defaultSize: 'half' },
   upcoming_week: { label: 'השבוע הקרוב', icon: Calendar, defaultSize: 'full' },
+  milestones: { label: 'מועדים חשובים', icon: Clock, defaultSize: 'full' },
   staff_tasks: { label: 'משימות שהוסיפו אנשי צוות', icon: UserPlus, defaultSize: 'half' },
 };
 
 const DEFAULT_WIDGETS = [
   { type: 'my_tasks', size: 'full' },
+  { type: 'milestones', size: 'full' },
   { type: 'announcements', size: 'full' },
   { type: 'events', size: 'half' },
   { type: 'holidays', size: 'half' },
@@ -134,6 +140,9 @@ export default function Dashboard() {
   const [teamActivity, setTeamActivity] = useState([]);
   const [trackedFiles, setTrackedFiles] = useState([]);
   const [weekTasks, setWeekTasks] = useState([]);
+  const [schoolClasses, setSchoolClasses] = useState([]);
+  const [doneNow, setDoneNow] = useState({});
+  const [settingsIdx, setSettingsIdx] = useState(null);
   const [staffTaskActivity, setStaffTaskActivity] = useState([]);
 
   // Filter preferences state
@@ -166,7 +175,7 @@ export default function Dashboard() {
   useEffect(() => {
     const savedWidgets = userData?.dashboardPreferences?.widgets;
     if (savedWidgets && Array.isArray(savedWidgets) && savedWidgets.length > 0) {
-      setWidgets(savedWidgets);
+      setWidgets(savedWidgets.map(normalizeWidget).filter(Boolean));
     }
   }, [userData?.dashboardPreferences?.widgets]);
 
@@ -179,6 +188,28 @@ export default function Dashboard() {
       });
     } catch (err) {
       console.error('Error saving widget config:');
+    }
+  }
+
+  // Important dates for this person's role(s). "Done" is remembered per person in their dashboard preferences.
+  // The saved marks plus the ones just made in this session (the user profile is not re-read after a save).
+  const doneMilestones = { ...(userData?.dashboardPreferences?.doneMilestones || {}), ...doneNow };
+  const milestoneRoleIds = [
+    userData?.accessProfilesBySchool?.[selectedSchool]?.presetId,
+    isPrincipal() || isGlobalAdmin() ? 'institution_manager' : '',
+    schoolClasses.some(item => item.teacherId === currentUser?.uid) ? 'homeroom' : '',
+  ].filter(Boolean);
+  const visibleMilestones = milestoneRoleIds.length
+    ? milestonesFor({ today: localDateKey(), roleIds: milestoneRoleIds }).filter(entry => !doneMilestones[entry.id])
+    : [];
+
+  async function markMilestoneDone(id) {
+    setDoneNow(previous => ({ ...previous, [id]: true }));
+    if (!currentUser?.uid) return;
+    try {
+      await updateDoc(doc(db, 'users', currentUser.uid), { [`dashboardPreferences.doneMilestones.${id}`]: true });
+    } catch {
+      // Saving failed: it stays hidden for this session and returns on the next visit.
     }
   }
 
@@ -195,12 +226,19 @@ export default function Dashboard() {
     }
   }
 
-  function addWidget(type) {
+  function saveWidgetSettings(idx, config) {
+    saveWidgets(widgets.map((widget, i) => (i === idx ? { ...widget, config } : widget)));
+    setSettingsIdx(null);
+  }
+
+  // `preset` (optional) pre-fills the filters; the settings window opens right away so the person can refine them.
+  function addWidget(type, preset = null) {
     const config = WIDGET_TYPES[type];
     if (!config) return;
-    const newWidgets = [...widgets, { type, size: config.defaultSize }];
+    const newWidgets = [...widgets, { type, size: config.defaultSize, config: normalizeConfig(preset || {}) }];
     saveWidgets(newWidgets);
     setShowAddWidget(false);
+    if (preset) setSettingsIdx(newWidgets.length - 1);
   }
 
   function removeWidget(idx) {
@@ -281,6 +319,13 @@ export default function Dashboard() {
     return unsub;
   }, [selectedSchool]);
 
+  // Classes (read-only) let us tell which events concern this person; if they cannot be read the
+  // person simply gets role-based relevance only.
+  useEffect(() => {
+    if (!selectedSchool) return undefined;
+    return onSnapshot(collection(db, `classes_${selectedSchool}`), snap => setSchoolClasses(snap.docs.map(d => ({ id: d.id, ...d.data() }))), () => setSchoolClasses([]));
+  }, [selectedSchool]);
+
   // Load upcoming week events
   useEffect(() => {
     if (!selectedSchool) return;
@@ -315,7 +360,14 @@ export default function Dashboard() {
   const eventCategories = [...new Set(events.map(e => e.category).filter(Boolean))];
 
   // Filtered events and holidays
-  const filteredEvents = events.filter(e => !e.category || !hiddenEventCategories.includes(e.category));
+  const canSeeEverything = Boolean(isPrincipal() || isGlobalAdmin());
+  const relevanceUser = {
+    id: currentUser?.uid,
+    roleIds: [userData?.accessProfilesBySchool?.[selectedSchool]?.presetId, ...(schoolClasses.some(c => c.teacherId === currentUser?.uid) ? ['homeroom'] : [])].filter(Boolean),
+    subjects: Array.isArray(userData?.subjects) ? userData.subjects : [],
+  };
+  const isRelevant = event => eventRelevantFor(event, relevanceUser, schoolClasses, { manager: canSeeEverything });
+  const filteredEvents = events.filter(e => (!e.category || !hiddenEventCategories.includes(e.category)) && isRelevant(e));
   const filteredHolidays = holidays.filter(h => !h.type || !hiddenHolidayTypes.includes(h.type));
   const filteredTodayHolidays = todayHolidays.filter(h => !h.type || !hiddenHolidayTypes.includes(h.type));
 
@@ -779,8 +831,10 @@ export default function Dashboard() {
     switch (widget.type) {
       case 'my_tasks': {
         const today = localDateKey();
-        const dueToday = sortedMyTasks.filter(task => String(taskDueDate(task)).slice(0, 10) === today).length;
-        const overdueCount = sortedMyTasks.filter(task => taskDueDate(task) && String(taskDueDate(task)).slice(0, 10) < today).length;
+        const cfg = normalizeConfig(widget.config);
+        const taskList = filterTasks(sortedMyTasks, cfg, today);
+        const dueToday = taskList.filter(task => String(taskDueDate(task)).slice(0, 10) === today).length;
+        const overdueCount = taskList.filter(task => taskDueDate(task) && String(taskDueDate(task)).slice(0, 10) < today).length;
         return (
           <>
             <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -796,9 +850,9 @@ export default function Dashboard() {
                 <Lock size={12} /> משימה אישית חדשה
               </button>
             </div>
-            {sortedMyTasks.length === 0 && <p className="section-empty">אין משימות פעילות שמשויכות אליך.</p>}
+            {taskList.length === 0 && <p className="section-empty">{hasFilters(cfg) ? 'אין משימות שמתאימות לסינון שבחרת.' : 'אין משימות פעילות שמשויכות אליך.'}</p>}
             <div className="my-task-list">
-              {sortedMyTasks.slice(0, 5).map(task => {
+              {taskList.slice(0, cfg.limit).map(task => {
                 const dueDate = taskDueDate(task);
                 const overdue = dueDate && String(dueDate).slice(0, 10) < today;
                 const teamName = getTaskTeamName(task);
@@ -822,11 +876,12 @@ export default function Dashboard() {
           </>
         );
       }
-      case 'events':
-        if (filteredEvents.length === 0) return <p className="section-empty">אין אירועים קרובים</p>;
+      case 'events': {
+        const eventList = filterEvents(filteredEvents, widget.config).slice(0, normalizeConfig(widget.config).limit);
+        if (eventList.length === 0) return <p className="section-empty">אין אירועים קרובים</p>;
         return (
           <div className="event-list">
-            {filteredEvents.map(event => (
+            {eventList.map(event => (
               <div key={event.id} className="event-card" style={{ cursor: 'pointer' }} onClick={() => { const d = new Date(event.date + 'T00:00:00'); navigate(`/calendar?year=${d.getFullYear()}&month=${d.getMonth()}`); }}>
                 <div className="event-date-badge">
                   <span className="event-day">{new Date(event.date + 'T00:00:00').getDate()}</span>
@@ -841,6 +896,7 @@ export default function Dashboard() {
             ))}
           </div>
         );
+      }
       case 'holidays':
         if (filteredHolidays.length === 0) return <p className="section-empty">אין חגים קרובים</p>;
         return (
@@ -921,11 +977,35 @@ export default function Dashboard() {
             ))}
           </div>
         );
+      case 'milestones': {
+        const shownMilestones = visibleMilestones.slice(0, normalizeConfig(widget.config).limit);
+        if (shownMilestones.length === 0) return <p className="section-empty">אין מועדים קרובים לתפקיד שלך</p>;
+        return (
+          <div className="milestone-list">
+            {shownMilestones.map(entry => (
+              <div key={entry.id} className={`milestone-item ${entry.mandatory ? 'milestone-item--mandatory' : ''}`}>
+                <div className="milestone-main">
+                  <span className="milestone-text">{entry.text}</span>
+                  <span className="milestone-meta">
+                    {entry.state === 'active'
+                      ? `עד ${entry.to.split('-').reverse().join('.')}${entry.daysLeft <= 7 ? ` · נותרו ${entry.daysLeft} ימים` : ''}`
+                      : `מתחיל בעוד ${entry.startsInDays} ימים`}
+                    {entry.mandatory && <b className="milestone-badge">מועד מחייב</b>}
+                    <a href={entry.source} target="_blank" rel="noopener noreferrer">מקור</a>
+                  </span>
+                </div>
+                <button className="icon-btn" onClick={() => markMilestoneDone(entry.id)} aria-label={`סימון כבוצע: ${entry.text}`} title="סימון כבוצע"><CheckCircle size={18} /></button>
+              </div>
+            ))}
+            <small className="milestone-note">התאריכים לקוחים מהנחיות משרד העבודה ומשרד החינוך. שיוך המועדים לתפקידים הוא הצעה.</small>
+          </div>
+        );
+      }
       case 'upcoming_week':
-        if (weekTasks.length === 0) return <p className="section-empty">אין אירועים השבוע</p>;
+        if (weekTasks.filter(isRelevant).length === 0) return <p className="section-empty">אין אירועים השבוע</p>;
         return (
           <div className="event-list">
-            {weekTasks.map(event => (
+            {weekTasks.filter(isRelevant).map(event => (
               <div key={event.id} className="event-card" style={{ cursor: 'pointer' }} onClick={() => { const d = new Date(event.date + 'T00:00:00'); navigate(`/calendar?year=${d.getFullYear()}&month=${d.getMonth()}`); }}>
                 <div className="event-date-badge">
                   <span className="event-day">{new Date(event.date + 'T00:00:00').getDate()}</span>
@@ -1136,6 +1216,15 @@ export default function Dashboard() {
           </button>
         </div>
 
+        <div className="dashboard-toolbar">
+          <button type="button" className="btn btn-secondary btn-sm" onClick={event => {
+            event.stopPropagation(); // the page closes open menus on any click
+            const box = event.currentTarget.getBoundingClientRect();
+            setAddWidgetPos({ x: Math.max(8, Math.min(box.left, window.innerWidth - 230)), y: box.bottom + 6 });
+            setShowAddWidget(true); setWidgetContextMenu(null);
+          }}><PlusCircle size={14} /> הוספת תצוגה</button>
+        </div>
+
         {/* Customizable Widget Grid */}
         <div className="dashboard-widgets" onContextMenu={handleDashboardContextMenu}>
           {widgets.map((widget, idx) => {
@@ -1152,8 +1241,9 @@ export default function Dashboard() {
               >
                 <div className="section-header">
                   <Icon size={18} />
-                  <h2 className="section-title">{config.label}</h2>
+                  <h2 className="section-title">{widgetTitle(widget, config.label)}</h2>
                   <div style={{ marginRight: 'auto', display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+                    {['my_tasks', 'events', 'milestones'].includes(widget.type) && <button className="widget-size-btn" title="התאמת התצוגה" aria-label={`התאמת התצוגה: ${widgetTitle(widget, config.label)}`} onClick={() => setSettingsIdx(idx)}><SlidersHorizontal size={13} /></button>}
                     <button className="widget-size-btn" title="שנה גודל" onClick={() => resizeWidget(idx, widget.size === 'full' ? 'half' : 'full')}>
                       {widget.size === 'full' ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
                     </button>
@@ -1176,13 +1266,33 @@ export default function Dashboard() {
           )}
         </div>
 
+        {settingsIdx !== null && widgets[settingsIdx] && (
+          <WidgetSettings
+            widget={widgets[settingsIdx]}
+            label={WIDGET_TYPES[widgets[settingsIdx].type]?.label || ''}
+            schoolId={selectedSchool}
+            teams={myTeams}
+            knownTags={tagsInTasks(myTasks)}
+            knownCategories={[...new Set([...events, ...weekTasks].map(event => event.category).filter(Boolean))]}
+            onSave={config => saveWidgetSettings(settingsIdx, config)}
+            onClose={() => setSettingsIdx(null)}
+          />
+        )}
+
         {/* Right-click: Add widget menu */}
         {showAddWidget && (
           <div className="context-menu" style={{ position: 'fixed', top: addWidgetPos.y, left: addWidgetPos.x, zIndex: 1000 }} onClick={e => e.stopPropagation()}>
             <div style={{ padding: '0.4rem 0.6rem', fontSize: '0.75rem', fontWeight: 700, color: '#765968', borderBottom: '1px solid #f9f1ef' }}>הוסף תצוגה</div>
+            <div style={{ padding: '0.4rem 0.6rem', fontSize: '0.75rem', fontWeight: 700, color: '#765968' }}>רשימות מוכנות</div>
+            {TASK_VIEW_PRESETS.map(preset => (
+              <button key={preset.id} className="context-menu-item" onClick={() => addWidget('my_tasks', preset.config)}>
+                <CheckSquare size={14} /> {preset.label}
+              </button>
+            ))}
+            <div className="context-menu-divider" />
             {Object.entries(WIDGET_TYPES).map(([type, config]) => {
               const Icon = config.icon;
-              const alreadyAdded = widgets.some(w => w.type === type);
+              const alreadyAdded = !MULTI_INSTANCE_TYPES.includes(type) && widgets.some(w => w.type === type);
               return (
                 <button
                   key={type}

@@ -1,4 +1,5 @@
 import { DIRECT_PERMISSION_DEFINITIONS } from './permissionCatalog.js';
+import { SCHOOL_ROLES, MANAGER_ONLY } from './schoolRoleCatalog.js';
 
 // Display groups never grant capabilities. Every grant is an explicit key.
 export const ACCESS_DOMAINS = Object.freeze([
@@ -9,11 +10,19 @@ export const ACCESS_DOMAINS = Object.freeze([
   { id: 'management', label: 'ניהול', groups: ['institution', 'roles', 'permissions', 'schools', 'settings'] },
 ]);
 const BASIC = ['calendar.view', 'tasks.viewOwn', 'tasks.viewTeam', 'tasks.create', 'tasks.inviteCollaborators', 'tasks.useAssistant'];
-export const ACCESS_PRESETS = Object.freeze([
-  { id: 'teacher', label: 'מורה מקצועי', description: 'עבודה שוטפת ותכנים ששיתפו איתו', school: BASIC, homeroom: [] },
+const CORE_PRESETS = [
+  { id: 'teacher', label: 'מורה מקצועי', description: 'עבודה שוטפת ותכנים ששיתפו איתו', school: BASIC, homeroom: [], featured: true },
   { id: 'homeroom', label: 'מחנך', description: 'תלמידים, נוכחות ומיפויים בכיתות החינוך שלו', school: BASIC,
-    homeroom: ['classes.view', 'students.view', 'students.update', 'attendance_view', 'attendance_edit', 'grades.view', 'grades.edit'] },
-  { id: 'leadership', label: 'חבר הנהלה', description: 'גישה לפי תחומי אחריות שתבחרו', school: BASIC, homeroom: [] },
+    homeroom: ['classes.view', 'students.view', 'students.update', 'attendance_view', 'attendance_edit', 'grades.view', 'grades.edit'], featured: true },
+  { id: 'leadership', label: 'חבר הנהלה', description: 'גישה לפי תחומי אחריות שתבחרו', school: BASIC, homeroom: [], featured: true },
+];
+// Forum access keeps its separate approval flow, so no role template grants it.
+const ROLE_KEYS = DIRECT_PERMISSION_DEFINITIONS.map(def => def.key).filter(key => !MANAGER_ONLY.includes(key) && !key.startsWith('forum.'));
+const roleCapabilities = role => role.grant === 'all-except-manager' ? ROLE_KEYS : [...new Set([...BASIC, ...(role.school || [])])];
+export const ACCESS_PRESETS = Object.freeze([
+  ...CORE_PRESETS,
+  ...SCHOOL_ROLES.map(role => ({ id: role.id, label: role.label, description: role.description, school: roleCapabilities(role), homeroom: [],
+    featured: false, group: role.group, managementTeam: Boolean(role.managementTeam) })),
 ]);
 const BASIC_ACTIONS = Object.freeze({
   'calendar.view': 'view', 'calendar.create': 'create', 'calendar.edit': 'edit',

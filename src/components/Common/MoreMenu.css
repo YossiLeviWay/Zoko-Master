@@ -1,0 +1,4 @@
+.more-menu { position: relative; display: inline-block; }
+.more-menu-list { position: absolute; inset-inline-start: 0; top: calc(100% + 6px); z-index: 60; min-width: 220px; margin: 0; padding: .3rem; list-style: none; border: 1px solid var(--color-border); border-radius: 14px; background: #fff; box-shadow: 0 12px 32px rgba(35, 20, 27, .18); }
+.more-menu-list button { width: 100%; min-height: 42px; display: flex; align-items: center; gap: .6rem; padding: 0 .75rem; border: 0; border-radius: 10px; background: transparent; color: var(--color-text); font: inherit; font-size: .92rem; text-align: start; cursor: pointer; }
+.more-menu-list button:hover, .more-menu-list button:focus-visible { background: var(--color-primary-soft); outline: none; }

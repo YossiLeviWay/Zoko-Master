@@ -38,6 +38,10 @@ VITE_TASK_ASSISTANT_ENABLED=true
 VITE_TASK_ASSISTANT_DAILY_LIMIT=20
 ```
 
+## פריסה ל-Firebase Hosting (מומלץ, מסלול Spark חינמי)
+
+המדריך המלא: [`docs/operations/firebase-hosting.md`](docs/operations/firebase-hosting.md). הפריסה האוטומטית (`.github/workflows/deploy-firebase.yml`) מתחילה לפעול אחרי שמוגדרים הסוד `FIREBASE_SERVICE_ACCOUNT` והמשתנה `FIREBASE_PROJECT_ID`. אירוח ב-Firebase מאפשר להפוך את הריפו לפרטי, ומחיל את כותרות האבטחה שב-`firebase.json`.
+
 ## פריסה ל-GitHub Pages
 
 הפרויקט מוגדר לפריסה אוטומטית דרך GitHub Actions.  

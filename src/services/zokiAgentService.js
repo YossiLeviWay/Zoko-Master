@@ -5,6 +5,8 @@ import { auth, db, isFirebaseConfigured } from '../firebase.js';
 import { schoolCollectionPath } from './firestore/paths.js';
 import { mergeMemories, normalizeMemories, validSourcePath, zokiContextFields, isSafeMemoryText } from '../utils/zokiMemory.js';
 import { createZokiProvider } from './zokiFirebaseProvider.js';
+import { answerPolicy, searchKnowledge } from '../../functions/src/zokiKnowledge.js';
+import { remindersText } from '../../functions/src/schoolYearCalendar.js';
 import { boundedZokiHistory, runSemanticZokiTurn, ZOKI_CONTEXT_LIMITS } from '../utils/zokiSemanticTurn.js';
 
 export const isZokiAgentConfigured = isFirebaseConfigured;
@@ -180,6 +182,10 @@ export async function zokiRequest(path, schoolId, body = {}, method = 'POST', of
   assertSession();
   const { result, selectedSources } = await runSemanticZokiTurn({ provider: createZokiProvider(), sources, assertSession, input: { question: body.question,
     today: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(new Date()),
+    // Vetted regulation entries only. mode 'defer' means the source was not read yet: Zoki must say so.
+    // Dated milestones for this person's role, so Zoki can remind without being asked.
+    upcomingMilestones: remindersText({ today: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(new Date()), roleId: actor.data.accessProfilesBySchool?.[schoolId]?.presetId || (['principal', 'institution_manager'].includes(actor.role) ? 'institution_manager' : '') }),
+    knowledge: searchKnowledge(body.question, { roleId: actor.data.accessProfilesBySchool?.[schoolId]?.presetId || '' }).map(entry => ({ title: entry.title, ...answerPolicy(entry) })),
     profile: { uid: actor.uid, name: actor.data.fullName || '', role: actor.role, preferences: profile.preferences },
     accessContext: { schoolId, role: actor.role, canManageStaff: ['principal','institution_manager'].includes(actor.role), explicitPermissions: actor.data.permissionsBySchool?.[schoolId] || actor.data.permissions || {}, privateRecordsExcluded: true, externalSystemsVerified: false },
     memories: selected, learningEnabled: profile.learningEnabled,

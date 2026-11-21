@@ -9,12 +9,12 @@
 
 .communication-dashboard { display: flex; flex-direction: column; gap: 14px; }
 .communication-dashboard > header { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 22px; border: 1px solid var(--color-border); border-radius: 18px; background: linear-gradient(135deg, #fff8f3, #fff); }
-.communication-dashboard > header span { display: inline-flex; align-items: center; gap: 6px; color: var(--color-primary); font-size: .82rem; font-weight: 700; }
+.communication-dashboard > header span { display: inline-flex; align-items: center; gap: 6px; color: var(--color-primary-text); font-size: .82rem; font-weight: 700; }
 .communication-dashboard > header h2 { margin: 6px 0; color: var(--color-text); }
 .communication-dashboard > header p { margin: 0; color: var(--color-text-muted); }
 .communication-dashboard-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
 .communication-dashboard-stats button { display: flex; flex-direction: column; gap: 3px; padding: 13px; border: 1px solid var(--color-border); border-radius: 12px; background: #fff; color: var(--color-text-muted); cursor: pointer; }
-.communication-dashboard-stats button.active { border-color: var(--color-primary); background: #fff5f1; color: var(--color-primary); }
+.communication-dashboard-stats button.active { border-color: var(--color-primary); background: #fff5f1; color: var(--color-primary-text); }
 .communication-dashboard-stats strong { font-size: 1.25rem; color: var(--color-text); }
 .communication-dashboard-search { display: flex; align-items: center; gap: 8px; max-width: 460px; padding: 9px 12px; border: 1px solid var(--color-border); border-radius: 10px; background: #fff; }
 .communication-dashboard-search input { flex: 1; border: 0; outline: 0; background: transparent; font: inherit; }
@@ -23,7 +23,7 @@
 .communication-followup-card--reply { border-inline-start-color: #0f9d8d; }
 .communication-followup-card--action { border-inline-start-color: #e05a47; }
 .communication-followup-card--resolved { border-inline-start-color: #57a773; opacity: .82; }
-.communication-followup-status { display: flex; align-items: center; gap: 6px; color: var(--color-primary); font-size: .8rem; font-weight: 700; }
+.communication-followup-status { display: flex; align-items: center; gap: 6px; color: var(--color-primary-text); font-size: .8rem; font-weight: 700; }
 .communication-followup-main h3 { margin: 0 0 5px; font-size: .98rem; }
 .communication-followup-main p { display: flex; align-items: center; gap: 5px; margin: 0 0 7px; color: var(--color-text-secondary); font-size: .8rem; }
 .communication-followup-main > div { display: flex; flex-wrap: wrap; gap: 10px; color: var(--color-text-faint); font-size: .72rem; }
@@ -70,7 +70,7 @@
 .task-scope-picker button.active {
   border-color: var(--color-accent-soft);
   background: #fff;
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   box-shadow: 0 1px 4px rgba(135, 3, 53, 0.08);
 }
 
@@ -462,7 +462,7 @@
 
 .task-assignee {
   font-size: 0.72rem;
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   font-weight: 500;
 }
 
@@ -501,7 +501,7 @@
   position: relative;
   border-color: var(--color-accent-soft) !important;
   background: var(--color-primary-soft) !important;
-  color: var(--color-primary) !important;
+  color: var(--color-primary-text) !important;
 }
 
 .task-chat-button--unread {
@@ -978,7 +978,7 @@
   cursor: pointer;
 }
 .task-create-menu button:hover,
-.initiative-more-menu button:hover { background: var(--color-primary-soft); color: var(--color-primary); }
+.initiative-more-menu button:hover { background: var(--color-primary-soft); color: var(--color-primary-text); }
 .task-create-menu button:disabled { opacity: 0.45; cursor: not-allowed; }
 .initiative-menu-backdrop { position: fixed; z-index: 10000; inset: 0; background: transparent; }
 .initiative-more-menu.initiative-more-menu--floating { position: fixed; z-index: 1; inset: auto; }
@@ -1053,7 +1053,7 @@
 .initiative-health--completed { color: #1d4ed8; background: #eff6ff; }
 .initiative-card-progress > div { flex: 1; height: 6px; overflow: hidden; border-radius: 999px; background: var(--color-border); }
 .initiative-card-progress > div span { display: block; height: 100%; border-radius: inherit; background: var(--color-primary); }
-.initiative-card-progress strong { min-width: 34px; color: var(--color-primary); font-size: 0.75rem; }
+.initiative-card-progress strong { min-width: 34px; color: var(--color-primary-text); font-size: 0.75rem; }
 .initiative-card-meta { color: var(--color-text-subtle); font-size: 0.7rem; }
 .initiative-card-meta span { display: inline-flex; align-items: center; gap: 0.25rem; }
 .initiative-empty { grid-column: 1 / -1; display: grid; justify-items: center; gap: 0.5rem; padding: 1.5rem; border: 1px dashed var(--color-border); border-radius: 12px; color: var(--color-text-subtle); text-align: center; }
@@ -1068,7 +1068,7 @@
 .initiative-hero-actions { flex-wrap: wrap; justify-content: flex-end; gap: 0.45rem; }
 .initiative-overview-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.65rem; margin: 0.75rem 0; }
 .initiative-overview-grid article { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 0.25rem 0.5rem; padding: 0.75rem; border: 1px solid var(--color-border); border-radius: 11px; background: #fff; }
-.initiative-overview-grid article svg { grid-row: 1 / 4; color: var(--color-primary); }
+.initiative-overview-grid article svg { grid-row: 1 / 4; color: var(--color-primary-text); }
 .initiative-overview-grid span,
 .initiative-overview-grid small { color: var(--color-text-subtle); font-size: 0.68rem; }
 .initiative-overview-grid strong { overflow: hidden; color: var(--color-text); font-size: 0.78rem; text-overflow: ellipsis; white-space: nowrap; }
@@ -1085,7 +1085,7 @@
 .milestone-card--priority-low { border-inline-start-color: var(--atid-peach, #f9dab9); }
 .milestone-card--blocked { border-inline-start-color: #dc2626; }
 .milestone-card--completed { border-inline-start-color: #16a34a; opacity: 0.82; }
-.milestone-index { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--color-primary-soft); color: var(--color-primary); font-size: 0.75rem; font-weight: 700; }
+.milestone-index { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--color-primary-soft); color: var(--color-primary-text); font-size: 0.75rem; font-weight: 700; }
 .milestone-title-line { gap: 0.4rem; }
 .milestone-title-line h4 { margin: 0; font-size: 0.87rem; }
 .milestone-proposed { padding: 0.12rem 0.38rem; border-radius: 999px; background: #fffbeb; color: #b45309; font-size: 0.64rem; font-weight: 700; }
@@ -1106,11 +1106,11 @@
 .initiative-split { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
 .initiative-files span { display: flex; align-items: center; gap: 0.35rem; padding: 0.5rem; border-radius: 7px; background: var(--color-background); color: var(--color-text-muted); font-size: 0.75rem; }
 .initiative-updates article { padding: 0.55rem; border-inline-start: 3px solid var(--color-accent-border); background: var(--color-background); }
-.initiative-updates article span { color: var(--color-primary); font-size: 0.66rem; font-weight: 700; }
+.initiative-updates article span { color: var(--color-primary-text); font-size: 0.66rem; font-weight: 700; }
 .initiative-updates article p { margin: 0.2rem 0; color: var(--color-text); font-size: 0.75rem; }
 .initiative-updates article small { color: var(--color-text-subtle); }
 .initiative-update-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
-.initiative-updates article > a { display: inline-flex; margin: 0.25rem 0; color: var(--color-primary); font-size: 0.72rem; }
+.initiative-updates article > a { display: inline-flex; margin: 0.25rem 0; color: var(--color-primary-text); font-size: 0.72rem; }
 .initiative-updates article > small { display: flex; align-items: center; gap: 0.25rem; margin-top: 0.2rem; }
 .initiative-comments { display: grid; gap: 0.3rem; margin-top: 0.5rem; padding-top: 0.45rem; border-top: 1px solid var(--color-border); }
 .initiative-comments p { margin: 0; padding: 0.35rem 0.45rem; border-radius: 6px; background: #fff; font-size: 0.7rem; }

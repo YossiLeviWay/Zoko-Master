@@ -1,3 +1,5 @@
+import { buildClaudeRequest, callClaude, heldCapabilities, parseClaudeResponse } from './claude.js';
+import { roleAgentProfile } from '../../functions/src/roleAgents.js';
 import {
   createSchoolBrain,
   fingerprint,
@@ -359,7 +361,7 @@ async function actorContext(request, env, schoolId) {
   const schools = new Set([...(data.schoolIds || []), data.schoolId].filter(Boolean));
   if (!schools.has(schoolId) || ['disabled', 'pending', 'deleting'].includes(data.accountStatus)) throw new Error('permission-denied');
   const schoolRole = data.rolesBySchool?.[schoolId] || data.role || 'viewer';
-  return { ...actor, fullName: data.fullName || 'איש צוות', role: schoolRole, manager: ['principal', 'institution_manager'].includes(schoolRole) };
+  return { ...actor, fullName: data.fullName || 'איש צוות', role: schoolRole, accessProfile: data.accessProfilesBySchool?.[schoolId] || null, manager: ['principal', 'institution_manager'].includes(schoolRole) };
 }
 
 async function geminiJson(env, prompt) {
@@ -427,6 +429,14 @@ async function handle(request, env) {
   await verifyAppCheck(request, env);
   const actor = await actorContext(request, env, schoolId);
 
+  if (url.pathname === '/v1/zoki/turn' && request.method === 'POST') {
+    // The role comes from the user's stored access profile, never from the request.
+    const roleId = actor.accessProfile?.presetId || (actor.manager ? 'pedagogical_coordinator' : '');
+    const profile = roleAgentProfile(roleId) || roleAgentProfile('secretary');
+    const payload = buildClaudeRequest({ profile, messages: body.messages, heldKeys: heldCapabilities(actor.accessProfile), model: env.CLAUDE_MODEL || undefined });
+    const result = parseClaudeResponse(await callClaude(env, payload));
+    return json({ ...result, agent: profile.name }, 200, cors(request, env));
+  }
   if (url.pathname === '/v1/task-agent/draft' && request.method === 'POST') {
     const { markdown } = await readBrain(env, schoolId);
     const context = relevantBrainContext(markdown, body.request);

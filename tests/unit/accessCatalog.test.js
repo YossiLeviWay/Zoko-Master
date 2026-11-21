@@ -63,3 +63,26 @@ test('school profile validation rejects forum shortcuts and unrecognized capabil
   profile.school['unknown.grant'] = true;
   assert.equal(accessProfileSchema.safeParse(profile).success, false);
 });
+
+test('school role catalog uses only real capabilities and never lets a role appoint others', async () => {
+  const { SCHOOL_ROLES, MANAGER_ONLY, MANAGEMENT_TEAM_ROLE_IDS } = await import('../../functions/src/schoolRoleCatalog.js');
+  const { ACCESS_PRESETS } = await import('../../functions/src/accessCatalog.js');
+  const { ALL_PERMISSION_KEYS } = await import('../../functions/src/permissionCatalog.js');
+  assert.ok(SCHOOL_ROLES.length >= 10);
+  assert.ok(MANAGEMENT_TEAM_ROLE_IDS.includes('pedagogical_coordinator'));
+  for (const role of SCHOOL_ROLES) {
+    const preset = ACCESS_PRESETS.find(item => item.id === role.id);
+    assert.ok(preset, role.id);
+    assert.equal(role.canAppointRoles, false);
+    for (const key of preset.school) assert.ok(ALL_PERMISSION_KEYS.includes(key), `${role.id}: unknown ${key}`);
+    for (const key of MANAGER_ONLY) assert.equal(preset.school.includes(key), false, `${role.id} must not hold ${key}`);
+    assert.equal(preset.school.some(key => key.startsWith('forum.')), false);
+    const profile = presetProfile(role.id);
+    assert.equal(accessProfileSchema.safeParse(profile).success, true, role.id);
+  }
+});
+test('pedagogical coordinator can share files and see everything but cannot appoint roles', () => {
+  const school = presetProfile('pedagogical_coordinator').school;
+  for (const key of ['files.share', 'files.managePermissions', 'students.view', 'classes.view', 'calendar.manageSchoolCalendar', 'tasks.assign']) assert.equal(school[key], true, key);
+  for (const key of ['roles.assign', 'staff.assignRoles', 'permissions.delegate', 'institution.settings']) assert.equal(school[key], undefined, key);
+});
