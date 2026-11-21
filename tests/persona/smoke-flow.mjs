@@ -68,6 +68,15 @@ await p.locator('.context-menu-item', { hasText: 'המשימות שלי' }).clic
 log('second-task-list-added', await p.locator('.dashboard-widget .section-title', { hasText: 'המשימות שלי' }).count());
 await p.getByRole('button', { name: /הוספת תצוגה/ }).click(); await p.waitForTimeout(300);
 await p.keyboard.press('Escape');
+// ---- ready-made views: by importance / by staff member / by tag
+await p.getByRole('button', { name: /הוספת תצוגה/ }).click(); await p.waitForTimeout(300);
+log('preset-menu-items', JSON.stringify(await p.locator('.context-menu-item', { hasText: /לפי/ }).allInnerTexts()));
+await p.locator('.context-menu-item', { hasText: 'משימות לפי רמת חשיבות' }).click(); await p.waitForTimeout(600);
+log('preset-opens-settings', await p.locator('.widget-settings').count());
+log('preset-prefilled-priority-high', await p.locator('#ws-priority').inputValue());
+log('settings-has-tag-select', await p.locator('#ws-tag').count());
+await p.locator('.widget-settings button.btn-primary').click(); await p.waitForTimeout(500);
+log('preset-widget-title', await p.locator('.section-title', { hasText: 'משימות דחופות' }).count());
 await p.screenshot({ path: 'tests/persona/f-dashboard.png' });
 
 // ---- students page

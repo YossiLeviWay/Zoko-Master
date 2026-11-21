@@ -6,7 +6,7 @@ import { listSchoolStaff } from '../../services/firestore/classStudentRepository
 import { DUE_FILTERS, LIMIT_OPTIONS, normalizeConfig } from '../../utils/dashboardWidgets';
 
 // Everything a person can change about ONE dashboard widget, in a single small window.
-export default function WidgetSettings({ widget, label, schoolId, teams = [], knownCategories = [], onSave, onClose }) {
+export default function WidgetSettings({ widget, label, schoolId, teams = [], knownCategories = [], knownTags = [], onSave, onClose }) {
   const [config, setConfig] = useState(() => normalizeConfig(widget.config));
   const [staff, setStaff] = useState([]);
   const [categories, setCategories] = useState(knownCategories);
@@ -68,6 +68,11 @@ export default function WidgetSettings({ widget, label, schoolId, teams = [], kn
           <option value="high">גבוהה</option>
           <option value="medium">בינונית</option>
           <option value="low">נמוכה</option>
+        </select>
+        <label htmlFor="ws-tag">תיוג</label>
+        <select id="ws-tag" value={config.tag} onChange={event => set({ tag: event.target.value })}>
+          <option value="">{knownTags.length ? 'הכול' : 'אין תיוגים במשימות שלך'}</option>
+          {knownTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}
         </select>
         <label htmlFor="ws-due">מועד</label>
         <select id="ws-due" value={config.due} onChange={event => set({ due: event.target.value })}>

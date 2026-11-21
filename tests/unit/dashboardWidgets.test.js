@@ -43,3 +43,17 @@ test('events filter by category and titles can be customised', () => {
   assert.equal(widgetTitle({ config: { title: 'המבחנים שלי' } }, 'ברירת מחדל'), 'המבחנים שלי');
   assert.equal(widgetTitle({}, 'ברירת מחדל'), 'ברירת מחדל');
 });
+
+test('tasks can be filtered by an existing tag and the tags in use are listed', async () => {
+  const { tagsInTasks, TASK_VIEW_PRESETS } = await import('../../src/utils/dashboardWidgets.js');
+  const tagged = [
+    { id: 'a', tags: ['בגרות', 'דחוף'] }, { id: 'b', tags: ['בגרות'] }, { id: 'c', tags: [] }, { id: 'd' },
+  ];
+  assert.deepEqual(filterTasks(tagged, { tag: 'בגרות' }, today).map(t => t.id), ['a', 'b']);
+  assert.deepEqual(filterTasks(tagged, { tag: 'דחוף' }, today).map(t => t.id), ['a']);
+  assert.deepEqual(filterTasks(tagged, { tag: 'לא קיים' }, today), []);
+  assert.deepEqual(tagsInTasks(tagged), ['בגרות', 'דחוף']);
+  assert.equal(hasFilters({ tag: 'בגרות' }), true);
+  assert.deepEqual(TASK_VIEW_PRESETS.map(p => p.id), ['by-priority', 'by-staff', 'by-tag']);
+  assert.equal(normalizeConfig(TASK_VIEW_PRESETS[0].config).priority, 'high');
+});

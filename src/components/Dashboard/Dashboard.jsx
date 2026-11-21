@@ -25,7 +25,7 @@ import {
 import { eventRelevantFor } from '../../../functions/src/eventAudience.js';
 import { milestonesFor } from '../../../functions/src/schoolYearCalendar.js';
 import WidgetSettings from './WidgetSettings.jsx';
-import { MULTI_INSTANCE_TYPES, filterEvents, filterTasks, hasFilters, normalizeConfig, normalizeWidget, widgetTitle } from '../../utils/dashboardWidgets';
+import { MULTI_INSTANCE_TYPES, TASK_VIEW_PRESETS, filterEvents, filterTasks, hasFilters, normalizeConfig, normalizeWidget, tagsInTasks, widgetTitle } from '../../utils/dashboardWidgets';
 import { DASHBOARD_TASK_SORTS, dashboardTaskStats, sortDashboardTasks } from '../../utils/dashboardTasks';
 import './Dashboard.css';
 
@@ -231,12 +231,14 @@ export default function Dashboard() {
     setSettingsIdx(null);
   }
 
-  function addWidget(type) {
+  // `preset` (optional) pre-fills the filters; the settings window opens right away so the person can refine them.
+  function addWidget(type, preset = null) {
     const config = WIDGET_TYPES[type];
     if (!config) return;
-    const newWidgets = [...widgets, { type, size: config.defaultSize, config: normalizeConfig({}) }];
+    const newWidgets = [...widgets, { type, size: config.defaultSize, config: normalizeConfig(preset || {}) }];
     saveWidgets(newWidgets);
     setShowAddWidget(false);
+    if (preset) setSettingsIdx(newWidgets.length - 1);
   }
 
   function removeWidget(idx) {
@@ -1270,6 +1272,7 @@ export default function Dashboard() {
             label={WIDGET_TYPES[widgets[settingsIdx].type]?.label || ''}
             schoolId={selectedSchool}
             teams={myTeams}
+            knownTags={tagsInTasks(myTasks)}
             knownCategories={[...new Set([...events, ...weekTasks].map(event => event.category).filter(Boolean))]}
             onSave={config => saveWidgetSettings(settingsIdx, config)}
             onClose={() => setSettingsIdx(null)}
@@ -1280,6 +1283,13 @@ export default function Dashboard() {
         {showAddWidget && (
           <div className="context-menu" style={{ position: 'fixed', top: addWidgetPos.y, left: addWidgetPos.x, zIndex: 1000 }} onClick={e => e.stopPropagation()}>
             <div style={{ padding: '0.4rem 0.6rem', fontSize: '0.75rem', fontWeight: 700, color: '#765968', borderBottom: '1px solid #f9f1ef' }}>הוסף תצוגה</div>
+            <div style={{ padding: '0.4rem 0.6rem', fontSize: '0.75rem', fontWeight: 700, color: '#765968' }}>רשימות מוכנות</div>
+            {TASK_VIEW_PRESETS.map(preset => (
+              <button key={preset.id} className="context-menu-item" onClick={() => addWidget('my_tasks', preset.config)}>
+                <CheckSquare size={14} /> {preset.label}
+              </button>
+            ))}
+            <div className="context-menu-divider" />
             {Object.entries(WIDGET_TYPES).map(([type, config]) => {
               const Icon = config.icon;
               const alreadyAdded = !MULTI_INSTANCE_TYPES.includes(type) && widgets.some(w => w.type === type);

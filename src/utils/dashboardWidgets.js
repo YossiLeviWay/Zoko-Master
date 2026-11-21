@@ -17,6 +17,7 @@ export function normalizeConfig(config = {}) {
     teamId: clean(config.teamId),
     staffId: clean(config.staffId),
     priority: ['high', 'medium', 'low'].includes(config.priority) ? config.priority : '',
+    tag: clean(config.tag).slice(0, 60),
     due: Object.values(DUE_FILTERS).includes(config.due) ? config.due : DUE_FILTERS.ALL,
     categories: Array.isArray(config.categories) ? [...new Set(config.categories.map(clean).filter(Boolean))].slice(0, 30) : [],
   };
@@ -46,6 +47,7 @@ export function filterTasks(tasks, config, today) {
     if (c.teamId && teamOf(task) !== c.teamId) return false;
     if (c.staffId && !involves(task, c.staffId)) return false;
     if (c.priority && (task.priority || 'medium') !== c.priority) return false;
+    if (c.tag && !(Array.isArray(task.tags) && task.tags.includes(c.tag))) return false;
     const due = dueOf(task);
     if (c.due === DUE_FILTERS.TODAY && due !== today) return false;
     if (c.due === DUE_FILTERS.OVERDUE && !(due && due < today)) return false;
@@ -61,9 +63,23 @@ export function filterEvents(events, config) {
 
 export function hasFilters(config) {
   const c = normalizeConfig(config);
-  return Boolean(c.teamId || c.staffId || c.priority || c.due !== DUE_FILTERS.ALL || c.categories.length);
+  return Boolean(c.teamId || c.staffId || c.priority || c.tag || c.due !== DUE_FILTERS.ALL || c.categories.length);
 }
 
 export function widgetTitle(widget, defaultLabel) {
   return normalizeConfig(widget?.config).title || defaultLabel;
+}
+
+// Ready-made task views offered in the "add view" menu; the person then refines them in the settings window.
+export const TASK_VIEW_PRESETS = Object.freeze([
+  { id: 'by-priority', label: 'משימות לפי רמת חשיבות', config: { title: 'משימות דחופות', priority: 'high' } },
+  { id: 'by-staff', label: 'משימות לפי איש צוות', config: { title: 'משימות של איש צוות' } },
+  { id: 'by-tag', label: 'משימות לפי תיוג', config: { title: 'משימות לפי תיוג' } },
+]);
+
+// Every tag used by the given tasks, most used first.
+export function tagsInTasks(tasks) {
+  const counts = new Map();
+  for (const task of Array.isArray(tasks) ? tasks : []) for (const tag of Array.isArray(task.tags) ? task.tags : []) counts.set(String(tag), (counts.get(String(tag)) || 0) + 1);
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'he')).map(([tag]) => tag);
 }
