@@ -6,7 +6,7 @@ compatibility_date = "2026-08-26"
 crons = ["15 2 * * *"]
 
 [vars]
-ALLOWED_ORIGINS = "https://yossileviway.github.io,http://localhost:5173"
+ALLOWED_ORIGINS = "https://eduflow-pro-12a90.web.app,https://yossileviway.github.io,http://localhost:5173"
 GEMINI_MODEL = "gemini-flash-latest"
 
 # Configure these with `wrangler secret put`:
@@ -23,3 +23,8 @@ GEMINI_MODEL = "gemini-flash-latest"
 # GITHUB_APP_PRIVATE_KEY
 # GITHUB_INSTALLATION_ID
 # SCHOOL_REPOSITORIES  (JSON: {"schoolId":"owner/private-repo"})
+# Local model (Ollama, e.g. DictaLM) — Worker-only, never exposed to the browser:
+# var ZOKI_PROVIDER = "local" | "claude"  (default: Claude when ANTHROPIC_API_KEY exists, else local)
+# var LOCAL_MODEL_NAME (default "dictalm")
+# secret LOCAL_MODEL_URL (https tunnel address), LOCAL_MODEL_TOKEN (bearer checked by the tunnel/proxy)
+# optional secrets LOCAL_MODEL_ACCESS_ID / LOCAL_MODEL_ACCESS_SECRET (Cloudflare Access service token)

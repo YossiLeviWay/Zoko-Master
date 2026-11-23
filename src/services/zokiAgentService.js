@@ -5,6 +5,7 @@ import { auth, db, isFirebaseConfigured } from '../firebase.js';
 import { schoolCollectionPath } from './firestore/paths.js';
 import { mergeMemories, normalizeMemories, validSourcePath, zokiContextFields, isSafeMemoryText } from '../utils/zokiMemory.js';
 import { createZokiProvider } from './zokiFirebaseProvider.js';
+import { isWorkerProviderEnabled, WorkerZokiProvider } from './zokiWorkerProvider.js';
 import { answerPolicy, searchKnowledge } from '../../functions/src/zokiKnowledge.js';
 import { remindersText } from '../../functions/src/schoolYearCalendar.js';
 import { boundedZokiHistory, runSemanticZokiTurn, ZOKI_CONTEXT_LIMITS } from '../utils/zokiSemanticTurn.js';
@@ -180,7 +181,7 @@ export async function zokiRequest(path, schoolId, body = {}, method = 'POST', of
   const checks = await Promise.all(ranked.map(authorized));
   const selected = ranked.filter((_, index) => checks[index]);
   assertSession();
-  const { result, selectedSources } = await runSemanticZokiTurn({ provider: createZokiProvider(), sources, assertSession, input: { question: body.question,
+  const { result, selectedSources } = await runSemanticZokiTurn({ provider: isWorkerProviderEnabled() ? new WorkerZokiProvider(schoolId) : createZokiProvider(), sources, assertSession, input: { question: body.question,
     today: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(new Date()),
     // Vetted regulation entries only. mode 'defer' means the source was not read yet: Zoki must say so.
     // Dated milestones for this person's role, so Zoki can remind without being asked.

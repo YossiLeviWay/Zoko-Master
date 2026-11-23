@@ -35,3 +35,13 @@ dist-ssr
 
 tests/persona/report.*
 tests/persona/shot-*.png
+
+# Secrets and local deployment config: never commit
+.dev.vars
+.env.*
+!.env.example
+*.pem
+*.p12
+serviceAccount*.json
+*-firebase-adminsdk-*.json
+worker/wrangler.toml
