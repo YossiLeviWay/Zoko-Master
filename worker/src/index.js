@@ -437,7 +437,7 @@ async function handle(request, env) {
     // ZOKI_PROVIDER=local forces the school's own model; otherwise Claude when its key exists, else the local model.
     const useLocal = env.ZOKI_PROVIDER === 'local' || (env.ZOKI_PROVIDER !== 'claude' && !env.ANTHROPIC_API_KEY && localModelConfigured(env));
     const result = useLocal
-      ? parseLocalResponse(await callLocalModel(env, buildLocalRequest({ profile, messages: body.messages, context: body.context, model: env.LOCAL_MODEL_NAME || 'dictalm' })))
+      ? parseLocalResponse(await callLocalModel(env, buildLocalRequest({ messages: body.messages })))
       : parseClaudeResponse(await callClaude(env, buildClaudeRequest({ profile, messages: body.messages, context: body.context, heldKeys: heldCapabilities(actor.accessProfile), model: env.CLAUDE_MODEL || undefined })));
     return json({ ...result, agent: profile.name }, 200, cors(request, env));
   }
