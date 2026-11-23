@@ -9,7 +9,7 @@ const out = ['# ידע מאומת של זוקי', '', 'מקורות: אתר פד
 for (const e of KNOWLEDGE.filter(item => item.source.status === 'verified')) {
   out.push(`## ${e.title}`, '', e.summary, '', ...e.points.map(p => `- ${p}`), '', `מקור: ${e.source.name}${e.source.url ? ` (${e.source.url})` : ''}${e.edition ? `, מהדורה ${e.edition}` : ''}`, '');
 }
-const open = KNOWLEDGE.filter(item => item.source.status !== 'verified').map(item => item.title);
+const open = [...KNOWLEDGE.filter(item => item.source.status !== 'verified').map(item => item.title), 'ההגדרה המדויקת של "גמול 6%" ותנאיו (המסמכים רק מציינים אילו תפקידים נמנים עליו)'];
 if (open.length) out.push('## נושאים שלא נבדקו מול המקור הרשמי', '', ...open.map(t => `- ${t}`), '', 'בנושאים אלה אין לצטט כללים. יש להפנות למנהל או למפקח.', '');
 out.push(`## תאריכים חשובים בשנת הלימודים ${YEAR.label}`, '', ...MILESTONES.map(m => `- ${m.from}${m.to && m.to !== m.from ? ` עד ${m.to}` : ''}: ${m.text}${m.mandatory ? ' (חובה)' : ''}`), '');
 out.push('## שגרות', '', ...ROUTINES.map(r => `- ${r.text || r.title || JSON.stringify(r)}`), '');

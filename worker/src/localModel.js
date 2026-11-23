@@ -4,7 +4,7 @@
 // and change nothing beyond what the knowledge layer in the prompt already contains.
 import { boundedMessages } from './claude.js';
 
-export const LOCAL_LIMITS = Object.freeze({ timeoutMs: 60000, maxReplyChars: 6000 });
+export const LOCAL_LIMITS = Object.freeze({ timeoutMs: 120000, maxReplyChars: 6000 });
 
 export function localModelConfigured(env) {
   return /^https:\/\/[^\s/]+/u.test(String(env.LOCAL_MODEL_URL || ''));
