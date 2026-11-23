@@ -25,6 +25,6 @@ GEMINI_MODEL = "gemini-flash-latest"
 # SCHOOL_REPOSITORIES  (JSON: {"schoolId":"owner/private-repo"})
 # Local model (Ollama, e.g. DictaLM) — Worker-only, never exposed to the browser:
 # var ZOKI_PROVIDER = "local" | "claude"  (default: Claude when ANTHROPIC_API_KEY exists, else local)
-# var LOCAL_MODEL_NAME (default "dictalm")
-# secret LOCAL_MODEL_URL (https tunnel address), LOCAL_MODEL_TOKEN (bearer checked by the tunnel/proxy)
+# (the school-ai service picks its own model; no LOCAL_MODEL_NAME needed)
+# secret LOCAL_MODEL_URL (https tunnel address), LOCAL_MODEL_TOKEN (sent as x-api-key)
 # optional secrets LOCAL_MODEL_ACCESS_ID / LOCAL_MODEL_ACCESS_SECRET (Cloudflare Access service token)

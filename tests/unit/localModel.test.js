@@ -2,19 +2,21 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildLocalRequest, callLocalModel, localModelConfigured, parseLocalResponse } from '../../worker/src/localModel.js';
 
-const profile = { systemPrompt: 'אתה זוקי' };
 
-test('local requests carry no tools and bound the history', () => {
-  const req = buildLocalRequest({ profile, messages: [{ role: 'user', content: 'שלום' }], model: 'dictalm' });
-  assert.equal(req.messages[0].role, 'system');
+test('local requests follow the school-ai contract and stay within its limits', () => {
+  const req = buildLocalRequest({ messages: [{ role: 'user', content: 'א' }, { role: 'assistant', content: 'ב' }, { role: 'user', content: 'ג'.repeat(2000) }] });
+  assert.equal(req.message.length, 800);
+  assert.equal(req.history.length, 2);
+  assert.equal(req.stream, false);
   assert.equal(req.tools, undefined);
-  assert.throws(() => buildLocalRequest({ profile, messages: [], model: 'x' }), /invalid-input/u);
+  assert.throws(() => buildLocalRequest({ messages: [] }), /invalid-input/u);
 });
 
 test('local replies never produce proposals and drop reasoning tags', () => {
-  const out = parseLocalResponse({ message: { content: '<think>x</think>תשובה' }, eval_count: 3 });
+  const out = parseLocalResponse({ answer: '<think>x</think>תשובה', sources: ['מקור'] });
   assert.equal(out.reply, 'תשובה');
   assert.deepEqual(out.proposals, []);
+  assert.deepEqual(out.sources, ['מקור']);
 });
 
 test('only an https address counts as configured; the token is sent as a bearer header', async () => {
@@ -23,7 +25,8 @@ test('only an https address counts as configured; the token is sent as a bearer 
   const env = { LOCAL_MODEL_URL: 'https://m.example.com/', LOCAL_MODEL_TOKEN: 't' };
   await callLocalModel(env, {}, async (url, init) => { seen = { url, init }; return { ok: true, json: async () => ({}) }; });
   assert.equal(seen.url, 'https://m.example.com/api/chat');
-  assert.equal(seen.init.headers.authorization, 'Bearer t');
+  assert.equal(seen.init.headers['x-api-key'], 't');
+  assert.equal(seen.init.headers.authorization, undefined);
   await assert.rejects(callLocalModel(env, {}, async () => ({ ok: false })), /agent-unavailable/u);
 });
 
