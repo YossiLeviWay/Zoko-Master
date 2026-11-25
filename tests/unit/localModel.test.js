@@ -63,7 +63,7 @@ const env = { LOCAL_MODEL_URL: 'https://m.example.com', LOCAL_FAST_FIRST_TOKEN_M
 test('a good fast answer is streamed and the strong model is not called', async () => {
   const { streamLocalTiered } = await import('../../worker/src/localModel.js');
   const calls = [];
-  const stream = await streamLocalTiered(env, { message: 'ש' }, async (_url, init) => { calls.push(JSON.parse(init.body).model); return streamResponse(sse('התוכנית ', 'מוגשת עד 20 במאי')); });
+  const stream = await streamLocalTiered(env, { message: 'ש' }, async (_url, init) => { calls.push(JSON.parse(init.body).model); return streamResponse(sse('תוכנית הטיולים השנתית ', 'מוגשת עד 20 במאי בכל שנה')); });
   assert.match(await readAll(stream), /20 במאי/u);
   assert.deepEqual(calls, ['fast']);
 });
@@ -109,4 +109,10 @@ test('tiering can be switched off', async () => {
   const calls = [];
   await askLocalTiered({ ...env, LOCAL_MODEL_TIERING: 'off' }, { message: 'ש' }, async (_url, init) => { calls.push(JSON.parse(init.body).model); return { ok: true, json: async () => ({ answer: 'תשובה' }) }; });
   assert.deepEqual(calls, ['strong']);
+});
+
+test('a bare date range from the fast model counts as a weak answer', async () => {
+  const { isWeakAnswer } = await import('../../worker/src/localModel.js');
+  assert.equal(isWeakAnswer('2026-09-01 עד 2026-09-30', { final: true }), true);
+  assert.equal(isWeakAnswer('התוכנית מוגשת עד העשרים במאי בכל שנה', { final: true }), false);
 });
