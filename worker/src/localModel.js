@@ -31,7 +31,7 @@ export function parseLocalResponse(response) {
   return { reply, proposals: [], stopReason: '', sources: Array.isArray(response?.sources) ? response.sources.filter(item => typeof item === 'string').slice(0, 8) : [], usage: { input: 0, output: 0, cacheRead: 0 } };
 }
 
-export async function callLocalModel(env, payload, fetchImpl = fetch) {
+export async function callLocalModel(env, payload, fetchImpl = fetch, { stream = false } = {}) {
   if (!localModelConfigured(env)) throw new Error('agent-not-configured');
   const headers = { 'content-type': 'application/json' };
   // Sent server-to-server without an Origin header, so the service requires this key.
@@ -44,9 +44,10 @@ export async function callLocalModel(env, payload, fetchImpl = fetch) {
   let response;
   try {
     response = await fetchImpl(`${String(env.LOCAL_MODEL_URL).replace(/\/$/u, '')}/api/chat`, {
-      method: 'POST', headers, body: JSON.stringify(payload), signal: AbortSignal.timeout(LOCAL_LIMITS.timeoutMs),
+      method: 'POST', headers, body: JSON.stringify({ ...payload, stream }), signal: AbortSignal.timeout(LOCAL_LIMITS.timeoutMs),
     });
   } catch { throw new Error('agent-unavailable'); }
   if (!response.ok) throw new Error('agent-unavailable');
-  return response.json();
+  // With stream: true the caller gets the raw event stream (event: token / done) to pass through.
+  return stream ? response : response.json();
 }

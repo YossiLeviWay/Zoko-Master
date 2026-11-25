@@ -366,14 +366,21 @@ function ScopedZokiPage({ embedded = false, onMinimize = () => undefined }) {
     setQuestion('');
     setMessages(previous => [...previous, { id: `user_${Date.now()}`, role: 'user', text: nextQuestion }]);
     setLoading(true);
+    const streamId = `stream_${Date.now()}`;
+    const dropStream = list => list.filter(message => message.id !== streamId);
     try {
       if (!isZokiAgentConfigured) throw Object.assign(new Error('agent-not-configured'), { code: 'agent-not-configured' });
       const result = await zokiRequest('turn', schoolId, {
         question: nextQuestion,
+        // Shows the answer while the local model writes it; replaced by the final message below.
+        onToken: partial => activeConversation.current === submittedConversation && setMessages(previous => (previous.some(message => message.id === streamId)
+          ? previous.map(message => (message.id === streamId ? { ...message, text: partial } : message))
+          : [...previous, { id: streamId, role: 'zoki', text: partial, streaming: true }])),
         history: boundedZokiHistory(messages),
         sourcePaths: zokiSourcePaths({ schoolId, uid: currentUser.uid, sources: { ...taskAssistantSchoolContext.sources, students: accessibleStudents } }),
       });
       if (activeConversation.current !== submittedConversation || conversationGeneration.current !== submittedGeneration) return;
+      setMessages(dropStream);
       if (result.actionIntent === 'update_staff_role' && result.staffRoleDraft) {
         setMessages(previous => [...previous, { id: `staff_role_${Date.now()}`, role: 'zoki', text: result.answer,
           actionProposal: { type: 'staff_job_title', ...result.staffRoleDraft, requestId: crypto.randomUUID() } }]);
@@ -415,7 +422,7 @@ function ScopedZokiPage({ embedded = false, onMinimize = () => undefined }) {
       }]);
     } catch (error) {
       if (activeConversation.current !== submittedConversation || conversationGeneration.current !== submittedGeneration) return;
-      setMessages(previous => [...previous, { id: `error_${Date.now()}`, role: 'zoki', error: true, retryQuestion: nextQuestion, text: error.code === 'resource-exhausted' ? `הגעת למגבלת השאלות האישית או המשותפת. אפשר לנסות שוב בעוד ${error.retryAfter || 60} שניות.` : errorMessage(error) }]);
+      setMessages(previous => [...dropStream(previous), { id: `error_${Date.now()}`, role: 'zoki', error: true, retryQuestion: nextQuestion, text: error.code === 'resource-exhausted' ? `הגעת למגבלת השאלות האישית או המשותפת. אפשר לנסות שוב בעוד ${error.retryAfter || 60} שניות.` : errorMessage(error) }]);
     } finally {
       if (activeConversation.current === submittedConversation && conversationGeneration.current === submittedGeneration) setLoading(false);
     }
@@ -1110,7 +1117,7 @@ function ScopedZokiPage({ embedded = false, onMinimize = () => undefined }) {
           {taskActionResult?.ok && <div className="zoki-task-result is-success" role="status"><CheckCircle2 size={20} /><div><strong>המשימה נוצרה בהצלחה</strong><span>היא נשמרה פעם אחת בלבד.</span></div><button type="button" className="btn btn-secondary btn-sm" onClick={() => navigate(taskActionResult.route)}>פתיחת המשימה</button></div>}
           {taskActionResult && !taskActionResult.ok && <div className="zoki-task-result is-error" role="alert"><ShieldCheck size={20} /><span>{taskActionResult.message}</span></div>}
           {pendingTask && <article className="zoki-task-confirmation"><header><span><ShieldCheck size={15} /> ממתין לאישור</span><h3>{pendingTask.proposal.title || 'משימה חדשה'}</h3></header><p>{pendingTask.proposal.description || 'ללא תיאור נוסף.'}</p><dl><div><dt>עדיפות</dt><dd>{pendingTask.proposal.priority === 'high' ? 'גבוהה' : pendingTask.proposal.priority === 'low' ? 'נמוכה' : 'רגילה'}</dd></div><div><dt>תאריך יעד</dt><dd>{pendingTask.action?.dueDate || 'לא נקבע'}</dd></div><div><dt>סוג</dt><dd>{pendingTask.action?.scope === 'assigned' ? 'משימה מוקצית' : pendingTask.action?.scope === 'team' ? 'משימת צוות' : pendingTask.action?.scope === 'personal' ? 'משימה אישית' : 'נדרשים פרטים נוספים'}</dd></div></dl><footer>{pendingTask.action && <button type="button" className="btn btn-primary" disabled={executingTask} onClick={confirmTaskCreation}><CheckCircle2 size={16} /> {executingTask ? 'יוצר…' : 'אישור ויצירת המשימה'}</button>}<button type="button" className="btn btn-secondary" onClick={editTaskProposal}><Pencil size={16} /> עריכת הפרטים</button><button type="button" className="btn btn-link" onClick={() => setPendingTask(null)}>ביטול</button></footer>{!pendingTask.action && <small>כדי להקצות לאדם או לצוות, יש לבחור יעד מדויק בטופס המלא.</small>}</article>}
-          {loading && <article className="zoki-message zoki-message--zoki"><img src={zokiAvatar} alt="" /><div className="zoki-thinking"><span /><span /><span /></div></article>}
+          {loading && !messages.some(message => message.streaming) && <article className="zoki-message zoki-message--zoki"><img src={zokiAvatar} alt="" /><div className="zoki-thinking"><span /><span /><span /></div></article>}
           <div ref={endRef} />
         </div>
         <form className="zoki-composer" onSubmit={event => { event.preventDefault(); submitQuestion(); }}><textarea id="zoki-question" aria-label="כתיבה לעוזר" value={question} onChange={event => setQuestion(event.target.value)} maxLength={2000} rows={2} placeholder="כתבו כאן…" onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submitQuestion(); } }} /><button type="submit" disabled={loading || question.trim().length < 2} aria-label="שליחה"><Send size={19} /></button></form>

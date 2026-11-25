@@ -181,7 +181,7 @@ export async function zokiRequest(path, schoolId, body = {}, method = 'POST', of
   const checks = await Promise.all(ranked.map(authorized));
   const selected = ranked.filter((_, index) => checks[index]);
   assertSession();
-  const { result, selectedSources } = await runSemanticZokiTurn({ provider: isWorkerProviderEnabled() ? new WorkerZokiProvider(schoolId) : createZokiProvider(), sources, assertSession, input: { question: body.question,
+  const { result, selectedSources } = await runSemanticZokiTurn({ provider: isWorkerProviderEnabled() ? new WorkerZokiProvider(schoolId) : createZokiProvider(), sources, assertSession, input: { question: body.question, onToken: typeof body.onToken === 'function' ? body.onToken : undefined,
     today: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(new Date()),
     // Vetted regulation entries only. mode 'defer' means the source was not read yet: Zoki must say so.
     // Dated milestones for this person's role, so Zoki can remind without being asked.

@@ -20,7 +20,7 @@ export class WorkerZokiProvider {
     const messages = [...(input.history || []).map(item => ({ role: item.role, content: item.text })), { role: 'user', content: input.question }];
     // Loaded on demand so importing this module never initialises Firebase.
     const { askRoleAgent } = await import('./zokiClaudeService.js');
-    const { reply } = await askRoleAgent({ schoolId: this.schoolId, messages, context: knowledgeContext(input) });
+    const { reply } = await askRoleAgent({ schoolId: this.schoolId, messages, context: knowledgeContext(input), onToken: input.onToken });
     if (!reply) throw Object.assign(new Error('agent-unavailable'), { code: 'agent-unavailable' });
     return { answer: reply, actionIntent: 'none', actionRequest: '', actionTargetType: 'none', actionTargetLabel: '', staffRoleDraft: null, taskDraft: null, sourceIds: [], memoryMutations: [] };
   }
