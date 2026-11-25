@@ -14,8 +14,13 @@ export async function askRoleAgent({ schoolId, messages, context = '', signal })
   const user = auth.currentUser;
   if (!user) throw Object.assign(new Error('unauthenticated'), { code: 'unauthenticated' });
   const headers = { 'content-type': 'application/json', authorization: `Bearer ${await user.getIdToken()}` };
-  if (appCheck) headers['x-firebase-appcheck'] = (await getToken(appCheck)).token;
-  const response = await fetch(`${zokiClaudeEndpoint()}/v1/zoki/turn`, { method: 'POST', headers, body: JSON.stringify({ schoolId, messages, context }), signal });
+  if (appCheck) {
+    try { headers['x-firebase-appcheck'] = (await getToken(appCheck)).token; }
+    catch { throw Object.assign(new Error('app-check-failed'), { code: 'app-check-failed' }); }
+  }
+  // A browser-level failure (CORS, CSP, offline) has no status; give it a readable code.
+  const response = await fetch(`${zokiClaudeEndpoint()}/v1/zoki/turn`, { method: 'POST', headers, body: JSON.stringify({ schoolId, messages, context }), signal })
+    .catch(() => { throw Object.assign(new Error('worker-unreachable'), { code: 'worker-unreachable' }); });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw Object.assign(new Error(body.error || 'agent-unavailable'), { code: body.error || 'agent-unavailable' });
   return body;
