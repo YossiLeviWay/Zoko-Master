@@ -63,7 +63,7 @@ const env = { LOCAL_MODEL_URL: 'https://m.example.com', LOCAL_FAST_FIRST_TOKEN_M
 test('a good fast answer is streamed and the strong model is not called', async () => {
   const { streamLocalTiered } = await import('../../worker/src/localModel.js');
   const calls = [];
-  const stream = await streamLocalTiered(env, { message: 'ש' }, async (_url, init) => { calls.push(JSON.parse(init.body).model); return streamResponse(sse('התוכנית ', 'מוגשת עד 20 במאי')); });
+  const stream = await streamLocalTiered(env, { message: 'ש' }, async (_url, init) => { calls.push(JSON.parse(init.body).model); return streamResponse(sse('תוכנית הטיולים השנתית ', 'מוגשת עד 20 במאי בכל שנה')); });
   assert.match(await readAll(stream), /20 במאי/u);
   assert.deepEqual(calls, ['fast']);
 });
