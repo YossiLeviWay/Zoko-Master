@@ -28,3 +28,4 @@ GEMINI_MODEL = "gemini-flash-latest"
 # (the school-ai service picks its own model; no LOCAL_MODEL_NAME needed)
 # secret LOCAL_MODEL_URL (https tunnel address), LOCAL_MODEL_TOKEN (sent as x-api-key)
 # optional secrets LOCAL_MODEL_ACCESS_ID / LOCAL_MODEL_ACCESS_SECRET (Cloudflare Access service token)
+# optional var LOCAL_MODEL_TIERING = "off" (default: fast model first, strong model when slow/failing/no information), LOCAL_FAST_FIRST_TOKEN_MS (default 20000)

@@ -1,5 +1,5 @@
 import { buildClaudeRequest, callClaude, heldCapabilities, parseClaudeResponse } from './claude.js';
-import { buildLocalRequest, callLocalModel, localModelConfigured, parseLocalResponse } from './localModel.js';
+import { askLocalTiered, buildLocalRequest, localModelConfigured, parseLocalResponse, streamLocalTiered } from './localModel.js';
 import { roleAgentProfile } from '../../functions/src/roleAgents.js';
 import {
   createSchoolBrain,
@@ -439,11 +439,11 @@ async function handle(request, env) {
     const useLocal = env.ZOKI_PROVIDER === 'local' || (env.ZOKI_PROVIDER !== 'claude' && !env.ANTHROPIC_API_KEY && localModelConfigured(env));
     if (useLocal && body.stream === true) {
       // Pass the model's token stream straight through so the browser can show the answer as it is written.
-      const upstream = await callLocalModel(env, buildLocalRequest({ messages: body.messages }), fetch, { stream: true });
-      return new Response(upstream.body, { status: 200, headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', 'x-accel-buffering': 'no', ...cors(request, env) } });
+      const upstream = await streamLocalTiered(env, buildLocalRequest({ messages: body.messages }));
+      return new Response(upstream, { status: 200, headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', 'x-accel-buffering': 'no', ...cors(request, env) } });
     }
     const result = useLocal
-      ? parseLocalResponse(await callLocalModel(env, buildLocalRequest({ messages: body.messages })))
+      ? parseLocalResponse(await askLocalTiered(env, buildLocalRequest({ messages: body.messages })))
       : parseClaudeResponse(await callClaude(env, buildClaudeRequest({ profile, messages: body.messages, context: body.context, heldKeys: heldCapabilities(actor.accessProfile), model: env.CLAUDE_MODEL || undefined })));
     return json({ ...result, agent: profile.name }, 200, cors(request, env));
   }

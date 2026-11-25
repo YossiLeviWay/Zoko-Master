@@ -52,3 +52,61 @@ test('streaming calls hand back the raw response', async () => {
   const out = await callLocalModel({ LOCAL_MODEL_URL: 'https://m.example.com' }, {}, async (_url, init) => { assert.equal(JSON.parse(init.body).stream, true); return response; }, { stream: true });
   assert.equal(out, response);
 });
+
+// ---- fast model first, strong model as the fallback ----
+const sse = (...tokens) => `${tokens.map(token => `event: token\ndata: ${JSON.stringify(token)}\n\n`).join('')}event: done\ndata: {"sources":[]}\n\n`;
+const streamResponse = text => new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode(text)); controller.close(); } }));
+const stuckResponse = () => new Response(new ReadableStream({ start() {} }));
+const readAll = async stream => { const reader = stream.getReader(); let out = ''; for (;;) { const { done, value } = await reader.read(); if (done) return out; out += new TextDecoder().decode(value); } };
+const env = { LOCAL_MODEL_URL: 'https://m.example.com', LOCAL_FAST_FIRST_TOKEN_MS: '50' };
+
+test('a good fast answer is streamed and the strong model is not called', async () => {
+  const { streamLocalTiered } = await import('../../worker/src/localModel.js');
+  const calls = [];
+  const stream = await streamLocalTiered(env, { message: 'ש' }, async (_url, init) => { calls.push(JSON.parse(init.body).model); return streamResponse(sse('התוכנית ', 'מוגשת עד 20 במאי')); });
+  assert.match(await readAll(stream), /20 במאי/u);
+  assert.deepEqual(calls, ['fast']);
+});
+
+test('"no information" from the fast model escalates to the strong model', async () => {
+  const { streamLocalTiered } = await import('../../worker/src/localModel.js');
+  const calls = [];
+  const stream = await streamLocalTiered(env, { message: 'ש' }, async (_url, init) => {
+    const model = JSON.parse(init.body).model; calls.push(model);
+    return streamResponse(model === 'fast' ? sse('אין לי מידע מדויק על כך') : sse('תשובה מלאה ומפורטת מהמודל החזק'));
+  });
+  assert.match(await readAll(stream), /החזק/u);
+  assert.deepEqual(calls, ['fast', 'strong']);
+});
+
+test('a fast model that sends nothing in time escalates to the strong model', async () => {
+  const { streamLocalTiered } = await import('../../worker/src/localModel.js');
+  const calls = [];
+  const stream = await streamLocalTiered(env, { message: 'ש' }, async (_url, init) => {
+    const model = JSON.parse(init.body).model; calls.push(model);
+    return model === 'fast' ? stuckResponse() : streamResponse(sse('תשובה מהמודל החזק, בהצלחה'));
+  });
+  assert.match(await readAll(stream), /החזק/u);
+  assert.deepEqual(calls, ['fast', 'strong']);
+});
+
+test('non-streaming asks fast first and escalates on a weak or failed answer', async () => {
+  const { askLocalTiered } = await import('../../worker/src/localModel.js');
+  const calls = [];
+  const out = await askLocalTiered(env, { message: 'ש' }, async (_url, init) => {
+    const model = JSON.parse(init.body).model; calls.push(model);
+    return { ok: true, json: async () => ({ answer: model === 'fast' ? 'אין לי מידע' : 'תשובה ארוכה מספיק מהמודל החזק' }) };
+  });
+  assert.match(out.answer, /החזק/u);
+  assert.deepEqual(calls, ['fast', 'strong']);
+  const failing = [];
+  await askLocalTiered(env, { message: 'ש' }, async (_url, init) => { const m = JSON.parse(init.body).model; failing.push(m); if (m === 'fast') throw new Error('down'); return { ok: true, json: async () => ({ answer: 'תשובה ארוכה מספיק' }) }; });
+  assert.deepEqual(failing, ['fast', 'strong']);
+});
+
+test('tiering can be switched off', async () => {
+  const { askLocalTiered } = await import('../../worker/src/localModel.js');
+  const calls = [];
+  await askLocalTiered({ ...env, LOCAL_MODEL_TIERING: 'off' }, { message: 'ש' }, async (_url, init) => { calls.push(JSON.parse(init.body).model); return { ok: true, json: async () => ({ answer: 'תשובה' }) }; });
+  assert.deepEqual(calls, ['strong']);
+});
