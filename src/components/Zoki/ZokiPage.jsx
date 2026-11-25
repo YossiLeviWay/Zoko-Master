@@ -56,7 +56,9 @@ function errorMessage(error) {
   if (reason === 'app-check-failed') return 'אימות האפליקציה נכשל. רעננו את הדף ונסו שוב.';
   if (reason === 'resource-exhausted') return 'נשלחו הרבה שאלות בזמן קצר. אפשר לנסות שוב בעוד כמה דקות.';
   if (reason === 'unavailable' || reason === 'deadline-exceeded') return 'שירות התשובות אינו זמין כרגע. אפשר לנסות שוב בעוד רגע.';
-  return 'לא הצלחתי לענות כרגע. אפשר לנסות שוב.';
+  // The code is shown so an administrator can tell what failed without opening the console.
+  const code = typeof reason === 'string' && /^[\w-]{3,40}$/u.test(reason) ? ` (קוד: ${reason})` : '';
+  return `לא הצלחתי לענות כרגע. אפשר לנסות שוב.${code}`;
 }
 
 function displayName(item, fallback) {
