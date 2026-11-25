@@ -57,8 +57,8 @@ jobs:
           VITE_FIREBASE_APPCHECK_SITE_KEY: ${{ secrets.VITE_FIREBASE_APPCHECK_SITE_KEY }}
           VITE_FIREBASE_AI_MODEL: ${{ vars.VITE_FIREBASE_AI_MODEL }}
           VITE_ZOKI_AI_MODEL: ${{ vars.VITE_ZOKI_AI_MODEL }}
-          VITE_ZOKI_WORKER_URL: ${{ vars.VITE_ZOKI_WORKER_URL }}
-          VITE_ZOKI_PROVIDER: ${{ vars.VITE_ZOKI_PROVIDER }}
+          VITE_ZOKI_WORKER_URL: ${{ vars.VITE_ZOKI_WORKER_URL || 'https://zoko-task-agent.yossi-levi019.workers.dev' }}
+          VITE_ZOKI_PROVIDER: ${{ vars.VITE_ZOKI_PROVIDER || 'worker' }}
           VITE_TASK_WORKSPACE_ENABLED: ${{ vars.VITE_TASK_WORKSPACE_ENABLED }}
           VITE_SIMPLE_ACCESS_ENABLED: ${{ vars.VITE_SIMPLE_ACCESS_ENABLED }}
 
