@@ -42,18 +42,22 @@ few menus and little text, high contrast, mobile friendly, and a beginner-teache
   browser. `meyda.education.gov.il` and `pedagogiamh.co.il` work.
 - The repo is public until the owner changes it; GitHub Pages is the live host (still v1.32 until a deploy).
 
-## Hosting move (in progress)
-Prepared in the repo: `VITE_BASE` env in `vite.config.js` (default `/Zoko-Master/` for Pages, `/` for Firebase), workflow
-`.github/workflows/deploy-firebase.yml` (idle until `FIREBASE_SERVICE_ACCOUNT` secret and `FIREBASE_PROJECT_ID` variable
-exist) and `docs/operations/firebase-hosting.md`. Nothing is deployed from here: the owner adds the secret, authorizes the domain,
-runs the workflow, then disables the Pages workflow and makes the repo private.
-
-## Waiting on the owner
-1. Anthropic API key (console.anthropic.com, funds needed; a Max subscription does not include API access) stored as
-   the Worker secret `ANTHROPIC_API_KEY`; set `VITE_ZOKI_WORKER_URL`.
-2. Ministry of Education circulars that cannot be fetched (suspension 0470, curricula, role circulars): upload text/PDF.
-3. Make the repo private, protect `main`, rotate any old shared password, decide on moving hosting to Firebase.
-4. Google Drive access for the Gantt, and materials from the owner's assistant "Nachman".
+## Current status (late Nov 2026)
+- **Hosting:** live on Firebase Hosting, `https://eduflow-pro-12a90.web.app`. Every merge to `main` deploys it through
+  `.github/workflows/deploy-firebase.yml` (secret `FIREBASE_SERVICE_ACCOUNT`, variable `FIREBASE_PROJECT_ID`). GitHub Pages
+  (`deploy.yml`) is still on; disable it and make the repo private once the owner is ready. App Check key `eduflow-web` now lists the new domain.
+- **Zoki local model:** the chat goes browser -> Cloudflare Worker `zoko-task-agent` (`worker/`, deployed by hand with
+  `wrangler deploy`; `worker/wrangler.toml` is untracked) -> Cloudflare quick tunnel -> `school-ai` service on the owner's Mac
+  (DictaLM 3.0 on Ollama with its own RAG over `~/school-ai/knowledge`). Contract: POST `/api/chat`, header `x-api-key`,
+  body `{message<=800, history<=6, stream}`, answer `{answer, sources}`; stream is SSE (`event: token`/`done`). Worker secrets:
+  `LOCAL_MODEL_URL`, `LOCAL_MODEL_TOKEN`, Firebase ids; var `ZOKI_PROVIDER=local`. The site defaults `VITE_ZOKI_PROVIDER=worker`.
+  Knowledge for the model comes from `npm run export:knowledge` (`docs/zoki-knowledge-export.md`), ingested by the Mac session.
+  The tunnel URL changes when the Mac restarts: re-run `wrangler secret put LOCAL_MODEL_URL`. Prefer a named tunnel.
+- **Bugs found and fixed this round:** App Check JWT signature was parsed as JSON in the Worker (`decodeJwtPart`), `functions/`
+  dependencies missing in the Firebase workflow, CSP meta tag lacked `*.workers.dev`.
+- **In progress:** answer streaming (merged), a fast small model with automatic escalation to the strong one on timeout (Mac session
+  is measuring; Worker side to be written after the numbers). Answers currently take 30-75 s.
+- **Known noise:** a callable at `europe-west1` (`zokiTaskGuidance`) fails CORS because Cloud Functions are not deployed on Spark.
 
 ## Next steps (suggested order)
 1. Review Firestore rules (`firestore.rules`, `storage.rules`) for data leaks; 6 storage emulator tests fail (not caused by
