@@ -156,7 +156,8 @@ async function firebaseAdminToken(env) {
 function decodeJwtPart(value) {
   const normalized = String(value || '').replace(/-/gu, '+').replace(/_/gu, '/');
   const bytes = Uint8Array.from(atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=')), char => char.charCodeAt(0));
-  return { bytes, json: JSON.parse(new TextDecoder().decode(bytes)) };
+  // The signature segment is binary, so the JSON is parsed only when asked for.
+  return { bytes, get json() { return JSON.parse(new TextDecoder().decode(bytes)); } };
 }
 
 let appCheckKeys = { expiresAt: 0, keys: [] };
@@ -493,6 +494,8 @@ export default {
     try { return await handle(request, env); }
     catch (error) {
       const code = error?.message || 'internal-error';
+      // Path and error code only: never request bodies, tokens or school data.
+      console.warn('worker-error', new URL(request.url).pathname, String(code).slice(0, 120));
       const status = ['unauthenticated', 'invalid-app-check'].includes(code) ? 401 : code === 'permission-denied' ? 403 : code === 'not-found' ? 404 : 400;
       return json({ error: code }, status, cors(request, env));
     }
