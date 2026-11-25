@@ -437,6 +437,11 @@ async function handle(request, env) {
     const profile = roleAgentProfile(roleId) || roleAgentProfile('secretary');
     // ZOKI_PROVIDER=local forces the school's own model; otherwise Claude when its key exists, else the local model.
     const useLocal = env.ZOKI_PROVIDER === 'local' || (env.ZOKI_PROVIDER !== 'claude' && !env.ANTHROPIC_API_KEY && localModelConfigured(env));
+    if (useLocal && body.stream === true) {
+      // Pass the model's token stream straight through so the browser can show the answer as it is written.
+      const upstream = await callLocalModel(env, buildLocalRequest({ messages: body.messages }), fetch, { stream: true });
+      return new Response(upstream.body, { status: 200, headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', 'x-accel-buffering': 'no', ...cors(request, env) } });
+    }
     const result = useLocal
       ? parseLocalResponse(await callLocalModel(env, buildLocalRequest({ messages: body.messages })))
       : parseClaudeResponse(await callClaude(env, buildClaudeRequest({ profile, messages: body.messages, context: body.context, heldKeys: heldCapabilities(actor.accessProfile), model: env.CLAUDE_MODEL || undefined })));

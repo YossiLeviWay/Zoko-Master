@@ -36,3 +36,19 @@ test('worker provider shares no school records and never returns an action', asy
   assert.match(text, /טיולים/u);
   assert.match(text, /20\.05/u);
 });
+
+test('the token stream is parsed into growing text and tolerates split frames', async () => {
+  const { readTokenStream } = await import('../../src/utils/tokenStream.js');
+  const frames = ['event: token\ndata: "של', 'ום "\n\nevent: token\ndata: "עולם"\n\nevent: done\ndata: {"sources":[]}\n\n'];
+  const body = new ReadableStream({ start(controller) { frames.forEach(frame => controller.enqueue(new TextEncoder().encode(frame))); controller.close(); } });
+  const seen = [];
+  const result = await readTokenStream({ body }, text => seen.push(text));
+  assert.deepEqual(seen, ['שלום ', 'שלום עולם']);
+  assert.equal(result.reply, 'שלום עולם');
+});
+
+test('streaming calls hand back the raw response', async () => {
+  const response = { ok: true, body: 'stream' };
+  const out = await callLocalModel({ LOCAL_MODEL_URL: 'https://m.example.com' }, {}, async (_url, init) => { assert.equal(JSON.parse(init.body).stream, true); return response; }, { stream: true });
+  assert.equal(out, response);
+});
