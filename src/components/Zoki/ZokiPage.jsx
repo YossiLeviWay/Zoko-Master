@@ -46,6 +46,8 @@ function taskDetailValue(field, value) {
 
 function errorMessage(error) {
   const reason = callableReason(error);
+  // Provider details stay in the console; only the code reaches the screen.
+  console.warn('Zoki request failed', { code: error?.code, reason });
   if (reason === 'agent-not-configured') return 'שירות ה־AI אינו מוגדר כרגע. אפשר לנסות שוב לאחר הגדרת החיבור.';
   if (reason === 'invalid-app-check') return 'אימות החיבור לשירות ה־AI נכשל. רעננו את הדף ונסו שוב.';
   if (['agent-unavailable', 'invalid-ai-response', 'invalid-ai-source'].includes(reason)) return 'לא התקבלה תשובה תקינה משירות ה־AI. אפשר לנסות שוב; לא בוצעה פעולה.';
@@ -57,7 +59,7 @@ function errorMessage(error) {
   if (reason === 'resource-exhausted') return 'נשלחו הרבה שאלות בזמן קצר. אפשר לנסות שוב בעוד כמה דקות.';
   if (reason === 'unavailable' || reason === 'deadline-exceeded') return 'שירות התשובות אינו זמין כרגע. אפשר לנסות שוב בעוד רגע.';
   // The code is shown so an administrator can tell what failed without opening the console.
-  const code = typeof reason === 'string' && /^[\w-]{3,40}$/u.test(reason) ? ` (קוד: ${reason})` : '';
+  const code = typeof reason === 'string' && /^[\w/.:() -]{3,80}$/u.test(reason) ? ` (קוד: ${reason})` : '';
   return `לא הצלחתי לענות כרגע. אפשר לנסות שוב.${code}`;
 }
 
