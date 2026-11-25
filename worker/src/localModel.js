@@ -15,7 +15,7 @@ export function localModelConfigured(env) {
 // The service chooses the model and builds its own prompt, so our role prompt and context are not sent.
 export const SERVICE_LIMITS = Object.freeze({ messageChars: 800, history: 6 });
 
-export function buildLocalRequest({ messages }) {
+export function buildLocalRequest({ messages, context = '' }) {
   const history = boundedMessages(messages);
   if (!history.length || history.at(-1).role !== 'user') throw new Error('invalid-input');
   const last = history.at(-1);
@@ -23,12 +23,21 @@ export function buildLocalRequest({ messages }) {
     message: last.content.slice(0, SERVICE_LIMITS.messageChars),
     history: history.slice(0, -1).slice(-SERVICE_LIMITS.history).map(item => ({ role: item.role, content: item.content.slice(0, SERVICE_LIMITS.messageChars) })),
     stream: false,
+    ...(context ? { context: String(context).slice(0, 3500) } : {}),
   };
 }
 
 export function parseLocalResponse(response) {
   const reply = String(response?.answer ?? '').replace(/<think>[\s\S]*?<\/think>/gu, '').trim().slice(0, LOCAL_LIMITS.maxReplyChars);
   return { reply, proposals: [], stopReason: '', sources: Array.isArray(response?.sources) ? response.sources.filter(item => typeof item === 'string').slice(0, 8) : [], usage: { input: 0, output: 0, cacheRead: 0 } };
+}
+
+// Asks the service to fill the form of one tool for an instruction. It only proposes: the user approves before anything runs.
+export async function routeLocalAction(env, { message, tools, context = '' }, fetchImpl = fetch) {
+  try {
+    const data = await callLocalModel(env, { mode: 'route', message: String(message).slice(0, 800), tools, context: String(context).slice(0, 1500) }, fetchImpl, { signal: AbortSignal.timeout(25000) });
+    return data && typeof data === 'object' ? data : { tool: null };
+  } catch { return { tool: null }; }
 }
 
 // One call to the service. `model` is "fast" or "strong" (the service picks the concrete model).

@@ -1,0 +1,65 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { TOOL_SCHEMAS } from '../../worker/src/claude.js';
+import { buildLocalRequest } from '../../worker/src/localModel.js';
+import { appendLearningLog, buildSchoolContext, dailyLimitFor, dayKey, learningLogLine, looksLikeAction, secondsToMidnight, stripStudentSection, teachingNote, toolSpecs, validatedProposal } from '../../worker/src/zokiTurn.js';
+
+test('daily limits depend on the role and can be overridden', () => {
+  assert.equal(dailyLimitFor('principal'), 300);
+  assert.equal(dailyLimitFor('teacher'), 60);
+  assert.equal(dailyLimitFor('viewer'), 20);
+  assert.equal(dailyLimitFor('teacher', { ZOKI_DAILY_LIMITS: '{"teacher":5}' }), 5);
+  assert.equal(dailyLimitFor('teacher', { ZOKI_DAILY_LIMITS: 'not json' }), 60);
+  assert.equal(dayKey(new Date('2026-11-25T23:59:00Z')), '2026-11-25');
+  assert.equal(secondsToMidnight(new Date('2026-11-25T23:59:00Z')), 60);
+});
+
+test('only instructions are routed to an action; questions are not', () => {
+  assert.equal(looksLikeAction('פתח כיתה חדשה ט2'), true);
+  assert.equal(looksLikeAction('בבקשה תיצור משימה להזמנת אוטובוס'), true);
+  assert.equal(looksLikeAction('כמה כיתות יש בבית הספר?'), false);
+  assert.equal(looksLikeAction('מתי מגישים תוכנית טיולים'), false);
+});
+
+test('teaching becomes a short personal note, nothing else does', () => {
+  assert.equal(teachingNote('זכור שאני מחנכת של ז2'), 'אני מחנכת של ז2');
+  assert.equal(teachingNote('מי מחנכת ז2?'), '');
+  assert.equal(teachingNote('זכור'), '');
+});
+
+test('students are hidden from the model unless the user may see them', () => {
+  const md = '# מוח\n\n## סגל\n\nדנה\n\n## תלמידים והקשרים לימודיים\n\n| נועה לוי | ז1 |\n\n## לוח שנה\n\nטיול';
+  assert.ok(!stripStudentSection(md).includes('נועה לוי'));
+  assert.ok(stripStudentSection(md).includes('לוח שנה'));
+  assert.ok(!buildSchoolContext({ markdown: md, canSeeStudents: false }).includes('נועה לוי'));
+  assert.ok(buildSchoolContext({ markdown: md, canSeeStudents: true }).includes('נועה לוי'));
+});
+
+test('context is bounded and carries the user memories', () => {
+  const ctx = buildSchoolContext({ markdown: 'א'.repeat(50000), memories: [{ content: 'אני מחנכת ז2' }], maxChars: 3000 });
+  assert.ok(ctx.length <= 3000);
+  assert.ok(buildSchoolContext({ markdown: 'קצר', memories: [{ content: 'אני מחנכת ז2' }] }).includes('אני מחנכת ז2'));
+  assert.equal(buildLocalRequest({ messages: [{ role: 'user', content: 'שלום' }], context: 'נתונים' }).context, 'נתונים');
+  assert.equal('context' in buildLocalRequest({ messages: [{ role: 'user', content: 'שלום' }] }), false);
+});
+
+test('a proposal is accepted only for a tool the user holds, with known fields', () => {
+  const allowed = ['create_task'];
+  assert.equal(validatedProposal({ tool: 'read_class_grades', input: { classId: 'x' } }, allowed, TOOL_SCHEMAS), null);
+  assert.equal(validatedProposal({ tool: 'delete_everything', input: {} }, allowed, TOOL_SCHEMAS), null);
+  assert.equal(validatedProposal({ tool: null }, allowed, TOOL_SCHEMAS), null);
+  const ok = validatedProposal({ tool: 'create_task', input: { title: 'להזמין אוטובוס', hack: 'x' } }, allowed, TOOL_SCHEMAS);
+  assert.deepEqual(ok, { tool: 'create_task', input: { title: 'להזמין אוטובוס' }, missing: [] });
+  assert.deepEqual(validatedProposal({ tool: 'create_task', input: {} }, allowed, TOOL_SCHEMAS).missing, ['title']);
+  assert.deepEqual(toolSpecs(['create_task', 'nope'], TOOL_SCHEMAS).map(item => item.name), ['create_task']);
+});
+
+test('the learning log appends dated lines and stays bounded', () => {
+  const line = learningLogLine({ at: new Date('2026-11-25T10:30:00Z'), kind: 'דפוס אושר', actor: 'דנה', summary: 'הזמנת אוטובוס\nלטיול' });
+  assert.equal(line, '- 2026-11-25 10:30 · דפוס אושר · דנה · הזמנת אוטובוס לטיול');
+  let log = '';
+  for (let i = 0; i < 400; i += 1) log = appendLearningLog(log, `${line} ${i}`, 5000);
+  assert.ok(log.startsWith('# יומן למידה של זוקי'));
+  assert.ok(log.length <= 5000 + 200);
+  assert.ok(log.trimEnd().endsWith('399'));
+});

@@ -1,5 +1,7 @@
-import { buildClaudeRequest, callClaude, heldCapabilities, parseClaudeResponse } from './claude.js';
-import { askLocalTiered, buildLocalRequest, localModelConfigured, parseLocalResponse, streamLocalTiered } from './localModel.js';
+import { TOOL_SCHEMAS, buildClaudeRequest, callClaude, heldCapabilities, parseClaudeResponse } from './claude.js';
+import { allowedTools } from '../../functions/src/roleAgents.js';
+import { appendLearningLog, buildSchoolContext, dailyLimitFor, dayKey, learningLogLine, looksLikeAction, secondsToMidnight, toolSpecs, validatedProposal } from './zokiTurn.js';
+import { askLocalTiered, buildLocalRequest, localModelConfigured, parseLocalResponse, routeLocalAction, streamLocalTiered } from './localModel.js';
 import { roleAgentProfile } from '../../functions/src/roleAgents.js';
 import {
   createSchoolBrain,
@@ -320,6 +322,7 @@ async function syncConfiguredSchools(env) {
     const comparable = value => value.replace(/^updatedAt:.*$/gmu, 'updatedAt: <timestamp>').trim();
     if (comparable(next) !== comparable(current.markdown)) {
       await writeBrain(env, schoolId, next, 'Daily institutional knowledge sync');
+      await logLearning(env, schoolId, { kind: 'סנכרון יומי', summary: 'ידע בית הספר התעדכן אוטומטית' });
       synced += 1;
     }
   }
@@ -421,6 +424,66 @@ async function deleteSources(request, env, schoolId, sourceIds) {
   await Promise.all((sourceIds || []).slice(0, 100).map(id => firestore(request, env, `schools/${schoolId}/taskLearningInbox/${encodeURIComponent(id)}`, { method: 'DELETE' })));
 }
 
+// ---- Per-user daily quota (counter written with the Worker's admin credentials; clients cannot touch it) ----
+async function chargeUsage(env, actor, schoolId) {
+  if (!env.FIREBASE_CLIENT_EMAIL || !env.FIREBASE_PRIVATE_KEY) return { used: 0, limit: Infinity };
+  const limit = dailyLimitFor(actor.role, env);
+  const day = dayKey();
+  const token = await firebaseAdminToken(env);
+  const name = `projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/zokiUsage/${actor.uid}_${day}`;
+  const response = await fetch(`https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents:commit`, {
+    method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ writes: [{ update: { name, fields: { uid: { stringValue: actor.uid }, schoolId: { stringValue: schoolId }, day: { stringValue: day } } }, updateMask: { fieldPaths: ['uid', 'schoolId', 'day'] }, updateTransforms: [{ fieldPath: 'count', increment: { integerValue: '1' } }] }] }),
+  });
+  // A broken counter must not lock everyone out; the per-minute limit of the model service still applies.
+  if (!response.ok) return { used: 0, limit };
+  const used = Number((await response.json()).writeResults?.[0]?.transformResults?.[0]?.integerValue || 0);
+  if (used > limit) throw Object.assign(new Error('resource-exhausted'), { retryAfter: secondsToMidnight() });
+  return { used, limit };
+}
+
+// ---- LEARNING_LOG.md: what Zoki learned or changed in shared school knowledge, next to the brain file ----
+const LOG_PATH = 'LEARNING_LOG.md';
+async function readLearningLog(env, schoolId) {
+  const token = await githubToken(env);
+  const repository = repositoryFor(env, schoolId);
+  const response = await fetch(`https://api.github.com/repos/${repository}/contents/${LOG_PATH}`, { headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'zoko-task-agent' } });
+  if (response.status === 404) return { text: '', sha: '', token, repository };
+  if (!response.ok) throw new Error('learning-log-read-failed');
+  const file = await response.json();
+  return { text: decodeURIComponent(escape(atob(String(file.content || '').replace(/\n/gu, '')))), sha: file.sha || '', token, repository };
+}
+
+// Never fails the operation that is being logged.
+async function logLearning(env, schoolId, entry) {
+  try {
+    const { text, sha, token, repository } = await readLearningLog(env, schoolId);
+    const next = appendLearningLog(text, learningLogLine(entry));
+    await fetch(`https://api.github.com/repos/${repository}/contents/${LOG_PATH}`, {
+      method: 'PUT', headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'content-type': 'application/json', 'x-github-api-version': '2022-11-28', 'user-agent': 'zoko-task-agent' },
+      body: JSON.stringify({ message: `Learning log: ${String(entry.kind).slice(0, 40)}`, content: btoa(unescape(encodeURIComponent(next))), ...(sha ? { sha } : {}) }),
+    });
+  } catch { /* logging is best effort */ }
+}
+
+// The user's own saved memories, read with their own token so the Firestore rules decide what is visible.
+async function personalMemories(request, env, actor, schoolId) {
+  try {
+    const document = await firestore(request, env, `zokiAgents/${actor.uid}/scopes/${encodeURIComponent(schoolId)}`);
+    return plainValue({ mapValue: { fields: document.fields || {} } }).memories || [];
+  } catch { return []; }
+}
+
+// School knowledge for this turn: the institutional brain, without student data unless the user may see it.
+async function schoolContextFor(request, env, schoolId, actor, query, held) {
+  const [brain, memories] = await Promise.all([
+    readBrain(env, schoolId).catch(() => ({ markdown: '' })),
+    personalMemories(request, env, actor, schoolId),
+  ]);
+  const canSeeStudents = actor.manager || held.includes('students.view');
+  return buildSchoolContext({ markdown: brain.markdown, query, canSeeStudents, memories });
+}
+
 async function handle(request, env) {
   const url = new URL(request.url);
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors(request, env) });
@@ -437,14 +500,29 @@ async function handle(request, env) {
     const profile = roleAgentProfile(roleId) || roleAgentProfile('secretary');
     // ZOKI_PROVIDER=local forces the school's own model; otherwise Claude when its key exists, else the local model.
     const useLocal = env.ZOKI_PROVIDER === 'local' || (env.ZOKI_PROVIDER !== 'claude' && !env.ANTHROPIC_API_KEY && localModelConfigured(env));
-    if (useLocal && body.stream === true) {
-      // Pass the model's token stream straight through so the browser can show the answer as it is written.
-      const upstream = await streamLocalTiered(env, buildLocalRequest({ messages: body.messages }));
-      return new Response(upstream, { status: 200, headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', 'x-accel-buffering': 'no', ...cors(request, env) } });
+    await chargeUsage(env, actor, schoolId);
+    if (useLocal) {
+      const held = heldCapabilities(actor.accessProfile);
+      const lastQuestion = [...(body.messages || [])].reverse().find(item => item?.role === 'user')?.content || '';
+      const context = await schoolContextFor(request, env, schoolId, actor, lastQuestion, held);
+      const payload = buildLocalRequest({ messages: body.messages, context });
+      // An instruction becomes a proposal the user approves; a question streams straight from the model.
+      const tools = toolSpecs(allowedTools(profile, held), TOOL_SCHEMAS);
+      if (tools.length && looksLikeAction(lastQuestion)) {
+        const proposal = validatedProposal(await routeLocalAction(env, { message: lastQuestion, tools, context }), tools.map(item => item.name), TOOL_SCHEMAS);
+        if (proposal) {
+          const note = proposal.missing.length ? `כדי להכין את הפעולה חסר: ${proposal.missing.join(', ')}.` : 'הכנתי הצעה. אפשר לאשר אותה או לתקן.';
+          return json({ reply: note, proposals: proposal.missing.length ? [] : [{ id: `p_${Date.now()}`, tool: proposal.tool, input: proposal.input }], stopReason: '', sources: [], agent: profile.name }, 200, cors(request, env));
+        }
+      }
+      if (body.stream === true) {
+        // Pass the model's token stream straight through so the browser can show the answer as it is written.
+        const upstream = await streamLocalTiered(env, payload);
+        return new Response(upstream, { status: 200, headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', 'x-accel-buffering': 'no', ...cors(request, env) } });
+      }
+      return json({ ...parseLocalResponse(await askLocalTiered(env, payload)), agent: profile.name }, 200, cors(request, env));
     }
-    const result = useLocal
-      ? parseLocalResponse(await askLocalTiered(env, buildLocalRequest({ messages: body.messages })))
-      : parseClaudeResponse(await callClaude(env, buildClaudeRequest({ profile, messages: body.messages, context: body.context, heldKeys: heldCapabilities(actor.accessProfile), model: env.CLAUDE_MODEL || undefined })));
+    const result = parseClaudeResponse(await callClaude(env, buildClaudeRequest({ profile, messages: body.messages, context: body.context, heldKeys: heldCapabilities(actor.accessProfile), model: env.CLAUDE_MODEL || undefined })));
     return json({ ...result, agent: profile.name }, 200, cors(request, env));
   }
   if (url.pathname === '/v1/task-agent/draft' && request.method === 'POST') {
@@ -456,10 +534,12 @@ async function handle(request, env) {
   }
   if (url.pathname === '/v1/task-agent/learning/capture' && request.method === 'POST') {
     const result = await saveCandidate(request, env, schoolId, actor, body);
+    await logLearning(env, schoolId, { kind: 'נלמד דפוס מועמד', actor: actor.fullName, summary: body.savedTask?.title || body.request });
     return json({ ok: true, ...result }, 200, cors(request, env));
   }
   if (!actor.manager) throw new Error('permission-denied');
   if (url.pathname === '/v1/task-agent/candidates' && request.method === 'GET') return json({ patterns: await listCandidates(request, env, schoolId) }, 200, cors(request, env));
+  if (url.pathname === '/v1/task-agent/learning-log' && request.method === 'GET') return json({ markdown: (await readLearningLog(env, schoolId)).text }, 200, cors(request, env));
   if (url.pathname === '/v1/task-agent/brain' && request.method === 'GET') return json(await readBrain(env, schoolId), 200, cors(request, env));
   if (url.pathname === '/v1/task-agent/brain/history' && request.method === 'GET') return json({ versions: await brainHistory(env, schoolId) }, 200, cors(request, env));
   if (url.pathname === '/v1/task-agent/brain/preview' && request.method === 'POST') {
@@ -473,10 +553,12 @@ async function handle(request, env) {
     const next = upsertApprovedPattern(markdown, pattern);
     const result = await writeBrain(env, schoolId, next, `Approve task pattern: ${sanitizeInstitutionalText(pattern.name, 80) || pattern.id}`);
     await deleteSources(request, env, schoolId, body.sourceIds);
+    await logLearning(env, schoolId, { kind: 'דפוס אושר', actor: actor.fullName, summary: pattern.name || pattern.canonicalIntent });
     return json({ ok: true, commitSha: result.commit?.sha || '' }, 200, cors(request, env));
   }
   if (url.pathname === '/v1/task-agent/candidates/reject' && request.method === 'POST') {
     await deleteSources(request, env, schoolId, body.sourceIds);
+    await logLearning(env, schoolId, { kind: 'דפוס נדחה', actor: actor.fullName, summary: `נדחו ${(body.sourceIds || []).length} מקורות` });
     return json({ ok: true }, 200, cors(request, env));
   }
   if (url.pathname === '/v1/task-agent/brain/sync' && request.method === 'POST') {
@@ -484,11 +566,13 @@ async function handle(request, env) {
     const generated = createSchoolBrain({ ...(body.snapshot || {}), school: { ...(body.snapshot?.school || {}), id: schoolId }, generatedAt: new Date().toISOString() });
     const markdown = preserveApprovedPatterns(current.markdown, generated);
     const result = await writeBrain(env, schoolId, markdown, 'Sync institutional knowledge');
+    await logLearning(env, schoolId, { kind: 'סנכרון ידע', actor: actor.fullName, summary: 'ידע בית הספר עודכן מהנתונים הנוכחיים' });
     return json({ ok: true, commitSha: result.commit?.sha || '' }, 200, cors(request, env));
   }
   if (url.pathname === '/v1/task-agent/brain/restore' && request.method === 'POST') {
     if (!/^[a-f0-9]{40}$/u.test(body.sha || '')) throw new Error('invalid-version');
     const result = await restoreBrain(env, schoolId, body.sha);
+    await logLearning(env, schoolId, { kind: 'שחזור ידע', actor: actor.fullName, summary: `שוחזרה גרסה ${body.sha.slice(0, 8)}` });
     return json({ ok: true, commitSha: result.commit?.sha || '' }, 200, cors(request, env));
   }
   throw new Error('not-found');
@@ -501,8 +585,8 @@ export default {
       const code = error?.message || 'internal-error';
       // Path and error code only: never request bodies, tokens or school data.
       console.warn('worker-error', new URL(request.url).pathname, String(code).slice(0, 120));
-      const status = ['unauthenticated', 'invalid-app-check'].includes(code) ? 401 : code === 'permission-denied' ? 403 : code === 'not-found' ? 404 : 400;
-      return json({ error: code }, status, cors(request, env));
+      const status = ['unauthenticated', 'invalid-app-check'].includes(code) ? 401 : code === 'permission-denied' ? 403 : code === 'not-found' ? 404 : code === 'resource-exhausted' ? 429 : 400;
+      return json({ error: code, ...(error?.retryAfter ? { retryAfter: error.retryAfter } : {}) }, status, cors(request, env));
     }
   },
   async scheduled(_event, env, context) {

@@ -66,6 +66,8 @@ service cloud.firestore {
           && request.resource.data.values is map && request.resource.data.updatedBy == request.auth.uid;
       }
     }
+    // Daily usage counters are written only by the Worker (admin credentials); no client may read or write them.
+    match /zokiUsage/{usageId} { allow read, write: if false; }
     match /zokiAgents/{agentId} {
       allow read: if activeUser() && request.auth.uid == agentId;
       allow create, update: if activeUser() && request.auth.uid == agentId
