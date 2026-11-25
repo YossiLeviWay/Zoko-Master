@@ -56,7 +56,7 @@ export async function callLocalModel(env, payload, fetchImpl = fetch, { stream =
 
 // ---- Fast model first, strong model when the fast one is slow, fails or has no answer ----
 
-export const TIERS = Object.freeze({ firstTokenMs: 20000, peekChars: 20, minAnswerChars: 15 });
+export const TIERS = Object.freeze({ firstTokenMs: 20000, peekChars: 20, minAnswerChars: 30 });
 const NO_INFO = /^\s*(אין לי מידע|לא מצאתי מידע|אין לי הגדרה)/u;
 
 // A fast answer is weak when it is empty, says it has no information, or is too short to be a sentence.

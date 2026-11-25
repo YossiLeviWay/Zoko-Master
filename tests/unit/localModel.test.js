@@ -110,3 +110,9 @@ test('tiering can be switched off', async () => {
   await askLocalTiered({ ...env, LOCAL_MODEL_TIERING: 'off' }, { message: 'ש' }, async (_url, init) => { calls.push(JSON.parse(init.body).model); return { ok: true, json: async () => ({ answer: 'תשובה' }) }; });
   assert.deepEqual(calls, ['strong']);
 });
+
+test('a bare date range from the fast model counts as a weak answer', async () => {
+  const { isWeakAnswer } = await import('../../worker/src/localModel.js');
+  assert.equal(isWeakAnswer('2026-09-01 עד 2026-09-30', { final: true }), true);
+  assert.equal(isWeakAnswer('התוכנית מוגשת עד העשרים במאי בכל שנה', { final: true }), false);
+});
