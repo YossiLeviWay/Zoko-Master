@@ -51,12 +51,21 @@ export function teachingNote(text) {
 
 // The model must not tell the user it wrote something down when nothing was stored.
 const SAVE_CLAIM = /רשמתי|שמרתי|נשמר(?:\s+לי|\s+בזיכרון)?|אזכור(?:\s+את\s+זה)?/u;
+function withoutSaveClaim(reply) {
+  return String(reply || '').split(/\n+/u).flatMap(line => line.split(/(?<=[.!?])\s+/u)).map(part => part.trim()).filter(part => part && !SAVE_CLAIM.test(part));
+}
+
 export function replyWithoutFalseSave(reply, saved) {
   const text = String(reply || '').trim();
   if (saved || !SAVE_CLAIM.test(text)) return text;
-  const kept = text.split(/\n+/u).flatMap(line => line.split(/(?<=[.!?])\s+/u)).map(part => part.trim()).filter(part => part && !SAVE_CLAIM.test(part));
   const honest = 'לא שמרתי את זה כזיכרון. כדי שאשמור, התחילו ב«תזכור ש…», «חשוב שתדע: …» או «העדפות שלי: …».';
-  return [honest, ...kept].join('\n').trim();
+  return [honest, ...withoutSaveClaim(text)].join('\n').trim();
+}
+
+// What was stored is the user's sentence, not the model's paraphrase of it.
+export function replyWithStoredMemory(reply, note) {
+  if (!note) return replyWithoutFalseSave(reply, false);
+  return [`נשמר כלשונו: ${note}`, ...withoutSaveClaim(reply)].join('\n').trim();
 }
 
 export function stripStudentSection(markdown) {

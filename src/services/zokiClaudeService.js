@@ -3,6 +3,7 @@
 import { getToken } from 'firebase/app-check';
 import { appCheck, auth } from '../firebase.js';
 import { readTokenStream } from '../utils/tokenStream.js';
+import { ZOKI_TURN_TIMEOUT_MS, classifyWorkerFetchError, workerFailure } from '../utils/zokiWorkerError.js';
 
 export const zokiClaudeEndpoint = () => (import.meta.env.VITE_ZOKI_WORKER_URL || '').replace(/\/$/, '');
 export const isZokiClaudeConfigured = () => Boolean(zokiClaudeEndpoint());
@@ -22,14 +23,24 @@ export async function askRoleAgent({ schoolId, messages, context = '', signal, o
   if (!isZokiClaudeConfigured()) throw Object.assign(new Error('agent-not-configured'), { code: 'agent-not-configured' });
   const user = auth.currentUser;
   if (!user) throw Object.assign(new Error('unauthenticated'), { code: 'unauthenticated' });
-  const headers = { 'content-type': 'application/json', authorization: `Bearer ${await user.getIdToken()}` };
+  let idToken;
+  try { idToken = await user.getIdToken(); }
+  catch (error) { throw workerFailure('id-token-failed', error); }
+  const headers = { 'content-type': 'application/json', authorization: `Bearer ${idToken}` };
   if (appCheck) {
     try { headers['x-firebase-appcheck'] = (await getToken(appCheck)).token; }
-    catch { throw Object.assign(new Error('app-check-failed'), { code: 'app-check-failed' }); }
+    catch (error) { throw workerFailure('app-check-failed', error); }
   }
-  // A browser-level failure (CORS, CSP, offline) has no status; give it a readable code.
-  const response = await fetch(`${zokiClaudeEndpoint()}/v1/zoki/turn`, { method: 'POST', headers, body: JSON.stringify({ schoolId, messages, context, stream: typeof onToken === 'function' }), signal })
-    .catch(() => { throw Object.assign(new Error('worker-unreachable'), { code: 'worker-unreachable' }); });
+  let payload;
+  try { payload = JSON.stringify({ schoolId, messages, context, stream: typeof onToken === 'function' }); }
+  catch (error) { throw workerFailure('request-build-failed', error); }
+  const timeout = typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(ZOKI_TURN_TIMEOUT_MS) : undefined;
+  let response;
+  try {
+    response = await fetch(`${zokiClaudeEndpoint()}/v1/zoki/turn`, { method: 'POST', headers, body: payload, signal: signal || timeout });
+  } catch (error) {
+    throw classifyWorkerFetchError(error);
+  }
   if (response.ok && onToken && /text\/event-stream/u.test(response.headers.get('content-type') || '')) return readTokenStream(response, onToken);
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw Object.assign(new Error(body.error || 'agent-unavailable'), { code: body.error || 'agent-unavailable' });

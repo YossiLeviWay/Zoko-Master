@@ -7,6 +7,7 @@
 // Everything here is pure (no network), so it is unit-tested. The brain belongs to its user only:
 // it is never added to the school brain and never shown to a manager.
 import { sanitizeInstitutionalText } from './brain.js';
+import { teachingNote } from './zokiTurn.js';
 
 export const MOODS = Object.freeze(['רגוע', 'נלהב', 'עמוס', 'לחוץ', 'מתוסכל', 'מודאג', 'עייף', 'מהוסס']);
 export const PROFILE_LIMITS = Object.freeze({ summary: 500, item: 180, facts: 12, preferences: 8, focus: 6, insights: 6, moodNote: 180, moodDays: 7, focusDays: 45 });
@@ -125,7 +126,9 @@ export function snapshotText(snapshot, now = new Date()) {
       lines.push(`- ${task.title} (${due}${task.mineToDo ? '' : ', שותף/ה'})`);
     }
   }
-  lines.push('בגאנט ובלוח השנה בשבועיים הקרובים' + (snapshot.events?.length ? ':' : ': אין אירועים גלויים.'));
+  lines.push(snapshot.events?.length
+    ? 'בגאנט ובלוח השנה בשבועיים הקרובים: אלה אירועי הגאנט עצמם, לא אבני דרך של התפקיד.'
+    : 'בגאנט ובלוח השנה בשבועיים הקרובים: אין אירוע בטווח. זו לא בעיית הרשאה, ואין להמציא אירוע.');
   for (const event of snapshot.events || []) {
     const when = event.end ? `${shortDate(event.date)}–${shortDate(event.end)}` : shortDate(event.date);
     const about = [event.grade && `שכבה ${event.grade}`, event.subject, event.category].filter(Boolean).join(', ');
@@ -152,8 +155,10 @@ export function profileText(profile) {
 export const PERSONAL_GUIDANCE = [
   'ההקשר האישי שלהלן שייך רק למשתמש שמולך. השתמש בו כדי לענות לאדם הזה, ולא "למורה כלשהו":',
   '- התאם את התשובה לתפקיד, לצוותים, לכיתות, למשימות וללוח השנה שלו. כשזה רלוונטי, קשר את התשובה למשימה או לתאריך ממשי שלו.',
-  '- כבד את ההעדפות שלו (אורך, סגנון, מבנה) בלי שיצטרך לבקש שוב.',
+  '- כבד את ההעדפות שלו (אורך, סגנון, מבנה) בלי שיצטרך לבקש שוב. אם ביקש נקודות, ענה בנקודות.',
+  '- עובדה שהוא אמר על עצמו היא כלל עבודה. אם תיאר איך בנויה אצלו ישיבה, מבנה הישיבה הבא נשען על הניסוח שלו.',
   '- המשך שיחות קודמות: אם נושא שהעסיק אותו עדיין פתוח, התייחס אליו בטבעיות.',
+  '- אירועי גאנט הם רק השורות שתחת «בגאנט ובלוח השנה». אבן דרך של התפקיד אינה אירוע בלוח: הצג אותה רק כ«אבן דרך של התפקיד», ואל תחזור בך ממנה.',
   '- התאם את הטון למצבו: כשהוא עמוס או לחוץ, קצר, הצע צעד אחד ברור והורד עומס; כשהוא נלהב, הרחב ובנה איתו. גלה אמפתיה עניינית, בלי לנתח אותו ובלי להכריז מה הוא מרגיש.',
   '- אל תצטט את ההקשר הזה ואל תאמר "אני רואה ברשומות". אל תמציא פרטים שאינם כתובים בו. הוא חסוי: אינו משותף עם אנשי צוות אחרים או עם ההנהלה.',
 ].join('\n');
@@ -237,4 +242,56 @@ export function parseReflection(response, previous, now = new Date()) {
     updatedAt: stamp,
   }, now);
   return next;
+}
+
+const uniqueLines = lists => {
+  const seen = new Set();
+  return lists.flat().map(item => text(item, 180)).filter(item => item.length > 2 && !seen.has(item) && seen.add(item));
+};
+
+// The model paraphrases and sometimes inverts what was said ("ומעלה" became "לכל היותר").
+// These clauses are copied from the user's own words and are never rewritten.
+export function spokenMemory(messages = []) {
+  const preferences = [];
+  const facts = [];
+  const focus = [];
+  for (const message of messages) {
+    if (message?.role !== 'user' || typeof message.content !== 'string') continue;
+    const raw = message.content.trim();
+    for (const sentence of raw.split(/(?<=[.!?])\s+/u)) {
+      const line = sentence.replace(/[.\s]+$/u, '').trim();
+      if (/אני מעדיף/u.test(line)) preferences.push(line);
+      if (/השבוע אני עסוק/u.test(line)) focus.push(line);
+    }
+    const taught = teachingNote(raw);
+    if (taught) facts.push(taught);
+  }
+  return { preferences: uniqueLines([preferences]), facts: uniqueLines([facts]), focus: uniqueLines([focus]) };
+}
+
+// The model may add a line only when the user actually wrote it, or it was already stored.
+// Everything the user said in their own words is kept, including lines the model omitted.
+export function mergeLearnedProfile(previous, response, messages = [], now = new Date()) {
+  const before = sanitizeProfile(previous, now);
+  const modeled = response ? parseReflection(response, before, now) : before;
+  const spoken = spokenMemory(messages);
+  const userText = messages.filter(item => item?.role === 'user').map(item => String(item.content || '')).join('\n');
+  const grounded = (items, prior) => (items || []).filter(item => prior.includes(item) || userText.includes(item));
+  const focusOf = items => items.map(item => (typeof item === 'string' ? item : item?.text));
+  const corpus = [userText, before.summary, ...before.facts, ...before.preferences, ...focusOf(before.focus)].join('\n');
+  // A summary that invents a wording the user did not use (for example "לכל היותר" instead of "ומעלה") is dropped.
+  const summaryOk = modeled.summary && modeled.summary.split(/[.,]/u).every(part => part.trim().length < 8 || corpus.includes(part.trim()));
+  return sanitizeProfile({
+    summary: summaryOk ? modeled.summary : before.summary,
+    preferences: uniqueLines([before.preferences, spoken.preferences, grounded(modeled.preferences, before.preferences)]),
+    facts: uniqueLines([before.facts, spoken.facts, grounded(modeled.facts, before.facts)]),
+    focus: uniqueLines([focusOf(before.focus), spoken.focus, grounded(focusOf(modeled.focus), focusOf(before.focus))]).map(item => {
+      const prior = before.focus.find(entry => entry.text === item);
+      return { text: item, since: prior?.since || now.toISOString() };
+    }),
+    insights: uniqueLines([before.insights, grounded(modeled.insights, before.insights)]),
+    mood: modeled.mood || before.mood,
+    turns: before.turns + 1,
+    updatedAt: now.toISOString(),
+  }, now);
 }

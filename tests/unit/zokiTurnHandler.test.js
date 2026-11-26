@@ -61,11 +61,13 @@ function fakes({ count = 1, route = { tool: null }, tasksCreate = true, claude =
       if (claude === 'down') return new Response('{}', { status: 529 });
       if (claude === 'credit') return new Response('{}', { status: 429 });
       if (JSON.stringify(body.system).includes('מנגנון הזיכרון')) {
-        if (claude === 'learn') {
+        if (claude === 'learn' || claude === 'invert') {
           const asked = JSON.stringify(body.messages);
-          const text = asked.includes('מבחן מחצית')
-            ? '{"summary":"מעדיף קיצור ועסוק במבחן","preferences":["תשובות קצרות בנקודות"],"focus":["הכנה למבחן מחצית"],"insights":["לפתוח בנקודות"],"mood":null}'
-            : '{"summary":"מעדיף תשובות קצרות","preferences":["תשובות קצרות בנקודות"],"focus":[],"mood":null}';
+          const text = claude === 'invert'
+            ? '{"summary":"כל בעל תפקיד מציג 2 דקות לכל היותר","preferences":["2 דקות לכל היותר"],"facts":["מציג 2 דקות לכל היותר"],"focus":["אין מבחן"],"insights":[],"mood":null}'
+            : asked.includes('מבחן מחצית')
+              ? '{"summary":"מעדיף קיצור ועסוק במבחן","preferences":["תשובות קצרות בנקודות"],"focus":["הכנה למבחן מחצית"],"insights":["לפתוח בנקודות"],"mood":null}'
+              : '{"summary":"מעדיף תשובות קצרות","preferences":["תשובות קצרות בנקודות"],"focus":[],"mood":null}';
           return Response.json({ content: [{ type: 'text', text }] });
         }
         return Response.json({ content: [{ type: 'text', text: '{"summary":"שואלת על סדרי עדיפויות","focus":["הטיול השנתי"],"mood":null}' }] });
@@ -163,7 +165,9 @@ test('the answer is personal: the user\'s own tasks and what Zoki learned reach 
   assert.equal(seen.claude.length, 2);
   const stored = seen.personalWrites.find(write => write.update.fields.profile);
   assert.ok(stored.update.name.endsWith('/zokiPersonalBrain/u1__s1'));
-  assert.deepEqual([JSON.parse(stored.update.fields.profile.stringValue).turns, JSON.parse(stored.update.fields.profile.stringValue).focus[0].text], [1, 'הטיול השנתי']);
+  const learned = JSON.parse(stored.update.fields.profile.stringValue);
+  assert.equal(learned.turns, 1);
+  assert.deepEqual(learned.focus, []);
 
   const known = fakes({ personal: { preferences: ['תשובות קצרות בנקודות'], mood: { tone: 'עמוס', note: 'שבוע מבחנים', at: new Date().toISOString() } } });
   await turn([{ role: 'user', content: 'מה הכי דחוף לי השבוע?' }], claudeEnv());
@@ -222,9 +226,48 @@ test('three turns: the first already sees tasks, and each answer is learned and 
   assert.ok(third.includes('תשובות קצרות בנקודות') && third.includes('הכנה למבחן מחצית'));
   const stored = JSON.parse(seen.personalWrites.at(-1).update.fields.profile.stringValue);
   assert.equal(stored.turns, 3);
-  assert.deepEqual(stored.preferences, ['תשובות קצרות בנקודות']);
-  assert.equal(stored.focus[0].text, 'הכנה למבחן מחצית');
+  assert.ok(stored.preferences.some(item => item.includes('תשובות קצרות בנקודות')));
+  assert.ok(stored.focus.some(item => item.text.includes('הכנה למבחן מחצית')));
   assert.ok(seen.personalWrites.at(-1).update.name.endsWith('/zokiPersonalBrain/u1__s1'));
+});
+
+const BULLETS = 'אני מעדיף תשובות קצרות בנקודות. השבוע אני עסוק בהכנה למבחן מחצית.';
+const MEETING = 'חשוב שתדע: אצלי ישיבות הנהלה בנויות כך שכל בעל תפקיד מציג 2 דקות ומעלה רעיון אחד לשיפור, ולא עדכונים.';
+const MEETING_VERBATIM = 'אצלי ישיבות הנהלה בנויות כך שכל בעל תפקיד מציג 2 דקות ומעלה רעיון אחד לשיפור, ולא עדכונים.';
+
+test('three live turns keep the user\'s own words, and the next turn is prompted with them', async () => {
+  const seen = fakes({ persistPersonal: true, claude: 'invert' });
+  const env = claudeEnv();
+  const history = [];
+  const ask = async text => {
+    const pending = [];
+    history.push({ role: 'user', content: text });
+    const response = await worker.fetch(new Request('https://w.example.com/v1/zoki/turn', {
+      method: 'POST', headers: { authorization: 'Bearer t', 'content-type': 'application/json' },
+      body: JSON.stringify({ schoolId: 's1', messages: history }),
+    }), env, { waitUntil(promise) { pending.push(promise); } });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    await Promise.all(pending);
+    history.push({ role: 'assistant', content: body.reply });
+    return body;
+  };
+  await ask(BULLETS);
+  await ask(MEETING);
+  await ask('מה יש בגאנט השבוע לשכבת י׳?');
+  const stored = JSON.parse(seen.personalWrites.at(-1).update.fields.profile.stringValue);
+  assert.equal(stored.turns, 3);
+  assert.ok(stored.preferences.some(item => item.includes('תשובות קצרות בנקודות')));
+  assert.ok(stored.focus.some(item => item.text.includes('הכנה למבחן מחצית')));
+  assert.ok(stored.facts.includes(MEETING_VERBATIM));
+  const inverted = JSON.stringify(stored);
+  assert.ok(!inverted.includes('לכל היותר'));
+  await ask('מה כדאי לי לעשות קודם השבוע?');
+  const answers = seen.claude.filter(call => !JSON.stringify(call.system).includes('מנגנון הזיכרון'));
+  const next = JSON.stringify(answers.at(-1).system);
+  assert.ok(next.includes('תשובות קצרות בנקודות'));
+  assert.ok(next.includes('הכנה למבחן מחצית'));
+  assert.ok(next.includes(MEETING_VERBATIM));
 });
 
 test('a user reads and clears only their own personal brain', async () => {
