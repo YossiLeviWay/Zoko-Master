@@ -134,3 +134,30 @@ export function calculateAttendanceSummary({ days, records, legend, member }) {
   }
   return summary;
 }
+
+// What the sheet should print next to a name.
+// A missing student card is not an archived student: the card is created when the sheet opens.
+// A card that is still assigned to this class is on the roster. "archived" on that card, with no
+// enrollment that actually closed it, is the stale flag that labelled a whole class בארכיון.
+// A real exit (transferred, graduated, withdrawn, dropout, or an enrollment that says so) is kept.
+export function attendanceRowStatus({ member = {}, student = null, enrollment = null, classId = '' } = {}) {
+  const rowClass = classId || member.classId || '';
+  if (enrollment && (!rowClass || !enrollment.classId || enrollment.classId === rowClass)) {
+    return enrollment.enrollmentStatus || 'active';
+  }
+  if (!student) return 'active';
+  const cardStatus = typeof student.status === 'string' && student.status ? student.status : 'active';
+  const sameClass = !rowClass || !student.classId || student.classId === rowClass;
+  if (sameClass && cardStatus === 'archived') return 'active';
+  return cardStatus;
+}
+
+export function studentsMissingFromSheet({ members = [], students = [], enrollments = [] } = {}) {
+  const listed = new Set(members.map(item => item.id || item.studentId).filter(Boolean));
+  const activeEnrollment = new Set(enrollments
+    .filter(item => (item.enrollmentStatus || 'active') === 'active' && item.studentId)
+    .map(item => item.studentId));
+  return students.filter(student => student?.id && !listed.has(student.id) && (
+    (student.status || 'active') === 'active' || activeEnrollment.has(student.id)
+  ));
+}

@@ -10,6 +10,14 @@ export const isZokiClaudeConfigured = () => Boolean(zokiClaudeEndpoint());
 // messages: [{ role: 'user' | 'assistant', content }]
 // Returns { reply, proposals[], agent }. Proposals are suggestions only: the UI must
 // show them and execute nothing until the user approves.
+// The first send used to wait on a cold App Check / ID token exchange. Warm both while the
+// chat is open so pressing send does not pay for them.
+export function warmZokiConnection() {
+  const user = auth.currentUser;
+  if (user) user.getIdToken().catch(() => undefined);
+  if (appCheck) getToken(appCheck, false).catch(() => undefined);
+}
+
 export async function askRoleAgent({ schoolId, messages, context = '', signal, onToken }) {
   if (!isZokiClaudeConfigured()) throw Object.assign(new Error('agent-not-configured'), { code: 'agent-not-configured' });
   const user = auth.currentUser;

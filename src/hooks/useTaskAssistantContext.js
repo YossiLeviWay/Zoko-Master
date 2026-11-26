@@ -113,7 +113,9 @@ export function useTaskAssistantContext() {
       },
       () => { taskAgentRules = []; taskPlaybooks = []; updateGuidance(); },
     ));
-    if (permissions['tasks.useAssistant'] || manager) track(getZokiTaskGuidance({ schoolId })
+    // Cloud Functions are not deployed on the Spark plan, so this callable fails CORS and can sit
+    // for a long time. The Worker builds its own context; don't block the chat on a dead call.
+    if ((permissions['tasks.useAssistant'] || manager) && import.meta.env.VITE_ZOKI_PROVIDER !== 'worker') track(getZokiTaskGuidance({ schoolId })
       .then(result => { zokiRules = Array.isArray(result?.rules) ? result.rules : []; updateGuidance(); })
       .catch(() => { zokiRules = []; updateGuidance(); }));
 

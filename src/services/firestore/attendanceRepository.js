@@ -18,6 +18,7 @@ import {
   DEFAULT_ATTENDANCE_LEGEND,
   attendanceRecordId,
   buildScheduledDays,
+  studentsMissingFromSheet,
 } from '../../utils/attendance';
 
 const CHILD_BATCH_SIZE = 400;
@@ -338,14 +339,16 @@ export async function addAttendanceMember({ db, schoolId, file, actor, student, 
 // partial cached list can not be mistaken for the real one. Existing rows are never changed.
 export async function addMissingClassStudentsToSheet({ db, schoolId, file, actor, classId }) {
   if (!actor?.uid || !file?.id || !classId) return { added: 0, failed: 0 };
-  const [memberSnapshot, studentSnapshot] = await Promise.all([
+  const [memberSnapshot, studentSnapshot, enrollmentSnapshot] = await Promise.all([
     getDocsFromServer(childCollection(db, schoolId, file.id, 'attendanceMembers', file._dataMode || DATA_MODE)),
     getDocsFromServer(query(schoolCollection(db, schoolId, 'students'), where('classId', '==', classId))),
+    getDocsFromServer(query(schoolCollection(db, schoolId, 'studentEnrollments'), where('classId', '==', classId))).catch(() => null),
   ]);
-  const listed = new Set(memberSnapshot.docs.map(item => item.id));
-  const missing = studentSnapshot.docs
-    .map(item => /** @type {any} */ ({ id: item.id, ...item.data() }))
-    .filter(student => (student.status || 'active') === 'active' && !listed.has(student.id));
+  const missing = studentsMissingFromSheet({
+    members: memberSnapshot.docs.map(item => ({ id: item.id, studentId: item.id })),
+    students: studentSnapshot.docs.map(item => /** @type {any} */ ({ id: item.id, ...item.data() })),
+    enrollments: enrollmentSnapshot ? enrollmentSnapshot.docs.map(item => item.data()) : [],
+  });
   const results = await Promise.allSettled(missing.map(student => addAttendanceMember({ db, schoolId, file, actor, student, classId })));
   const failed = results.filter(result => result.status === 'rejected').length;
   return { added: results.length - failed, failed };

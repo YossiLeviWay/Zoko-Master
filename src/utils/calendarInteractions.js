@@ -6,6 +6,17 @@ export function calendarDateFields(date) {
 export function sortCalendarCategories(rows) {
   return [...rows].sort((a,b) => (a.order ?? 9999) - (b.order ?? 9999) || a.name.localeCompare(b.name, 'he'));
 }
+
+// Sunday–Thursday. The grid opens on this week; a saved preference can still replace it
+// before the grid is shown.
+export const SCHOOL_WEEK = Object.freeze([0, 1, 2, 3, 4]);
+
+// Scroll offset that puts today's cell in the middle of the calendar pane, under the sticky header.
+export function todayScrollTop({ scrollTop = 0, cellTop = 0, wrapTop = 0, headHeight = 0, wrapHeight = 0, cellHeight = 0 } = {}) {
+  const cellOffset = scrollTop + cellTop - wrapTop;
+  const centered = cellOffset - headHeight - Math.max(0, (wrapHeight - headHeight - cellHeight) / 2);
+  return Math.max(0, centered);
+}
 export const DEFAULT_EVENT_TEMPLATES = [
   { id:'math', title:'מבחן במתמטיקה', description:'', color:'#fed7aa' },
   { id:'english', title:'מבחן באנגלית', description:'', color:'#bae6fd' },

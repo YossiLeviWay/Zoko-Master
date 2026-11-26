@@ -233,6 +233,7 @@
 .gantt-table-wrap {
   flex: 1;
   overflow: auto;
+  scroll-behavior: auto;
   margin: 1rem 1.25rem 1.25rem;
   padding: 0;
   border: 1px solid var(--color-border-strong);
@@ -1025,7 +1026,7 @@
 .event-audience-chips button { min-height: 32px; padding: 0 .65rem; border: 1px solid var(--color-accent-border); border-radius: 999px; background: var(--color-primary-soft); color: var(--color-primary-text); font: inherit; font-size: .82rem; cursor: pointer; }
 
 /* First load: the grid keeps its place but stays hidden until all of its data arrived. */
-.gantt-table-wrap--loading { position: relative; overflow: hidden; }
+.gantt-table-wrap--loading { position: relative; }
 .gantt-table-wrap--loading .gantt-table { visibility: hidden; }
 .gantt-table-wrap:not(.gantt-table-wrap--loading) .gantt-table { animation: gantt-reveal .18s ease-out; }
 /* A repeat visit starts from remembered data: no fade, no spinner. */

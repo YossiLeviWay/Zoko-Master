@@ -1,5 +1,5 @@
 import { createAuthLoadingGate } from '../utils/authLoadingGate.js';
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { auth, db } from '../firebase';
 import {
   getIdTokenResult,
@@ -102,6 +102,9 @@ async function resolveSchoolOptions(data) {
 export function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [userData, setUserData] = useState(null);
+  // login() loads the profile itself. The token listener must not blank the form and load it again.
+  const loginInFlight = useRef(false);
+  const readyUid = useRef(null);
   const [globalAdminClaim, setGlobalAdminClaim] = useState(false);
   const [platformAdminClaim, setPlatformAdminClaim] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -110,20 +113,23 @@ export function AuthProvider({ children }) {
 
   async function login(email, password) {
     let credential;
+    loginInFlight.current = true;
     try {
-      credential = await signInWithEmailAndPassword(auth, email.trim(), password);
-    } catch (error) {
-      if (error?.code !== 'auth/multi-factor-auth-required') throw error;
-      const resolver = getMultiFactorResolver(auth, error);
-      const totpHint = resolver.hints.find(hint => hint.factorId === TotpMultiFactorGenerator.FACTOR_ID);
-      if (!totpHint) throw Object.assign(new Error('UNSUPPORTED_MFA_FACTOR'), { code: 'auth/unsupported-mfa-factor' });
-      const oneTimeCode = window.prompt('הזינו קוד חד־פעמי מאפליקציית האימות:');
-      if (!oneTimeCode) throw Object.assign(new Error('MFA_REQUIRED'), { code: 'auth/mfa-code-required' });
-      const assertion = TotpMultiFactorGenerator.assertionForSignIn(totpHint.uid, oneTimeCode.trim());
-      credential = await resolver.resolveSignIn(assertion);
-    }
-    try {
-      const token = await getIdTokenResult(credential.user, true);
+      try {
+        credential = await signInWithEmailAndPassword(auth, email.trim(), password);
+      } catch (error) {
+        if (error?.code !== 'auth/multi-factor-auth-required') throw error;
+        const resolver = getMultiFactorResolver(auth, error);
+        const totpHint = resolver.hints.find(hint => hint.factorId === TotpMultiFactorGenerator.FACTOR_ID);
+        if (!totpHint) throw Object.assign(new Error('UNSUPPORTED_MFA_FACTOR'), { code: 'auth/unsupported-mfa-factor' });
+        const oneTimeCode = window.prompt('הזינו קוד חד־פעמי מאפליקציית האימות:');
+        if (!oneTimeCode) throw Object.assign(new Error('MFA_REQUIRED'), { code: 'auth/mfa-code-required' });
+        const assertion = TotpMultiFactorGenerator.assertionForSignIn(totpHint.uid, oneTimeCode.trim());
+        credential = await resolver.resolveSignIn(assertion);
+      }
+      // The sign-in credential already carries a fresh token. Forcing another refresh
+      // waited on a second securetoken + App Check round trip before the form could continue.
+      const token = await getIdTokenResult(credential.user);
       const isPlatformAdminClaim = token.claims.platform_admin === true;
       const isLegacyGlobalAdmin = token.claims.global_admin === true;
       const snapshot = await getDoc(doc(db, 'users', credential.user.uid));
@@ -141,16 +147,26 @@ export function AuthProvider({ children }) {
       setGlobalAdminClaim(isLegacyGlobalAdmin);
       setUserData(normalized);
       setAvailableSchools(schools);
+      readyUid.current = credential.user.uid;
+      if (!adminLogin && schools.length === 1) {
+        invalidatePrivateSession();
+        setSelectedSchool(schools[0].id);
+        recordSchoolLogin({ db, userId: credential.user.uid, schoolId: schools[0].id }).catch(() => undefined);
+        return { credential, requiresSchoolSelection: false, schools };
+      }
       setSelectedSchool(null);
       return { credential, requiresSchoolSelection: !adminLogin, schools };
     } catch (error) {
-      await signOut(auth).catch(() => undefined);
+      readyUid.current = null;
+      if (credential) await signOut(auth).catch(() => undefined);
       setUserData(null);
       setAvailableSchools([]);
       setSelectedSchool(null);
       setGlobalAdminClaim(false);
       setPlatformAdminClaim(false);
       throw error;
+    } finally {
+      loginInFlight.current = false;
     }
   }
 
@@ -285,9 +301,16 @@ export function AuthProvider({ children }) {
     const unsubscribe = onIdTokenChanged(auth, async user => {
       // Refreshing the same account must not unmount authenticated routes.
       // Pairing asks Firebase for a fresh token; unmounting aborts that handshake.
-      if (blocksInterface(user)) setLoading(true);
+      const uidChanged = blocksInterface(user);
       setCurrentUser(user);
+      // login() already loads this profile. A late sign-in event must not blank the form and load it again.
+      if (user && (loginInFlight.current || (readyUid.current === user.uid && uidChanged))) {
+        if (readyUid.current === user.uid) setLoading(false);
+        return;
+      }
+      if (uidChanged) setLoading(true);
       if (!user) {
+        readyUid.current = null;
         invalidatePrivateSession();
         setUserData(null);
         setAvailableSchools([]);
@@ -305,14 +328,11 @@ export function AuthProvider({ children }) {
         setGlobalAdminClaim(hasClaim);
         setPlatformAdminClaim(hasPlatformClaim);
         await loadUserData(user.uid, user, hasClaim, hasPlatformClaim);
-        try {
-          await updateDoc(doc(db, 'users', user.uid), {
-            isOnline: true,
-            lastSeen: serverTimestamp(),
-          });
-        } catch {
-          // A missing/pending profile intentionally cannot create itself.
-        }
+        readyUid.current = user.uid;
+        updateDoc(doc(db, 'users', user.uid), {
+          isOnline: true,
+          lastSeen: serverTimestamp(),
+        }).catch(() => undefined);
       } finally {
         setLoading(false);
       }

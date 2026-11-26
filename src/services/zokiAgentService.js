@@ -153,35 +153,41 @@ export async function zokiRequest(path, schoolId, body = {}, method = 'POST', of
   }
   if (path !== 'turn' || typeof body.question !== 'string' || body.question.trim().length < 2 || body.question.length > 2000) throw fail('invalid-input');
   await reserveZokiQuestion(schoolId, actor);
+  const workerBacked = isWorkerProviderEnabled();
   const singleSchool = new Set([actor.data.schoolId, ...(actor.data.schoolIds || [])].filter(Boolean)).size === 1;
   const ids = (key, legacy) => (actor.data[key]?.[schoolId] || (singleSchool ? actor.data[legacy] : []) || []).filter(safeId).slice(0, 2);
-  const assigned = [
-    ...ids('teamIdsBySchool', 'teamIds').map(id => `${schoolCollectionPath(schoolId, 'teams')}/${id}`),
-    ...ids('classIdsBySchool', 'classIds').map(id => `${schoolCollectionPath(schoolId, 'classes')}/${id}`),
-    ...ids('customRoleAssignments', 'customRoleIds').map(id => `${schoolCollectionPath(schoolId, 'roles')}/${id}`),
-  ];
-  const candidates = [...new Set([...assigned, ...(Array.isArray(body.sourcePaths) ? body.sourcePaths : [])])].filter(value => validSourcePath(value, schoolId, actor.uid));
-  const paths = candidates.slice(0, ZOKI_CONTEXT_LIMITS.candidates);
-  const sources = [];
-  // Fresh rule-authorized reads, with bounded concurrency. Cached UI labels are
-  // never sent to the model as evidence or used to authorize retrieval.
-  for (let offset = 0; offset < paths.length; offset += 12) {
-    sources.push(...(await Promise.all(paths.slice(offset, offset + 12).map(async sourcePath => {
-    try {
-      const raw = await readSource(sourcePath);
-      const data = sourcePath.startsWith('users/') && sourcePath.split('/').length === 2 ? zokiStaffFields(raw, schoolId) : raw;
-      const fields = Object.fromEntries(zokiContextFields.filter(key => data[key] !== undefined).map(key => [key, Array.isArray(data[key]) ? data[key].filter(value => typeof value === 'string').slice(0, 8).map(value => value.slice(0, 100)) : typeof data[key] === 'string' ? data[key].slice(0, 1500) : typeof data[key] === 'number' ? data[key] : null]));
-      return { id: sourcePath, label: String(data.title || data.name || data.fullName || 'מידע מורשה').slice(0, 120), fields };
-    } catch { return null; }
-    }))).filter(Boolean));
-    assertSession();
+  let sources = [];
+  let selected = [];
+  // The Worker already reads the school brain and this person's tasks. Hydrating every candidate
+  // document here (up to 240 server reads, 12 at a time) ran for 12–16s before fetch() was called.
+  if (!workerBacked) {
+    const assigned = [
+      ...ids('teamIdsBySchool', 'teamIds').map(id => `${schoolCollectionPath(schoolId, 'teams')}/${id}`),
+      ...ids('classIdsBySchool', 'classIds').map(id => `${schoolCollectionPath(schoolId, 'classes')}/${id}`),
+      ...ids('customRoleAssignments', 'customRoleIds').map(id => `${schoolCollectionPath(schoolId, 'roles')}/${id}`),
+    ];
+    const candidates = [...new Set([...assigned, ...(Array.isArray(body.sourcePaths) ? body.sourcePaths : [])])].filter(value => validSourcePath(value, schoolId, actor.uid));
+    const paths = candidates.slice(0, ZOKI_CONTEXT_LIMITS.candidates);
+    // Fresh rule-authorized reads, with bounded concurrency. Cached UI labels are
+    // never sent to the model as evidence or used to authorize retrieval.
+    for (let offset = 0; offset < paths.length; offset += 12) {
+      sources.push(...(await Promise.all(paths.slice(offset, offset + 12).map(async sourcePath => {
+      try {
+        const raw = await readSource(sourcePath);
+        const data = sourcePath.startsWith('users/') && sourcePath.split('/').length === 2 ? zokiStaffFields(raw, schoolId) : raw;
+        const fields = Object.fromEntries(zokiContextFields.filter(key => data[key] !== undefined).map(key => [key, Array.isArray(data[key]) ? data[key].filter(value => typeof value === 'string').slice(0, 8).map(value => value.slice(0, 100)) : typeof data[key] === 'string' ? data[key].slice(0, 1500) : typeof data[key] === 'number' ? data[key] : null]));
+        return { id: sourcePath, label: String(data.title || data.name || data.fullName || 'מידע מורשה').slice(0, 120), fields };
+      } catch { return null; }
+      }))).filter(Boolean));
+      assertSession();
+    }
+    // Keep recent authorized memory available without lexical relevance filtering.
+    const ranked = memories.slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 12);
+    const checks = await Promise.all(ranked.map(authorized));
+    selected = ranked.filter((_, index) => checks[index]);
   }
-  // Keep recent authorized memory available without lexical relevance filtering.
-  const ranked = memories.slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 12);
-  const checks = await Promise.all(ranked.map(authorized));
-  const selected = ranked.filter((_, index) => checks[index]);
   assertSession();
-  const { result, selectedSources } = await runSemanticZokiTurn({ provider: isWorkerProviderEnabled() ? new WorkerZokiProvider(schoolId) : createZokiProvider(), sources, assertSession, input: { question: body.question, onToken: typeof body.onToken === 'function' ? body.onToken : undefined,
+  const { result, selectedSources } = await runSemanticZokiTurn({ provider: workerBacked ? new WorkerZokiProvider(schoolId) : createZokiProvider(), sources, assertSession, input: { question: body.question, onToken: typeof body.onToken === 'function' ? body.onToken : undefined,
     today: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(new Date()),
     // Vetted regulation entries only. mode 'defer' means the source was not read yet: Zoki must say so.
     // Dated milestones for this person's role, so Zoki can remind without being asked.

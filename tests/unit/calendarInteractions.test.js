@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { calendarDateFields, sortCalendarCategories } from '../../src/utils/calendarInteractions.js';
+import { calendarDateFields, SCHOOL_WEEK, sortCalendarCategories, todayScrollTop } from '../../src/utils/calendarInteractions.js';
 import { readFile } from 'node:fs/promises';
 test('moving across month/year and editing the past keeps calendar query fields consistent',()=>{
  assert.deepEqual(calendarDateFields('2025-12-31'),{date:'2025-12-31',year:2025,month:11});
@@ -11,10 +11,22 @@ test('category order is stable and does not mutate snapshots',()=>{
  const rows=[{name:'ב',order:2},{name:'א',order:0},{name:'ג'}];
  assert.deepEqual(sortCalendarCategories(rows).map(r=>r.name),['א','ב','ג']);assert.equal(rows[0].name,'ב');
 });
+test('opening the calendar puts today in the middle of the school week, without a smooth scroll', () => {
+  assert.deepEqual([...SCHOOL_WEEK], [0, 1, 2, 3, 4]);
+  assert.equal(todayScrollTop({ scrollTop: 0, cellTop: 800, wrapTop: 100, headHeight: 40, wrapHeight: 600, cellHeight: 48 }), 800 - 100 - 40 - (600 - 40 - 48) / 2);
+  assert.equal(todayScrollTop({ scrollTop: 0, cellTop: 10, wrapTop: 0, headHeight: 40, wrapHeight: 600, cellHeight: 40 }), 0);
+});
+
 test('calendar changes also reach the legacy production rollout',async()=>{
  const snapshot=JSON.parse(await readFile('scripts/simple-access-legacy.json','utf8'));
  assert.match(snapshot['src/components/Gantt/GanttChart.jsx'],/dropCalendar/);
  assert.match(snapshot['src/components/Gantt/GanttChart.jsx'],/categoriesReady/);
+ const chart = await readFile('src/components/Gantt/GanttChart.jsx', 'utf8');
+ for (const source of [chart, snapshot['src/components/Gantt/GanttChart.jsx']]) {
+  assert.match(source, /SCHOOL_WEEK/);
+  assert.match(source, /wrap\.scrollTop = todayScrollTop/);
+  assert.doesNotMatch(source, /behavior: animate \? 'smooth'/);
+ }
  assert.doesNotMatch(snapshot['src/components/Layout/Sidebar.jsx'],/path: '\/categories'/);
 });
 
