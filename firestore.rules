@@ -68,6 +68,8 @@ service cloud.firestore {
     }
     // Daily usage counters are written only by the Worker (admin credentials); no client may read or write them.
     match /zokiUsage/{usageId} { allow read, write: if false; }
+    // The institutional brain, its versions and the learning log are read and written only by the Worker.
+    match /schoolBrain/{schoolId}/{document=**} { allow read, write: if false; }
     match /zokiAgents/{agentId} {
       allow read: if activeUser() && request.auth.uid == agentId;
       allow create, update: if activeUser() && request.auth.uid == agentId
