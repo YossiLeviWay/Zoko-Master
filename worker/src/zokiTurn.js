@@ -12,6 +12,16 @@ export function dailyLimitFor(role, env = {}) {
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : DAILY_LIMITS.default;
 }
 
+// Of those daily requests, how many may use Claude; the rest are answered by the school's own model. ZOKI_CLAUDE_LIMITS overrides.
+export const CLAUDE_LIMITS = Object.freeze({ principal: 100, institution_manager: 100, default: 25, viewer: 10 });
+
+export function claudeLimitFor(role, env = {}) {
+  let table = CLAUDE_LIMITS;
+  try { table = { ...CLAUDE_LIMITS, ...JSON.parse(env.ZOKI_CLAUDE_LIMITS || '{}') }; } catch { /* keep defaults */ }
+  const value = Number(table[role] ?? table.default);
+  return Number.isFinite(value) && value >= 0 ? Math.floor(value) : CLAUDE_LIMITS.default;
+}
+
 export const dayKey = (now = new Date()) => now.toISOString().slice(0, 10);
 export const secondsToMidnight = (now = new Date()) => Math.max(60, Math.ceil((Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1) - now.getTime()) / 1000));
 

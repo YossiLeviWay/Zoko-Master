@@ -1,6 +1,6 @@
 import { TOOL_SCHEMAS, buildClaudeRequest, callClaude, heldCapabilities, parseClaudeResponse } from './claude.js';
 import { allowedTools } from '../../functions/src/roleAgents.js';
-import { appendLearningLog, buildSchoolContext, dailyLimitFor, dayKey, learningLogLine, looksLikeAction, secondsToMidnight, toolSpecs, validatedProposal } from './zokiTurn.js';
+import { appendLearningLog, buildSchoolContext, claudeLimitFor, dailyLimitFor, dayKey, learningLogLine, looksLikeAction, secondsToMidnight, toolSpecs, validatedProposal } from './zokiTurn.js';
 import { askLocalTiered, buildLocalRequest, localModelConfigured, parseLocalResponse, routeLocalAction, streamLocalTiered } from './localModel.js';
 import { roleAgentProfile } from '../../functions/src/roleAgents.js';
 import {
@@ -498,13 +498,26 @@ async function handle(request, env) {
     // The role comes from the user's stored access profile, never from the request.
     const roleId = actor.accessProfile?.presetId || (actor.manager ? 'pedagogical_coordinator' : '');
     const profile = roleAgentProfile(roleId) || roleAgentProfile('secretary');
-    // ZOKI_PROVIDER=local forces the school's own model; otherwise Claude when its key exists, else the local model.
-    const useLocal = env.ZOKI_PROVIDER === 'local' || (env.ZOKI_PROVIDER !== 'claude' && !env.ANTHROPIC_API_KEY && localModelConfigured(env));
-    await chargeUsage(env, actor, schoolId);
-    if (useLocal) {
-      const held = heldCapabilities(actor.accessProfile);
-      const lastQuestion = [...(body.messages || [])].reverse().find(item => item?.role === 'user')?.content || '';
-      const context = await schoolContextFor(request, env, schoolId, actor, lastQuestion, held);
+    // ZOKI_PROVIDER: "local" = school model only, "claude" = Claude only, anything else = Claude first, school model as the fallback.
+    const usage = await chargeUsage(env, actor, schoolId);
+    const held = heldCapabilities(actor.accessProfile);
+    const lastQuestion = [...(body.messages || [])].reverse().find(item => item?.role === 'user')?.content || '';
+    const claudeOnly = env.ZOKI_PROVIDER === 'claude';
+    const claudeWanted = Boolean(env.ANTHROPIC_API_KEY) && env.ZOKI_PROVIDER !== 'local';
+    // Past the user's own Claude allowance (or when Claude is down or out of credit) the answer comes from the school model.
+    const claudeAllowed = claudeWanted && (claudeOnly || usage.used <= claudeLimitFor(actor.role, env));
+    const context = await schoolContextFor(request, env, schoolId, actor, lastQuestion, held);
+    if (claudeAllowed) {
+      try {
+        const merged = [context, body.context].filter(Boolean).join('\n\n');
+        const result = parseClaudeResponse(await callClaude(env, buildClaudeRequest({ profile, messages: body.messages, context: merged, heldKeys: held, model: env.CLAUDE_MODEL || 'claude-haiku-5-5' })));
+        if (result.reply || result.proposals.length) return json({ ...result, agent: profile.name, provider: 'claude' }, 200, cors(request, env));
+      } catch (error) {
+        if (claudeOnly || !localModelConfigured(env)) throw error;
+        console.warn('claude-fallback', String(error?.message || '').slice(0, 60));
+      }
+    }
+    if (localModelConfigured(env) && !claudeOnly) {
       const payload = buildLocalRequest({ messages: body.messages, context });
       // An instruction becomes a proposal the user approves; a question streams straight from the model.
       const tools = toolSpecs(allowedTools(profile, held), TOOL_SCHEMAS);
@@ -522,8 +535,7 @@ async function handle(request, env) {
       }
       return json({ ...parseLocalResponse(await askLocalTiered(env, payload)), agent: profile.name }, 200, cors(request, env));
     }
-    const result = parseClaudeResponse(await callClaude(env, buildClaudeRequest({ profile, messages: body.messages, context: body.context, heldKeys: heldCapabilities(actor.accessProfile), model: env.CLAUDE_MODEL || undefined })));
-    return json({ ...result, agent: profile.name }, 200, cors(request, env));
+    throw new Error('agent-not-configured');
   }
   if (url.pathname === '/v1/task-agent/draft' && request.method === 'POST') {
     const { markdown } = await readBrain(env, schoolId);

@@ -63,6 +63,8 @@ few menus and little text, high contrast, mobile friendly, and a beginner-teache
   "זכור ש..." is saved as the user's own memory only; it never becomes shared knowledge without manager approval.
   school-ai accepts `context`/`tools` only from a trusted caller (API key or loopback). Speed: gemma3:4b stays loaded, DictaLM is released after 3 min
   (`STRONG_KEEP_ALIVE`), `NUM_CTX=3072`; gemma3:1b was tested and is too inaccurate for Hebrew answers.
+- **Claude first (Haiku 5.5):** `ZOKI_PROVIDER=claude-first` (default). The Worker asks Claude (`CLAUDE_MODEL`, default Haiku 5.5, secret `ANTHROPIC_API_KEY`) with the same school context; on error, no credit,
+  or when the user passed their Claude allowance (`ZOKI_CLAUDE_LIMITS`, default principal 100 / staff 25 / viewer 10 per day) the school model answers. `local` = school model only, `claude` = Claude only.
 - **Bugs found and fixed this round:** App Check JWT signature was parsed as JSON in the Worker (`decodeJwtPart`), `functions/`
   dependencies missing in the Firebase workflow, CSP meta tag lacked `*.workers.dev`.
 - **In progress:** answer streaming (merged), a fast small model with automatic escalation to the strong one on timeout (Mac session
