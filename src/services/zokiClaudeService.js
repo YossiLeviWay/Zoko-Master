@@ -3,7 +3,7 @@
 import { getToken } from 'firebase/app-check';
 import { appCheck, auth } from '../firebase.js';
 import { readTokenStream } from '../utils/tokenStream.js';
-import { ZOKI_TURN_TIMEOUT_MS, classifyWorkerFetchError, workerFailure } from '../utils/zokiWorkerError.js';
+import { ZOKI_TURN_TIMEOUT_MS, classifyWorkerFetchError, workerCallContext, workerFailure } from '../utils/zokiWorkerError.js';
 
 export const zokiClaudeEndpoint = () => (import.meta.env.VITE_ZOKI_WORKER_URL || '').replace(/\/$/, '');
 export const isZokiClaudeConfigured = () => Boolean(zokiClaudeEndpoint());
@@ -20,26 +20,34 @@ export function warmZokiConnection() {
 }
 
 export async function askRoleAgent({ schoolId, messages, context = '', signal, onToken }) {
-  if (!isZokiClaudeConfigured()) throw Object.assign(new Error('agent-not-configured'), { code: 'agent-not-configured' });
+  // No /health ping before this POST. A short precheck would fail on a slow network and the
+  // real request would never be sent. The POST below is the first request to the Worker.
+  const where = workerCallContext(zokiClaudeEndpoint());
+  console.info('zoki-turn-stage', 'start', where);
+  if (!isZokiClaudeConfigured()) throw workerFailure('agent-not-configured', new Error('missing worker url'), where);
   const user = auth.currentUser;
-  if (!user) throw Object.assign(new Error('unauthenticated'), { code: 'unauthenticated' });
+  if (!user) throw workerFailure('unauthenticated', new Error('no current user'), where);
   let idToken;
+  console.info('zoki-turn-stage', 'id-token', where);
   try { idToken = await user.getIdToken(); }
-  catch (error) { throw workerFailure('id-token-failed', error); }
+  catch (error) { throw workerFailure('id-token-failed', error, where); }
   const headers = { 'content-type': 'application/json', authorization: `Bearer ${idToken}` };
   if (appCheck) {
+    console.info('zoki-turn-stage', 'app-check', where);
     try { headers['x-firebase-appcheck'] = (await getToken(appCheck)).token; }
-    catch (error) { throw workerFailure('app-check-failed', error); }
-  }
+    catch (error) { throw workerFailure('app-check-failed', error, where); }
+  } else console.info('zoki-turn-stage', 'app-check-skipped', where);
   let payload;
+  console.info('zoki-turn-stage', 'body', where);
   try { payload = JSON.stringify({ schoolId, messages, context, stream: typeof onToken === 'function' }); }
-  catch (error) { throw workerFailure('request-build-failed', error); }
+  catch (error) { throw workerFailure('request-build-failed', error, where); }
   const timeout = typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(ZOKI_TURN_TIMEOUT_MS) : undefined;
   let response;
+  console.info('zoki-turn-stage', 'fetch', where);
   try {
     response = await fetch(`${zokiClaudeEndpoint()}/v1/zoki/turn`, { method: 'POST', headers, body: payload, signal: signal || timeout });
   } catch (error) {
-    throw classifyWorkerFetchError(error);
+    throw classifyWorkerFetchError(error, where);
   }
   if (response.ok && onToken && /text\/event-stream/u.test(response.headers.get('content-type') || '')) return readTokenStream(response, onToken);
   const body = await response.json().catch(() => ({}));
