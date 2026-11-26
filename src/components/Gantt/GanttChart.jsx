@@ -22,6 +22,7 @@ import { calendarDateFields, SCHOOL_WEEK, sortCalendarCategories, DEFAULT_EVENT_
 import EventModal from './EventModal';
 import YearlyOverview from './YearlyOverview';
 import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
+import { useContextMenu } from '../Common/ContextMenu';
 import { usePermissions } from '../../hooks/usePermissions';
 import { CalendarDays, ChevronDown, Eye, Plus, Search, Settings } from 'lucide-react';
 import { academicYearDisplay, academicYearForDate } from '../../utils/academicYears';
@@ -90,7 +91,6 @@ export default function GanttChart() {
   const [templateDraft, setTemplateDraft] = useState(null);
   const [actionError, setActionError] = useState('');
   const [saving, setSaving] = useState(false);
-  const [menu, setMenu] = useState(null);
   const [categoriesReady, setCategoriesReady] = useState(seenBefore);
   const [settingsReady, setSettingsReady] = useState(seenBefore);
   const [eventsReady, setEventsReady] = useState(monthEventsCached);
@@ -98,7 +98,6 @@ export default function GanttChart() {
   // view is already positioned on today. Until then its space is reserved, so nothing jumps.
   const [revealed, setRevealed] = useState(false);
   const tableRef = useRef(null);
-  const menuRef = useRef(null);
   const touchDrag = useRef(null);
   const [eventsByMonth, setEventsByMonth] = useSessionState(`${cacheKey}:events`, {});
   const events = eventsByMonth[`${year}-${month}`] || [];
@@ -128,6 +127,7 @@ export default function GanttChart() {
   const todayCellRef = useRef(null);
 
   const { permissions } = usePermissions();
+  const { menuProps } = useContextMenu();
   const canEditCalendar = permissions.calendar_edit;
   const hasAccessProfile = Boolean(userData?.accessProfilesBySchool?.[schoolId]);
   const canCreateCalendar = hasAccessProfile ? permissions['calendar.create'] : canEditCalendar;
@@ -469,11 +469,21 @@ export default function GanttChart() {
       onClick:event=>event.stopPropagation(),
     };
   }
-  function openMenu(event,date,category,item) {
-    event.preventDefault();event.stopPropagation();setTooltip(null);
-    setMenu({date,category,item,x:Math.min(event.clientX,window.innerWidth-240),y:Math.min(event.clientY,window.innerHeight-220)});
+  function calendarActions(date, category, item) {
+    return [
+      item && canEditCalendar && { label: 'עריכת האירוע', onClick: event => handleEventClick(event, item) },
+      item && canCreateCalendar && { label: 'שכפול האירוע', onClick: () => openTemplate(item, date, category) },
+      canCreateCalendar && { label: 'אירוע חדש ביום הזה', onClick: () => handleCellClick(date, category) },
+    ].filter(Boolean);
   }
-  useEffect(()=>{if(!menu)return;menuRef.current?.querySelector('button')?.focus();const close=()=>setMenu(null);const key=event=>{if(event.key==='Escape')close();};window.addEventListener('click',close);window.addEventListener('keydown',key);return()=>{window.removeEventListener('click',close);window.removeEventListener('keydown',key);};},[menu]);
+  function bindCalendarMenu(date, category, item, onEnter) {
+    const props = menuProps(() => calendarActions(date, category, item));
+    return {
+      ...props,
+      onContextMenu: event => { setTooltip(null); props.onContextMenu(event); },
+      onKeyDown: event => { if (event.key === 'Enter' && onEnter) { event.stopPropagation(); onEnter(event); } props.onKeyDown(event); },
+    };
+  }
 
   function handleMouseEnter(e, event) {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -773,8 +783,7 @@ export default function GanttChart() {
                             height: rowH
                           }}
                           tabIndex={canCreateCalendar ? 0 : undefined}
-                          onKeyDown={event=>{if(event.target!==event.currentTarget)return;if(event.key==='Enter')handleCellClick(date,cat);if(event.key==='ContextMenu'||(event.shiftKey&&event.key==='F10'))openMenu(event,date,cat);}}
-                          onContextMenu={event=>openMenu(event,date,cat)}
+                          {...bindCalendarMenu(date, cat, null, () => handleCellClick(date, cat))}
                           onDragOver={event=>{if(event.dataTransfer.types.includes('application/x-zoko-calendar')){event.preventDefault();event.currentTarget.classList.add('calendar-drop');}}}
                           onDragLeave={event=>event.currentTarget.classList.remove('calendar-drop')}
                           onDrop={event=>dropCalendar(event,date,cat)}
@@ -787,8 +796,7 @@ export default function GanttChart() {
                               role="button" tabIndex={0}
                               draggable={canEditCalendar && !saving}
                               onDragStart={event=>{event.stopPropagation();setTooltip(null);event.dataTransfer.setData('application/x-zoko-calendar',JSON.stringify({eventId:ev.id}));event.dataTransfer.effectAllowed='move';}}
-                              onKeyDown={event=>{if(event.key==='Enter')handleEventClick(event,ev);if(event.key==='ContextMenu'||(event.shiftKey&&event.key==='F10'))openMenu(event,date,cat,ev);}}
-                              onContextMenu={event=>openMenu(event,date,cat,ev)}
+                              {...bindCalendarMenu(date, cat, ev, event => handleEventClick(event, ev))}
                               className={`gantt-event ${ev.certainty === 'tentative' ? 'gantt-event--tentative' : ''} ${searchQuery.trim() ? (ev._searchMatch ? 'gantt-event--highlight' : 'gantt-event--dim') : ''}`}
                               style={{ '--event-color': ev.color || PASTEL_COLORS[0] }}
                               onClick={e => handleEventClick(e, ev)}
@@ -817,12 +825,6 @@ export default function GanttChart() {
       </div>
       </div>
 
-{menu && <div ref={menuRef} className="calendar-context-menu" role="menu" onKeyDown={event=>{if(!['ArrowDown','ArrowUp'].includes(event.key))return;event.preventDefault();const buttons=[...event.currentTarget.querySelectorAll('button')];const i=buttons.indexOf(document.activeElement);buttons[(i+(event.key==='ArrowDown'?1:buttons.length-1))%buttons.length]?.focus();}} style={{left:Math.max(8,menu.x||8),top:Math.max(8,menu.y||8)}}>
-        {menu.item && canEditCalendar && <button role="menuitem" onClick={event=>{handleEventClick(event,menu.item);setMenu(null);}}>עריכת האירוע / שינוי תאריך</button>}
-        {menu.item && canCreateCalendar && <button role="menuitem" onClick={()=>openTemplate(menu.item,menu.date,menu.category)}>שכפול האירוע</button>}
-        {canCreateCalendar && <button role="menuitem" onClick={()=>handleCellClick(menu.date,menu.category)}>אירוע חדש ביום הזה</button>}
-        <button role="menuitem" onClick={()=>setMenu(null)}>סגירה</button>
-      </div>}
       {categoryOpen && <CalendarDialog title="קטגוריות לוח שנה" onClose={()=>setCategoryOpen(false)}><CategoryManager/></CalendarDialog>}
       {tooltip && (
         <div

@@ -20,6 +20,7 @@ export const V1_TOOLS = Object.freeze({
   set_staff_role: { write: true, keys: ['staff_edit'], description: 'הצע שינוי תפקיד מערכת לצופה או עורך בלבד.', properties: { userId: { type: 'string' }, role: { type: 'string', enum: ['viewer', 'editor'] } }, required: ['userId', 'role'] },
   set_staff_permission: { write: true, keys: ['staff_edit'], description: 'הצע מתן או הסרה של הרשאה אחת.', properties: { userId: { type: 'string' }, permission: { type: 'string' }, granted: { type: 'boolean' } }, required: ['userId', 'permission'] },
   deactivate_staff: { write: true, keys: ['staff_edit'], description: 'הצע השבתה או הפעלה. אין מחיקת משתמש.', properties: { userId: { type: 'string' }, active: { type: 'boolean' } }, required: ['userId'] },
+  set_dashboard_layout: { write: true, keys: ['tasks.viewOwn'], description: 'הצע שינוי סידור הדשבורד של המשתמש עצמו בלבד: הוספה, הסרה, הזזה או גודל.', properties: { op: { type: 'string', enum: ['add', 'remove', 'move', 'resize'] }, type: { type: 'string' }, path: { type: 'string' }, size: { type: 'string', enum: ['half', 'full'] }, index: { type: 'number' }, direction: { type: 'string', enum: ['up', 'down'] } }, required: ['op'] },
 });
 
 const WRITE_ASK = /(?:סמן|עדכן|עדכני|צור|צרי|הוסף|הוסיפי|תעד|תעדי|שנה|שני|קבע|קבעי|הכן|הכיני|פתח|פתחי|רשום|רשמי|ערוך|ערכי|תיצור|תפתח|\bcreate\b|\badd\b|\bupdate\b)/iu;
