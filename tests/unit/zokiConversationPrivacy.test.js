@@ -55,6 +55,11 @@ test('conversation save writes only bounded transcript to Firebase, never browse
   await reserveZokiQuestion('school1');
   await syncPersonalAgentConversation({ schoolId: 'school1', operation: 'end' });
   assert.equal(memory.writes.at(-1).data.state, null);
+  memory.state = { messages: [{ id: 'old', role: 'user', text: 'שיחה קודמת' }] };
+  await syncPersonalAgentConversation({ schoolId: 'school1', expectedUid: 'a', operation: 'fresh' });
+  const fresh = memory.writes.at(-1).data;
+  assert.equal(fresh.state, null);
+  assert.equal(fresh.archive.at(-1).messages[0].text, 'שיחה קודמת');
 });
 
 test('late server reads are discarded on a school switch', async () => {

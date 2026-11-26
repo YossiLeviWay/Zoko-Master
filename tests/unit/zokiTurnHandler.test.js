@@ -129,6 +129,8 @@ test('gantt events are queried by date, so fifty old events are not the calendar
   await turn([{ role: 'user', content: 'מה יש בגאנט השבוע לשכבת י׳?' }], claudeEnv());
   const dateQuery = seen.queries.find(query => JSON.stringify(query).includes('GREATER_THAN_OR_EQUAL') && JSON.stringify(query.structuredQuery?.orderBy || '').includes('date'));
   assert.ok(dateQuery, 'the event read is a date-bounded query');
+  assert.ok(seen.queries.some(query => String(query.parent || '').startsWith('projects/') && !String(query.parent).includes('https://')));
+  assert.ok(seen.queries.some(query => String(query.structuredQuery?.from?.[0]?.collectionId || '').startsWith('events_')));
   assert.ok(JSON.stringify(dateQuery).includes(new Date().toISOString().slice(0, 10)));
   const system = JSON.stringify(seen.claude[0].system);
   assert.ok(system.includes('התנדבות בגן חינוך מיוחד'));

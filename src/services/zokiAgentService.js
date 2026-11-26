@@ -80,7 +80,20 @@ export async function syncPersonalAgentConversation(input) {
   }
   const messages = input.state?.messages?.filter(item => !item.error && !item.localOnly).slice(-12).map(item => ({ id: item.id, role: item.role, text: item.text.slice(0, 1500) })) || [];
   assertCurrent();
-  await setDoc(ref, { state: input.operation === 'end' ? null : { messages } });
+  if (input.operation === 'end') {
+    await setDoc(ref, { state: null, archive: [] });
+    return { saved: true };
+  }
+  if (input.operation === 'fresh') {
+    const current = await getDocFromServer(ref);
+    assertCurrent();
+    const previous = current.data()?.state?.messages || [];
+    const archive = Array.isArray(current.data()?.archive) ? current.data().archive : [];
+    const nextArchive = previous.length ? [...archive, { at: new Date().toISOString(), messages: previous.slice(-12) }].slice(-3) : archive;
+    await setDoc(ref, { state: null, archive: nextArchive });
+    return { saved: true };
+  }
+  await setDoc(ref, { state: { messages } }, { merge: true });
   return { saved: true };
 }
 
