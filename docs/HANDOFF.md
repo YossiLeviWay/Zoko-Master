@@ -53,6 +53,16 @@ few menus and little text, high contrast, mobile friendly, and a beginner-teache
   `LOCAL_MODEL_URL`, `LOCAL_MODEL_TOKEN`, Firebase ids; var `ZOKI_PROVIDER=local`. The site defaults `VITE_ZOKI_PROVIDER=worker`.
   Knowledge for the model comes from `npm run export:knowledge` (`docs/zoki-knowledge-export.md`), ingested by the Mac session.
   The tunnel URL changes when the Mac restarts: re-run `wrangler secret put LOCAL_MODEL_URL`. Prefer a named tunnel.
+- **Zoki live context, actions, quota, learning log (branch `feat/zoki-live-context-actions`):** on the local-model path the Worker now
+  (1) charges a per-user daily quota (`zokiUsage/{uid}_{day}`, written with admin credentials, denied to clients in `firestore.rules`;
+  defaults principal 300, staff 60, viewer 20, override with var `ZOKI_DAILY_LIMITS` JSON; over the limit -> 429 `resource-exhausted` + `retryAfter`),
+  (2) sends school-ai a bounded `context` = the institutional brain (students section removed unless `students.view`/manager) + the user's own memories,
+  (3) for instructions ("צור/פתח/הוסף...") calls school-ai `mode:"route"` and returns a validated `proposals[]` limited to the user's allowed tools;
+  the browser maps `create_task` into the existing approval flow, other tools are shown as text only (no approval UI yet),
+  (4) appends shared-knowledge events to `LEARNING_LOG.md` in the school's brain repo (GET `/v1/task-agent/learning-log`, managers only).
+  "זכור ש..." is saved as the user's own memory only; it never becomes shared knowledge without manager approval.
+  school-ai accepts `context`/`tools` only from a trusted caller (API key or loopback). Speed: gemma3:4b stays loaded, DictaLM is released after 3 min
+  (`STRONG_KEEP_ALIVE`), `NUM_CTX=3072`; gemma3:1b was tested and is too inaccurate for Hebrew answers.
 - **Bugs found and fixed this round:** App Check JWT signature was parsed as JSON in the Worker (`decodeJwtPart`), `functions/`
   dependencies missing in the Firebase workflow, CSP meta tag lacked `*.workers.dev`.
 - **In progress:** answer streaming (merged), a fast small model with automatic escalation to the strong one on timeout (Mac session

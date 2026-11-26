@@ -10,7 +10,7 @@ export const LIMITS = Object.freeze({ messages: 12, messageChars: 4000, maxToken
 
 // Claude may only PROPOSE these. The browser shows the proposal and the user
 // approves; execution then goes through the normal permission checks.
-const TOOL_SCHEMAS = Object.freeze({
+export const TOOL_SCHEMAS = Object.freeze({
   list_my_tasks: { description: 'הצג את המשימות הפתוחות של המשתמש', properties: {} },
   create_task: { description: 'הצע יצירת משימה', properties: { title: { type: 'string' }, dueDate: { type: 'string', description: 'YYYY-MM-DD' }, description: { type: 'string' } }, required: ['title'] },
   read_calendar: { description: 'קרא אירועים מלוח השנה בטווח תאריכים', properties: { from: { type: 'string' }, to: { type: 'string' } }, required: ['from', 'to'] },
