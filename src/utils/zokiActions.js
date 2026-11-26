@@ -1,4 +1,5 @@
 import { academicYearForDate } from './academicYears.js';
+import { unansweredSummary } from './replyRequests.js';
 import { subscribePrivateSession } from './browserPrivacy.js';
 import { V1_TOOLS, guardProposals } from '../../worker/src/zokiActionTools.js';
 
@@ -108,6 +109,16 @@ const SPECS = {
     if (name.length < 2) return { error: 'חסר שם צוות.' };
     return { value: { name, description: text(input.description, 500) } };
   }, fields => [`צוות חדש: ${fields.name}`, fields.description && fields.description]),
+  request_reply: spec(['tasks_assign', 'tasks.assign'], true, input => {
+    const question = text(input.question, 500);
+    const assigneeId = id(input.assigneeId);
+    const sourceType = ['task', 'event', 'standalone'].includes(input.sourceType) ? input.sourceType : '';
+    if (question.length < 2 || !assigneeId || !sourceType) return { error: 'חסרים נמען או שאלה.' };
+    const sourceId = sourceType === 'standalone' ? '' : id(input.sourceId);
+    if (sourceType !== 'standalone' && !sourceId) return { error: 'חסר פריט מקושר.' };
+    return { value: { question, assigneeId, sourceType, sourceId, sourceTitle: text(input.sourceTitle, 180), dueDate: day(input.dueDate) } };
+  }, fields => [`בקשת תשובה מ־${fields.assigneeId}`, fields.sourceTitle && fields.sourceTitle, fields.question, fields.dueDate && `עד ${fields.dueDate}`]),
+  list_unanswered_replies: spec(['tasks_assign', 'tasks.assign', 'tasks.viewOwn'], false, () => ({ value: {} }), () => ['מי עדיין לא ענה לבקשות עדכון']),
   add_team_members: spec(['teams_edit'], true, input => {
     const teamId = id(input.teamId);
     const memberIds = ids(input.memberIds);
@@ -166,6 +177,8 @@ export function releaseActionWrite(schoolId, uid, requestId) {
   const key = `${uid}:${schoolId}`;
   windows.set(key, (windows.get(key) || []).filter(item => item.id !== requestId));
 }
+
+export { unansweredSummary };
 
 export function summarizeAttendance({ studentName = '', from, to, records = [], legend = [] }) {
   const byId = new Map(legend.map(item => [item.id, item]));

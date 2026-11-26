@@ -1,0 +1,24 @@
+.reply-requests { display: grid; gap: 0.6rem; margin: 0 0 1rem; }
+.reply-requests__note { margin: 0; padding: 0.45rem 0.7rem; border-radius: 8px; background: #fff7ed; color: #9a3412; font-size: 0.82rem; }
+.reply-stack { display: grid; gap: 0.4rem; padding: 0.7rem 0.8rem; border: 1px solid #eadfe2; border-radius: 12px; background: #fff; }
+.reply-stack--prompt { border-color: #870335; box-shadow: 0 0 0 1px #87033522; }
+.reply-stack header { display: flex; align-items: center; gap: 0.45rem; }
+.reply-stack header strong { font-size: 0.92rem; }
+.reply-stack header span { min-width: 1.3rem; padding: 0 0.35rem; border-radius: 999px; background: #870335; color: #fff; font-size: 0.72rem; text-align: center; }
+.reply-stack header button, .reply-stack__more, .reply-card__later { margin-inline-start: auto; border: 0; background: transparent; color: #870335; font: inherit; font-size: 0.78rem; cursor: pointer; }
+.reply-card { display: grid; gap: 0.3rem; padding: 0.45rem 0; border-top: 1px solid #f3e8eb; }
+.reply-card p { margin: 0; font-weight: 650; }
+.reply-card small, .reply-row { color: #765968; font-size: 0.8rem; }
+.reply-row { margin: 0; }
+.reply-row.is-done { color: #3f1828; }
+.reply-card__choices { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.reply-card__choices button { border: 1px solid #870335; background: #fff; color: #870335; border-radius: 999px; padding: 0.2rem 0.6rem; font: inherit; font-size: 0.78rem; cursor: pointer; }
+.reply-card__choices button:first-child { background: #870335; color: #fff; }
+.reply-card__extra { display: flex; gap: 0.4rem; }
+.reply-card__extra input { flex: 1; font: inherit; }
+.reply-composer { display: grid; gap: 0.45rem; padding: 0.8rem; border: 1px solid #870335; border-radius: 12px; background: #fff; }
+.reply-composer label { display: grid; gap: 0.2rem; font-size: 0.82rem; }
+.reply-composer textarea, .reply-composer select, .reply-composer input { font: inherit; }
+.reply-composer footer { display: flex; gap: 0.4rem; }
+.reply-composer button { font: inherit; border-radius: 8px; border: 1px solid #870335; background: #870335; color: #fff; padding: 0.35rem 0.7rem; cursor: pointer; }
+.reply-composer button[type="button"] { background: #fff; color: #870335; }

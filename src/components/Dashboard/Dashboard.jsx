@@ -1,4 +1,7 @@
 import { useState, useEffect } from 'react';
+import { usePermissions } from '../../hooks/usePermissions.js';
+import ReplyRequestPanel from '../ReplyRequests/ReplyRequestPanel.jsx';
+import { canRequestReply } from '../../utils/replyRequests.js';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../firebase';
 import {
@@ -144,6 +147,9 @@ export default function Dashboard() {
   const [doneNow, setDoneNow] = useState({});
   const [settingsIdx, setSettingsIdx] = useState(null);
   const [staffTaskActivity, setStaffTaskActivity] = useState([]);
+  const [replyDraft, setReplyDraft] = useState(null);
+  const { permissions } = usePermissions();
+  const mayAskForReply = principal || globalAdmin || canRequestReply({ permissions });
 
   // Filter preferences state
   const [showEventsFilter, setShowEventsFilter] = useState(false);
@@ -891,6 +897,7 @@ export default function Dashboard() {
                   <span className="event-title">{event.title}</span>
                   {event.category && <span className="event-category">{event.category}</span>}
                   <span className="event-countdown">{getDaysUntil(event.date)}</span>
+                  {mayAskForReply && <button type="button" className="btn btn-link btn-sm" onClick={click => { click.stopPropagation(); setReplyDraft({ sourceType: 'event', sourceId: event.id, sourceTitle: event.title }); }}>בקש תשובה</button>}
                 </div>
               </div>
             ))}
@@ -1058,6 +1065,7 @@ export default function Dashboard() {
             <p className="welcome-date">{todayDate}</p>
           </div>
         </div>
+        <ReplyRequestPanel draft={replyDraft} onDraftClose={() => setReplyDraft(null)} />
 
         {/* Pending Approvals Section */}
         {canApprove && pendingUsers.length > 0 && (

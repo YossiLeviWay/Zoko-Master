@@ -15,10 +15,12 @@ export const V1_TOOLS = Object.freeze({
   update_class: { write: true, keys: ['classes.update', 'classes_update'], description: 'הצע עדכון שם, שכבה או מחנך של כיתה אחת.', properties: { classId: { type: 'string' }, name: { type: 'string' }, gradeLevel: { type: 'string' }, teacherId: { type: 'string' } }, required: ['classId'] },
   create_team: { write: true, keys: ['teams_edit'], description: 'הצע יצירת צוות אחד.', properties: { name: { type: 'string' }, description: { type: 'string' } }, required: ['name'] },
   add_team_members: { write: true, keys: ['teams_edit'], description: 'הצע הוספת חברים לצוות, בלי להחליף את הרשימה.', properties: { teamId: { type: 'string' }, memberIds: { type: 'array', items: { type: 'string' } } }, required: ['teamId', 'memberIds'] },
+  request_reply: { write: true, keys: ['tasks_assign', 'tasks.assign'], description: 'הצע בקשת עדכון סטטוס או החזרת תשובה מאיש צוות אחד, על משימה, אירוע, או פריט עצמאי.', properties: { question: { type: 'string' }, assigneeId: { type: 'string' }, sourceType: { type: 'string', enum: ['task', 'event', 'standalone'] }, sourceId: { type: 'string' }, sourceTitle: { type: 'string' }, dueDate: { type: 'string' } }, required: ['question', 'assigneeId', 'sourceType'] },
+  list_unanswered_replies: { write: false, keys: ['tasks_assign', 'tasks.assign', 'tasks.viewOwn'], description: 'הצע להציג מי עדיין לא ענה לבקשות עדכון.', properties: {}, required: [] },
 });
 
-const WRITE_ASK = /(?:סמן|עדכן|עדכני|צור|צרי|הוסף|הוסיפי|תעד|תעדי|שנה|שני|קבע|קבעי|הכן|הכיני|פתח|פתחי|רשום|רשמי|ערוך|ערכי|תיצור|תפתח|\bcreate\b|\badd\b|\bupdate\b)/iu;
-const READ_ASK = /(?:מה |איך |סכם|סכמי|הצג|הראה|כמה |נוכחות|אירוע|גאנט|לוח|מקרא)/u;
+const WRITE_ASK = /(?:סמן|עדכן|עדכני|צור|צרי|הוסף|הוסיפי|תעד|תעדי|שנה|שני|קבע|קבעי|הכן|הכיני|פתח|פתחי|רשום|רשמי|ערוך|ערכי|תיצור|תפתח|בקש|בקשי|\bcreate\b|\badd\b|\bupdate\b)/iu;
+const READ_ASK = /(?:מה |איך |סכם|סכמי|הצג|הראה|כמה |נוכחות|אירוע|גאנט|לוח|מקרא|מי לא|לא ענה|לא השיב|ממתינ)/u;
 
 // A tool call is kept only when the person asked for it. Text inside a file or a task is not a request.
 export function guardProposals(userText, proposals = []) {
