@@ -470,14 +470,21 @@ async function personalMemories(request, env, actor, schoolId) {
 }
 
 // A school that has no brain yet gets one built from its current data the first time it is needed.
-async function firstBrain(env, schoolId) {
+// Building reads every collection of the school, which is far too heavy to sit in front of an answer:
+// in production it runs after the response was sent, and this turn is answered without the brain.
+async function firstBrain(env, schoolId, ctx) {
   if (!env.FIREBASE_CLIENT_EMAIL || !env.FIREBASE_PRIVATE_KEY) return { markdown: '' };
   const current = await readBrain(env, schoolId);
   if (current.exists) return current;
-  const snapshot = await dailySchoolSnapshot(env, await adminToken(env), schoolId);
-  const markdown = createSchoolBrain({ ...snapshot, generatedAt: new Date().toISOString() });
-  await writeBrain(env, schoolId, markdown, 'Initial institutional knowledge', 'system').catch(() => {});
-  return { markdown };
+  const build = async () => {
+    const snapshot = await dailySchoolSnapshot(env, await adminToken(env), schoolId);
+    const markdown = createSchoolBrain({ ...snapshot, generatedAt: new Date().toISOString() });
+    await writeBrain(env, schoolId, markdown, 'Initial institutional knowledge', 'system').catch(() => {});
+    return { markdown };
+  };
+  if (!ctx?.waitUntil) return build();
+  ctx.waitUntil(build().catch(() => {}));
+  return { markdown: '' };
 }
 
 // ---- Personal brain: one document per user and school (zokiPersonalBrain/{uid}__{schoolId}) ----
@@ -501,16 +508,22 @@ async function liveSnapshot(env, actor, schoolId) {
 }
 
 // Returns { profile, snapshot }. A failure here must never fail the answer: Zoki then simply answers without the personal layer.
-async function personalBrainFor(env, actor, schoolId, { refresh = true } = {}) {
+// The snapshot is refreshed after the response (stale-while-revalidate), so an answer never waits for it.
+async function personalBrainFor(env, actor, schoolId, { ctx } = {}) {
   if (!adminReady(env)) return { profile: emptyProfile(), snapshot: null };
   try {
     const stored = fieldsOf(await adminGet(env, personalBrainPath(actor.uid, schoolId)));
     const profile = sanitizeProfile(parseJson(stored.profile));
     let snapshot = parseJson(stored.snapshot);
     const fresh = snapshot?.at && Date.now() - Date.parse(snapshot.at) < SNAPSHOT_TTL_MS;
-    if (refresh && !fresh) {
-      snapshot = await liveSnapshot(env, actor, schoolId);
-      await adminCommit(env, [{ ...adminWrite(env, personalBrainPath(actor.uid, schoolId), { uid: actor.uid, schoolId, snapshot: JSON.stringify(snapshot) }), updateMask: { fieldPaths: ['uid', 'schoolId', 'snapshot'] } }]).catch(() => {});
+    if (!fresh) {
+      const renew = async () => {
+        const next = await liveSnapshot(env, actor, schoolId);
+        await adminCommit(env, [{ ...adminWrite(env, personalBrainPath(actor.uid, schoolId), { uid: actor.uid, schoolId, snapshot: JSON.stringify(next) }), updateMask: { fieldPaths: ['uid', 'schoolId', 'snapshot'] } }]).catch(() => {});
+        return next;
+      };
+      if (ctx?.waitUntil) ctx.waitUntil(renew().catch(() => {}));
+      else snapshot = await renew();
     }
     return { profile, snapshot };
   } catch { return { profile: emptyProfile(), snapshot: null }; }
@@ -542,9 +555,9 @@ async function reflectOnTurn(request, env, actor, schoolId, { profile, messages,
 }
 
 // School knowledge for this turn: the institutional brain, without student data unless the user may see it.
-async function schoolContextFor(request, env, schoolId, actor, query, held) {
+async function schoolContextFor(request, env, schoolId, actor, query, held, ctx) {
   const [brain, memories] = await Promise.all([
-    firstBrain(env, schoolId).catch(() => ({ markdown: '' })),
+    firstBrain(env, schoolId, ctx).catch(() => ({ markdown: '' })),
     personalMemories(request, env, actor, schoolId),
   ]);
   const canSeeStudents = actor.manager || held.includes('students.view');
@@ -574,8 +587,8 @@ async function handle(request, env, ctx) {
     // Past the user's own Claude allowance (or when Claude is down or out of credit) the answer comes from the school model.
     const claudeAllowed = claudeWanted && (claudeOnly || usage.used <= claudeLimitFor(actor.role, env));
     const [schoolContext, personal] = await Promise.all([
-      schoolContextFor(request, env, schoolId, actor, lastQuestion, held),
-      personalBrainFor(env, actor, schoolId),
+      schoolContextFor(request, env, schoolId, actor, lastQuestion, held, ctx),
+      personalBrainFor(env, actor, schoolId, { ctx }),
     ]);
     if (claudeAllowed) {
       try {
@@ -616,7 +629,7 @@ async function handle(request, env, ctx) {
   }
   // What Zoki knows about the person asking. Only ever the caller's own brain: there is no way to name another user.
   if (url.pathname === '/v1/zoki/personal-brain' && request.method === 'GET') {
-    const personal = await personalBrainFor(env, actor, schoolId);
+    const personal = await personalBrainFor(env, actor, schoolId, { ctx });
     return json({ profile: personal.profile, empty: profileIsEmpty(personal.profile), snapshot: snapshotText(personal.snapshot), learningEnabled: await learningEnabled(request, env, actor) }, 200, cors(request, env));
   }
   if (url.pathname === '/v1/zoki/personal-brain/clear' && request.method === 'POST') {

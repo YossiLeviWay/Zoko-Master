@@ -1028,6 +1028,9 @@
 .gantt-table-wrap--loading { position: relative; overflow: hidden; }
 .gantt-table-wrap--loading .gantt-table { visibility: hidden; }
 .gantt-table-wrap:not(.gantt-table-wrap--loading) .gantt-table { animation: gantt-reveal .18s ease-out; }
+/* A repeat visit starts from remembered data: no fade, no spinner. */
+.gantt-table-wrap--instant .gantt-table { animation: none !important; }
+.gantt-table-wrap--instant .gantt-loading { display: none; }
 .gantt-loading {
   position: absolute; inset: 0; z-index: 3;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .75rem;

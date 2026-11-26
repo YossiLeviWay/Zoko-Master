@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../firebase';
@@ -27,6 +27,7 @@ import { academicYearDisplay, academicYearForDate } from '../../utils/academicYe
 import { schoolCollection } from '../../services/firestore/paths';
 import { subscribeInitiativeTimeline } from '../../services/firestore/initiativeRepository';
 import { milestoneDate } from '../../utils/initiatives';
+import { hasSessionValue, useSessionState } from '../../utils/sessionCache';
 import './Gantt.css';
 
 const HEBREW_DAYS = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
@@ -76,24 +77,30 @@ export default function GanttChart() {
   useEffect(() => { if (validRequestedDate) { setYear(Number(validRequestedDate.slice(0,4))); setMonth(Number(validRequestedDate.slice(5,7))-1); } }, [validRequestedDate]);
   const [year, setYear] = useState(() => new Date().getFullYear());
   const [month, setMonth] = useState(() => new Date().getMonth());
+  const schoolId = selectedSchool || userData?.schoolId;
+  // Everything the grid needs is remembered for the open tab, so coming back to this page starts
+  // from the final picture (right days, categories, events, position) in its first frame.
+  const cacheKey = `calendar:${schoolId || ''}`;
+  const seenBefore = hasSessionValue(`${cacheKey}:days`) && hasSessionValue(`${cacheKey}:categories`);
   const [bankOpen, setBankOpen] = useState(false);
   const [categoryOpen, setCategoryOpen] = useState(params.get('categories') === '1');
-  const [templates, setTemplates] = useState(DEFAULT_EVENT_TEMPLATES);
+  const [templates, setTemplates] = useSessionState(`${cacheKey}:templates`, DEFAULT_EVENT_TEMPLATES);
   const [templateDraft, setTemplateDraft] = useState(null);
   const [actionError, setActionError] = useState('');
   const [saving, setSaving] = useState(false);
   const [menu, setMenu] = useState(null);
-  const [categoriesReady, setCategoriesReady] = useState(false);
-  const [settingsReady, setSettingsReady] = useState(false);
-  const [eventsReady, setEventsReady] = useState(false);
+  const [categoriesReady, setCategoriesReady] = useState(seenBefore);
+  const [settingsReady, setSettingsReady] = useState(seenBefore);
+  const [eventsReady, setEventsReady] = useState(seenBefore);
   // The grid is shown once, complete: after categories, visible days and events arrived and the
   // view is already positioned on today. Until then its space is reserved, so nothing jumps.
   const [revealed, setRevealed] = useState(false);
+  const events = eventsByMonth[`${year}-${month}`] || [];
   const tableRef = useRef(null);
   const menuRef = useRef(null);
   const touchDrag = useRef(null);
-  const [events, setEvents] = useState([]);
-  const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
+  const [eventsByMonth, setEventsByMonth] = useSessionState(`${cacheKey}:events`, {});
+  const [categories, setCategories] = useSessionState(`${cacheKey}:categories`, DEFAULT_CATEGORIES);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
   const [selectedDate, setSelectedDate] = useState(() => new Date());
@@ -104,18 +111,17 @@ export default function GanttChart() {
   const [rowHeights, setRowHeights] = useState({});
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState('all');
-  const [visibleDays, setVisibleDays] = useState([0, 1, 2, 3, 4, 5, 6]);
+  const [visibleDays, setVisibleDays] = useSessionState(`${cacheKey}:days`, [0, 1, 2, 3, 4, 5, 6]);
   const [showDaySettings, setShowDaySettings] = useState(false);
-  const [allHolidays, setAllHolidays] = useState([]);
-  const [userTeamIds, setUserTeamIds] = useState([]);
-  const [calendarTasks, setCalendarTasks] = useState([]);
-  const [initiativeMilestones, setInitiativeMilestones] = useState([]);
-  const [activeAcademicYear, setActiveAcademicYear] = useState(null);
+  const [allHolidays, setAllHolidays] = useSessionState(`${cacheKey}:holidays`, []);
+  const [userTeamIds, setUserTeamIds] = useSessionState(`${cacheKey}:teams`, []);
+  const [calendarTasks, setCalendarTasks] = useSessionState(`${cacheKey}:tasks`, []);
+  const [initiativeMilestones, setInitiativeMilestones] = useSessionState(`${cacheKey}:milestones`, []);
+  const [activeAcademicYear, setActiveAcademicYear] = useSessionState(`${cacheKey}:year`, null);
   const [pendingTodayNavigation, setPendingTodayNavigation] = useState(!validRequestedDate);
   const [todayPulse, setTodayPulse] = useState(false);
   const todayCellRef = useRef(null);
 
-  const schoolId = selectedSchool || userData?.schoolId;
   const { permissions } = usePermissions();
   const canEditCalendar = permissions.calendar_edit;
   const hasAccessProfile = Boolean(userData?.accessProfilesBySchool?.[schoolId]);
@@ -138,7 +144,7 @@ export default function GanttChart() {
       setUserTeamIds(memberTeams);
     }, () => setUserTeamIds([]));
     return unsub;
-  }, [schoolId, userData?.uid]);
+  }, [schoolId, userData?.uid, setUserTeamIds]);
 
   // Load tasks with due dates for calendar display
   useEffect(() => {
@@ -150,7 +156,7 @@ export default function GanttChart() {
       emit();
     }, () => { sets.set(index, []); emit(); }));
     return () => unsubscribers.forEach(unsubscribe => unsubscribe());
-  }, [schoolId]);
+  }, [schoolId, setCalendarTasks]);
 
   useEffect(() => subscribeInitiativeTimeline({
     db,
@@ -160,7 +166,7 @@ export default function GanttChart() {
     canViewAll: canViewAllInitiatives,
     onData: items => setInitiativeMilestones(items.filter(item => !['completed', 'cancelled'].includes(item.status))),
     onError: () => setInitiativeMilestones([]),
-  }), [canViewAllInitiatives, schoolId, userData?.uid, userTeamIds]);
+  }), [canViewAllInitiatives, schoolId, userData?.uid, userTeamIds, setInitiativeMilestones]);
 
   useEffect(() => {
     if (!schoolId) return;
@@ -177,7 +183,7 @@ export default function GanttChart() {
       }, () => setActiveAcademicYear(null));
     });
     return () => { unsubscribeSchool(); unsubscribeYear(); };
-  }, [schoolId]);
+  }, [schoolId, setActiveAcademicYear]);
 
   function handleToday() {
     const today = new Date();
@@ -189,24 +195,21 @@ export default function GanttChart() {
   }
 
   const calendarReady = categoriesReady && settingsReady && eventsReady;
-  useEffect(() => {
+  // Runs before the browser paints: on a first positioning the grid appears already standing on
+  // today, with no visible scrolling. Only the "today" button, pressed later, scrolls smoothly.
+  useLayoutEffect(() => {
     if (!calendarReady) return;
     if (!pendingTodayNavigation) { setRevealed(true); return; }
-    const frame = requestAnimationFrame(() => {
-      const cell = todayCellRef.current;
-      if (!cell) { setRevealed(true); return; }
-      // The first positioning happens while the grid is still hidden, so it must not animate.
-      const reduceMotion = !revealed || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      const wrap=tableRef.current;
-      const head=wrap.querySelector('thead').getBoundingClientRect().height;
-      const top=wrap.scrollTop+cell.getBoundingClientRect().top-wrap.getBoundingClientRect().top-head-18;
-      wrap.scrollTo({top:Math.max(0,top),behavior:reduceMotion?'auto':'smooth'});
-      cell.focus({ preventScroll: true });
-      setTodayPulse(true);
-      setPendingTodayNavigation(false);
-      setRevealed(true);
-    });
-    return () => cancelAnimationFrame(frame);
+    const cell = todayCellRef.current;
+    const wrap = tableRef.current;
+    if (!cell || !wrap) { setRevealed(true); return; }
+    const animate = revealed && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const head = wrap.querySelector('thead').getBoundingClientRect().height;
+    const top = wrap.scrollTop + cell.getBoundingClientRect().top - wrap.getBoundingClientRect().top - head - 18;
+    wrap.scrollTo({ top: Math.max(0, top), behavior: animate ? 'smooth' : 'instant' });
+    if (revealed) { cell.focus({ preventScroll: true }); setTodayPulse(true); }
+    setPendingTodayNavigation(false);
+    setRevealed(true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [month, pendingTodayNavigation, visibleDays, year, calendarReady, categories]);
 
@@ -252,7 +255,7 @@ export default function GanttChart() {
       }
       setSettingsReady(true);
     }, () => setSettingsReady(true));
-  }, [schoolId]);
+  }, [schoolId, setTemplates, setVisibleDays]);
 
   useEffect(() => {
     if (!schoolId) return;
@@ -261,7 +264,7 @@ export default function GanttChart() {
       setAllHolidays(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     }, () => setAllHolidays([]));
     return unsub;
-  }, [schoolId]);
+  }, [schoolId, setAllHolidays]);
 
   async function saveDaySettings(days) {
     setVisibleDays(days);
@@ -309,11 +312,13 @@ export default function GanttChart() {
       where('month', '==', month)
     );
     const unsub = onSnapshot(q, (snap) => {
-      setEvents(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(item => item.status !== 'archived'));
+      const loaded = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(item => item.status !== 'archived');
+      // Only a handful of months are kept, the one on screen always among them.
+      setEventsByMonth(previous => Object.fromEntries([...Object.entries(previous).filter(([key]) => key !== `${year}-${month}`).slice(-5), [`${year}-${month}`, loaded]]));
       setEventsReady(true);
     }, () => setEventsReady(true));
     return unsub;
-  }, [schoolId, year, month]);
+  }, [schoolId, year, month, setEventsByMonth]);
 
   useEffect(() => {
     if (!schoolId) return;
@@ -327,7 +332,7 @@ export default function GanttChart() {
       setCategoriesReady(true);
     }, () => { setCategoriesReady(true); setActionError('לא ניתן לטעון קטגוריות. נסו לרענן.'); });
     return unsub;
-  }, [schoolId]);
+  }, [schoolId, setCategories]);
 
   // Filter events based on team visibility
   const canSeeAllEvents = isGlobalAdmin() || isPrincipal();
@@ -631,7 +636,7 @@ export default function GanttChart() {
 
       <div className="calendar-workspace">
       {bankOpen && <EventBank onClose={()=>setBankOpen(false)} touchHandle={touchHandle} templates={templates} onSave={saveTemplates} onUse={openTemplate} busy={saving} canManage={canEditCalendar}/>}
-      <div className={`gantt-table-wrap${revealed ? '' : ' gantt-table-wrap--loading'}`} ref={tableRef} aria-busy={!revealed}>
+      <div className={`gantt-table-wrap${revealed ? '' : ' gantt-table-wrap--loading'}${seenBefore ? ' gantt-table-wrap--instant' : ''}`} ref={tableRef} aria-busy={!revealed}>
         {!revealed && <div className="gantt-loading" role="status"><div className="loading-spinner" /><span>טוען את לוח השנה…</span></div>}
         <table className="gantt-table">
           <thead>

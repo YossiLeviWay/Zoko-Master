@@ -4,6 +4,7 @@ import { doc, getDocFromServer, onSnapshot } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import TaskWorkspace from './TaskWorkspace';
+import { useSessionState } from '../../utils/sessionCache';
 
 const backendEnabled = import.meta.env.VITE_TASK_WORKSPACE_ENABLED === 'true';
 const LegacyBoard = lazy(() => import('./TaskBoard'));
@@ -15,7 +16,8 @@ export default function TaskWorkspaceRoute() {
   const scope = `${uid}:${schoolId}`;
   const [legacy, setLegacy] = useState(false);
   const [pagingReady, setPagingReady] = useState(false);
-  const [sparkAccess, setSparkAccess] = useState(null);
+  // The access check is remembered for the open tab, so returning to the page does not blank it again.
+  const [sparkAccess, setSparkAccess] = useSessionState(`tasks:access:${uid || ''}:${schoolId || ''}`, null);
   const [params] = useSearchParams();
   const location = useLocation();
 
@@ -38,7 +40,7 @@ export default function TaskWorkspaceRoute() {
       .then(() => { if (active) setSparkAccess({ scope, allowed: true }); })
       .catch(() => { if (active) setSparkAccess({ scope, allowed: false }); });
     return () => { active = false; };
-  }, [uid, schoolId, scope]);
+  }, [uid, schoolId, scope, setSparkAccess]);
 
   if (params.get('view') === 'communications') return <Navigate to={`/messages?${params}`} replace />;
   if (params.get('view') === 'invitations' || params.get('initiative') || location.state?.zokiDraftId) return <LegacyBoard />;
