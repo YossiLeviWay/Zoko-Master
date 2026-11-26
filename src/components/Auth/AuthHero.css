@@ -201,10 +201,52 @@
   .auth-panel { align-items: flex-start; padding: 1.25rem 1rem 2rem; }
 }
 
-/* Short desktop windows: drop the sketch before anything gets cramped. */
-@media (min-width: 901px) and (max-height: 760px) {
+/* Desktop: the whole page is exactly one screen high. Nothing scrolls; sizes follow the window's
+   height, and the least important parts step aside when the window is short. */
+@media (min-width: 901px) {
+  .auth-page.auth-page--hero { height: 100vh; height: 100dvh; min-height: 0; overflow: hidden; }
+  .auth-hero {
+    height: 100%; min-height: 0;
+    gap: clamp(0.6rem, 2.4vh, 2rem);
+    padding: clamp(1.1rem, 4.5vh, 3.25rem) clamp(1.75rem, 4vw, 3.75rem);
+  }
+  /* Only the form side may scroll, and only if a long form does not fit. */
+  .auth-panel { height: 100%; min-height: 0; overflow-y: auto; padding-block: clamp(0.75rem, 3vh, 2rem); }
+  .auth-panel .auth-container { margin-block: auto; padding: clamp(1.25rem, 3.6vh, 2.5rem) 2.5rem; }
+  .auth-panel .auth-header { margin-bottom: clamp(0.9rem, 3vh, 2rem); }
+  .auth-hero-brand { font-size: clamp(1.1rem, 2.6vh, 1.35rem); }
+  .auth-hero-eyebrow { margin-bottom: clamp(0.5rem, 1.8vh, 1.1rem); }
+  .auth-hero-title { font-size: clamp(1.8rem, min(4.4vw, 7.6vh), 3.6rem); }
+  .auth-hero-lead { margin-top: clamp(0.5rem, 1.8vh, 1.1rem); font-size: clamp(0.92rem, min(1.3vw, 2.2vh), 1.12rem); line-height: 1.55; }
+  .auth-hero-features { gap: clamp(0.45rem, 1.5vh, 0.9rem); margin-top: clamp(0.8rem, 3vh, 1.9rem); }
+  .auth-hero-icon { width: clamp(1.9rem, 4.4vh, 2.3rem); height: clamp(1.9rem, 4.4vh, 2.3rem); }
+  .auth-hero-preview { min-height: 0; }
+  .auth-hero-day { min-height: clamp(3.4rem, 9.5vh, 5.4rem); }
+}
+
+@media (min-width: 901px) and (max-height: 860px) {
   .auth-hero-preview { display: none; }
   .auth-hero-body { margin-block: auto; }
+}
+
+/* A short window: the form tightens up too, so it still fits without scrolling. */
+@media (min-width: 901px) and (max-height: 700px) {
+  .auth-panel .auth-form { gap: 0.6rem; }
+  .auth-panel .auth-form > .form-hint { display: none; }
+  .auth-panel .auth-step { gap: 0.5rem; padding: 0.6rem 0.85rem; }
+  .auth-panel .form-group input, .auth-panel .form-group select { padding-block: 0.5rem; }
+  .auth-panel .auth-link { margin-top: 0.35rem !important; }
+  .auth-panel .auth-link button { min-height: 32px !important; }
+  .auth-panel .auth-logo { font-size: 1.6rem; }
+}
+
+@media (min-width: 901px) and (max-height: 640px) {
+  .auth-hero-features small { display: none; }
+  .auth-hero-features li { align-items: center; }
+}
+
+@media (min-width: 901px) and (max-height: 520px) {
+  .auth-hero-features, .auth-hero-eyebrow { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
