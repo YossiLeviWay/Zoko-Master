@@ -51,6 +51,7 @@ export function normalizeSemanticResult(parsed, input) {
     actionRequest: createTask ? parsed.actionRequest.trim().slice(0, 2000) : '',
     actionTargetType: createTask ? targetType : 'none',
     actionTargetLabel: createTask && targetType !== 'none' ? String(parsed.actionTargetLabel || '').trim().slice(0, 120) : '',
+    clientAction: parsed.clientAction && typeof parsed.clientAction.tool === 'string' ? { tool: parsed.clientAction.tool, input: parsed.clientAction.input || {} } : null,
     sourceIds: allowedSourceIds(parsed.sourceIds, input.authorizedSources, 8),
     memoryMutations: Array.isArray(parsed.memoryMutations) ? parsed.memoryMutations.slice(0, 3) : [],
   };

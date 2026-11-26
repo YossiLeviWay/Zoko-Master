@@ -1,4 +1,5 @@
 import { TOOL_SCHEMAS, buildClaudeRequest, callClaude, heldCapabilities, parseClaudeResponse } from './claude.js';
+import { V1_TOOLS, guardProposals } from './zokiActionTools.js';
 import { allowedTools } from '../../functions/src/roleAgents.js';
 import { appendLearningLog, buildSchoolContext, claudeLimitFor, dailyLimitFor, dayKey, learningLogLine, looksLikeAction, replyWithStoredMemory, secondsToMidnight, teachingNote, toolSpecs, validatedProposal, withoutMilestoneRetraction } from './zokiTurn.js';
 import { askLocalTiered, buildLocalRequest, localModelConfigured, parseLocalResponse, routeLocalAction, streamLocalTiered } from './localModel.js';
@@ -726,6 +727,8 @@ async function handle(request, env, ctx) {
     // ZOKI_PROVIDER: "local" = school model only, "claude" = Claude only, anything else = Claude first, school model as the fallback.
     const usage = await chargeUsage(env, actor, schoolId);
     const held = heldCapabilities(actor.accessProfile);
+    const claimed = Array.isArray(body.permissionKeys) ? body.permissionKeys.filter(key => typeof key === 'string' && key.length < 64) : [];
+    const offered = [...new Set([...held, ...claimed])];
     const lastQuestion = [...(body.messages || [])].reverse().find(item => item?.role === 'user')?.content || '';
     const claudeOnly = env.ZOKI_PROVIDER === 'claude';
     const claudeWanted = Boolean(env.ANTHROPIC_API_KEY) && env.ZOKI_PROVIDER !== 'local';
@@ -738,7 +741,8 @@ async function handle(request, env, ctx) {
     if (claudeAllowed) {
       try {
         const merged = [schoolContext, body.context].filter(Boolean).join('\n\n');
-        const parsed = parseClaudeResponse(await callClaude(env, buildClaudeRequest({ profile, messages: body.messages, context: merged, personal: buildPersonalContext(personal), heldKeys: held, model: env.CLAUDE_MODEL || 'claude-haiku-5-5' })));
+        const parsed = parseClaudeResponse(await callClaude(env, buildClaudeRequest({ profile, messages: body.messages, context: merged, personal: buildPersonalContext(personal), heldKeys: offered, model: env.CLAUDE_MODEL || 'claude-haiku-5-5' })));
+        parsed.proposals = [...parsed.proposals.filter(item => !V1_TOOLS[item.tool]), ...guardProposals(lastQuestion, parsed.proposals)];
         const note = teachingNote(lastQuestion);
         const reply = replyWithStoredMemory(withoutMilestoneRetraction(parsed.reply, body.context || ''), note);
         const result = { ...parsed, reply };

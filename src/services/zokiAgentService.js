@@ -206,6 +206,7 @@ export async function zokiRequest(path, schoolId, body = {}, method = 'POST', of
     // Dated milestones for this person's role, so Zoki can remind without being asked.
     upcomingMilestones: remindersText({ today: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(new Date()), roleId: actor.data.accessProfilesBySchool?.[schoolId]?.presetId || (['principal', 'institution_manager'].includes(actor.role) ? 'institution_manager' : '') }),
     knowledge: searchKnowledge(body.question, { roleId: actor.data.accessProfilesBySchool?.[schoolId]?.presetId || '' }).map(entry => ({ title: entry.title, ...answerPolicy(entry) })),
+    permissionKeys: body.permissionKeys,
     profile: { uid: actor.uid, name: actor.data.fullName || '', role: actor.role, preferences: profile.preferences },
     accessContext: { schoolId, role: actor.role, canManageStaff: ['principal','institution_manager'].includes(actor.role), explicitPermissions: actor.data.permissionsBySchool?.[schoolId] || actor.data.permissions || {}, privateRecordsExcluded: true, externalSystemsVerified: false },
     memories: selected, learningEnabled: profile.learningEnabled,
@@ -243,6 +244,7 @@ export async function zokiRequest(path, schoolId, body = {}, method = 'POST', of
     staffRoleDraft,
     actionIntent: result.actionIntent,
     taskDraft: result.taskDraft,
+    clientAction: result.clientAction || null,
     actionRequest: result.actionRequest,
     actionTargetType: result.actionTargetType,
     actionTargetLabel: result.actionTargetLabel,
