@@ -7,7 +7,7 @@
 | `ZokiPage` / localStorage | Transcript, task proposal and action result; could contain names, grades, files and tasks | No reads or writes. React memory only; reload uses the authorized Firebase conversation |
 | Zoki question limiter / localStorage | User ID, school ID and question timestamps in keys/values | Tab memory; reset at logout/school change. Google quota remains authoritative |
 | Firebase Auth / IndexedDB or localStorage | SDK persisted login, including profile identifiers and tokens | SDK `setPersistence(inMemoryPersistence)` migrates/removes the current app's stored login before UI renders. Refresh requires signing in again |
-| Firestore | Default memory cache; no persistent cache was enabled | Explicit `memoryLocalCache`; task/student/file/grade/conversation data is not written to an offline database |
+| Firestore | Default memory cache; no persistent cache was enabled | Explicit `memoryLocalCache` (with the in-memory LRU collector, so loaded pages reopen instantly while the tab is open); task/student/file/grade/conversation data is not written to an offline database, and logging out reloads the tab, which empties the memory cache |
 | SPA redirect / sessionStorage | Full URL (potential record identifiers/query content) | URL fragment handoff followed by history replacement; old redirect key removed |
 | Zoki task handoff / history state | Task request, proposal and context | Opaque random handle only; content held in a scoped in-memory map and discarded on consumption or session boundary |
 | Theme / localStorage | Theme string | Preserved, restricted to the supported enum |

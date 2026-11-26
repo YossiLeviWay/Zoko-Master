@@ -60,7 +60,10 @@ test('browser storage writers remain limited to nonpersonal display preferences'
     assert.doesNotMatch(source(file), /indexedDB\.open|enableIndexedDbPersistence|persistentLocalCache|getAnalytics\(|logEvent\(|captureException\(/);
   }
   assert.match(source('src/firebase.js'), /setPersistence\(auth, inMemoryPersistence\)/);
-  assert.match(source('src/firebase.js'), /localCache: memoryLocalCache\(\)/);
+  // Memory only: the LRU collector keeps data in RAM while the tab is open, never on disk.
+  assert.match(source('src/firebase.js'), /localCache: memoryLocalCache\(/);
+  // The in-memory cache must not outlive the session: logging out reloads the tab.
+  assert.match(source('src/contexts/AuthContext.jsx'), /signOut\(auth\);\s*\} finally \{[^}]*window\.location\.reload\(\)/);
   assert.match(source('src/main.jsx'), /authPrivacyReady\.then/);
   assert.doesNotMatch(source('src/components/Zoki/ZokiPage.jsx'), /localStorage|sessionStorage/);
   assert.doesNotMatch(source('src/services/zokiAgentService.js'), /localStorage|sessionStorage/);

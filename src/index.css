@@ -387,3 +387,10 @@ a:hover {
     padding: 0.4rem 0.5rem;
   }
 }
+
+/* Shown inside the layout while a page's code downloads. It fades in late, so a fast load shows nothing. */
+.page-loading {
+  display: flex; align-items: center; justify-content: center; min-height: 60vh;
+  opacity: 0; animation: page-loading-in .2s ease-out .3s forwards;
+}
+@keyframes page-loading-in { to { opacity: 1; } }

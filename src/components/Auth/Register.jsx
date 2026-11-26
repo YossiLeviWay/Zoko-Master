@@ -4,6 +4,7 @@ import { acceptStaffInvitation, submitJoinRequest } from '../../services/adminUs
 import { subscribePublicSchools } from '../../services/firestore/publicSchoolRepository';
 import { db } from '../../firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import AuthHero from './AuthHero';
 import './Auth.css';
 
 export default function Register() {
@@ -67,7 +68,7 @@ export default function Register() {
   }
 
   return (
-    <div className="auth-page">
+    <AuthHero>
       <div className="auth-container auth-container--wide">
         <div className="auth-header"><h1 className="auth-logo">Zoko-Master</h1><p className="auth-subtitle">{invitationMode ? 'קבלת הזמנה מאובטחת' : 'בקשת הצטרפות למוסד'}</p></div>
         {status && <div className="auth-success" role="status">{status}</div>}
@@ -91,6 +92,6 @@ export default function Register() {
         ))}
         <p className="auth-link"><Link to="/login">חזרה להתחברות</Link></p>
       </div>
-    </div>
+    </AuthHero>
   );
 }

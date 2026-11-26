@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../firebase';
 import { requestPublicPasswordReset } from '../../services/adminUserService';
 import { subscribePublicSchools } from '../../services/firestore/publicSchoolRepository';
+import AuthHero from './AuthHero';
 import './Auth.css';
 
 export default function Login() {
@@ -106,7 +107,7 @@ export default function Login() {
   }
 
   return (
-    <div className="auth-page">
+    <AuthHero>
       <div className="auth-container">
         <div className="auth-header">
           <h1 className="auth-logo">Zoko-Master</h1>
@@ -228,6 +229,6 @@ export default function Login() {
           </>
         )}
       </div>
-    </div>
+    </AuthHero>
   );
 }

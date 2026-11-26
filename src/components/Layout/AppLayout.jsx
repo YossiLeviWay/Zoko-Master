@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import AppVersion from './AppVersion';
@@ -13,7 +14,10 @@ export default function AppLayout() {
       <div className="app-layout">
         <Sidebar />
         <main className="app-main">
-          <Outlet />
+          {/* A page whose code is still downloading waits here, so the sidebar never disappears. */}
+          <Suspense fallback={<div className="page-loading" role="status"><div className="loading-spinner" /></div>}>
+            <Outlet />
+          </Suspense>
         </main>
         <ZokiLauncher />
         <AppVersion />

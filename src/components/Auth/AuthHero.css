@@ -1,0 +1,212 @@
+/* Split-screen entry page. In RTL the hero sits on the right and the form on the left. */
+.auth-page.auth-page--hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(380px, 0.85fr);
+  align-items: stretch;
+  padding: 0;
+  background: var(--color-surface-muted);
+}
+
+.auth-panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.5rem;
+  background:
+    radial-gradient(circle at 85% 8%, rgb(244 81 44 / 9%), transparent 38%),
+    var(--color-surface-muted);
+}
+
+.auth-panel .auth-container { animation: auth-rise .45s cubic-bezier(.2, .7, .2, 1) both; }
+
+.auth-hero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  min-height: 100vh;
+  padding: clamp(1.75rem, 4vw, 3.5rem);
+  overflow: hidden;
+  isolation: isolate;
+  color: #fff;
+  background:
+    radial-gradient(60rem 34rem at 110% -10%, rgb(244 81 44 / 55%), transparent 60%),
+    radial-gradient(40rem 30rem at -15% 110%, rgb(152 19 63 / 70%), transparent 62%),
+    linear-gradient(160deg, #2a0612 0%, #5c0123 52%, #7a0f33 100%);
+}
+
+/* Soft dotted texture, fading towards the bottom. */
+.auth-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: radial-gradient(rgb(255 255 255 / 14%) 1px, transparent 1.4px);
+  background-size: 22px 22px;
+  mask-image: linear-gradient(180deg, #000 0%, transparent 78%);
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, transparent 78%);
+}
+
+.auth-hero-brand {
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: -0.4px;
+}
+
+.auth-hero-body {
+  display: flex;
+  flex-direction: column;
+  max-width: 34rem;
+  margin-block: auto 0;
+  animation: auth-rise .55s cubic-bezier(.2, .7, .2, 1) both;
+}
+
+.auth-hero-eyebrow {
+  align-self: flex-start;
+  margin: 0 0 1.1rem;
+  padding: 0.3rem 0.8rem;
+  border: 1px solid rgb(255 255 255 / 26%);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 9%);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.auth-hero-title {
+  margin: 0;
+  font-size: clamp(2.2rem, 4.4vw, 3.6rem);
+  font-weight: 800;
+  line-height: 1.12;
+  letter-spacing: -1px;
+}
+
+.auth-hero-title span { color: var(--atid-peach); }
+
+.auth-hero-lead {
+  margin: 1.1rem 0 0;
+  max-width: 30rem;
+  color: rgb(255 255 255 / 84%);
+  font-size: clamp(1rem, 1.3vw, 1.12rem);
+  line-height: 1.65;
+}
+
+.auth-hero-features {
+  display: grid;
+  gap: 0.9rem;
+  margin: 1.9rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.auth-hero-features li { display: flex; align-items: flex-start; gap: 0.8rem; }
+.auth-hero-features strong { display: block; font-size: 0.95rem; font-weight: 700; }
+.auth-hero-features small { display: block; margin-top: 0.1rem; color: rgb(255 255 255 / 72%); font-size: 0.83rem; line-height: 1.5; }
+
+.auth-hero-icon {
+  display: grid;
+  flex: none;
+  width: 2.3rem;
+  height: 2.3rem;
+  place-items: center;
+  border: 1px solid rgb(255 255 255 / 20%);
+  border-radius: 11px;
+  background: rgb(255 255 255 / 11%);
+  color: var(--atid-peach);
+}
+
+/* Decorative product sketch */
+.auth-hero-preview {
+  display: flex;
+  align-items: flex-end;
+  gap: 1rem;
+  margin-block: 0 auto;
+  animation: auth-rise .7s cubic-bezier(.2, .7, .2, 1) .08s both;
+}
+
+.auth-hero-card {
+  padding: 0.85rem;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 16px;
+  background: rgb(255 255 255 / 9%);
+  box-shadow: 0 18px 44px rgb(0 0 0 / 22%);
+  backdrop-filter: blur(6px);
+}
+
+.auth-hero-card--week { flex: 1 1 0; max-width: 21rem; animation: auth-float 7s ease-in-out infinite; }
+.auth-hero-card--attendance { flex: none; width: 11.5rem; animation: auth-float 7s ease-in-out -3.5s infinite; }
+
+.auth-hero-card-title {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.65rem;
+  color: rgb(255 255 255 / 82%);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.auth-hero-week { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.4rem; }
+
+.auth-hero-day {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-height: 5.4rem;
+  padding: 0.4rem 0.35rem;
+  border-radius: 10px;
+  background: rgb(255 255 255 / 7%);
+}
+
+.auth-hero-day--today { background: rgb(255 255 255 / 17%); box-shadow: inset 0 0 0 1px rgb(249 218 185 / 65%); }
+.auth-hero-day span { color: rgb(255 255 255 / 75%); font-size: 0.66rem; font-weight: 700; text-align: center; }
+
+.auth-hero-bar { display: block; height: 0.5rem; border-radius: 999px; }
+.auth-hero-bar--a { background: var(--atid-orange); }
+.auth-hero-bar--b { background: var(--atid-peach); width: 72%; }
+.auth-hero-bar--c { background: rgb(255 255 255 / 55%); width: 86%; }
+
+.auth-hero-row { display: flex; align-items: center; gap: 0.3rem; margin-top: 0.4rem; }
+.auth-hero-row b { flex: 1; height: 0.45rem; border-radius: 999px; background: rgb(255 255 255 / 34%); }
+.auth-hero-row i { width: 0.85rem; height: 0.85rem; border-radius: 5px; background: #6ee7a8; }
+.auth-hero-row i.off { background: var(--atid-orange); }
+
+.auth-hero-foot {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  color: rgb(255 255 255 / 68%);
+  font-size: 0.78rem;
+}
+
+@keyframes auth-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes auth-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-7px); }
+}
+
+/* Tablet and phone: the hero becomes a short banner above the form. */
+@media (max-width: 900px) {
+  .auth-page.auth-page--hero { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  .auth-hero { min-height: 0; gap: 1rem; padding: 1.5rem 1.25rem 1.75rem; }
+  .auth-hero-body { margin: 0; }
+  .auth-hero-title { font-size: 1.9rem; }
+  .auth-hero-title br { display: none; }
+  .auth-hero-lead { margin-top: 0.6rem; font-size: 0.95rem; }
+  .auth-hero-features, .auth-hero-preview, .auth-hero-foot { display: none; }
+  .auth-panel { align-items: flex-start; padding: 1.25rem 1rem 2rem; }
+}
+
+/* Short desktop windows: drop the sketch before anything gets cramped. */
+@media (min-width: 901px) and (max-height: 760px) {
+  .auth-hero-preview { display: none; }
+  .auth-hero-body { margin-block: auto; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-hero-body, .auth-hero-preview, .auth-hero-card, .auth-panel .auth-container { animation: none; }
+}

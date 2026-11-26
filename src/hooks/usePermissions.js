@@ -97,16 +97,23 @@ function setPermissionWithAlias(target, key, value) {
   if (alias) target[alias] = value;
 }
 
+const FULL_SCOPES = Object.fromEntries(Object.keys(FULL_PERMISSIONS).map(key => [key, { type: 'school', classIds: [] }]));
+const FULL_RESULT = { permissions: FULL_PERMISSIONS, schoolWide: FULL_PERMISSIONS, scopes: FULL_SCOPES };
+// Last resolved permissions per user and school, kept for the open tab only. Every page calls this
+// hook; without it each page would first render with the minimal defaults and then change.
+const resolvedCache = new Map();
+
 export function usePermissions() {
   const { userData, selectedSchool, isGlobalAdmin, isPrincipal } = useAuth();
-  const [permissions, setPermissions] = useState(VIEWER_DEFAULTS);
-  const [schoolWidePermissions, setSchoolWidePermissions] = useState({});
-  const [permissionScopes, setPermissionScopes] = useState({});
-  const [loading, setLoading] = useState(true);
-  const [classRevision, setClassRevision] = useState(0);
-
   const schoolId = selectedSchool || userData?.schoolId;
   const hasFullAccess = isGlobalAdmin() || isPrincipal();
+  const cacheKey = `${userData?.uid || ''}:${schoolId || ''}`;
+  const known = () => (userData && hasFullAccess ? FULL_RESULT : resolvedCache.get(cacheKey));
+  const [permissions, setPermissions] = useState(() => known()?.permissions || VIEWER_DEFAULTS);
+  const [schoolWidePermissions, setSchoolWidePermissions] = useState(() => known()?.schoolWide || {});
+  const [permissionScopes, setPermissionScopes] = useState(() => known()?.scopes || {});
+  const [loading, setLoading] = useState(() => !known());
+  const [classRevision, setClassRevision] = useState(0);
 
   useEffect(() => {
     if (!schoolId || !userData?.uid || !userData.accessProfilesBySchool?.[schoolId]) return;
@@ -130,9 +137,7 @@ export function usePermissions() {
     if (hasFullAccess) {
       setPermissions(FULL_PERMISSIONS);
       setSchoolWidePermissions(FULL_PERMISSIONS);
-      setPermissionScopes(Object.fromEntries(Object.keys(FULL_PERMISSIONS).map(key => [
-        key, { type: 'school', classIds: [] },
-      ])));
+      setPermissionScopes(FULL_SCOPES);
       setLoading(false);
       return;
     }
@@ -232,6 +237,7 @@ export function usePermissions() {
       }
 
       if (!active) return;
+      if (userData.uid && schoolId) resolvedCache.set(cacheKey, { permissions: base, schoolWide: explicit, scopes });
       setPermissions(base);
       setSchoolWidePermissions(explicit);
       setPermissionScopes(scopes);
@@ -240,6 +246,7 @@ export function usePermissions() {
 
     resolve();
     return () => { active = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasFullAccess, schoolId, userData, classRevision]);
 
   return { permissions, schoolWidePermissions, permissionScopes, loading };

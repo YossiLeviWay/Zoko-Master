@@ -193,7 +193,13 @@ export function AuthProvider({ children }) {
     setSelectedSchool(null);
     setGlobalAdminClaim(false);
     setPlatformAdminClaim(false);
-    return signOut(auth);
+    try {
+      await signOut(auth);
+    } finally {
+      // School data is cached in memory for fast page changes. A reload guarantees that nothing of
+      // this session is left in the tab for whoever logs in next.
+      if (typeof window !== 'undefined') window.location.reload();
+    }
   }
 
   const loadUserData = useCallback(async (uid, user, claim, platformClaim = false) => {

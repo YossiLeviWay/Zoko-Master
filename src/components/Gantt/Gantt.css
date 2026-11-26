@@ -1023,3 +1023,20 @@
 .event-audience-hint { margin: .35rem 0 .6rem; color: var(--color-text-muted); font-size: .82rem; }
 .event-audience-chips { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .5rem; }
 .event-audience-chips button { min-height: 32px; padding: 0 .65rem; border: 1px solid var(--color-accent-border); border-radius: 999px; background: var(--color-primary-soft); color: var(--color-primary-text); font: inherit; font-size: .82rem; cursor: pointer; }
+
+/* First load: the grid keeps its place but stays hidden until all of its data arrived. */
+.gantt-table-wrap--loading { position: relative; overflow: hidden; }
+.gantt-table-wrap--loading .gantt-table { visibility: hidden; }
+.gantt-table-wrap:not(.gantt-table-wrap--loading) .gantt-table { animation: gantt-reveal .18s ease-out; }
+.gantt-loading {
+  position: absolute; inset: 0; z-index: 3;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .75rem;
+  color: var(--color-text-subtle); font-size: .9rem;
+  /* A warm cache answers within a frame or two: do not flash a spinner for that. */
+  opacity: 0; animation: gantt-loading-in .2s ease-out .25s forwards;
+}
+@keyframes gantt-loading-in { to { opacity: 1; } }
+@keyframes gantt-reveal { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .gantt-table-wrap:not(.gantt-table-wrap--loading) .gantt-table { animation: none; }
+}

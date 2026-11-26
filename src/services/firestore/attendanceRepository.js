@@ -3,6 +3,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  getDocsFromServer,
   onSnapshot,
   query,
   where,
@@ -330,6 +331,24 @@ export async function addAttendanceMember({ db, schoolId, file, actor, student, 
     createdBy: actor.uid,
     createdAt: serverTimestamp(),
   });
+}
+
+// Full sync, database -> sheet: every active student of the sheet's class who is not yet a row in the
+// sheet is added to it. Both lists are read from the server (never from the in-memory cache), so a
+// partial cached list can not be mistaken for the real one. Existing rows are never changed.
+export async function addMissingClassStudentsToSheet({ db, schoolId, file, actor, classId }) {
+  if (!actor?.uid || !file?.id || !classId) return { added: 0, failed: 0 };
+  const [memberSnapshot, studentSnapshot] = await Promise.all([
+    getDocsFromServer(childCollection(db, schoolId, file.id, 'attendanceMembers', file._dataMode || DATA_MODE)),
+    getDocsFromServer(query(schoolCollection(db, schoolId, 'students'), where('classId', '==', classId))),
+  ]);
+  const listed = new Set(memberSnapshot.docs.map(item => item.id));
+  const missing = studentSnapshot.docs
+    .map(item => /** @type {any} */ ({ id: item.id, ...item.data() }))
+    .filter(student => (student.status || 'active') === 'active' && !listed.has(student.id));
+  const results = await Promise.allSettled(missing.map(student => addAttendanceMember({ db, schoolId, file, actor, student, classId })));
+  const failed = results.filter(result => result.status === 'rejected').length;
+  return { added: results.length - failed, failed };
 }
 
 // A new student joins every active attendance sheet of their class. Best effort: the student card

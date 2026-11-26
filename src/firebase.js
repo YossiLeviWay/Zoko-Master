@@ -1,7 +1,7 @@
 import { initializeApp, setLogLevel } from 'firebase/app';
 import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check';
 import { connectAuthEmulator, getAuth, inMemoryPersistence, setPersistence } from 'firebase/auth';
-import { connectFirestoreEmulator, initializeFirestore, memoryLocalCache } from 'firebase/firestore';
+import { connectFirestoreEmulator, initializeFirestore, memoryLocalCache, memoryLruGarbageCollector } from 'firebase/firestore';
 import { connectFunctionsEmulator, getFunctions } from 'firebase/functions';
 import { connectStorageEmulator, getStorage } from 'firebase/storage';
 
@@ -47,7 +47,10 @@ export const auth = getAuth(app);
 // Move any existing SDK login out of disk storage before rendering the app.
 // Subsequent logins remain in memory; authorization and MFA are unchanged.
 export const authPrivacyReady = setPersistence(auth, inMemoryPersistence);
-export const db = initializeFirestore(app, { localCache: memoryLocalCache() });
+// Data stays in RAM only (nothing is written to disk), but it is kept while the tab is open, so a
+// page that was already loaded shows its data at once on the next visit instead of waiting for the
+// network again. Logging out reloads the tab (see AuthContext), which empties this cache.
+export const db = initializeFirestore(app, { localCache: memoryLocalCache({ garbageCollector: memoryLruGarbageCollector() }) });
 export const functions = getFunctions(app, import.meta.env.VITE_FIREBASE_FUNCTIONS_REGION || 'europe-west1');
 export const storage = getStorage(app);
 

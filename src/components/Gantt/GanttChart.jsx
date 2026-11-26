@@ -11,7 +11,6 @@ import {
   updateDoc,
   deleteDoc,
   doc,
-  getDoc,
   setDoc
 } from 'firebase/firestore';
 import Header from '../Layout/Header';
@@ -85,6 +84,11 @@ export default function GanttChart() {
   const [saving, setSaving] = useState(false);
   const [menu, setMenu] = useState(null);
   const [categoriesReady, setCategoriesReady] = useState(false);
+  const [settingsReady, setSettingsReady] = useState(false);
+  const [eventsReady, setEventsReady] = useState(false);
+  // The grid is shown once, complete: after categories, visible days and events arrived and the
+  // view is already positioned on today. Until then its space is reserved, so nothing jumps.
+  const [revealed, setRevealed] = useState(false);
   const tableRef = useRef(null);
   const menuRef = useRef(null);
   const touchDrag = useRef(null);
@@ -184,12 +188,15 @@ export default function GanttChart() {
     setPendingTodayNavigation(true);
   }
 
+  const calendarReady = categoriesReady && settingsReady && eventsReady;
   useEffect(() => {
-    if (!pendingTodayNavigation || !categoriesReady) return;
+    if (!calendarReady) return;
+    if (!pendingTodayNavigation) { setRevealed(true); return; }
     const frame = requestAnimationFrame(() => {
       const cell = todayCellRef.current;
-      if (!cell) return;
-      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (!cell) { setRevealed(true); return; }
+      // The first positioning happens while the grid is still hidden, so it must not animate.
+      const reduceMotion = !revealed || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       const wrap=tableRef.current;
       const head=wrap.querySelector('thead').getBoundingClientRect().height;
       const top=wrap.scrollTop+cell.getBoundingClientRect().top-wrap.getBoundingClientRect().top-head-18;
@@ -197,9 +204,11 @@ export default function GanttChart() {
       cell.focus({ preventScroll: true });
       setTodayPulse(true);
       setPendingTodayNavigation(false);
+      setRevealed(true);
     });
     return () => cancelAnimationFrame(frame);
-  }, [month, pendingTodayNavigation, visibleDays, year, categoriesReady, categories]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [month, pendingTodayNavigation, visibleDays, year, calendarReady, categories]);
 
   useEffect(() => {
     if (!todayPulse) return;
@@ -233,18 +242,16 @@ export default function GanttChart() {
   // Load visible days setting from Firestore
   useEffect(() => {
     if (!schoolId) return;
-    async function loadDaySettings() {
-      try {
-        const docSnap = await getDoc(doc(db, `settings_${schoolId}`, 'calendar'));
-        if (docSnap.exists() && Array.isArray(docSnap.data().eventTemplates)) setTemplates(docSnap.data().eventTemplates);
-        if (docSnap.exists() && docSnap.data().visibleDays) {
-          const todayDay = new Date().getDay();
-          const savedDays = docSnap.data().visibleDays;
-          setVisibleDays(savedDays.includes(todayDay) ? savedDays : [...savedDays, todayDay].sort((a, b) => a - b));
-        }
-      } catch {}
-    }
-    loadDaySettings();
+    // A listener (not a one-time read) answers from the in-memory cache at once on a repeat visit.
+    return onSnapshot(doc(db, `settings_${schoolId}`, 'calendar'), docSnap => {
+      if (docSnap.exists() && Array.isArray(docSnap.data().eventTemplates)) setTemplates(docSnap.data().eventTemplates);
+      if (docSnap.exists() && docSnap.data().visibleDays) {
+        const todayDay = new Date().getDay();
+        const savedDays = docSnap.data().visibleDays;
+        setVisibleDays(savedDays.includes(todayDay) ? savedDays : [...savedDays, todayDay].sort((a, b) => a - b));
+      }
+      setSettingsReady(true);
+    }, () => setSettingsReady(true));
   }, [schoolId]);
 
   useEffect(() => {
@@ -303,7 +310,8 @@ export default function GanttChart() {
     );
     const unsub = onSnapshot(q, (snap) => {
       setEvents(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(item => item.status !== 'archived'));
-    });
+      setEventsReady(true);
+    }, () => setEventsReady(true));
     return unsub;
   }, [schoolId, year, month]);
 
@@ -623,7 +631,8 @@ export default function GanttChart() {
 
       <div className="calendar-workspace">
       {bankOpen && <EventBank onClose={()=>setBankOpen(false)} touchHandle={touchHandle} templates={templates} onSave={saveTemplates} onUse={openTemplate} busy={saving} canManage={canEditCalendar}/>}
-      <div className="gantt-table-wrap" ref={tableRef}>
+      <div className={`gantt-table-wrap${revealed ? '' : ' gantt-table-wrap--loading'}`} ref={tableRef} aria-busy={!revealed}>
+        {!revealed && <div className="gantt-loading" role="status"><div className="loading-spinner" /><span>טוען את לוח השנה…</span></div>}
         <table className="gantt-table">
           <thead>
             <tr>

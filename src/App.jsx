@@ -1,34 +1,67 @@
 import ImportReport from './components/Zoki/ImportReport.jsx';
 import PedagogicalMapping from './components/Students/PedagogicalMapping.jsx';
 import TaskWorkspace from './components/Tasks/TaskWorkspaceRoute';
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Login from './components/Auth/Login';
 import Register from './components/Auth/Register';
 import AppLayout from './components/Layout/AppLayout';
 import PageErrorBoundary from './components/Common/PageErrorBoundary';
+import { db } from './firebase';
+import { warmSchoolData, whenIdle } from './services/sessionWarmup';
 
-const Dashboard = lazy(() => import('./components/Dashboard/Dashboard'));
-const GanttChart = lazy(() => import('./components/Gantt/GanttChart'));
-const StaffManagement = lazy(() => import('./components/Staff/StaffManagement'));
-const TaskBoard = lazy(() => import('./components/Tasks/TaskBoard'));
-const FileManager = lazy(() => import('./components/Files/FileManager'));
-const Teams = lazy(() => import('./components/Teams/Teams'));
-const Students = lazy(() => import('./components/Students/Students'));
-const Messages = lazy(() => import('./components/Messages/Messages'));
-const HolidayManager = lazy(() => import('./components/Holidays/HolidayManager'));
-const Settings = lazy(() => import('./components/Settings/Settings'));
-const Notifications = lazy(() => import('./components/Notifications/Notifications'));
-const ForumPage = lazy(() => import('./components/Forum/ForumPage'));
-const SupportPage = lazy(() => import('./components/Support/SupportPage'));
-const PlatformManagement = lazy(() => import('./components/Platform/PlatformManagement'));
-const ContactsPage = lazy(() => import('./components/Contacts/ContactsPage'));
-const CollectiveBrainPage = lazy(() => import('./components/CollectiveBrain/CollectiveBrainPage'));
-const PublicCollectiveBrainPage = lazy(() => import('./components/CollectiveBrain/PublicCollectiveBrainPage'));
+// One importer per page: used both for the lazy route and to fetch the page's code ahead of time.
+const pageImporters = {
+  Dashboard: () => import('./components/Dashboard/Dashboard'),
+  GanttChart: () => import('./components/Gantt/GanttChart'),
+  StaffManagement: () => import('./components/Staff/StaffManagement'),
+  TaskBoard: () => import('./components/Tasks/TaskBoard'),
+  FileManager: () => import('./components/Files/FileManager'),
+  Teams: () => import('./components/Teams/Teams'),
+  Students: () => import('./components/Students/Students'),
+  Messages: () => import('./components/Messages/Messages'),
+  HolidayManager: () => import('./components/Holidays/HolidayManager'),
+  Settings: () => import('./components/Settings/Settings'),
+  Notifications: () => import('./components/Notifications/Notifications'),
+  ForumPage: () => import('./components/Forum/ForumPage'),
+  SupportPage: () => import('./components/Support/SupportPage'),
+  PlatformManagement: () => import('./components/Platform/PlatformManagement'),
+  ContactsPage: () => import('./components/Contacts/ContactsPage'),
+  CollectiveBrainPage: () => import('./components/CollectiveBrain/CollectiveBrainPage'),
+  PublicCollectiveBrainPage: () => import('./components/CollectiveBrain/PublicCollectiveBrainPage'),
+};
+const Dashboard = lazy(pageImporters.Dashboard);
+const GanttChart = lazy(pageImporters.GanttChart);
+const StaffManagement = lazy(pageImporters.StaffManagement);
+const TaskBoard = lazy(pageImporters.TaskBoard);
+const FileManager = lazy(pageImporters.FileManager);
+const Teams = lazy(pageImporters.Teams);
+const Students = lazy(pageImporters.Students);
+const Messages = lazy(pageImporters.Messages);
+const HolidayManager = lazy(pageImporters.HolidayManager);
+const Settings = lazy(pageImporters.Settings);
+const Notifications = lazy(pageImporters.Notifications);
+const ForumPage = lazy(pageImporters.ForumPage);
+const SupportPage = lazy(pageImporters.SupportPage);
+const PlatformManagement = lazy(pageImporters.PlatformManagement);
+const ContactsPage = lazy(pageImporters.ContactsPage);
+const CollectiveBrainPage = lazy(pageImporters.CollectiveBrainPage);
+const PublicCollectiveBrainPage = lazy(pageImporters.PublicCollectiveBrainPage);
 
 function ProtectedRoute({ children }) {
-  const { currentUser, loading } = useAuth();
+  const { currentUser, loading, selectedSchool, userData } = useAuth();
+  const schoolId = selectedSchool || userData?.schoolId;
+  const signedIn = Boolean(currentUser) && !loading;
+  // Once the user is in, fetch the code of the other pages and the calendar's base data in the
+  // background, so moving between pages does not wait for them.
+  useEffect(() => {
+    if (!signedIn) return undefined;
+    return whenIdle(() => {
+      Object.values(pageImporters).forEach(load => load().catch(() => undefined));
+      warmSchoolData(db, schoolId);
+    });
+  }, [signedIn, schoolId]);
   if (loading) {
     return (
       <div className="loading-screen">

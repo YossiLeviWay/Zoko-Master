@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Check, ChevronLeft, ChevronRight, CirclePlus, Eraser, Save, Settings2, Trash2, UserPlus, X, Zap } from 'lucide-react';
 import { getDoc } from 'firebase/firestore';
@@ -9,6 +9,7 @@ import { createStudent, subscribeStudents } from '../../services/firestore/class
 import {
   addAttendanceLegendItem,
   addAttendanceMember,
+  addMissingClassStudentsToSheet,
   deleteAttendanceLegendItem,
   markAttendanceDate,
   saveAttendanceCell,
@@ -22,6 +23,7 @@ import './Attendance.css';
 
 const PAGE_SIZE = 14;
 const EMPTY_CELL = { primaryStatusId: '', actionIds: [], note: '' };
+const STATUS_LABELS = { active: 'פעיל', transferred: 'עבר/ה', graduated: 'בוגר/ת', withdrawn: 'עזב/ה', dropout: 'נשר/ה', archived: 'בארכיון' };
 
 function formatDate(dateKey) {
   const [, month, day] = dateKey.split('-');
@@ -57,6 +59,10 @@ export default function AttendanceSheetEditor({ file, schoolId, actor, permissio
   const [adding, setAdding] = useState(false);
   const [orphans, setOrphans] = useState([]);
   const [repairing, setRepairing] = useState(false);
+  // Sync must only compare the two lists after both arrived from the database.
+  const [membersLoaded, setMembersLoaded] = useState(false);
+  const [studentsLoaded, setStudentsLoaded] = useState(false);
+  const syncAttempted = useRef(new Set());
   const [legendForm, setLegendForm] = useState({ label: '', shortCode: '', color: '#8b5cf6', type: 'action', attendanceEffect: 'neutral' });
 
   const isTeacher = classItem?.teacherId === actor.uid;
@@ -67,17 +73,20 @@ export default function AttendanceSheetEditor({ file, schoolId, actor, permissio
 
   useEffect(() => {
     const common = { db, schoolId, fileId: file.id, mode: file._dataMode || 'nested', onError: () => setError('לא ניתן לטעון את נתוני הנוכחות.') };
+    setMembersLoaded(false);
+    syncAttempted.current = new Set();
     return [
       subscribeAttendanceLegend({ ...common, onData: setLegend }),
-      subscribeAttendanceMembers({ ...common, onData: setMembers }),
+      subscribeAttendanceMembers({ ...common, onData: items => { setMembers(items); setMembersLoaded(true); } }),
       subscribeAttendanceDays({ ...common, onData: setDays }),
       subscribeAttendanceRecords({ ...common, onData: setRecords }),
     ].reduce((cleanup, unsubscribe) => () => { cleanup(); unsubscribe(); }, () => undefined);
   }, [file._dataMode, file.id, schoolId]);
 
   useEffect(() => {
+    setStudentsLoaded(false);
     if (!classItem?.id) return undefined;
-    return subscribeStudents({ db, schoolId, classIds: [classItem.id], canViewAll: false, onData: setStudents, onError: () => setStudents([]) });
+    return subscribeStudents({ db, schoolId, classIds: [classItem.id], canViewAll: false, onData: items => { setStudents(items); setStudentsLoaded(true); }, onError: () => setStudents([]) });
   }, [classItem?.id, schoolId]);
 
   useEffect(() => {
@@ -92,7 +101,11 @@ export default function AttendanceSheetEditor({ file, schoolId, actor, permissio
   const presentStatus = statusItems.find(item => item.attendanceEffect === 'present');
   const legendById = useMemo(() => new Map(legend.map(item => [item.id, item])), [legend]);
   const recordByCell = useMemo(() => new Map(records.map(item => [`${item.studentId}:${item.dateKey}`, item])), [records]);
-  const visibleMembers = members.filter(member => member.included !== false && (!search.trim() || member.displayName?.toLowerCase().includes(search.trim().toLowerCase())));
+  // The student card is the source of truth: a renamed or archived student shows correctly here at once.
+  const studentCards = useMemo(() => new Map(students.map(item => [item.id, item])), [students]);
+  const memberName = member => studentCards.get(member.studentId)?.fullName || member.displayName;
+  const memberStatus = member => studentCards.get(member.studentId)?.status || member.status || 'active';
+  const visibleMembers = members.filter(member => member.included !== false && (!search.trim() || memberName(member)?.toLowerCase().includes(search.trim().toLowerCase())));
   const pageCount = Math.max(1, Math.ceil(days.length / PAGE_SIZE));
   const visibleDays = days.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
@@ -174,7 +187,7 @@ export default function AttendanceSheetEditor({ file, schoolId, actor, permissio
 
   // Sheet rows whose student card does not exist (e.g. sheets created from an older import).
   useEffect(() => {
-    if (!classItem?.id || members.length === 0) { setOrphans([]); return undefined; }
+    if (!classItem?.id || !membersLoaded || !studentsLoaded || members.length === 0) { setOrphans([]); return undefined; }
     const known = new Set(students.map(item => item.id));
     const candidates = members.filter(member => member.included !== false && !known.has(member.studentId));
     if (candidates.length === 0) { setOrphans([]); return undefined; }
@@ -182,7 +195,7 @@ export default function AttendanceSheetEditor({ file, schoolId, actor, permissio
     Promise.all(candidates.map(member => getDoc(schoolDoc(db, schoolId, 'students', member.studentId)).then(snapshot => (snapshot.exists() ? null : member), () => null)))
       .then(result => { if (!cancelled) setOrphans(result.filter(Boolean)); });
     return () => { cancelled = true; };
-  }, [members, students, classItem?.id, schoolId]);
+  }, [members, students, membersLoaded, studentsLoaded, classItem?.id, schoolId]);
 
   async function repairOrphans() {
     if (!orphans.length || !classItem?.id) return;
@@ -201,6 +214,28 @@ export default function AttendanceSheetEditor({ file, schoolId, actor, permissio
       setRepairing(false);
     }
   }
+
+  // Full sync, sheet -> database: a row without a student card gets its card created automatically.
+  // Each row is tried once per visit; when that fails the banner below offers a manual retry.
+  useEffect(() => {
+    if (!canAddStudents || repairing || orphans.length === 0) return;
+    if (orphans.every(member => syncAttempted.current.has(`card:${member.studentId}`))) return;
+    orphans.forEach(member => syncAttempted.current.add(`card:${member.studentId}`));
+    repairOrphans();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orphans, canAddStudents, repairing]);
+
+  // Full sync, database -> sheet: once per opening, active students of this class who are missing
+  // from the sheet are added to it. (A student created while the sheet is open is added on creation.)
+  useEffect(() => {
+    if (!canEdit || !classItem?.id || file.status === 'archived') return undefined;
+    let cancelled = false;
+    addMissingClassStudentsToSheet({ db, schoolId, file, actor, classId: classItem.id })
+      .then(result => { if (!cancelled && result.failed > 0) setError(`${result.failed} מתלמידי הכיתה לא נוספו לגיליון. בדקו הרשאות ורעננו את הדף.`); })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canEdit, classItem?.id, file.id, file.status, schoolId]);
 
   async function addStudent(event) {
     event.preventDefault();
@@ -224,8 +259,6 @@ export default function AttendanceSheetEditor({ file, schoolId, actor, permissio
   }
 
   const todayDay = days.find(day => day.dateKey === todayDateKey() && !day.blocked);
-  const studentCards = useMemo(() => new Map(students.map(item => [item.id, item])), [students]);
-
   async function addLegend(event) {
     event.preventDefault();
     if (!legendForm.label.trim() || !legendForm.shortCode.trim()) return;
@@ -273,7 +306,9 @@ export default function AttendanceSheetEditor({ file, schoolId, actor, permissio
       </div>
 
       {error && <div className="attendance-feedback attendance-feedback--error" role="alert">{error}</div>}
-      {canAddStudents && orphans.length > 0 && <div className="attendance-feedback attendance-feedback--warning" role="status">ל־{orphans.length} תלמידים בגיליון אין עדיין כרטיס תלמיד. <button type="button" className="btn btn-secondary btn-sm" disabled={repairing} onClick={repairOrphans}>{repairing ? 'יוצר…' : 'יצירת כרטיסים'}</button></div>}
+      {orphans.length > 0 && (canAddStudents
+        ? <div className="attendance-feedback attendance-feedback--warning" role="status">{repairing ? `יוצר כרטיסי תלמיד ל־${orphans.length} תלמידים…` : <>ל־{orphans.length} תלמידים בגיליון אין עדיין כרטיס תלמיד. <button type="button" className="btn btn-secondary btn-sm" onClick={repairOrphans}>ניסיון חוזר</button></>}</div>
+        : <div className="attendance-feedback attendance-feedback--warning" role="status">ל־{orphans.length} תלמידים בגיליון אין עדיין כרטיס תלמיד. פתיחת הגיליון על ידי מנהל/ת תיצור אותם אוטומטית.</div>)}
       {showLegend && (
         <aside className="attendance-legend-panel">
           <div className="attendance-legend-list">{legend.map(item => <span key={item.id} style={{ '--legend-color': item.color }}><b>{item.shortCode}</b>{item.label}{canManageLegend && <button className="icon-btn icon-btn--danger" onClick={() => deleteLegendItem(item)} aria-label={`מחיקה לצמיתות של ${item.label}`} title="מחיקה לצמיתות"><Trash2 size={12} /></button>}</span>)}</div>
@@ -287,7 +322,7 @@ export default function AttendanceSheetEditor({ file, schoolId, actor, permissio
           <tbody>{visibleMembers.map((member, rowIndex) => {
             const memberRecords = records.filter(record => record.studentId === member.studentId);
             const summary = calculateAttendanceSummary({ days: visibleDays, records: memberRecords, legend, member });
-            return <tr key={member.studentId}><th className="attendance-student-column"><button type="button" className="attendance-student-link" onClick={() => navigate(`/students?student=${member.studentId}`)} title="פתיחת כרטיס התלמיד"><strong>{member.displayName}</strong></button>{studentCards.has(member.studentId) ? <MissingInfoMark student={studentCards.get(member.studentId)} /> : null}{member.status !== 'active' && <small>{member.status}</small>}</th>{visibleDays.map((day, columnIndex) => { const record = recordByCell.get(`${member.studentId}:${day.dateKey}`); const status = legendById.get(record?.primaryStatusId); const actions = (record?.actionIds || []).map(id => legendById.get(id)).filter(Boolean); const title = [status?.label, ...actions.map(item => item.label), record?.note, record?.updatedBy ? `עודכן: ${formatUpdatedAt(record.updatedAt)}` : ''].filter(Boolean).join('\n'); return <td key={day.id} className={day.blocked ? 'blocked' : ''}><button data-att-cell={`${rowIndex}:${columnIndex}`} onKeyDown={event => moveFocus(event, rowIndex, columnIndex)} onClick={() => openCell(member, day)} disabled={day.blocked || (!canEdit && !record)} style={status ? { '--status-color': status.color } : undefined} title={title || 'ללא סימון'} aria-label={`${member.displayName}, ${day.dateKey}: ${status?.label || 'ללא סימון'}`}><span>{status?.shortCode || ''}</span>{actions.length > 0 && <small>+{actions.length}</small>}{record?.note && <i aria-label="קיימת הערה">•</i>}</button></td>; })}<td className="attendance-summary-column"><strong>{summary.attendancePercent}%</strong><span>{summary.present}/{summary.scheduled}</span><small>{summary.missing} ללא נתון</small></td></tr>;
+            return <tr key={member.studentId}><th className="attendance-student-column"><button type="button" className="attendance-student-link" onClick={() => navigate(`/students?student=${member.studentId}`)} title="פתיחת כרטיס התלמיד"><strong>{memberName(member)}</strong></button>{studentCards.has(member.studentId) ? <MissingInfoMark student={studentCards.get(member.studentId)} /> : null}{memberStatus(member) !== 'active' && <small>{STATUS_LABELS[memberStatus(member)] || memberStatus(member)}</small>}</th>{visibleDays.map((day, columnIndex) => { const record = recordByCell.get(`${member.studentId}:${day.dateKey}`); const status = legendById.get(record?.primaryStatusId); const actions = (record?.actionIds || []).map(id => legendById.get(id)).filter(Boolean); const title = [status?.label, ...actions.map(item => item.label), record?.note, record?.updatedBy ? `עודכן: ${formatUpdatedAt(record.updatedAt)}` : ''].filter(Boolean).join('\n'); return <td key={day.id} className={day.blocked ? 'blocked' : ''}><button data-att-cell={`${rowIndex}:${columnIndex}`} onKeyDown={event => moveFocus(event, rowIndex, columnIndex)} onClick={() => openCell(member, day)} disabled={day.blocked || (!canEdit && !record)} style={status ? { '--status-color': status.color } : undefined} title={title || 'ללא סימון'} aria-label={`${memberName(member)}, ${day.dateKey}: ${status?.label || 'ללא סימון'}`}><span>{status?.shortCode || ''}</span>{actions.length > 0 && <small>+{actions.length}</small>}{record?.note && <i aria-label="קיימת הערה">•</i>}</button></td>; })}<td className="attendance-summary-column"><strong>{summary.attendancePercent}%</strong><span>{summary.present}/{summary.scheduled}</span><small>{summary.missing} ללא נתון</small></td></tr>;
           })}</tbody>
         </table>
         {visibleMembers.length === 0 && <div className="attendance-empty">אין תלמידים להצגה.</div>}
@@ -316,7 +351,7 @@ export default function AttendanceSheetEditor({ file, schoolId, actor, permissio
       {activeCell && (
         <div className="attendance-cell-overlay" onClick={() => setActiveCell(null)}>
           <div className="attendance-cell-dialog" role="dialog" aria-modal="true" aria-label="פרטי תא נוכחות" onClick={event => event.stopPropagation()}>
-            <div className="attendance-cell-header"><div><strong>{activeCell.member.displayName}</strong><span>{activeCell.day.dateKey}</span></div><button className="icon-btn" onClick={() => setActiveCell(null)} aria-label="סגירה"><X size={17} /></button></div>
+            <div className="attendance-cell-header"><div><strong>{memberName(activeCell.member)}</strong><span>{activeCell.day.dateKey}</span></div><button className="icon-btn" onClick={() => setActiveCell(null)} aria-label="סגירה"><X size={17} /></button></div>
             <fieldset disabled={!canEdit}><legend>סטטוס ראשי</legend><div className="attendance-status-options"><button type="button" className={!draft.primaryStatusId ? 'selected' : ''} onClick={() => setDraft(previous => ({ ...previous, primaryStatusId: '' }))}>ללא סימון</button>{statusItems.map(item => <button type="button" key={item.id} className={draft.primaryStatusId === item.id ? 'selected' : ''} onClick={() => setDraft(previous => ({ ...previous, primaryStatusId: item.id }))} style={{ '--status-color': item.color }}><b>{item.shortCode}</b>{item.label}</button>)}</div></fieldset>
             {actionItems.length > 0 && <fieldset disabled={!canEdit}><legend>פעולות מעקב ואירועים</legend><div className="attendance-action-options">{actionItems.map(item => <label key={item.id}><input type="checkbox" checked={draft.actionIds.includes(item.id)} onChange={() => toggleAction(item.id)} /><b style={{ '--status-color': item.color }}>{item.shortCode}</b>{item.label}</label>)}</div></fieldset>}
             <label className="attendance-note-field">הערה<textarea value={draft.note} onChange={event => setDraft(previous => ({ ...previous, note: event.target.value }))} disabled={!canEdit} maxLength={2000} rows={4} /></label>
