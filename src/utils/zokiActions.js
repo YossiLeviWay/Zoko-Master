@@ -1,4 +1,5 @@
 import { academicYearForDate } from './academicYears.js';
+import { DASHBOARD_WIDGET_TYPES } from './dashboardWidgets.js';
 import { subscribePrivateSession } from './browserPrivacy.js';
 import { V1_TOOLS, guardProposals } from '../../worker/src/zokiActionTools.js';
 
@@ -143,6 +144,14 @@ const SPECS = {
     if (!userId) return { error: 'חסר איש צוות.' };
     return { value: { userId, active: input.active === true } };
   }, fields => [fields.active ? `הפעלה מחדש של ${fields.userId}` : `השבתת ${fields.userId}`, 'אין מחיקה.']),
+  set_dashboard_layout: spec(['tasks.viewOwn'], true, input => {
+    const op = ['add', 'remove', 'move', 'resize'].includes(input.op) ? input.op : '';
+    if (!op) return { error: 'חסרה פעולה לדשבורד.' };
+    const type = DASHBOARD_WIDGET_TYPES.includes(input.type) ? input.type : '';
+    if (op === 'add' && !type) return { error: 'סוג התצוגה לא מוכר.' };
+    const index = Number.isInteger(Number(input.index)) ? Number(input.index) : 0;
+    return { value: { op, type, path: text(input.path, 80), title: text(input.title, 60), size: input.size === 'half' ? 'half' : 'full', index, direction: input.direction === 'up' ? 'up' : 'down' } };
+  }, fields => [`דשבורד: ${fields.op}`, fields.type, fields.path].filter(Boolean)),
   add_team_members: spec(['teams_edit'], true, input => {
     const teamId = id(input.teamId);
     const memberIds = ids(input.memberIds);

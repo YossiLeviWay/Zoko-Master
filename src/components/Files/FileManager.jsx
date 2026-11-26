@@ -24,6 +24,7 @@ import {
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import Header from '../Layout/Header';
+import { useContextMenu } from '../Common/ContextMenu';
 import SpreadsheetEditor from './SpreadsheetEditor';
 import DocumentEditor from './DocumentEditor';
 import AttendanceSheetEditor from './AttendanceSheetEditor';
@@ -70,6 +71,7 @@ import './Files.css';
 export default function FileManager() {
   const { userData, currentUser, selectedSchool, isPrincipal, isGlobalAdmin } = useAuth();
   const { permissions, schoolWidePermissions, permissionScopes } = usePermissions();
+  const { menuProps } = useContextMenu();
   const [showPermissionsPanel, setShowPermissionsPanel] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const uid = currentUser?.uid;
@@ -94,7 +96,6 @@ export default function FileManager() {
   const [selectedFolder, setSelectedFolder] = useState(null);
   const [fullscreen, setFullscreen] = useState(false);
   const [createInFolder, setCreateInFolder] = useState(null);
-  const [contextMenu, setContextMenu] = useState(null);
   const [renamingItem, setRenamingItem] = useState(null);
   const [renameValue, setRenameValue] = useState('');
   const [viewerContextMenu, setViewerContextMenu] = useState(null);
@@ -788,12 +789,16 @@ export default function FileManager() {
     };
   }
 
-  function handleContextMenu(e, type, item) {
-    e.preventDefault();
-    e.stopPropagation();
-    const pos = getMenuPosition(e.clientX, e.clientY);
-    setContextMenu({ type, item, position: pos });
-    setViewerContextMenu(null);
+  function fileActions(type, item) {
+    return [
+      canManage && !item.specialFolder && { label: 'שיתוף', icon: Share2, onClick: () => setPermMenu({ type, id: item.id, name: item.name, position: { x: 24, y: 24 } }) },
+      !item.specialFolder && { label: 'שינוי שם', icon: Pencil, onClick: () => startRename(type, item) },
+      { label: 'מידע', icon: Info, onClick: () => getFileInfo(item) },
+      type === 'file' && item.url && { label: 'הורדה', icon: Download, onClick: () => window.open(item.url, '_blank', 'noopener') },
+      type === 'file' && (item.fileType === 'spreadsheet' || item.fileType === 'document') && !!canUploadFiles && { label: 'שכפול', icon: Copy, onClick: () => duplicateFile(item) },
+      (canManage || permissions.files_delete || permissions['files.delete']) && { separator: true },
+      (canManage || permissions.files_delete || permissions['files.delete']) && { label: 'העברה לסל המחזור', icon: Trash2, danger: true, onClick: () => (type === 'folder' ? deleteFolder(item) : deleteFile(item)) },
+    ].filter(Boolean);
   }
 
   function handleViewerContextMenu(e) {
@@ -801,14 +806,12 @@ export default function FileManager() {
     if (editingFile) return; // no context menu when editing
     const pos = getMenuPosition(e.clientX, e.clientY, 180, 160);
     setViewerContextMenu({ position: pos });
-    setContextMenu(null);
   }
 
   // Close context menus on click outside
   useEffect(() => {
     function handleClick() {
-      setContextMenu(null);
-      setViewerContextMenu(null);
+    setViewerContextMenu(null);
     }
     document.addEventListener('click', handleClick);
     return () => document.removeEventListener('click', handleClick);
@@ -832,7 +835,6 @@ export default function FileManager() {
   function startRename(type, item) {
     setRenamingItem({ type, id: item.id });
     setRenameValue(item.name);
-    setContextMenu(null);
   }
 
   function getFileInfo(f) {
@@ -900,7 +902,7 @@ export default function FileManager() {
             className={`tree-folder-item ${isSelected ? 'tree-folder-item--active' : ''}`}
             onClick={() => toggleFolder(folder.id)}
             title={getFolderTooltip(folder)}
-            onContextMenu={e => handleContextMenu(e, 'folder', folder)}
+            {...menuProps(() => fileActions('folder', folder))}
           >
             <span className="tree-chevron">
               {isExpanded ? <ChevronDown size={12} /> : <ChevronLeft size={12} />}
@@ -946,7 +948,7 @@ export default function FileManager() {
                     className={`tree-file-item ${editingFile?.id === f.id ? 'tree-file-item--active' : ''} ${isPinned ? 'tree-file-item--pinned' : ''}`}
                     onClick={() => openFile(f)}
                     title={getFileTooltip(f)}
-                    onContextMenu={e => handleContextMenu(e, 'file', f)}
+                    {...menuProps(() => fileActions('file', f))}
                   >
                     {getFileIcon(f, 13)}
                     {renamingItem?.type === 'file' && renamingItem.id === f.id ? (
@@ -1356,7 +1358,7 @@ export default function FileManager() {
                   {getFilesForFolder(selectedFolder).map(f => {
                     const isPinned = f.pinnedBy?.includes(uid);
                     return (
-                      <div key={f.id} className={`file-card ${isPinned ? 'file-card--pinned' : ''}`} onClick={() => openFile(f)} onContextMenu={e => handleContextMenu(e, 'file', f)}>
+                      <div key={f.id} className={`file-card ${isPinned ? 'file-card--pinned' : ''}`} onClick={() => openFile(f)} {...menuProps(() => fileActions('file', f))}>
                         <div className="file-card-icon">{getFileIcon(f, 28)}</div>
                         <div className="file-card-info">
                           <div className="file-card-name">{f.name}</div>
@@ -1409,76 +1411,6 @@ export default function FileManager() {
       </div>
 
       {showTrash && <div className="modal-overlay" onClick={() => setShowTrash(false)}><div className="modal-content modal-content--wide recycle-bin-modal" role="dialog" aria-modal="true" aria-label="סל המחזור" onClick={event => event.stopPropagation()}><div className="modal-header"><div><h3>סל המחזור</h3><p>ניתן לשחזר פריטים, או למחוק אותם לצמיתות לאחר אישור נוסף.</p></div><button className="modal-close" onClick={() => setShowTrash(false)} aria-label="סגירה"><X size={18} /></button></div><div className="recycle-bin-list">{trashedFolders.map(item => <article key={`folder_${item.id}`}><Folder size={20} /><div><strong>{item.name}</strong><span>תיקייה</span></div><button className="btn btn-secondary btn-sm" disabled={trashBusyId === `folder_${item.id}`} onClick={() => restoreTrashItem('folder', item)}><RotateCcw size={13} /> שחזור</button><button className="btn btn-danger btn-sm" disabled={trashBusyId === `folder_${item.id}`} onClick={() => permanentlyDeleteTrashItem('folder', item)}><Trash2 size={13} /> מחיקה סופית</button></article>)}{trashedFiles.filter(item => !item.trashedWithFolderId).map(item => <article key={`file_${item.id}`}>{getFileIcon(item, 20)}<div><strong>{item.name}</strong><span>קובץ</span></div><button className="btn btn-secondary btn-sm" disabled={trashBusyId === `file_${item.id}`} onClick={() => restoreTrashItem('file', item)}><RotateCcw size={13} /> שחזור</button><button className="btn btn-danger btn-sm" disabled={trashBusyId === `file_${item.id}`} onClick={() => permanentlyDeleteTrashItem('file', item)}><Trash2 size={13} /> מחיקה סופית</button></article>)}{trashedFolders.length === 0 && trashedFiles.length === 0 && <div className="empty-state"><Trash2 size={32} /><p>סל המחזור ריק</p></div>}</div></div></div>}
-
-      {/* Context Menu (right-click on files/folders) */}
-      {contextMenu && (
-        <div
-          className="context-menu"
-          style={{ top: contextMenu.position.y, left: contextMenu.position.x }}
-          onClick={e => e.stopPropagation()}
-        >
-          {canManage && !contextMenu.item.specialFolder && (
-            <button className="context-menu-item" onClick={() => {
-              setPermMenu({
-                type: contextMenu.type,
-                id: contextMenu.item.id,
-                name: contextMenu.item.name,
-                position: contextMenu.position
-              });
-              setContextMenu(null);
-            }}>
-              <Share2 size={14} />
-              שיתוף
-            </button>
-          )}
-          {!contextMenu.item.specialFolder && (
-            <button className="context-menu-item" onClick={() => startRename(contextMenu.type, contextMenu.item)}>
-              <Pencil size={14} />
-              שינוי שם
-            </button>
-          )}
-          <button className="context-menu-item" onClick={() => {
-            getFileInfo(contextMenu.item);
-            setContextMenu(null);
-          }}>
-            <Info size={14} />
-            מידע
-          </button>
-          {contextMenu.type === 'file' && contextMenu.item.url && (
-            <a
-              href={contextMenu.item.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="context-menu-item"
-              onClick={() => setContextMenu(null)}
-              style={{ textDecoration: 'none' }}
-            >
-              <Download size={14} />
-              הורדה
-            </a>
-          )}
-          {contextMenu.type === 'file' && (contextMenu.item.fileType === 'spreadsheet' || contextMenu.item.fileType === 'document') && !!canUploadFiles && (
-            <button className="context-menu-item" onClick={() => {
-              duplicateFile(contextMenu.item);
-              setContextMenu(null);
-            }}>
-              <Copy size={14} />
-              שכפול
-            </button>
-          )}
-          <div className="context-menu-divider" />
-          {(canManage || permissions.files_delete || permissions['files.delete']) && (
-            <button className="context-menu-item context-menu-item--danger" onClick={() => {
-              if (contextMenu.type === 'folder') deleteFolder(contextMenu.item);
-              else deleteFile(contextMenu.item);
-              setContextMenu(null);
-            }}>
-              <Trash2 size={14} />
-              העברה לסל המחזור
-            </button>
-          )}
-        </div>
-      )}
 
       {/* Viewer panel context menu */}
       {viewerContextMenu && selectedFolder && (

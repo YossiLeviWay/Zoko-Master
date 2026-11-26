@@ -1,4 +1,5 @@
 import { calendarDateFields } from '../utils/calendarInteractions.js';
+import { applyDashboardLayout } from '../utils/dashboardWidgets.js';
 import { releaseActionWrite, reserveActionWrite, summarizeAttendance } from '../utils/zokiActions.js';
 
 const denied = text => ({ saved: false, text });
@@ -42,6 +43,11 @@ async function defaultDeps() {
     deleteTeam: (schoolId, id) => deleteDoc(schoolDoc(db, schoolId, 'teams', id)),
     removeTeamMembers: (schoolId, teamId, memberIds) => updateDoc(schoolDoc(db, schoolId, 'teams', teamId), { memberIds: arrayRemove(...memberIds) }),
     revokeStaff: input => staffApi.manageStaffInvitation(input),
+    getDashboard: async uid => {
+      const snap = await getDoc(doc(db, 'users', uid));
+      return snap.exists() ? (snap.data().dashboardPreferences?.widgets || []) : [];
+    },
+    saveDashboard: (uid, widgets) => updateDoc(doc(db, 'users', uid), { 'dashboardPreferences.widgets': widgets }),
     getStaff: async userId => {
       const snap = await getDoc(doc(db, 'users', userId));
       return snap.exists() ? snap.data() : null;
@@ -198,6 +204,14 @@ async function perform(card, context, io) {
     }
     await io.updateStaff({ schoolId, userId: fields.userId, accountStatus: fields.active ? 'active' : 'disabled' });
     return { saved: true, text: fields.active ? 'איש הצוות הופעל.' : 'איש הצוות הושבת. החשבון לא נמחק.', undo: { ...card, fields: { ...fields, active: !fields.active }, requestId: `${card.requestId}_undo` } };
+  }
+  if (card.tool === 'set_dashboard_layout') {
+    const previous = await io.getDashboard(actor.uid);
+    const next = fields.op === 'replace' && Array.isArray(fields.widgets)
+      ? fields.widgets.slice(0, 8)
+      : applyDashboardLayout(previous, fields);
+    await io.saveDashboard(actor.uid, next);
+    return { saved: true, text: 'סידור הדשבורד נשמר.', undo: undoOf(card, 'set_dashboard_layout', { op: 'replace', widgets: previous }) };
   }
   if (card.tool === 'create_calendar_event') {
     const dated = calendarDateFields(fields.date);

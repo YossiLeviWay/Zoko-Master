@@ -1,5 +1,6 @@
 import { ClassPedagogicalMappings } from './PedagogicalMapping.jsx';
 import { useMemo, useState } from 'react';
+import { useContextMenu } from '../Common/ContextMenu';
 import { useNavigate } from 'react-router-dom';
 import {
   CalendarDays,
@@ -85,6 +86,7 @@ export default function ClassManagement({
   canManageGradebookForClass,
 }) {
   const navigate = useNavigate();
+  const { menuProps } = useContextMenu();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(() => emptyClass(academicYear));
@@ -163,6 +165,18 @@ export default function ClassManagement({
     }
   }
 
+  function classActions(item) {
+    return [
+      { label: 'תלמידי הכיתה', onClick: () => onOpenStudents(item) },
+      { label: 'נוכחות', onClick: () => navigate(`/files?openAttendanceClass=${encodeURIComponent(item.id)}`) },
+      (canCreateAttendance || item.teacherId === actor.uid) && { label: 'גיליון נוכחות חדש', onClick: () => openAttendanceMapping(item) },
+      (canViewGradesForClass(item.id) || item.teacherId === actor.uid) && { label: 'מיפוי ציונים', onClick: () => openGradeMapping(item) },
+      canUpdate && { label: 'עריכת הכיתה', onClick: () => openEdit(item) },
+      ...(canGraduateClass && item.status !== CLASS_STATUS.ARCHIVED ? [{ separator: true }, { label: 'הפיכת הכיתה לבוגרים', danger: true, onClick: () => onGraduateClass(item) }] : []),
+      canArchive && { label: item.status === CLASS_STATUS.ARCHIVED ? 'שחזור מהארכיון' : 'העברה לארכיון', danger: true, onClick: () => toggleArchived(item) },
+    ].filter(Boolean);
+  }
+
   function teacherName(id) {
     return staff.find(user => user.id === id)?.fullName || 'לא שויך מחנך';
   }
@@ -215,7 +229,7 @@ export default function ClassManagement({
 
       <div className="classes-grid">
         {visible.map(item => (
-          <article key={item.id} className={`class-card ${item.status === CLASS_STATUS.ARCHIVED ? 'class-card--archived' : ''}`}>
+          <article key={item.id} className={`class-card ${item.status === CLASS_STATUS.ARCHIVED ? 'class-card--archived' : ''}`} {...menuProps(() => classActions(item))}>
             <div className="class-card-header">
               <div>
                 <h3>{item.name}</h3>
