@@ -2,6 +2,7 @@
 // The browser sends the conversation plus vetted regulation/milestone text. The Worker adds the
 // institutional knowledge the user may see and may return an action PROPOSAL, which only enters the
 // existing approval flow; nothing is executed from here.
+import { proposalFromReply } from '../utils/zokiActions.js';
 import { replyWithStoredMemory, teachingNote } from '../../worker/src/zokiTurn.js';
 
 const CONTEXT_CHARS = 5500;
@@ -23,10 +24,10 @@ export class WorkerZokiProvider {
     const messages = [...(input.history || []).map(item => ({ role: item.role, content: item.text })), { role: 'user', content: input.question }];
     // Loaded on demand so importing this module never initialises Firebase.
     const { askRoleAgent } = await import('./zokiClaudeService.js');
-    const { reply, proposals = [] } = await askRoleAgent({ schoolId: this.schoolId, messages, context: knowledgeContext(input), onToken: input.onToken });
+    const { reply, proposals = [] } = await askRoleAgent({ schoolId: this.schoolId, messages, context: knowledgeContext(input), permissionKeys: input.permissionKeys, onToken: input.onToken });
     if (!reply) throw Object.assign(new Error('agent-unavailable'), { code: 'agent-unavailable' });
-    // Only task creation has an approval screen today. Other proposals are shown as text and executed by nobody.
-    const task = proposals.find(item => item?.tool === 'create_task' && item.input?.title);
+    const clientAction = proposalFromReply(input.question, proposals);
+    const task = clientAction ? null : proposals.find(item => item?.tool === 'create_task' && item.input?.title);
     const others = proposals.filter(item => item !== task).map(item => `הצעה (עדיין לא ניתנת לאישור כאן): ${item.tool}`);
     const note = teachingNote(input.question);
     return {
@@ -35,6 +36,7 @@ export class WorkerZokiProvider {
       actionRequest: task ? [task.input.title, task.input.description].filter(Boolean).join('. ') : '',
       actionTargetType: 'none', actionTargetLabel: '', staffRoleDraft: null,
       taskDraft: task ? { title: task.input.title.slice(0, 180), dueDate: /^\d{4}-\d{2}-\d{2}$/u.test(task.input.dueDate || '') ? task.input.dueDate : '', teamName: '', memberNames: [] } : null,
+      clientAction,
       sourceIds: [],
       // "Remember that ..." is kept as this user's own memory (the existing memory layer checks it and honours the learning switch).
       memoryMutations: note ? [{ operation: 'upsert', type: 'preference', content: note, sourceIds: ['user'] }] : [],

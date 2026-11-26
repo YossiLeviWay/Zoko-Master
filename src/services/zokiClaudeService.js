@@ -20,7 +20,7 @@ export function warmZokiConnection() {
   if (appCheck) getToken(appCheck, false).catch(() => undefined);
 }
 
-export async function askRoleAgent({ schoolId, messages, context = '', signal, onToken }) {
+export async function askRoleAgent({ schoolId, messages, context = '', permissionKeys = [], signal, onToken }) {
   // No /health ping before this POST. A short precheck would fail on a slow network and the
   // real request would never be sent. The POST below is the first request to the Worker.
   const where = workerCallContext(zokiClaudeEndpoint());
@@ -40,7 +40,7 @@ export async function askRoleAgent({ schoolId, messages, context = '', signal, o
   } else console.info('zoki-turn-stage', 'app-check-skipped', where);
   let payload;
   console.info('zoki-turn-stage', 'body', where);
-  try { payload = JSON.stringify({ schoolId, messages, context, stream: typeof onToken === 'function' }); }
+  try { payload = JSON.stringify({ schoolId, messages, context, permissionKeys, stream: typeof onToken === 'function' }); }
   catch (error) { throw workerFailure('request-build-failed', error, where); }
   const timeout = typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(ZOKI_TURN_TIMEOUT_MS) : undefined;
   let response;

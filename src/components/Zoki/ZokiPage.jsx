@@ -27,6 +27,8 @@ import ZokiPersonalSettings from './ZokiPersonalSettings.jsx';
 import { isZokiAgentConfigured, zokiRequest, zokiSourcePaths, syncPersonalAgentConversation } from '../../services/zokiAgentService.js';
 import { warmZokiConnection } from '../../services/zokiClaudeService.js';
 import { visibleWorkerDiagnostic } from '../../utils/zokiWorkerError.js';
+import { prepareZokiAction } from '../../utils/zokiActions.js';
+import { runZokiAction } from '../../services/zokiActionRunner.js';
 
 const STARTERS = [
   'מה המשימות הפתוחות שלי?',
@@ -362,6 +364,19 @@ function ScopedZokiPage({ embedded = false, onMinimize = () => undefined }) {
     } }) } });
   }
 
+  async function confirmClientAction(message, undo = false) {
+    const card = undo ? message.clientAction?.undo : message.clientAction;
+    if (!card?.allowed || message.actionStatus === 'executing') return;
+    patchMessage(message.id, { actionStatus: 'executing', actionError: '' });
+    const outcome = await runZokiAction(card, { schoolId, actor: { uid: currentUser.uid, fullName: userData?.fullName || '' } });
+    const failed = card.write && !outcome.saved;
+    patchMessage(message.id, {
+      actionStatus: failed ? 'failed' : 'executed',
+      actionError: failed ? outcome.text : '',
+      clientAction: { ...message.clientAction, resultText: outcome.text, undo: outcome.undo || (undo ? null : message.clientAction.undo) },
+    });
+  }
+
   function continueTaskWorkflow(message, assignRole = false) {
     const staffId = message.actionProposal?.selectedStaffId;
     if (!staffId) return;
@@ -394,6 +409,7 @@ function ScopedZokiPage({ embedded = false, onMinimize = () => undefined }) {
           ? previous.map(message => (message.id === streamId ? { ...message, text: partial } : message))
           : [...previous, { id: streamId, role: 'zoki', text: partial, streaming: true }])),
         history: boundedZokiHistory(messages),
+        permissionKeys: Object.keys(permissions).filter(key => permissions[key] === true),
         sourcePaths: zokiSourcePaths({ schoolId, uid: currentUser.uid, sources: { ...taskAssistantSchoolContext.sources, students: accessibleStudents } }),
       });
       if (activeConversation.current !== submittedConversation || conversationGeneration.current !== submittedGeneration) return;
@@ -433,9 +449,10 @@ function ScopedZokiPage({ embedded = false, onMinimize = () => undefined }) {
         }, result.answer);
         return;
       }
+      const clientAction = result.clientAction ? prepareZokiAction(result.clientAction, { permissions, manager: canManage }) : null;
       setMessages(previous => [...previous, {
         id: `zoki_${Date.now()}`, role: 'zoki', text: result.answer + (result.memoryStatus === 'saved' ? '\n\nנשמר עדכון בזיכרון האישי. אפשר לערוך או למחוק אותו ב״הזיכרון שלי״.' : result.memoryStatus === 'failed' ? '\n\nעדכון הזיכרון לא נשמר; התשובה זמינה.' : ''),
-        sources: result.sources || [], followUpQuestion: '', actionProposal: null,
+        sources: result.sources || [], followUpQuestion: '', actionProposal: null, clientAction,
       }]);
     } catch (error) {
       if (activeConversation.current !== submittedConversation || conversationGeneration.current !== submittedGeneration) return;
@@ -1105,6 +1122,7 @@ function ScopedZokiPage({ embedded = false, onMinimize = () => undefined }) {
             <div><p>{['assistant', 'zoki'].includes(message.role) ? zokiDisplayText(message.text, message.sources) : message.text}</p>{message.followUpQuestion && <button type="button" className="zoki-follow-up" onClick={() => setQuestion(message.followUpQuestion)}>{message.followUpQuestion}</button>}
               {message.error && message.retryQuestion && <div><button type="button" className="btn btn-link" disabled={loading} onClick={() => submitQuestion(message.retryQuestion)}>ניסיון נוסף עם AI</button><button type="button" className="btn btn-link" disabled={loading} onClick={() => searchLocally(message.retryQuestion)}>חיפוש מקומי ללא AI</button></div>}
               {message.error && <small className="zoki-error-detail" dir="ltr">{message.debug || visibleWorkerDiagnostic(message)}</small>}
+              {message.clientAction && <section className={`zoki-inline-action ${message.actionStatus === 'executed' ? 'is-complete' : ''}`}><header><ShieldCheck size={14} /><strong>{message.actionStatus === 'executed' ? (message.clientAction.write ? 'נשמר' : 'הנתונים') : 'אישור לפני שמירה'}</strong></header>{message.clientAction.lines.map(line => <p key={line}>{line}</p>)}{message.clientAction.resultText && <p>{message.clientAction.resultText}</p>}{message.actionStatus !== 'executed' && message.actionStatus !== 'cancelled' && message.clientAction.allowed && <footer><button type="button" disabled={message.actionStatus === 'executing'} onClick={() => confirmClientAction(message)}><CheckCircle2 size={14} /> {message.actionStatus === 'executing' ? 'מבצע…' : message.clientAction.write ? 'אישור ושמירה' : 'הצגת הנתונים'}</button><button type="button" disabled={message.actionStatus === 'executing'} onClick={() => patchMessage(message.id, { actionStatus: 'cancelled' })}>ביטול</button></footer>}{message.actionStatus === 'executed' && message.clientAction.undo && <footer><button type="button" onClick={() => confirmClientAction(message, true)}>בטל</button></footer>}{message.actionStatus === 'cancelled' && <small>הפעולה בוטלה ולא נשמר שינוי.</small>}{message.actionError && <small className="is-error">{message.actionError}</small>}</section>}
               {message.actionProposal?.type === 'staff_job_title' && <section className="zoki-inline-action"><header><ShieldCheck size={14}/><strong>{message.actionStatus === 'executed' ? 'התפקיד עודכן' : 'הצעה לעדכון תפקיד'}</strong></header><p>{message.actionProposal.fullName}</p><small>התפקיד הנוכחי: {message.actionProposal.expectedTitle || 'לא הוגדר'}</small><label>התפקיד החדש<input aria-label="התפקיד החדש" maxLength={160} value={message.actionProposal.jobTitle} disabled={['executing','executed','cancelled'].includes(message.actionStatus)} onChange={event => patchMessage(message.id, { actionProposal: { ...message.actionProposal, jobTitle: event.target.value, requestId: crypto.randomUUID() } })}/></label><small>העדכון חל במוסד הנוכחי. הרשאות הגישה אינן משתנות.</small>{!['executed','cancelled'].includes(message.actionStatus) && <footer><button disabled={message.actionStatus === 'executing' || !message.actionProposal.jobTitle.trim()} onClick={() => confirmStaffJobTitle(message)}>{message.actionStatus === 'executing' ? 'שומר…' : 'אישור ושמירת התפקיד'}</button><button disabled={message.actionStatus === 'executing'} onClick={() => patchMessage(message.id, { actionStatus: 'cancelled' })}>ביטול</button></footer>}{message.actionError && <p role="alert">{message.actionError}</p>}</section>}
               {message.actionProposal?.type === 'task_role_selection' && <section className="zoki-inline-action zoki-role-selection"><header><ShieldCheck size={14} /><strong>בחירת אחראי למשימה</strong></header><label>איש צוות<select value={message.actionProposal.selectedStaffId || ''} onChange={event => patchMessage(message.id, { actionProposal: { ...message.actionProposal, selectedStaffId: event.target.value } })}><option value="">בחרו איש צוות</option>{(message.actionProposal.options || []).map(option => <option key={option.id} value={option.id}>{option.name}{option.jobTitle ? ` — ${option.jobTitle}` : ''}</option>)}</select></label><footer><button type="button" disabled={!message.actionProposal.selectedStaffId || message.actionStatus === 'executing'} onClick={() => continueTaskWorkflow(message, false)}><CheckCircle2 size={14} /> למשימה הזו בלבד</button>{message.actionProposal.canAssignRole && <button type="button" disabled={!message.actionProposal.selectedStaffId || message.actionStatus === 'executing'} onClick={() => continueTaskWorkflow(message, true)}>שייך לתפקיד והמשך</button>}{message.actionProposal.roleMissing && <button type="button" onClick={() => navigate('/staff')}>פתיחת ניהול הסגל</button>}</footer></section>}
               {message.actionProposal?.type === 'task_details_update' && <section className={`zoki-inline-action ${message.actionStatus === 'executed' ? 'is-complete' : ''}`}><header><ShieldCheck size={14} /><strong>{message.actionStatus === 'executed' ? 'פרטי המשימה עודכנו' : 'אישור עריכת משימה'}</strong></header><div><b>{message.actionProposal.taskTitle}</b>{message.actionProposal.changedFields.map(field => <span key={field}>{TASK_DETAIL_LABELS[field]}: {taskDetailValue(field, message.actionProposal.expected[field])} ← {taskDetailValue(field, message.actionProposal.task[field])}</span>)}</div><small>רק השדות המוצגים ישתנו. זוקי יוודא שהמשימה לא נערכה מאז ההצעה.</small>{message.actionStatus !== 'executed' && message.actionStatus !== 'cancelled' && <footer><button type="button" disabled={message.actionStatus === 'executing'} onClick={() => confirmTaskDetailsAction(message)}><CheckCircle2 size={14} /> {message.actionStatus === 'executing' ? 'מעדכן…' : 'אישור ועדכון'}</button><button type="button" disabled={message.actionStatus === 'executing'} onClick={() => patchMessage(message.id, { actionStatus: 'cancelled' })}>ביטול</button></footer>}{message.actionStatus === 'cancelled' && <small>פרטי המשימה נשארו ללא שינוי.</small>}{message.actionError && <small className="is-error">{message.actionError}</small>}{message.actionStatus === 'executed' && <button type="button" className="zoki-action-link" onClick={() => navigate(message.actionResult.route)}>פתיחת המשימה</button>}</section>}
