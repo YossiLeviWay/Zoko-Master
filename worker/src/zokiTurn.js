@@ -65,7 +65,23 @@ export function replyWithoutFalseSave(reply, saved) {
 // What was stored is the user's sentence, not the model's paraphrase of it.
 export function replyWithStoredMemory(reply, note) {
   if (!note) return replyWithoutFalseSave(reply, false);
-  return [`נשמר כלשונו: ${note}`, ...withoutSaveClaim(reply)].join('\n').trim();
+  const line = `נשמר כלשונו: ${note}`;
+  const rest = withoutSaveClaim(reply).filter(part => part !== line && !part.startsWith('נשמר כלשונו:'));
+  return [line, ...rest].join('\n').trim();
+}
+
+// The model lists a role milestone, then "corrects" itself because that line is not a Gantt event.
+// A sentence that names one of those milestones and denies it is dropped. A sentence that only
+// labels it as a role milestone stays.
+const MILESTONE_DENIAL = /אין לי גישה|לא מופיע|אין בנתונ|לא נמצא|טעות|התבלבלתי|לא קיימ|אסיר את|אין אירוע כזה|לא אמור|אינו נמצא|לא רשום/u;
+export function withoutMilestoneRetraction(reply, context = '') {
+  const source = String(context || '');
+  if (!source.includes('אבני דרך')) return String(reply || '').trim();
+  const names = [...source.matchAll(/^•\s*([^(\n]{3,80})/gmu)].map(match => match[1].trim()).filter(name => name.length > 2);
+  if (!names.length) return String(reply || '').trim();
+  const mentions = part => names.some(name => part.includes(name.slice(0, Math.min(name.length, 16))));
+  const kept = String(reply || '').split(/\n+/u).flatMap(line => line.split(/(?<=[.!?])\s+/u)).map(part => part.trim()).filter(part => part && !(mentions(part) && MILESTONE_DENIAL.test(part)));
+  return kept.join('\n').trim();
 }
 
 export function stripStudentSection(markdown) {

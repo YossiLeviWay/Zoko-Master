@@ -1,6 +1,6 @@
 import { TOOL_SCHEMAS, buildClaudeRequest, callClaude, heldCapabilities, parseClaudeResponse } from './claude.js';
 import { allowedTools } from '../../functions/src/roleAgents.js';
-import { appendLearningLog, buildSchoolContext, claudeLimitFor, dailyLimitFor, dayKey, learningLogLine, looksLikeAction, secondsToMidnight, toolSpecs, validatedProposal } from './zokiTurn.js';
+import { appendLearningLog, buildSchoolContext, claudeLimitFor, dailyLimitFor, dayKey, learningLogLine, looksLikeAction, replyWithStoredMemory, secondsToMidnight, teachingNote, toolSpecs, validatedProposal, withoutMilestoneRetraction } from './zokiTurn.js';
 import { askLocalTiered, buildLocalRequest, localModelConfigured, parseLocalResponse, routeLocalAction, streamLocalTiered } from './localModel.js';
 import { roleAgentProfile } from '../../functions/src/roleAgents.js';
 import {
@@ -12,7 +12,8 @@ import {
   sanitizeInstitutionalText,
   upsertApprovedPattern,
 } from './brain.js';
-import { SNAPSHOT_TTL_MS, buildPersonalContext, buildPersonalSnapshot, buildReflectionRequest, compactPersonalContext, emptyProfile, mergeLearnedProfile, profileIsEmpty, sanitizeProfile, snapshotText } from './personalBrain.js';
+import { ganttStructuredQueries } from './ganttEvents.js';
+import { SNAPSHOT_TTL_MS, buildPersonalContext, buildPersonalSnapshot, buildReflectionRequest, compactPersonalContext, emptyProfile, mergeLearnedProfile, profileIsEmpty, profileText, sanitizeProfile, snapshotText } from './personalBrain.js';
 
 const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), {
   status,
@@ -260,6 +261,41 @@ async function adminDocuments(env, token, path, pages = 1) {
     if (!pageToken) break;
   }
   return rows;
+}
+
+// runQuery, not a bare list. A list of events_${schoolId} comes back oldest-document-first,
+// and the first page (the live log showed 50) never reaches a date two weeks ahead.
+async function adminQuery(env, token, parent, structuredQuery) {
+  const root = documentsUrl(env);
+  const response = await fetch(`${root}:runQuery`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ parent: `${root}${parent ? `/${parent}` : ''}`, structuredQuery }),
+  });
+  if (!response.ok) {
+    console.log('zoki-firestore-query-failed', structuredQuery.from?.[0]?.collectionId || parent || 'root', response.status);
+    return [];
+  }
+  const rows = await response.json();
+  return (Array.isArray(rows) ? rows : []).filter(row => row.document).map(row => ({
+    id: row.document.name.split('/').pop(),
+    ...Object.fromEntries(Object.entries(row.document.fields || {}).map(([key, value]) => [key, plainValue(value)])),
+  }));
+}
+
+async function eventsFor(env, token, schoolId) {
+  const { queries } = ganttStructuredQueries(new Date());
+  const places = [{ parent: '', id: `events_${schoolId}`, kind: 'legacy' }, { parent: `schools/${schoolId}`, id: 'events', kind: 'nested' }];
+  const found = await Promise.all(places.map(async place => {
+    const batches = await Promise.all(queries.map(query => adminQuery(env, token, place.parent, { ...query.structuredQuery, from: [{ collectionId: place.id }] }).catch(error => {
+      console.log('zoki-event-query-failed', place.id, query.label, String(error?.message || error).slice(0, 80));
+      return [];
+    })));
+    return { kind: place.kind, rows: batches.flat() };
+  }));
+  const legacy = [...new Map(found.find(item => item.kind === 'legacy').rows.map(item => [item.id, item])).values()];
+  const nested = [...new Map(found.find(item => item.kind === 'nested').rows.map(item => [item.id, item])).values()];
+  return { legacy, nested };
 }
 
 async function dailySchoolSnapshot(env, token, schoolId) {
@@ -510,17 +546,20 @@ const parseJson = value => { try { return JSON.parse(value); } catch { return nu
 
 async function liveSnapshot(env, actor, schoolId) {
   const token = await adminToken(env);
-  const [modernTeams, legacyTeams, modernClasses, legacyClasses, modernTasks, legacyTasks, modernEvents, legacyEvents, modernHolidays, legacyHolidays] = await Promise.all([
-    `schools/${schoolId}/teams`, `teams_${schoolId}`, `schools/${schoolId}/classes`, `classes_${schoolId}`, `schools/${schoolId}/tasks`, `tasks_${schoolId}`,
-    `schools/${schoolId}/events`, `events_${schoolId}`, `schools/${schoolId}/holidays`, `holidays_${schoolId}`,
-  ].map(path => adminDocuments(env, token, path, /events/u.test(path) ? 5 : 1)));
+  const [modernTeams, legacyTeams, modernClasses, legacyClasses, modernTasks, legacyTasks, modernHolidays, legacyHolidays, loadedEvents] = await Promise.all([
+    adminDocuments(env, token, `schools/${schoolId}/teams`), adminDocuments(env, token, `teams_${schoolId}`),
+    adminDocuments(env, token, `schools/${schoolId}/classes`), adminDocuments(env, token, `classes_${schoolId}`),
+    adminDocuments(env, token, `schools/${schoolId}/tasks`), adminDocuments(env, token, `tasks_${schoolId}`),
+    adminDocuments(env, token, `schools/${schoolId}/holidays`), adminDocuments(env, token, `holidays_${schoolId}`),
+    eventsFor(env, token, schoolId),
+  ]);
   const merge = (...sets) => [...new Map(sets.flat().map(item => [item.id, item])).values()];
-  const events = merge(modernEvents, legacyEvents);
+  const events = merge(loadedEvents.nested, loadedEvents.legacy);
   const snapshot = buildPersonalSnapshot({
     uid: actor.uid, user: actor.person, manager: actor.manager, teams: merge(modernTeams, legacyTeams), classes: merge(modernClasses, legacyClasses),
     tasks: merge(modernTasks, legacyTasks), events, holidays: merge(modernHolidays, legacyHolidays),
   });
-  console.log('zoki-snapshot-events', 'nested', modernEvents.length, 'legacy', legacyEvents.length, 'kept', snapshot.events.length);
+  console.log('zoki-snapshot-events', 'nested', loadedEvents.nested.length, 'legacy', loadedEvents.legacy.length, 'kept', snapshot.events.length);
   return snapshot;
 }
 
@@ -534,9 +573,18 @@ async function writePersonalFields(env, actor, schoolId, fields, { exists, mask 
   await adminCommit(env, [{ ...write, updateMask: { fieldPaths: ['uid', 'schoolId', ...mask] } }]);
 }
 
-async function saveSnapshot(env, actor, schoolId, exists) {
+function logProfile(action, path, profile, keys = []) {
+  const focus = profile?.focus?.[0]?.text || '';
+  console.log('zoki-profile', action, path, keys.join(',') || '-', profile?.turns ?? '', profile?.preferences?.length || 0, profile?.focus?.length || 0, profile?.facts?.length || 0, String(profile?.preferences?.[0] || '').slice(0, 60), String(profile?.facts?.[0] || '').slice(0, 60), String(focus).slice(0, 60));
+}
+
+async function saveSnapshot(env, actor, schoolId) {
   const next = await liveSnapshot(env, actor, schoolId);
-  await writePersonalFields(env, actor, schoolId, { snapshot: JSON.stringify(next) }, { exists, mask: ['snapshot'] });
+  // Re-read here. The document may have gained a profile while the event queries were in flight,
+  // and a create would replace that profile with the snapshot alone.
+  const path = personalBrainPath(actor.uid, schoolId);
+  const current = await adminGet(env, path);
+  await writePersonalFields(env, actor, schoolId, { snapshot: JSON.stringify(next) }, { exists: Boolean(current), mask: ['snapshot'] });
   return next;
 }
 
@@ -549,15 +597,15 @@ async function personalBrainFor(env, actor, schoolId, { ctx } = {}) {
     const document = await adminGet(env, personalBrainPath(actor.uid, schoolId));
     const stored = fieldsOf(document);
     const profile = sanitizeProfile(parseJson(stored.profile));
+    logProfile('read', personalBrainPath(actor.uid, schoolId), profile, Object.keys(stored));
     let snapshot = parseJson(stored.snapshot);
     const fresh = snapshot?.at && Date.now() - Date.parse(snapshot.at) < SNAPSHOT_TTL_MS;
     if (!fresh) {
-      const exists = Boolean(document);
       if (!snapshot) {
-        try { snapshot = await saveSnapshot(env, actor, schoolId, exists); }
+        try { snapshot = await saveSnapshot(env, actor, schoolId); }
         catch (error) { console.error('zoki-snapshot-failed', String(error?.message || error).slice(0, 160)); }
       } else {
-        const renew = saveSnapshot(env, actor, schoolId, true).catch(error => {
+        const renew = saveSnapshot(env, actor, schoolId).catch(error => {
           console.error('zoki-snapshot-refresh-failed', String(error?.message || error).slice(0, 160));
         });
         if (ctx?.waitUntil) ctx.waitUntil(renew);
@@ -579,6 +627,7 @@ async function saveProfile(env, actor, schoolId, profile, snapshot) {
   const fields = { profile: JSON.stringify(profile), updatedAt: new Date().toISOString() };
   if (!current && snapshot) fields.snapshot = JSON.stringify(snapshot);
   await writePersonalFields(env, actor, schoolId, fields, { exists: Boolean(current), mask: ['profile', 'updatedAt'] });
+  logProfile('write', path, profile, Object.keys(fields));
 }
 
 // The user's own "Zoki learns about me" switch (zokiAgents/{uid}.learningEnabled, on unless they turned it off).
@@ -677,7 +726,10 @@ async function handle(request, env, ctx) {
     if (claudeAllowed) {
       try {
         const merged = [schoolContext, body.context].filter(Boolean).join('\n\n');
-        const result = parseClaudeResponse(await callClaude(env, buildClaudeRequest({ profile, messages: body.messages, context: merged, personal: buildPersonalContext(personal), heldKeys: held, model: env.CLAUDE_MODEL || 'claude-haiku-5-5' })));
+        const parsed = parseClaudeResponse(await callClaude(env, buildClaudeRequest({ profile, messages: body.messages, context: merged, personal: buildPersonalContext(personal), heldKeys: held, model: env.CLAUDE_MODEL || 'claude-haiku-5-5' })));
+        const note = teachingNote(lastQuestion);
+        const reply = replyWithStoredMemory(withoutMilestoneRetraction(parsed.reply, body.context || ''), note);
+        const result = { ...parsed, reply };
         if (result.reply || result.proposals.length) {
           // The switch is read now; the Claude reflection itself runs after the answer is on its way.
           const learningOn = await learningEnabled(request, env, actor);
@@ -721,7 +773,8 @@ async function handle(request, env, ctx) {
   // What Zoki knows about the person asking. Only ever the caller's own brain: there is no way to name another user.
   if (url.pathname === '/v1/zoki/personal-brain' && request.method === 'GET') {
     const personal = await personalBrainFor(env, actor, schoolId, { ctx });
-    return json({ profile: personal.profile, empty: profileIsEmpty(personal.profile), snapshot: snapshotText(personal.snapshot), learningEnabled: await learningEnabled(request, env, actor) }, 200, cors(request, env));
+    const learned = profileText(personal.profile);
+    return json({ profile: personal.profile, empty: profileIsEmpty(personal.profile), snapshot: [learned, snapshotText(personal.snapshot)].filter(Boolean).join('\n\n'), learningEnabled: await learningEnabled(request, env, actor) }, 200, cors(request, env));
   }
   if (url.pathname === '/v1/zoki/personal-brain/clear' && request.method === 'POST') {
     if (!adminReady(env)) throw new Error('agent-not-configured');

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { TOOL_SCHEMAS } from '../../worker/src/claude.js';
 import { buildLocalRequest } from '../../worker/src/localModel.js';
-import { appendLearningLog, buildSchoolContext, claudeLimitFor, dailyLimitFor, dayKey, learningLogLine, looksLikeAction, replyWithStoredMemory, replyWithoutFalseSave, secondsToMidnight, stripStudentSection, teachingNote, toolSpecs, validatedProposal } from '../../worker/src/zokiTurn.js';
+import { appendLearningLog, buildSchoolContext, claudeLimitFor, dailyLimitFor, dayKey, learningLogLine, looksLikeAction, replyWithStoredMemory, replyWithoutFalseSave, secondsToMidnight, stripStudentSection, teachingNote, toolSpecs, validatedProposal, withoutMilestoneRetraction } from '../../worker/src/zokiTurn.js';
 
 test('daily limits depend on the role and can be overridden', () => {
   assert.equal(dailyLimitFor('principal'), 300);
@@ -33,7 +33,13 @@ test('teaching becomes a short personal note, nothing else does', () => {
   assert.equal(replyWithoutFalseSave('הנה מבנה לישיבה.', false), 'הנה מבנה לישיבה.');
   const meeting = 'אצלי ישיבות הנהלה בנויות כך שכל בעל תפקיד מציג 2 דקות ומעלה רעיון אחד לשיפור, ולא עדכונים.';
   assert.equal(replyWithStoredMemory('שמרתי: כל בעל תפקיד מציג 2 דקות לכל היותר.', meeting), `נשמר כלשונו: ${meeting}`);
+  assert.equal(replyWithStoredMemory(`נשמר כלשונו: ${meeting}\nהנה מבנה.`, meeting), `נשמר כלשונו: ${meeting}\nהנה מבנה.`);
+  assert.equal(teachingNote(`חשוב שתדע: ${meeting}`), meeting);
   assert.equal(replyWithStoredMemory('הנה מבנה לישיבה.', ''), 'הנה מבנה לישיבה.');
+  const milestones = 'אבני דרך קרובות של התפקיד בלבד (תשפ״ז). אלה אינן אירועים בגאנט:\n• אסיפת הורים (עד 30.11.2026)\n• ועדת התמדה ראשונה (עד 30.11.2026)';
+  const retracted = withoutMilestoneRetraction('אסיפת הורים עד 30.11.\nאסיפת הורים לא מופיעה בנתונים, זו הייתה טעות.\nועדת התמדה ראשונה היא אבן דרך של התפקיד.', milestones);
+  assert.match(retracted, /אבן דרך של התפקיד/u);
+  assert.doesNotMatch(retracted, /טעות/u);
 });
 
 test('students are hidden from the model unless the user may see them', () => {

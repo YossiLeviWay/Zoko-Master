@@ -58,6 +58,7 @@ export default function ZokiPersonalSettings({ schoolId, manager = false, onClos
       {profile && <>
         <label><input type="checkbox" checked={profile.learningEnabled} disabled={busy} onChange={event => change({ operation: 'learning', enabled: event.target.checked })} /> זוקי לומד ושומר זיכרון אוטומטית</label>
         <label>העדפות אישיות בכל המוסדות<textarea maxLength={600} value={preference} onChange={event => setPreference(event.target.value)} /></label><button disabled={busy} onClick={() => change({ operation: 'preferences', content: preference })}>שמירת העדפות</button>
+        {brain && !brain.empty && <ul>{[...brain.profile.preferences, ...brain.profile.facts, ...brain.profile.focus.map(item => item.text)].map((item, index) => <li key={`${index}:${item}`}>{item}</li>)}</ul>}
         {brain && <section className="zoki-personal-brain">
           <h3>המוח האישי שלי</h3>
           <p>כך זוקי מכיר אותך: מה שלמד מהשיחות איתך, ומה שעולה מהתפקיד, מהצוותים, מהמשימות ומלוח השנה שלך. המידע גלוי רק לך. גם הנהלת המוסד אינה יכולה לראות אותו.</p>
