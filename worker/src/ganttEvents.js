@@ -65,6 +65,34 @@ export function firestoreParent(projectId, path = '') {
   return path ? `${root}/${path}` : root;
 }
 
+// The gantt screen reads events_${schoolId}. List pages often stop at 50 and omit
+// nextPageToken, so the scan walks the collection by document name instead.
+export const EVENT_PAGE_SIZE = 300;
+export const EVENT_PAGE_CAP = 40;
+
+export function eventScanQuery(collectionId, afterReference = '') {
+  const structuredQuery = {
+    from: [{ collectionId }],
+    orderBy: [{ field: { fieldPath: '__name__' }, direction: 'ASCENDING' }],
+    limit: EVENT_PAGE_SIZE,
+  };
+  if (afterReference) structuredQuery.startAt = { values: [{ referenceValue: afterReference }], before: false };
+  return structuredQuery;
+}
+
+// A short page can still be a server cap (the live log stopped at 50). Keep going until a
+// page is shorter than that cap, or the cursor does not advance.
+export function eventPageContinues(rowCount, pageSize = EVENT_PAGE_SIZE) {
+  return rowCount >= 50 && rowCount <= pageSize;
+}
+
+export function eventRawFieldSample(fields = {}) {
+  if (!fields || !Object.keys(fields).length) return 'none';
+  const kind = key => (fields[key] ? Object.keys(fields[key]).join('+') : 'empty');
+  const keys = Object.keys(fields).sort().join(',');
+  return `keys ${keys} date:${kind('date')} year:${kind('year')} month:${kind('month')} endDate:${kind('endDate')}`;
+}
+
 export function eventFieldSample(event) {
   if (!event) return 'none';
   const kind = value => (value == null ? 'empty' : Array.isArray(value) ? 'array' : typeof value === 'object' ? 'map' : typeof value);

@@ -51,13 +51,15 @@ function fakes({ count = 1, route = { tool: null }, tasksCreate = true, claude =
     if (url.includes('/documents/schoolBrain/')) return new Response('{}', { status: 404 });
     if (url.includes(':runQuery')) {
       seen.queries.push(body);
-      const collection = body.structuredQuery?.from?.[0]?.collectionId || '';
+      const queryBody = body.structuredQuery || {};
+      const collection = queryBody.from?.[0]?.collectionId || '';
       if (collection !== 'events' && !String(collection).startsWith('events_')) return Response.json([]);
+      // A filtered query matches nothing, as in production. The name scan must turn the page.
+      if (queryBody.where) return Response.json([{ readTime: 't' }]);
       const soon = new Date(Date.now() + 5 * 86400000).toISOString().slice(0, 10);
-      const old = Array.from({ length: 50 }, (_, index) => ({ document: { name: `x/events_s1/old${index}`, fields: { title: str(`אירוע ישן ${index}`), date: str('2020-01-01'), year: { integerValue: '2020' }, month: { integerValue: '0' } } } }));
-      const live = { document: { name: 'x/events_s1/vol', fields: { title: str('התנדבות בגן חינוך מיוחד'), date: str(soon), endDate: str(soon), visibleTo: str('all'), audience: map({ grade: str('י׳'), kind: str('activity') }) } } };
-      const stamped = { document: { name: 'x/events_s1/stamp', fields: { title: str('אירוע חותמת'), date: { timestampValue: `${soon}T09:00:00Z` }, visibleTo: str('all') } } };
-      return Response.json([...old, live, stamped]);
+      const holiday = index => ({ document: { name: `projects/p/databases/(default)/documents/${collection}/h${String(index).padStart(3, '0')}`, fields: { title: str('חג'), date: str('2020-01-01'), year: { integerValue: '2020' }, month: { integerValue: '0' }, _holidaySync: { booleanValue: true }, _holidayType: str('national'), category: str('כללי'), color: str('#fff'), description: str(''), createdAt: str('2020-01-01T00:00:00.000Z') } } });
+      if (!queryBody.startAt) return Response.json(Array.from({ length: 50 }, (_, index) => holiday(index)));
+      return Response.json([{ document: { name: `projects/p/databases/(default)/documents/${collection}/vol`, fields: { title: str('התנדבות בגן חינוך מיוחד'), date: str(soon), year: { integerValue: '2026' }, month: { integerValue: '11' }, category: str('חברתי'), visibleTo: str('all'), audience: map({ grade: str('י׳'), kind: str('activity') }) } } }]);
     }
     // Any other collection read (used to build a brain from school data) is simply empty.
     if (url.includes('/documents/')) return Response.json({});
@@ -124,18 +126,22 @@ test('past the daily limit the request is refused with a retry time', async () =
 
 const claudeEnv = over => environment({ ZOKI_PROVIDER: 'claude-first', ANTHROPIC_API_KEY: 'sk', ...over });
 
-test('gantt events are queried by date, so fifty old events are not the calendar', async () => {
+test('the gantt scan turns the page after a 50-row holiday page', async () => {
   const seen = fakes();
   await turn([{ role: 'user', content: 'מה יש בגאנט השבוע לשכבת י׳?' }], claudeEnv());
-  const dateQuery = seen.queries.find(query => JSON.stringify(query).includes('GREATER_THAN_OR_EQUAL') && JSON.stringify(query.structuredQuery?.orderBy || '').includes('date'));
-  assert.ok(dateQuery, 'the event read is a date-bounded query');
-  assert.ok(seen.queries.some(query => String(query.parent || '').startsWith('projects/') && !String(query.parent).includes('https://')));
-  assert.ok(seen.queries.some(query => String(query.structuredQuery?.from?.[0]?.collectionId || '').startsWith('events_')));
-  assert.ok(JSON.stringify(dateQuery).includes(new Date().toISOString().slice(0, 10)));
+  const scans = seen.queries.filter(query => JSON.stringify(query.structuredQuery?.orderBy || '').includes('__name__'));
+  const first = scans.find(query => !query.structuredQuery?.startAt);
+  assert.ok(first, 'the first page is an unfiltered name scan');
+  assert.equal(first.structuredQuery.from[0].collectionId, 'events_s1');
+  assert.equal(first.structuredQuery.limit, 300);
+  assert.equal(first.structuredQuery.orderBy[0].field.fieldPath, '__name__');
+  assert.ok(String(first.parent).startsWith('projects/') && !String(first.parent).includes('https://'));
+  const second = scans.find(query => query.structuredQuery?.startAt);
+  assert.ok(second?.structuredQuery.startAt.values[0].referenceValue.endsWith('/h049'));
   const system = JSON.stringify(seen.claude[0].system);
   assert.ok(system.includes('התנדבות בגן חינוך מיוחד'));
   assert.ok(system.includes('י׳'));
-  assert.ok(!system.includes('אירוע ישן'));
+  assert.ok(!system.includes('חג'));
 });
 
 test('Claude answers first, with Haiku and the school context', async () => {
