@@ -30,6 +30,9 @@ import {
   X,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import ReplyRequestPanel from '../ReplyRequests/ReplyRequestPanel.jsx';
+import { choiceLabel } from '../../utils/replyRequests.js';
+import { listenReplyRequests } from '../../services/firestore/replyRequestRepository.js';
 import { db } from '../../firebase';
 import { usePermissions } from '../../hooks/usePermissions';
 import {
@@ -324,6 +327,13 @@ export default function TaskBoard() {
   const [communicationDrafts, setCommunicationDrafts] = useState([]);
   const [taskInvitations, setTaskInvitations] = useState([]);
   const [staff, setStaff] = useState([]);
+  const [replyDraft, setReplyDraft] = useState(null);
+  const [replyItems, setReplyItems] = useState([]);
+  const mayAskForReply = isInitiativeManager || permissions.tasks_assign === true || permissions['tasks.assign'] === true;
+  useEffect(() => {
+    if (!uid || !schoolId) return undefined;
+    return listenReplyRequests({ db, schoolId, uid, canAssign: mayAskForReply, onData: setReplyItems, onError: () => setReplyItems([]) });
+  }, [uid, schoolId, mayAskForReply]);
   const [teams, setTeams] = useState([]);
   const [roles, setRoles] = useState([]);
   const [allFiles, setAllFiles] = useState([]);
@@ -1704,7 +1714,8 @@ export default function TaskBoard() {
             {task.priority === 'high' && <span className="task-urgency"><AlertCircle size={11} /> דחוף</span>}
             {overdue && <span className="task-overdue-badge">באיחור</span>}
           </div>
-          {task.description && <div className="task-desc">{task.description}</div>}
+            {task.description && <div className="task-desc">{task.description}</div>}
+            {replyItems.filter(item => item.sourceType === 'task' && item.sourceId === task.id).slice(0, 1).map(item => <div key={item.id} className="task-desc">{item.status === 'answered' ? `תשובה: ${choiceLabel(item.answer?.choice)}${item.answer?.note ? ` — ${item.answer.note}` : ''}` : 'ממתין לתשובה'}</div>)}
           <div className="task-meta">
             <span className="task-assignee">{task.scope === TASK_SCOPES.PERSONAL ? <Lock size={11} /> : <Users size={11} />}{getAssigneeDisplay(task)}</span>
             {taskDueDate(task) ? <span className={`task-due ${overdue ? 'task-due--late' : ''}`}>{new Date(`${String(taskDueDate(task)).slice(0, 10)}T00:00:00`).toLocaleDateString('he-IL')}{daysLate > 0 ? ` · ${daysLate} ימים` : ''}</span> : <span className="task-due">ללא תאריך</span>}
@@ -1725,6 +1736,7 @@ export default function TaskBoard() {
     <div className="page">
       <Header title={activeTab === 'communications' ? 'מיילים ומעקבים' : 'משימות'} onPermissions={() => setShowPermissionsPanel(true)} />
       {showPermissionsPanel && <PagePermissionsPanel feature="tasks" onClose={() => setShowPermissionsPanel(false)} />}
+      {replyDraft && <ReplyRequestPanel draft={replyDraft} composerOnly onDraftClose={() => setReplyDraft(null)} />}
       <div className="page-content task-page-content" onContextMenu={event => activeTab === 'dashboard' && openPageActions(event)}>
         {message && <div className="task-feedback task-feedback--success" role="status">{message}</div>}
         {error && <div className="task-feedback task-feedback--error" role="alert">{error}<button onClick={() => setError('')} aria-label="סגירת הודעת שגיאה"><X size={14} /></button></div>}
@@ -1874,6 +1886,7 @@ export default function TaskBoard() {
           {contextTaskMenu.task.attachedFileId && <button role="menuitem" onClick={() => { setPreviewFile(contextTaskMenu.task); setContextTaskMenu(null); }}><Paperclip size={15} /> פתיחת קובץ</button>}
           {canEditDetails(contextTaskMenu.task) && <button role="menuitem" onClick={() => { startEdit(contextTaskMenu.task); setContextTaskMenu(null); }}><Paperclip size={15} /> {contextTaskMenu.task.attachedFileId ? 'החלפת קובץ' : 'הוספת קובץ'}</button>}
           {contextTaskMenu.task._source === 'organization' && <button role="menuitem" onClick={() => { createFollowUp(contextTaskMenu.task); setContextTaskMenu(null); }}><CopyPlus size={15} /> יצירת משימת המשך</button>}
+          {mayAskForReply && <button role="menuitem" onClick={() => { setReplyDraft({ sourceType: 'task', sourceId: contextTaskMenu.task.id, sourceTitle: contextTaskMenu.task.title }); setContextTaskMenu(null); }}><MessageSquare size={15} /> בקש עדכון סטטוס</button>}
           {canCreateCommunication && contextTaskMenu.task.workflowType !== 'external_email_followup' && <button role="menuitem" onClick={() => { setCommunicationTask(contextTaskMenu.task); setContextTaskMenu(null); }}><MailPlus size={15} /> יצירת מייל ומעקב</button>}
           {contextTaskMenu.task.workflowType === 'external_email_followup' && contextTaskMenu.task.communicationStatus === 'awaiting_send' && <button role="menuitem" onClick={() => { setCommunicationTask(contextTaskMenu.task); setContextTaskMenu(null); }}><MailPlus size={15} /> פתיחת טיוטת המייל</button>}
           {contextTaskMenu.task._source === 'personal' && <button role="menuitem" onClick={() => { setCollaborationTask(contextTaskMenu.task); setCollaborationRecipients([]); setCollaborationMessage(''); setContextTaskMenu(null); }}><User size={15} /> הזמנת שותפים</button>}

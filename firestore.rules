@@ -3739,6 +3739,14 @@ service cloud.firestore {
         allow read: if isSchoolMember(schoolId) && (resource.data.recipientId == request.auth.uid || resource.data.inviterId == request.auth.uid);
         allow write: if false;
       }
+      match /replyRequests/{requestId} {
+        allow read: if replyRequestReadAllowed('replyRequests_' + schoolId, resource.data);
+        allow create: if request.resource.data.schoolId == schoolId
+          && replyRequestCreateAllowed('replyRequests_' + schoolId, request.resource.data);
+        allow update: if replyRequestAnswerAllowed('replyRequests_' + schoolId);
+        allow delete: if false;
+      }
+
       match /tasks/{taskId} {
         allow read: if resourceAclConfigured(schoolId, 'task', taskId, '')
           ? resourceAclAllows(schoolId, 'task', taskId, 'view', '')
@@ -5151,8 +5159,103 @@ service cloud.firestore {
       );
     }
 
+    function canAskForReply(schoolId) {
+      return isGlobalAdmin()
+        || isSchoolPrincipal(schoolId)
+        || hasPermission(schoolId, 'tasks_assign');
+    }
+
+    function replyRequestShape(data) {
+      return data.keys().hasOnly([
+          'schoolId', 'sourceType', 'sourceId', 'sourceTitle', 'question',
+          'assigneeId', 'requesterId', 'requesterName', 'status', 'dueDate',
+          'reminderAt', 'answer', 'history', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'
+        ])
+        && data.schoolId is string
+        && data.sourceType in ['task', 'event', 'standalone']
+        && data.sourceId is string && data.sourceId.size() <= 128
+        && (data.sourceType != 'standalone' || data.sourceId == '')
+        && data.sourceTitle is string && data.sourceTitle.size() <= 180
+        && data.question is string && data.question.size() > 0 && data.question.size() <= 500
+        && data.assigneeId is string && data.assigneeId.size() > 0 && data.assigneeId.size() <= 128
+        && data.requesterId == request.auth.uid
+        && data.requesterName is string && data.requesterName.size() <= 120
+        && data.dueDate is string && (data.dueDate == '' || data.dueDate.matches('^\\d{4}-\\d{2}-\\d{2}$'))
+        && data.reminderAt is string && data.reminderAt.size() <= 40
+        && data.answer is map && data.answer.keys().hasOnly(['choice', 'note', 'date', 'at', 'by'])
+        && data.history is list && data.history.size() <= 8
+        && data.createdBy == request.auth.uid
+        && data.updatedBy == request.auth.uid;
+    }
+
+    function replyRequestCreateAllowed(collectionName, data) {
+      return collectionName.matches('^replyRequests_[A-Za-z0-9_-]+$')
+        && collectionName == 'replyRequests_' + data.schoolId
+        && isSchoolMember(data.schoolId)
+        && canAskForReply(data.schoolId)
+        && replyRequestShape(data)
+        && data.status == 'open'
+        && data.answer.choice == ''
+        && data.answer.note == ''
+        && data.answer.date == ''
+        && data.answer.at == ''
+        && data.answer.by == ''
+        && data.history.size() == 1
+        && data.history[0].kind == 'asked'
+        && data.history[0].by == request.auth.uid
+        && data.history[0].question == data.question
+        && data.createdAt == request.time
+        && data.updatedAt == request.time
+        && exists(/databases/$(database)/documents/users/$(data.assigneeId))
+        && userBelongsToSchool(get(/databases/$(database)/documents/users/$(data.assigneeId)).data, data.schoolId);
+    }
+
+    function replyRequestReadAllowed(collectionName, data) {
+      return collectionName.matches('^replyRequests_[A-Za-z0-9_-]+$')
+        && data.schoolId is string
+        && collectionName == 'replyRequests_' + data.schoolId
+        && isSchoolMember(data.schoolId)
+        && (
+          data.assigneeId == request.auth.uid
+          || data.requesterId == request.auth.uid
+          || canAskForReply(data.schoolId)
+        );
+    }
+
+    function replyRequestAnswerAllowed(collectionName) {
+      let next = request.resource.data;
+      let old = resource.data;
+      return collectionName.matches('^replyRequests_[A-Za-z0-9_-]+$')
+        && old.schoolId is string
+        && collectionName == 'replyRequests_' + old.schoolId
+        && old.status == 'open'
+        && old.assigneeId == request.auth.uid
+        && next.schoolId == old.schoolId
+        && next.assigneeId == old.assigneeId
+        && next.requesterId == old.requesterId
+        && next.question == old.question
+        && next.sourceType == old.sourceType
+        && next.sourceId == old.sourceId
+        && next.createdBy == old.createdBy
+        && next.createdAt == old.createdAt
+        && next.status == 'answered'
+        && next.updatedBy == request.auth.uid
+        && next.updatedAt == request.time
+        && next.diff(old).affectedKeys().hasOnly(['status', 'answer', 'history', 'updatedBy', 'updatedAt'])
+        && next.answer.choice in ['done', 'in_progress', 'not_done', 'need_help']
+        && next.answer.by == request.auth.uid
+        && next.answer.note is string && next.answer.note.size() <= 2000
+        && next.answer.date is string && next.answer.date.size() <= 10
+        && next.answer.at is string && next.answer.at.size() <= 40
+        && next.history.size() == old.history.size() + 1
+        && next.history[old.history.size()].kind == 'answered'
+        && next.history[old.history.size()].choice == next.answer.choice
+        && next.history[old.history.size()].by == request.auth.uid;
+    }
+
     function legacyTopLevelReadAllowed(collectionName, documentId, data) {
-      return (collectionName.matches('^files_[A-Za-z0-9_-]+$') && legacyFileAccess(collectionName, documentId, data, 'view'))
+      return replyRequestReadAllowed(collectionName, data)
+        || (collectionName.matches('^files_[A-Za-z0-9_-]+$') && legacyFileAccess(collectionName, documentId, data, 'view'))
         || (!(collectionName.matches('^files_[A-Za-z0-9_-]+$')) && ((
           collectionName.matches('^tasks_[A-Za-z0-9_-]+$')
           && legacyTaskReadAllowed(collectionName, data)
@@ -5188,7 +5291,8 @@ service cloud.firestore {
     }
 
     function legacyTopLevelCreateAllowed(collectionName, documentId, data) {
-      return (collectionName.matches('^events_[A-Za-z0-9_-]+$') && collectionName == 'events_' + legacySchoolId(data) && (calendarActionAllowed(legacySchoolId(data), 'create') || (accessProfile(legacySchoolId(data)).size() == 0 && legacyWriteAllowed(collectionName, data))))
+      return replyRequestCreateAllowed(collectionName, data)
+        || (collectionName.matches('^events_[A-Za-z0-9_-]+$') && collectionName == 'events_' + legacySchoolId(data) && (calendarActionAllowed(legacySchoolId(data), 'create') || (accessProfile(legacySchoolId(data)).size() == 0 && legacyWriteAllowed(collectionName, data))))
         || (!collectionName.matches('^events_[A-Za-z0-9_-]+$') && ((collectionName.matches('^files_[A-Za-z0-9_-]+$') && !isAttendanceFile(data) && !isGradebookFile(data) && legacyFileAccess(collectionName, documentId, data, 'create'))
         || (!(collectionName.matches('^files_[A-Za-z0-9_-]+$') && !isAttendanceFile(data) && !isGradebookFile(data)) && ((
           collectionName.matches('^tasks_[A-Za-z0-9_-]+$')
@@ -5234,7 +5338,8 @@ service cloud.firestore {
     }
 
     function legacyTopLevelUpdateAllowed(collectionName, documentId) {
-      return (collectionName.matches('^events_[A-Za-z0-9_-]+$') && collectionName == 'events_' + legacySchoolId(resource.data) && (calendarActionAllowed(legacySchoolId(resource.data), 'edit') || (accessProfile(legacySchoolId(resource.data)).size() == 0 && legacyWriteAllowed(collectionName, resource.data))))
+      return replyRequestAnswerAllowed(collectionName)
+        || (collectionName.matches('^events_[A-Za-z0-9_-]+$') && collectionName == 'events_' + legacySchoolId(resource.data) && (calendarActionAllowed(legacySchoolId(resource.data), 'edit') || (accessProfile(legacySchoolId(resource.data)).size() == 0 && legacyWriteAllowed(collectionName, resource.data))))
         || (!collectionName.matches('^events_[A-Za-z0-9_-]+$') && ((collectionName.matches('^files_[A-Za-z0-9_-]+$') && !isAttendanceFile(resource.data) && !isGradebookFile(resource.data) && legacyFileAccess(collectionName, documentId, resource.data, 'edit'))
         || (!(collectionName.matches('^files_[A-Za-z0-9_-]+$') && !isAttendanceFile(resource.data) && !isGradebookFile(resource.data)) && ((
           collectionName.matches('^tasks_[A-Za-z0-9_-]+$')
