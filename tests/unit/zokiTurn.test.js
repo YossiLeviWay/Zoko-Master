@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { TOOL_SCHEMAS } from '../../worker/src/claude.js';
 import { buildLocalRequest } from '../../worker/src/localModel.js';
-import { appendLearningLog, buildSchoolContext, claudeLimitFor, dailyLimitFor, dayKey, learningLogLine, looksLikeAction, secondsToMidnight, stripStudentSection, teachingNote, toolSpecs, validatedProposal } from '../../worker/src/zokiTurn.js';
+import { appendLearningLog, buildSchoolContext, claudeLimitFor, dailyLimitFor, dayKey, learningLogLine, looksLikeAction, replyWithoutFalseSave, secondsToMidnight, stripStudentSection, teachingNote, toolSpecs, validatedProposal } from '../../worker/src/zokiTurn.js';
 
 test('daily limits depend on the role and can be overridden', () => {
   assert.equal(dailyLimitFor('principal'), 300);
@@ -23,8 +23,14 @@ test('only instructions are routed to an action; questions are not', () => {
 
 test('teaching becomes a short personal note, nothing else does', () => {
   assert.equal(teachingNote('זכור שאני מחנכת של ז2'), 'אני מחנכת של ז2');
+  assert.equal(teachingNote('תזכור שאני פותח ישיבות בסיכום החלטות'), 'אני פותח ישיבות בסיכום החלטות');
+  assert.equal(teachingNote('חשוב שתדע: אצלי ישיבות הנהלה נפתחות בסיכום החלטות'), 'אצלי ישיבות הנהלה נפתחות בסיכום החלטות');
+  assert.equal(teachingNote('העדפות שלי: תענה תמיד בעברית קצרה ובנקודות'), 'תענה תמיד בעברית קצרה ובנקודות');
   assert.equal(teachingNote('מי מחנכת ז2?'), '');
   assert.equal(teachingNote('זכור'), '');
+  assert.equal(replyWithoutFalseSave('רשמתי. אזכור את זה.', false), 'לא שמרתי את זה כזיכרון. כדי שאשמור, התחילו ב«תזכור ש…», «חשוב שתדע: …» או «העדפות שלי: …».');
+  assert.equal(replyWithoutFalseSave('רשמתי.', true), 'רשמתי.');
+  assert.equal(replyWithoutFalseSave('הנה מבנה לישיבה.', false), 'הנה מבנה לישיבה.');
 });
 
 test('students are hidden from the model unless the user may see them', () => {

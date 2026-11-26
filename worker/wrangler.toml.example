@@ -2,6 +2,11 @@ name = "zoko-task-agent"
 main = "src/index.js"
 compatibility_date = "2026-08-26"
 
+# Keep Workers Logs on. wrangler.toml itself is untracked and holds no secrets;
+# copy this block into it so a later `wrangler deploy` does not turn logging off.
+[observability]
+enabled = true
+
 [triggers]
 crons = ["15 2 * * *"]
 

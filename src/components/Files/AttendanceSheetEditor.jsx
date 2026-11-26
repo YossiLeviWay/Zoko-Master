@@ -18,7 +18,8 @@ import {
   subscribeAttendanceMembers,
   subscribeAttendanceRecords,
 } from '../../services/firestore/attendanceRepository';
-import { calculateAttendanceSummary, todayDateKey } from '../../utils/attendance';
+import { attendanceRowStatus, calculateAttendanceSummary, todayDateKey } from '../../utils/attendance';
+import { subscribeStudentEnrollments } from '../../services/firestore/studentLifecycleRepository';
 import './Attendance.css';
 
 const PAGE_SIZE = 14;
@@ -53,6 +54,7 @@ export default function AttendanceSheetEditor({ file, schoolId, actor, permissio
   const [showLegend, setShowLegend] = useState(false);
   const navigate = useNavigate();
   const [students, setStudents] = useState([]);
+  const [enrollments, setEnrollments] = useState([]);
   const [brush, setBrush] = useState('');
   const [addOpen, setAddOpen] = useState(false);
   const [addForm, setAddForm] = useState({ firstName: '', lastName: '', parentPhone: '' });
@@ -90,6 +92,14 @@ export default function AttendanceSheetEditor({ file, schoolId, actor, permissio
   }, [classItem?.id, schoolId]);
 
   useEffect(() => {
+    if (!classItem?.id) return undefined;
+    return subscribeStudentEnrollments({
+      db, schoolId, academicYearId: file.academicYearId || classItem.academicYearId || '', classIds: [classItem.id], canViewAll: false,
+      onData: setEnrollments, onError: () => setEnrollments([]),
+    });
+  }, [classItem?.academicYearId, classItem?.id, file.academicYearId, schoolId]);
+
+  useEffect(() => {
     if (!days.length) return;
     const todayIndex = days.findIndex(day => day.dateKey >= todayDateKey());
     if (todayIndex >= 0) setPage(Math.floor(todayIndex / PAGE_SIZE));
@@ -104,7 +114,17 @@ export default function AttendanceSheetEditor({ file, schoolId, actor, permissio
   // The student card is the source of truth: a renamed or archived student shows correctly here at once.
   const studentCards = useMemo(() => new Map(students.map(item => [item.id, item])), [students]);
   const memberName = member => studentCards.get(member.studentId)?.fullName || member.displayName;
-  const memberStatus = member => studentCards.get(member.studentId)?.status || member.status || 'active';
+  const enrollmentFor = member => {
+    const rows = enrollments.filter(item => item.studentId === member.studentId);
+    const yearId = file.academicYearId || classItem?.academicYearId;
+    return rows.find(item => yearId && item.academicYearId === yearId && item.classId === classItem?.id)
+      || rows.find(item => item.classId === classItem?.id)
+      || null;
+  };
+  // Until the class list has arrived, don't paint a stale sheet flag as "בארכיון".
+  const memberStatus = member => (studentsLoaded || studentCards.has(member.studentId)
+    ? attendanceRowStatus({ member, student: studentCards.get(member.studentId) || null, enrollment: enrollmentFor(member), classId: classItem?.id })
+    : 'active');
   const visibleMembers = members.filter(member => member.included !== false && (!search.trim() || memberName(member)?.toLowerCase().includes(search.trim().toLowerCase())));
   const pageCount = Math.max(1, Math.ceil(days.length / PAGE_SIZE));
   const visibleDays = days.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);

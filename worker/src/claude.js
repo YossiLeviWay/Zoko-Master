@@ -6,7 +6,7 @@ import { allowedTools, AGENT_TOOLS } from '../../functions/src/roleAgents.js';
 
 export const ANTHROPIC_VERSION = '2023-06-01';
 export const DEFAULT_MODEL = 'claude-sonnet-5-5';
-export const LIMITS = Object.freeze({ messages: 12, messageChars: 4000, maxTokens: 1024 });
+export const LIMITS = Object.freeze({ messages: 12, messageChars: 4000, maxTokens: 2048 });
 
 // Claude may only PROPOSE these. The browser shows the proposal and the user
 // approves; execution then goes through the normal permission checks.

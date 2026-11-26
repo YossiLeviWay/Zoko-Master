@@ -17,7 +17,7 @@ import Header from '../Layout/Header';
 import CategoryManager from './CategoryManager';
 import CalendarDialog from './CalendarDialog';
 import EventBank from './EventBank';
-import { calendarDateFields, sortCalendarCategories, DEFAULT_EVENT_TEMPLATES } from '../../utils/calendarInteractions';
+import { calendarDateFields, SCHOOL_WEEK, sortCalendarCategories, DEFAULT_EVENT_TEMPLATES, todayScrollTop } from '../../utils/calendarInteractions';
 import EventModal from './EventModal';
 import YearlyOverview from './YearlyOverview';
 import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
@@ -27,7 +27,7 @@ import { academicYearDisplay, academicYearForDate } from '../../utils/academicYe
 import { schoolCollection } from '../../services/firestore/paths';
 import { subscribeInitiativeTimeline } from '../../services/firestore/initiativeRepository';
 import { milestoneDate } from '../../utils/initiatives';
-import { hasSessionValue, useSessionState } from '../../utils/sessionCache';
+import { hasSessionValue, readSessionValue, useSessionState } from '../../utils/sessionCache';
 import './Gantt.css';
 
 const HEBREW_DAYS = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
@@ -82,6 +82,7 @@ export default function GanttChart() {
   // from the final picture (right days, categories, events, position) in its first frame.
   const cacheKey = `calendar:${schoolId || ''}`;
   const seenBefore = hasSessionValue(`${cacheKey}:days`) && hasSessionValue(`${cacheKey}:categories`);
+  const monthEventsCached = Array.isArray(readSessionValue(`${cacheKey}:events`, {})[`${new Date().getFullYear()}-${new Date().getMonth()}`]);
   const [bankOpen, setBankOpen] = useState(false);
   const [categoryOpen, setCategoryOpen] = useState(params.get('categories') === '1');
   const [templates, setTemplates] = useSessionState(`${cacheKey}:templates`, DEFAULT_EVENT_TEMPLATES);
@@ -91,15 +92,15 @@ export default function GanttChart() {
   const [menu, setMenu] = useState(null);
   const [categoriesReady, setCategoriesReady] = useState(seenBefore);
   const [settingsReady, setSettingsReady] = useState(seenBefore);
-  const [eventsReady, setEventsReady] = useState(seenBefore);
+  const [eventsReady, setEventsReady] = useState(monthEventsCached);
   // The grid is shown once, complete: after categories, visible days and events arrived and the
   // view is already positioned on today. Until then its space is reserved, so nothing jumps.
   const [revealed, setRevealed] = useState(false);
-  const events = eventsByMonth[`${year}-${month}`] || [];
   const tableRef = useRef(null);
   const menuRef = useRef(null);
   const touchDrag = useRef(null);
   const [eventsByMonth, setEventsByMonth] = useSessionState(`${cacheKey}:events`, {});
+  const events = eventsByMonth[`${year}-${month}`] || [];
   const [categories, setCategories] = useSessionState(`${cacheKey}:categories`, DEFAULT_CATEGORIES);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
@@ -111,7 +112,7 @@ export default function GanttChart() {
   const [rowHeights, setRowHeights] = useState({});
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState('all');
-  const [visibleDays, setVisibleDays] = useSessionState(`${cacheKey}:days`, [0, 1, 2, 3, 4, 5, 6]);
+  const [visibleDays, setVisibleDays] = useSessionState(`${cacheKey}:days`, [...SCHOOL_WEEK]);
   const [showDaySettings, setShowDaySettings] = useState(false);
   const [allHolidays, setAllHolidays] = useSessionState(`${cacheKey}:holidays`, []);
   const [userTeamIds, setUserTeamIds] = useSessionState(`${cacheKey}:teams`, []);
@@ -187,7 +188,6 @@ export default function GanttChart() {
 
   function handleToday() {
     const today = new Date();
-    if (!visibleDays.includes(today.getDay())) setVisibleDays(previous => [...previous, today.getDay()].sort((a, b) => a - b));
     setYear(today.getFullYear());
     setMonth(today.getMonth());
     setSelectedDate(today);
@@ -199,14 +199,23 @@ export default function GanttChart() {
   // today, with no visible scrolling. Only the "today" button, pressed later, scrolls smoothly.
   useLayoutEffect(() => {
     if (!calendarReady) return;
-    if (!pendingTodayNavigation) { setRevealed(true); return; }
-    const cell = todayCellRef.current;
     const wrap = tableRef.current;
-    if (!cell || !wrap) { setRevealed(true); return; }
-    const animate = revealed && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const head = wrap.querySelector('thead').getBoundingClientRect().height;
-    const top = wrap.scrollTop + cell.getBoundingClientRect().top - wrap.getBoundingClientRect().top - head - 18;
-    wrap.scrollTo({ top: Math.max(0, top), behavior: animate ? 'smooth' : 'instant' });
+    const cell = todayCellRef.current;
+    if (!pendingTodayNavigation) { setRevealed(true); return; }
+    // Today is outside the school week (Friday/Saturday): show the week as it is, without scrolling.
+    if (!cell || !wrap) {
+      if (wrap && !visibleDays.includes(new Date().getDay())) { setPendingTodayNavigation(false); setRevealed(true); }
+      return;
+    }
+    const head = wrap.querySelector('thead')?.getBoundingClientRect().height || 0;
+    const cellBox = cell.getBoundingClientRect();
+    const wrapBox = wrap.getBoundingClientRect();
+    // Assign scrollTop directly. scrollTo({ behavior }) was animating, and overflow:hidden
+    // on the loading pane dropped the position when the pane was revealed.
+    wrap.scrollTop = todayScrollTop({
+      scrollTop: wrap.scrollTop, cellTop: cellBox.top, wrapTop: wrapBox.top,
+      headHeight: head, wrapHeight: wrap.clientHeight, cellHeight: cellBox.height,
+    });
     if (revealed) { cell.focus({ preventScroll: true }); setTodayPulse(true); }
     setPendingTodayNavigation(false);
     setRevealed(true);
@@ -248,10 +257,9 @@ export default function GanttChart() {
     // A listener (not a one-time read) answers from the in-memory cache at once on a repeat visit.
     return onSnapshot(doc(db, `settings_${schoolId}`, 'calendar'), docSnap => {
       if (docSnap.exists() && Array.isArray(docSnap.data().eventTemplates)) setTemplates(docSnap.data().eventTemplates);
-      if (docSnap.exists() && docSnap.data().visibleDays) {
-        const todayDay = new Date().getDay();
-        const savedDays = docSnap.data().visibleDays;
-        setVisibleDays(savedDays.includes(todayDay) ? savedDays : [...savedDays, todayDay].sort((a, b) => a - b));
+      if (docSnap.exists() && Array.isArray(docSnap.data().visibleDays) && docSnap.data().visibleDays.length) {
+        const savedDays = docSnap.data().visibleDays.filter(day => Number.isInteger(day) && day >= 0 && day <= 6);
+        setVisibleDays(previous => (previous.length === savedDays.length && previous.every((day, index) => day === savedDays[index]) ? previous : savedDays));
       }
       setSettingsReady(true);
     }, () => setSettingsReady(true));

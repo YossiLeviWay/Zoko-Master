@@ -45,7 +45,8 @@ export default function TaskWorkspaceRoute() {
   if (params.get('view') === 'communications') return <Navigate to={`/messages?${params}`} replace />;
   if (params.get('view') === 'invitations' || params.get('initiative') || location.state?.zokiDraftId) return <LegacyBoard />;
   if (!uid || !schoolId) return null;
-  if (!backendEnabled && sparkAccess?.scope !== scope) return <p role="status" dir="rtl">טוען את המשימות…</p>;
-  if (legacy || (!backendEnabled && !sparkAccess.allowed)) return <LegacyBoard />;
+  // The access read used to replace the whole page with one line on the first visit.
+  // Open the board immediately; if the read says the new board is forbidden, switch then.
+  if (legacy || (!backendEnabled && sparkAccess?.scope === scope && !sparkAccess.allowed)) return <LegacyBoard />;
   return <TaskWorkspace key={scope} freeMode={!backendEnabled} pagingReady={pagingReady} />;
 }

@@ -14,8 +14,19 @@ function environment(over = {}) {
 }
 
 // Routes every outbound call to a fake; records what the model service and the counter received.
-function fakes({ count = 1, route = { tool: null }, tasksCreate = true, claude = 'ok', brain = true, personal = null } = {}) {
+function fakes({ count = 1, route = { tool: null }, tasksCreate = true, claude = 'ok', brain = true, personal = null, persistPersonal = false } = {}) {
   const seen = { model: [], commits: 0, claude: [], brainWrites: 0, personal, personalWrites: [] };
+  // What Firestore would hold for this user. A masked update on a missing document does not create it.
+  let brainDoc = personal ? { profile: str(JSON.stringify(personal)), snapshot: str(JSON.stringify({ at: new Date().toISOString(), name: 'דנה', jobTitle: 'מזכירה', openTasks: 0 })) } : null;
+  const applyPersonalWrite = write => {
+    const fields = write?.update?.fields;
+    if (!fields) return;
+    if (!write.updateMask) { brainDoc = { ...fields }; return; }
+    if (!brainDoc) return;
+    const next = { ...brainDoc };
+    for (const path of write.updateMask.fieldPaths || []) if (fields[path]) next[path] = fields[path];
+    brainDoc = next;
+  };
   globalThis.fetch = async (input, init = {}) => {
     const url = String(input);
     let body = {};
@@ -25,9 +36,17 @@ function fakes({ count = 1, route = { tool: null }, tasksCreate = true, claude =
       accessProfilesBySchool: map({ s1: map({ presetId: str('secretary'), school: map({ 'tasks.create': { booleanValue: tasksCreate } }) }) }) } });
     if (url.includes('/documents/zokiAgents/')) return new Response('{}', { status: 404 });
     if (url.includes('oauth2.googleapis.com')) return Response.json({ access_token: 'adm' });
-    if (url.includes(':commit')) { seen.commits += 1; if (String(init.body).includes('zokiPersonalBrain')) seen.personalWrites.push(body.writes[0]); if (String(init.body).includes('schoolBrain')) seen.brainWrites += 1; return Response.json({ writeResults: [{ transformResults: [{ integerValue: String(count) }] }] }); }
+    if (url.includes(':commit')) {
+      seen.commits += 1;
+      if (String(init.body).includes('zokiPersonalBrain')) {
+        seen.personalWrites.push(body.writes[0]);
+        if (persistPersonal) applyPersonalWrite(body.writes[0]);
+      }
+      if (String(init.body).includes('schoolBrain')) seen.brainWrites += 1;
+      return Response.json({ writeResults: [{ transformResults: [{ integerValue: String(count) }] }] });
+    }
     if (url.endsWith('/documents/schoolBrain/s1')) return brain ? Response.json({ fields: { markdown: str('# מוח\n\n## סגל\n\nדנה\n\n## תלמידים והקשרים לימודיים\n\n| נועה לוי | ז1 |\n'), version: str('1') } }) : new Response('{}', { status: 404 });
-    if (url.includes('/documents/zokiPersonalBrain/')) return seen.personal ? Response.json({ fields: { profile: str(JSON.stringify(seen.personal)), snapshot: str(JSON.stringify({ at: new Date().toISOString(), name: 'דנה', jobTitle: 'מזכירה', openTasks: 0 })) } }) : new Response('{}', { status: 404 });
+    if (url.includes('/documents/zokiPersonalBrain/')) return brainDoc ? Response.json({ fields: brainDoc }) : new Response('{}', { status: 404 });
     if (url.endsWith('/documents/tasks_s1?pageSize=1000')) return Response.json({ documents: [{ name: 'x/tasks_s1/k1', fields: { title: str('להזמין אוטובוס לטיול'), dueDate: str('2020-01-01'), status: str('open'), assigneeIds: { arrayValue: { values: [str('u1')] } } } }] });
     if (url.includes('/documents/schoolBrain/')) return new Response('{}', { status: 404 });
     // Any other collection read (used to build a brain from school data) is simply empty.
@@ -41,7 +60,16 @@ function fakes({ count = 1, route = { tool: null }, tasksCreate = true, claude =
       seen.claude.push(body);
       if (claude === 'down') return new Response('{}', { status: 529 });
       if (claude === 'credit') return new Response('{}', { status: 429 });
-      if (JSON.stringify(body.system).includes('מנגנון הזיכרון')) return Response.json({ content: [{ type: 'text', text: '{"summary":"שואלת על סדרי עדיפויות","focus":["הטיול השנתי"],"mood":null}' }] });
+      if (JSON.stringify(body.system).includes('מנגנון הזיכרון')) {
+        if (claude === 'learn') {
+          const asked = JSON.stringify(body.messages);
+          const text = asked.includes('מבחן מחצית')
+            ? '{"summary":"מעדיף קיצור ועסוק במבחן","preferences":["תשובות קצרות בנקודות"],"focus":["הכנה למבחן מחצית"],"insights":["לפתוח בנקודות"],"mood":null}'
+            : '{"summary":"מעדיף תשובות קצרות","preferences":["תשובות קצרות בנקודות"],"focus":[],"mood":null}';
+          return Response.json({ content: [{ type: 'text', text }] });
+        }
+        return Response.json({ content: [{ type: 'text', text: '{"summary":"שואלת על סדרי עדיפויות","focus":["הטיול השנתי"],"mood":null}' }] });
+      }
       return Response.json({ content: [{ type: 'text', text: 'תשובת קלוד' }], stop_reason: 'end_turn', usage: {} });
     }
     throw new Error(`unexpected fetch ${url}`);
@@ -144,6 +172,59 @@ test('the answer is personal: the user\'s own tasks and what Zoki learned reach 
   await turn([{ role: 'user', content: 'מה הכי דחוף לי השבוע?' }], environment());
   assert.ok(local.model[0].context.includes('תשובות קצרות בנקודות'));
   assert.equal(local.claude.length, 0);
+});
+
+test('the first turn waits for a missing snapshot, then the reflection still runs after the answer', async () => {
+  const seen = fakes();
+  const pending = [];
+  const ctx = { waitUntil(promise) { pending.push(promise); } };
+  const response = await worker.fetch(new Request('https://w.example.com/v1/zoki/turn', {
+    method: 'POST', headers: { authorization: 'Bearer t', 'content-type': 'application/json' },
+    body: JSON.stringify({ schoolId: 's1', messages: [{ role: 'user', content: 'מה הכי דחוף לי השבוע?' }] }),
+  }), claudeEnv(), ctx);
+  assert.equal(response.status, 200);
+  const answer = seen.claude.find(call => !JSON.stringify(call.system).includes('מנגנון הזיכרון'));
+  assert.ok(JSON.stringify(answer.system).includes('להזמין אוטובוס לטיול'), 'the answer is sent with the live snapshot');
+  await Promise.all(pending);
+  assert.ok(seen.claude.some(call => JSON.stringify(call.system).includes('מנגנון הזיכרון')), 'reflection runs after the answer');
+  const created = seen.personalWrites.find(write => write.update.fields.snapshot && !write.updateMask);
+  assert.ok(created, 'the first snapshot must create the document; a masked update fails when it is missing');
+  assert.ok(seen.personalWrites.some(write => write.update.fields.profile));
+});
+
+test('three turns: the first already sees tasks, and each answer is learned and used on the next turn', async () => {
+  const seen = fakes({ persistPersonal: true, claude: 'learn' });
+  const env = claudeEnv();
+  const history = [];
+  const ask = async text => {
+    const pending = [];
+    history.push({ role: 'user', content: text });
+    const response = await worker.fetch(new Request('https://w.example.com/v1/zoki/turn', {
+      method: 'POST', headers: { authorization: 'Bearer t', 'content-type': 'application/json' },
+      body: JSON.stringify({ schoolId: 's1', messages: history }),
+    }), env, { waitUntil(promise) { pending.push(promise); } });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    await Promise.all(pending);
+    history.push({ role: 'assistant', content: body.reply });
+  };
+  const answers = () => seen.claude.filter(call => !JSON.stringify(call.system).includes('מנגנון הזיכרון'));
+  await ask('אני מעדיף תשובות קצרות בנקודות תמיד');
+  const first = JSON.stringify(answers()[0].system);
+  assert.ok(first.includes('להזמין אוטובוס לטיול'), 'the first turn already has the live task snapshot');
+  assert.ok(!first.includes('תשובות קצרות בנקודות'), 'nothing has been learned before the first reflection');
+  await ask('השבוע אני עסוק בהכנה למבחן מחצית');
+  const second = JSON.stringify(answers()[1].system);
+  assert.ok(second.includes('תשובות קצרות בנקודות'), 'turn 2 uses what turn 1 taught');
+  assert.ok(second.includes('להזמין אוטובוס לטיול'));
+  await ask('מה כדאי לי לעשות קודם השבוע?');
+  const third = JSON.stringify(answers()[2].system);
+  assert.ok(third.includes('תשובות קצרות בנקודות') && third.includes('הכנה למבחן מחצית'));
+  const stored = JSON.parse(seen.personalWrites.at(-1).update.fields.profile.stringValue);
+  assert.equal(stored.turns, 3);
+  assert.deepEqual(stored.preferences, ['תשובות קצרות בנקודות']);
+  assert.equal(stored.focus[0].text, 'הכנה למבחן מחצית');
+  assert.ok(seen.personalWrites.at(-1).update.name.endsWith('/zokiPersonalBrain/u1__s1'));
 });
 
 test('a user reads and clears only their own personal brain', async () => {

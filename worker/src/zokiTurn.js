@@ -30,10 +30,33 @@ const ACTION_START = /^\s*(?:(?:בבקשה|תוכל|תוכלי|אפשר|נא)\s+
 export const looksLikeAction = text => ACTION_START.test(String(text || ''));
 
 // "Remember that ..." becomes a personal memory of this user only; it never becomes school knowledge by itself.
-const TEACH = /^\s*(?:זכור|תזכור|זכרי|תזכרי|תדע|דע|לידיעתך)\s*(?:ש|כי|:)?\s*(.{6,400})$/su;
+// The live chat used three openings. Only the first matched, but the model said "רשמתי" to all three.
+const TEACH_PATTERNS = [
+  /^\s*(?:בבקשה\s+)?(?:זכור|תזכור|זכרי|תזכרי|תזכרו)\s*(?:ש|כי|:)?\s*(.{6,400})$/su,
+  /^\s*(?:חשוב\s+ש?)?(?:תדע|תדעי|דע|דעי)\s*[:\-]?\s*(?:ש|כי)?\s*(.{6,400})$/su,
+  /^\s*חשוב\s+לדעת\s*[:\-]?\s*(.{6,400})$/su,
+  /^\s*לידיעתך\s*[:\-]?\s*(.{6,400})$/su,
+  /^\s*ה?העדפות?\s+שלי\s*[:\-]\s*(.{6,400})$/su,
+];
 export function teachingNote(text) {
-  const match = TEACH.exec(String(text || ''));
-  return match ? sanitizeInstitutionalText(match[1], 400) : '';
+  const source = String(text || '');
+  for (const pattern of TEACH_PATTERNS) {
+    const match = pattern.exec(source);
+    if (!match) continue;
+    const note = sanitizeInstitutionalText(match[1], 400);
+    if (note.length >= 6) return note;
+  }
+  return '';
+}
+
+// The model must not tell the user it wrote something down when nothing was stored.
+const SAVE_CLAIM = /רשמתי|שמרתי|נשמר(?:\s+לי|\s+בזיכרון)?|אזכור(?:\s+את\s+זה)?/u;
+export function replyWithoutFalseSave(reply, saved) {
+  const text = String(reply || '').trim();
+  if (saved || !SAVE_CLAIM.test(text)) return text;
+  const kept = text.split(/\n+/u).flatMap(line => line.split(/(?<=[.!?])\s+/u)).map(part => part.trim()).filter(part => part && !SAVE_CLAIM.test(part));
+  const honest = 'לא שמרתי את זה כזיכרון. כדי שאשמור, התחילו ב«תזכור ש…», «חשוב שתדע: …» או «העדפות שלי: …».';
+  return [honest, ...kept].join('\n').trim();
 }
 
 export function stripStudentSection(markdown) {

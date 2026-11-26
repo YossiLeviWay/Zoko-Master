@@ -25,6 +25,7 @@ import zokiAvatar from '../../assets/zoki-avatar-minimal.svg';
 import './Zoki.css';
 import ZokiPersonalSettings from './ZokiPersonalSettings.jsx';
 import { isZokiAgentConfigured, zokiRequest, zokiSourcePaths, syncPersonalAgentConversation } from '../../services/zokiAgentService.js';
+import { warmZokiConnection } from '../../services/zokiClaudeService.js';
 
 const STARTERS = [
   'מה המשימות הפתוחות שלי?',
@@ -122,6 +123,8 @@ function ScopedZokiPage({ embedded = false, onMinimize = () => undefined }) {
     if (!schoolId || !canManage) return undefined;
     return subscribeZokiBrain({ db, schoolId, onData: value => { setBrain(value); setBrainDraft(value); }, onError: () => undefined });
   }, [canManage, schoolId]);
+
+  useEffect(() => { warmZokiConnection(); }, [schoolId]);
 
   useEffect(() => {
     let active = true;

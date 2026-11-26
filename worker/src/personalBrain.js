@@ -58,7 +58,7 @@ const closed = status => ['done', 'completed', 'archived', 'cancelled', 'cancele
 // The user's own corner of the school. Only items that already belong to this user are kept, so the
 // snapshot never widens what they may see: their teams, their classes, tasks they own or share,
 // and calendar entries addressed to everyone or to one of their teams.
-export function buildPersonalSnapshot({ uid, user = {}, teams = [], classes = [], tasks = [], events = [], holidays = [], now = new Date() }) {
+export function buildPersonalSnapshot({ uid, user = {}, teams = [], classes = [], tasks = [], events = [], holidays = [], manager = false, now = new Date() }) {
   const today = dateKey(now);
   const horizon = dateKey(new Date(now.getTime() + 14 * DAY));
   const holidayHorizon = dateKey(new Date(now.getTime() + 30 * DAY));
@@ -73,7 +73,14 @@ export function buildPersonalSnapshot({ uid, user = {}, teams = [], classes = []
     mineToDo: mine(task.assigneeIds, uid) || task.assigneeId === uid,
   })).filter(task => task.title)
     .sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999'));
-  const visible = event => !event.visibleTo || event.visibleTo === 'all' || (Array.isArray(event.visibleTo) && event.visibleTo.some(id => teamIds.has(id)));
+  const seesAllEvents = manager === true || ['principal', 'institution_manager', 'global_admin'].includes(user.role);
+  const visible = event => seesAllEvents || !event.visibleTo || event.visibleTo === 'all' || (Array.isArray(event.visibleTo) && event.visibleTo.some(id => teamIds.has(id)));
+  const spanOf = event => {
+    const start = String(event.date || event.startDate || '').slice(0, 10);
+    const end = String(event.endDate || start).slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/u.test(start)) return null;
+    return { start, end: /^\d{4}-\d{2}-\d{2}$/u.test(end) ? end : start };
+  };
   return {
     name: text(user.fullName, 80),
     jobTitle: text(user.jobTitle || user.roleName, 80),
@@ -86,8 +93,13 @@ export function buildPersonalSnapshot({ uid, user = {}, teams = [], classes = []
     overdue: myTasks.filter(task => task.due && task.due < today).length,
     openTasks: myTasks.length,
     tasks: myTasks.slice(0, 10),
-    events: events.filter(event => event.status !== 'archived' && typeof event.date === 'string' && event.date >= today && event.date <= horizon && visible(event))
-      .sort((a, b) => a.date.localeCompare(b.date)).slice(0, 8).map(event => ({ date: event.date, title: text(event.title, 100), category: text(event.category, 40) })).filter(event => event.title),
+    events: events.flatMap(event => {
+      const span = spanOf(event);
+      if (!span || event.status === 'archived' || span.end < today || span.start > horizon || !visible(event)) return [];
+      const grade = text(event.audience?.grade || event.grade || '', 20);
+      const subject = text(event.audience?.subject || '', 40);
+      return [{ date: span.start, end: span.end === span.start ? '' : span.end, title: text(event.title, 100), category: text(event.category, 40), grade, subject }];
+    }).filter(event => event.title).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 12),
     holidays: holidays.filter(item => typeof item.startDate === 'string' && (item.endDate || item.startDate) >= today && item.startDate <= holidayHorizon)
       .sort((a, b) => a.startDate.localeCompare(b.startDate)).slice(0, 3).map(item => ({ from: item.startDate, to: item.endDate || item.startDate, title: text(item.name || item.title, 80) })).filter(item => item.title),
     at: now.toISOString(),
@@ -113,9 +125,11 @@ export function snapshotText(snapshot, now = new Date()) {
       lines.push(`- ${task.title} (${due}${task.mineToDo ? '' : ', שותף/ה'})`);
     }
   }
-  if (snapshot.events?.length) {
-    lines.push('בלוח השנה שלו/ה בשבועיים הקרובים:');
-    for (const event of snapshot.events) lines.push(`- ${shortDate(event.date)} ${event.title}`);
+  lines.push('בגאנט ובלוח השנה בשבועיים הקרובים' + (snapshot.events?.length ? ':' : ': אין אירועים גלויים.'));
+  for (const event of snapshot.events || []) {
+    const when = event.end ? `${shortDate(event.date)}–${shortDate(event.end)}` : shortDate(event.date);
+    const about = [event.grade && `שכבה ${event.grade}`, event.subject, event.category].filter(Boolean).join(', ');
+    lines.push(`- ${when} ${event.title}${about ? ` (${about})` : ''}`);
   }
   if (snapshot.holidays?.length) lines.push(`חופשות קרובות: ${snapshot.holidays.map(item => `${item.title} (${shortDate(item.from)}${item.to !== item.from ? `–${shortDate(item.to)}` : ''})`).join(', ')}.`);
   return lines.join('\n');
@@ -169,8 +183,8 @@ const REFLECTION_SYSTEM = [
   '{"summary": string, "facts": string[], "preferences": string[], "focus": string[], "insights": string[], "mood": {"tone": string, "note": string} | null}',
   'משמעות השדות:',
   '- summary: עד 3 משפטים על האדם בעבודה ועל אופן העבודה איתו.',
-  '- facts: עובדות יציבות שהוא עצמו אמר על עצמו (רקע, ותק, מקצועות, תחומי עניין מקצועיים).',
-  '- preferences: איך הוא אוהב לקבל עזרה (אורך, סגנון, פורמט, שפה).',
+  '- facts: עובדות יציבות שהוא עצמו אמר על עצמו (רקע, ותק, מקצועות, תחומי עניין מקצועיים, איך מתנהלות אצלו ישיבות).',
+  '- preferences: איך הוא אוהב לקבל עזרה (אורך, סגנון, פורמט, שפה, מבנה ישיבה). שמור העדפה גם אם לא אמר «תזכור».',
   '- focus: מה מעסיק אותו כעת בעבודה: מטרות, דאגות ונושאים פתוחים שכדאי לחזור אליהם.',
   '- insights: מסקנות שלך על הדרך היעילה לעזור לאדם הזה, מנוסחות כהנחיה מעשית לזוקי.',
   `- mood: איך הוא נשמע בשיחה הזו. tone אחד מתוך: ${MOODS.join(', ')}. note: הסבר קצר שנשען על מה שנאמר. אם אין סימן ברור, null.`,

@@ -114,7 +114,15 @@ function ApprovedRoute({ children }) {
 
 function LoginRoute({ children }) {
   const { currentUser, loading, selectedSchool, isGlobalAdmin, isPlatformAdmin } = useAuth();
-  if (loading) return null;
+  // A null render here was a blank page for the whole profile load after submit.
+  if (loading && !currentUser) {
+    return (
+      <div className="loading-screen">
+        <div className="loading-spinner" />
+        <p>טוען...</p>
+      </div>
+    );
+  }
   if (currentUser && (selectedSchool || isGlobalAdmin() || isPlatformAdmin())) return <Navigate to="/" />;
   return children;
 }

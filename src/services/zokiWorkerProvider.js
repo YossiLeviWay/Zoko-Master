@@ -2,7 +2,7 @@
 // The browser sends the conversation plus vetted regulation/milestone text. The Worker adds the
 // institutional knowledge the user may see and may return an action PROPOSAL, which only enters the
 // existing approval flow; nothing is executed from here.
-import { teachingNote } from '../../worker/src/zokiTurn.js';
+import { replyWithoutFalseSave, teachingNote } from '../../worker/src/zokiTurn.js';
 
 const CONTEXT_CHARS = 5500;
 
@@ -30,7 +30,7 @@ export class WorkerZokiProvider {
     const others = proposals.filter(item => item !== task).map(item => `הצעה (עדיין לא ניתנת לאישור כאן): ${item.tool}`);
     const note = teachingNote(input.question);
     return {
-      answer: [reply, ...others].join('\n'),
+      answer: replyWithoutFalseSave([reply, ...others].join('\n'), Boolean(note)),
       actionIntent: task ? 'create_task' : 'none',
       actionRequest: task ? [task.input.title, task.input.description].filter(Boolean).join('. ') : '',
       actionTargetType: 'none', actionTargetLabel: '', staffRoleDraft: null,

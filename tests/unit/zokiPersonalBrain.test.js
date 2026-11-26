@@ -41,6 +41,18 @@ test('the snapshot holds only what belongs to this user', () => {
   assert.doesNotMatch(text, /משימה של מישהו אחר|ישיבת מדעים|אירוע רחוק/u);
 });
 
+test('the gantt lists a grade activity in the next two weeks, and a manager sees a team-only event', () => {
+  const volunteering = { id: 'g', title: 'התנדבות', date: '2026-12-01', endDate: '2026-12-02', visibleTo: 'all', audience: { grade: 'י׳', kind: 'activity' }, category: 'חברתי' };
+  const closed = { id: 'p', title: 'ישיבה סגורה', date: '2026-12-03', visibleTo: ['secret'] };
+  const teacher = buildPersonalSnapshot({ ...school, events: [...school.events, volunteering, closed] });
+  assert.deepEqual(teacher.events.filter(event => event.title === 'התנדבות'), [{ date: '2026-12-01', end: '2026-12-02', title: 'התנדבות', category: 'חברתי', grade: 'י׳', subject: '' }]);
+  assert.ok(!teacher.events.some(event => event.title === 'ישיבה סגורה'));
+  assert.match(snapshotText(teacher, now), /בגאנט ובלוח השנה בשבועיים הקרובים:/u);
+  assert.match(snapshotText(teacher, now), /01\/12–02\/12 התנדבות \(שכבה י׳, חברתי\)/u);
+  const principal = buildPersonalSnapshot({ ...school, user: { ...school.user, role: 'principal' }, manager: true, events: [closed] });
+  assert.deepEqual(principal.events.map(event => event.title), ['ישיבה סגורה']);
+});
+
 test('a stored profile is cut to shape; an old mood and an old concern fade away', () => {
   const profile = sanitizeProfile({
     summary: 'x'.repeat(900), facts: ['מלמדת מתמטיקה 12 שנה', 'מלמדת מתמטיקה 12 שנה', 5, 'ת"ז 123456789'],
