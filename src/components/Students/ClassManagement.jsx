@@ -2,14 +2,11 @@ import { ClassPedagogicalMappings } from './PedagogicalMapping.jsx';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Archive,
   CalendarDays,
-  Edit3,
   FileBarChart2,
   FileSpreadsheet,
   GraduationCap,
   Plus,
-  RotateCcw,
   School,
   UserRound,
   Users,
@@ -239,7 +236,7 @@ export default function ClassManagement({
             <ClassPedagogicalMappings schoolId={schoolId} classId={item.id} />
             <div className="class-card-actions">
               <button className="btn btn-secondary btn-sm" onClick={() => onOpenStudents(item)}><Users size={14} /> תלמידי הכיתה</button>
-              {canGraduateClass && item.status !== CLASS_STATUS.ARCHIVED && <button className="btn btn-secondary btn-sm" onClick={() => onGraduateClass(item)}><GraduationCap size={14} /> הפיכת הכיתה לבוגרים</button>}
+              <button className="btn btn-primary btn-sm" onClick={() => navigate(`/files?openAttendanceClass=${encodeURIComponent(item.id)}`)} disabled={item.status === CLASS_STATUS.ARCHIVED}>נוכחות</button>
               {(canViewGradesForClass(item.id) || item.teacherId === actor.uid) && <button
                 className="btn btn-secondary btn-sm"
                 onClick={() => openGradeMapping(item)}
@@ -248,20 +245,20 @@ export default function ClassManagement({
               >
                 <FileBarChart2 size={14} /> {openingMapping === `grades_${item.id}` ? 'פותח…' : 'מיפוי ציונים'}
               </button>}
-              <button
+              {(canCreateAttendance || item.teacherId === actor.uid) && <button
                 className="btn btn-secondary btn-sm"
                 onClick={() => openAttendanceMapping(item)}
-                disabled={item.status === CLASS_STATUS.ARCHIVED || openingMapping === `attendance_${item.id}` || (!canCreateAttendance && item.teacherId !== actor.uid)}
-                title={item.status === CLASS_STATUS.ARCHIVED ? 'לא ניתן ליצור גיליון לכיתה בארכיון' : 'יצירת גיליון נוכחות לכיתה'}
+                disabled={item.status === CLASS_STATUS.ARCHIVED || openingMapping === `attendance_${item.id}`}
+                title="יצירת גיליון נוכחות חדש לכיתה"
               >
-                <FileSpreadsheet size={14} /> {openingMapping === `attendance_${item.id}` ? 'פותח…' : 'מיפוי נוכחות'}
-              </button>
-              {canUpdate && <button className="icon-btn" onClick={() => openEdit(item)} aria-label={`עריכת ${item.name}`}><Edit3 size={15} /></button>}
-              {canArchive && (
-                <button className="icon-btn" onClick={() => toggleArchived(item)} aria-label={item.status === CLASS_STATUS.ARCHIVED ? `שחזור ${item.name}` : `ארכוב ${item.name}`}>
-                  {item.status === CLASS_STATUS.ARCHIVED ? <RotateCcw size={15} /> : <Archive size={15} />}
-                </button>
-              )}
+                <FileSpreadsheet size={14} /> {openingMapping === `attendance_${item.id}` ? 'פותח…' : 'גיליון נוכחות חדש'}
+              </button>}
+              {(canGraduateClass || canArchive || canUpdate) && <details className="class-overflow">
+                <summary>עוד</summary>
+                {canUpdate && <button type="button" onClick={() => openEdit(item)}>עריכת הכיתה</button>}
+                {canGraduateClass && item.status !== CLASS_STATUS.ARCHIVED && <button type="button" className="is-danger" onClick={() => onGraduateClass(item)}><GraduationCap size={14} /> הפיכת הכיתה לבוגרים</button>}
+                {canArchive && <button type="button" className="is-danger" onClick={() => toggleArchived(item)}>{item.status === CLASS_STATUS.ARCHIVED ? 'שחזור מהארכיון' : 'העברה לארכיון'}</button>}
+              </details>}
             </div>
           </article>
         ))}

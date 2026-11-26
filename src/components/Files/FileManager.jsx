@@ -332,6 +332,18 @@ export default function FileManager() {
   }, [searchParams, files, editingFile, setSearchParams, userCanOpenFile]);
 
   useEffect(() => {
+    const classId = searchParams.get('openAttendanceClass');
+    if (!classId || files.length === 0) return;
+    const sheet = files.find(file => file.fileType === 'attendance' && file.classId === classId && file.status !== 'archived');
+    if (sheet && userCanOpenFile(sheet)) {
+      setEditingFile(sheet);
+      setSearchParams({}, { replace: true });
+      return;
+    }
+    setSearchParams(canCreateAttendance ? { createAttendance: classId } : { kind: 'attendance' }, { replace: true });
+  }, [canCreateAttendance, files, searchParams, setSearchParams, userCanOpenFile]);
+
+  useEffect(() => {
     const requestedClassId = searchParams.get('createAttendance');
     if (!requestedClassId || !canCreateAttendance) return;
     const requestedFolderId = searchParams.get('folderId');
@@ -855,9 +867,10 @@ export default function FileManager() {
   const pinnedFolders = sortedFolders.filter(f => f.pinnedBy?.includes(uid));
   const unpinnedFolders = sortedFolders.filter(f => !f.pinnedBy?.includes(uid));
 
+  const attendanceOnly = searchParams.get('kind') === 'attendance';
   function getFilesForFolder(folderId) {
     return files
-      .filter(f => f.folderId === folderId)
+      .filter(f => attendanceOnly ? f.fileType === 'attendance' : f.folderId === folderId)
       .filter(f => f.status !== 'archived')
       .filter(userCanOpenFile)
       .filter(f => !fileSearch.trim() || f.name.toLowerCase().includes(fileSearch.toLowerCase()))

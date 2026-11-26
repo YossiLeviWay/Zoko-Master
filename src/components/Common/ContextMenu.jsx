@@ -38,6 +38,16 @@ export function ContextMenuProvider({ children }) {
       event.stopPropagation();
       open({ x: event.clientX, y: event.clientY }, getItems());
     },
+    onPointerDown: event => {
+      if (event.pointerType === 'mouse') return;
+      if (event.target.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+      const point = { x: event.clientX, y: event.clientY };
+      const timer = window.setTimeout(() => open(point, getItems()), 480);
+      const stop = () => window.clearTimeout(timer);
+      event.currentTarget.addEventListener('pointerup', stop, { once: true });
+      event.currentTarget.addEventListener('pointercancel', stop, { once: true });
+      event.currentTarget.addEventListener('pointerleave', stop, { once: true });
+    },
     onKeyDown: event => {
       if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) {
         event.preventDefault();

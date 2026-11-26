@@ -1,4 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
+import { eventsInSpan } from '../../utils/dashboardWidgets';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../firebase';
@@ -112,6 +113,9 @@ export default function GanttChart() {
   const [rowHeights, setRowHeights] = useState({});
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState('all');
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [myClassOnly, setMyClassOnly] = useState(false);
+  const [myGrades, setMyGrades] = useState([]);
   const [visibleDays, setVisibleDays] = useSessionState(`${cacheKey}:days`, [...SCHOOL_WEEK]);
   const [showDaySettings, setShowDaySettings] = useState(false);
   const [allHolidays, setAllHolidays] = useSessionState(`${cacheKey}:holidays`, []);
@@ -344,7 +348,15 @@ export default function GanttChart() {
 
   // Filter events based on team visibility
   const canSeeAllEvents = isGlobalAdmin() || isPrincipal();
+  useEffect(() => {
+    if (!schoolId || !userData?.uid) return undefined;
+    return onSnapshot(collection(db, `classes_${schoolId}`), snap => {
+      setMyGrades(snap.docs.map(item => item.data()).filter(item => item.teacherId === userData.uid && item.status !== 'archived').map(item => item.gradeLevel).filter(Boolean));
+    }, () => setMyGrades([]));
+  }, [schoolId, userData?.uid]);
+
   function isEventVisible(event) {
+    if (myClassOnly && myGrades.length && event.audience?.grade && !myGrades.includes(event.audience.grade)) return false;
     if (canSeeAllEvents) return true;
     if (!event.visibleTo || event.visibleTo === 'all') return true;
     if (Array.isArray(event.visibleTo)) {
@@ -538,6 +550,9 @@ export default function GanttChart() {
   const years = [];
   for (let y = year - 3; y <= year + 3; y++) years.push(y);
 
+  const todayStamp = new Date();
+  const todayKey = `${todayStamp.getFullYear()}-${String(todayStamp.getMonth() + 1).padStart(2, '0')}-${String(todayStamp.getDate()).padStart(2, '0')}`;
+  const agendaEvents = events.filter(isEventVisible);
   return (
     <div className="gantt-page">
       <Header title="לוח שנה" onPermissions={() => setShowPermissionsPanel(true)} />
@@ -582,7 +597,9 @@ export default function GanttChart() {
             {academicYearDisplay(academicYearForDate(new Date(year, month, 1)))}
           </span>
         </div>
-        <div className="gantt-controls-actions">
+        <button type="button" className="gantt-filters-toggle" onClick={() => setFiltersOpen(value => !value)} aria-expanded={filtersOpen}>סינון</button>
+        <div className={`gantt-controls-actions${filtersOpen ? ' is-open' : ''}`}>
+          <button type="button" className={`gantt-yearly-btn${myClassOnly ? ' is-on' : ''}`} aria-pressed={myClassOnly} onClick={() => setMyClassOnly(value => !value)}>הכיתה שלי</button>
           <div className="search-bar" style={{ minWidth: 140 }}>
             <Search size={14} />
             <input
@@ -643,6 +660,12 @@ export default function GanttChart() {
       )}
 
       <div className="calendar-workspace">
+        <section className="gantt-mobile-agenda" aria-label="סדר היום">
+          <h2>היום</h2>
+          {eventsInSpan(agendaEvents, todayKey, 'today').map(event => <p key={event.id || event.title}>{event.title}{event.certainty === 'tentative' ? ' · לא סגור' : ''}</p>)}
+          <h2>השבוע</h2>
+          {eventsInSpan(agendaEvents, todayKey, 'week').map(event => <p key={`w-${event.id || event.title}`}>{String(event.date).slice(8, 10)}/{String(event.date).slice(5, 7)} {event.title}{event.certainty === 'tentative' ? ' · לא סגור' : ''}</p>)}
+        </section>
       {bankOpen && <EventBank onClose={()=>setBankOpen(false)} touchHandle={touchHandle} templates={templates} onSave={saveTemplates} onUse={openTemplate} busy={saving} canManage={canEditCalendar}/>}
       <div className={`gantt-table-wrap${revealed ? '' : ' gantt-table-wrap--loading'}${seenBefore ? ' gantt-table-wrap--instant' : ''}`} ref={tableRef} aria-busy={!revealed}>
         {!revealed && <div className="gantt-loading" role="status"><div className="loading-spinner" /><span>טוען את לוח השנה…</span></div>}

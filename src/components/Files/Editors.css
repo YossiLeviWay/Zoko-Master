@@ -318,8 +318,7 @@
   font-size: 0.8rem;
   font-family: 'Courier New', monospace;
   color: var(--color-text);
-  direction: ltr;
-  text-align: left;
+  text-align: start;
 }
 
 .formula-bar .formula-input:focus {
@@ -379,7 +378,8 @@
   position: relative;
 }
 
-.spreadsheet-table th.col-header input {
+.spreadsheet-table th.col-header .header-label,
+.spreadsheet-table th.col-header .header-edit {
   width: 100%;
   border: none;
   background: transparent;
@@ -387,9 +387,14 @@
   font-size: 0.72rem;
   font-weight: 600;
   color: var(--color-text-subtle);
-  font-family: 'Inter', sans-serif;
+  font-family: inherit;
   padding: 0;
   outline: none;
+  display: block;
+}
+.spreadsheet-table th.col-header--selected {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
 }
 
 .spreadsheet-table th.col-header input:focus {
@@ -530,8 +535,7 @@
   font-family: 'Inter', sans-serif;
   color: var(--color-text);
   background: #fff;
-  direction: ltr;
-  text-align: left;
+  text-align: start;
 }
 
 .spreadsheet-status {

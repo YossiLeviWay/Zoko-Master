@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { blurShouldCommit, editDir, nextAfterEdit, nextAfterHeader, placeCaret } from '../../utils/spreadsheetEdit.js';
 import { Plus, Minus, FunctionSquare, Maximize2, Minimize2, Calculator, Merge, Paintbrush, Palette, Scissors, Copy, ClipboardPaste, Trash2, ArrowUpDown, ArrowDownUp, PlusCircle, MinusCircle, Undo2, Redo2, ZoomIn, ZoomOut, Type, Lock, Unlock, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, WrapText, Strikethrough } from 'lucide-react';
 import './Editors.css';
 
@@ -166,6 +167,8 @@ export default function SpreadsheetEditor({ data, onChange, readOnly = false, on
   const [numRows, setNumRows] = useState(initialData.rows || 10);
   const [selectedCell, setSelectedCell] = useState(null);
   const [editingCell, setEditingCell] = useState(null);
+  const [editingHeader, setEditingHeader] = useState(null);
+  const [headerFocus, setHeaderFocus] = useState(null);
   const [formulaValue, setFormulaValue] = useState('');
   const [saveStatus, setSaveStatus] = useState('saved');
   const [columnWidths, setColumnWidths] = useState(initialData.columnWidths || {});
@@ -189,7 +192,10 @@ export default function SpreadsheetEditor({ data, onChange, readOnly = false, on
   const [freezeCol, setFreezeCol] = useState(initialData.freezeCol || 0); // number of frozen cols from right
   const saveTimerRef = useRef(null);
   const cellInputRef = useRef(null);
+  const headerInputRef = useRef(null);
   const formulaInputRef = useRef(null);
+  const editingRef = useRef(false);
+  const ignoreBlurRef = useRef(false);
   const tableRef = useRef(null);
 
   const triggerSave = useCallback((newCells, newHeaders, cols, rows, colWidths, rHeights, merged, styles, fRow, fCol) => {
@@ -216,14 +222,33 @@ export default function SpreadsheetEditor({ data, onChange, readOnly = false, on
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
   }, []);
 
+  editingRef.current = Boolean(editingCell) || editingHeader != null;
+
   useEffect(() => {
-    if (selectedCell && !formulaSelectMode) {
+    if (editingCell || editingHeader != null || formulaSelectMode) return;
+    if (headerFocus != null) {
+      setFormulaValue(headers[headerFocus] || '');
+      return;
+    }
+    if (selectedCell) {
       const cell = cells[selectedCell];
       setFormulaValue(cell?.formula || cell?.value || '');
-    } else if (!selectedCell) {
+    } else {
       setFormulaValue('');
     }
-  }, [selectedCell, cells, formulaSelectMode]);
+  }, [selectedCell, cells, formulaSelectMode, headerFocus, headers, editingCell, editingHeader]);
+
+  useEffect(() => {
+    if (!editingCell) return;
+    if (document.activeElement === formulaInputRef.current) return;
+    placeCaret(cellInputRef.current);
+  }, [editingCell]);
+
+  useEffect(() => {
+    if (editingHeader == null) return;
+    if (document.activeElement === formulaInputRef.current) return;
+    placeCaret(headerInputRef.current);
+  }, [editingHeader]);
 
   // Check if a cell is part of a merge (but not the origin)
   function getMergeForCell(ri, ci) {
@@ -269,6 +294,8 @@ export default function SpreadsheetEditor({ data, onChange, readOnly = false, on
     }
 
     setSelectedCell(cellRef);
+    setHeaderFocus(null);
+    setEditingHeader(null);
     setEditingCell(null);
     setCellContextMenu(null);
     if (e?.shiftKey && selection) {
@@ -277,18 +304,25 @@ export default function SpreadsheetEditor({ data, onChange, readOnly = false, on
       setSelection({ startRow: ri, startCol: ci, endRow: ri, endCol: ci });
     }
     setTimeout(() => {
+      if (editingRef.current) return;
       tableRef.current?.querySelector(`td[data-ref="${cellRef}"]`)?.focus();
     }, 0);
   }
 
-  function handleCellDoubleClick(cellRef) {
+  function beginCellEdit(cellRef, value) {
     if (readOnly) return;
+    editingRef.current = true;
+    setHeaderFocus(null);
+    setEditingHeader(null);
     setSelectedCell(cellRef);
     setEditingCell(cellRef);
-    setFormulaSelectMode(false);
+    setFormulaSelectMode(String(value || '').startsWith('='));
+    setFormulaValue(value);
+  }
+
+  function handleCellDoubleClick(cellRef) {
     const cell = cells[cellRef];
-    setFormulaValue(cell?.formula || cell?.value || '');
-    setTimeout(() => cellInputRef.current?.focus(), 0);
+    beginCellEdit(cellRef, cell?.formula || cell?.value || '');
   }
 
   function commitCell(cellRef, rawValue) {
@@ -304,6 +338,7 @@ export default function SpreadsheetEditor({ data, onChange, readOnly = false, on
     }
     setCells(newCells);
     setEditingCell(null);
+    editingRef.current = false;
     setFormulaSelectMode(false);
     setFormulaSelStart(null);
     triggerSave(newCells, headers, numCols, numRows);
@@ -320,8 +355,16 @@ export default function SpreadsheetEditor({ data, onChange, readOnly = false, on
       setSelection({ startRow: row, startCol: col, endRow: row, endCol: col });
     }
     setTimeout(() => {
+      if (editingRef.current) return;
       tableRef.current?.querySelector(`td[data-ref="${ref}"]`)?.focus();
     }, 0);
+  }
+
+  function moveAfterCellEdit(cellRef, key, shift) {
+    const ref = parseCellRef(cellRef);
+    if (!ref) return;
+    const next = nextAfterEdit({ row: ref.row, col: ref.col, rows: numRows, cols: numCols, key, shift });
+    if (next) navigateTo(next.row, next.col);
   }
 
   function handleCellKeyDown(e, cellRef) {
@@ -362,18 +405,18 @@ export default function SpreadsheetEditor({ data, onChange, readOnly = false, on
 
       if (e.key === 'Enter') {
         e.preventDefault();
-        // Auto-close open parenthesis if needed
         let finalVal = formulaValue;
         if (formulaSelectMode) {
           const openCount = (finalVal.match(/\(/g) || []).length;
           const closeCount = (finalVal.match(/\)/g) || []).length;
-          if (openCount > closeCount) {
-            finalVal += ')'.repeat(openCount - closeCount);
-          }
+          if (openCount > closeCount) finalVal += ')'.repeat(openCount - closeCount);
         }
+        ignoreBlurRef.current = true;
         commitCell(cellRef, finalVal);
-        if (ref.row + 1 < numRows) navigateTo(ref.row + 1, ref.col);
+        moveAfterCellEdit(cellRef, 'Enter', e.shiftKey);
       } else if (e.key === 'Escape') {
+        e.preventDefault();
+        ignoreBlurRef.current = true;
         setEditingCell(null);
         setFormulaSelectMode(false);
         setFormulaSelStart(null);
@@ -381,9 +424,9 @@ export default function SpreadsheetEditor({ data, onChange, readOnly = false, on
         setFormulaValue(cell?.formula || cell?.value || '');
       } else if (e.key === 'Tab') {
         e.preventDefault();
+        ignoreBlurRef.current = true;
         commitCell(cellRef, formulaValue);
-        const nextCol = e.shiftKey ? ref.col - 1 : ref.col + 1;
-        if (nextCol >= 0 && nextCol < numCols) navigateTo(ref.row, nextCol);
+        moveAfterCellEdit(cellRef, 'Tab', e.shiftKey);
       }
     } else {
       const shift = e.shiftKey;
@@ -393,47 +436,64 @@ export default function SpreadsheetEditor({ data, onChange, readOnly = false, on
       else if (e.key === 'ArrowLeft') { e.preventDefault(); navigateTo(ref.row, ref.col + 1, shift); }
       else if (e.key === 'Enter' || e.key === 'F2') {
         e.preventDefault();
-        setEditingCell(cellRef);
         const cell = cells[cellRef];
-        setFormulaValue(cell?.formula || cell?.value || '');
-        setTimeout(() => cellInputRef.current?.focus(), 0);
+        beginCellEdit(cellRef, cell?.formula || cell?.value || '');
       } else if (e.key === 'Tab') {
         e.preventDefault();
-        const nextCol = e.shiftKey ? ref.col - 1 : ref.col + 1;
-        if (nextCol >= 0 && nextCol < numCols) navigateTo(ref.row, nextCol);
+        const next = nextAfterEdit({ row: ref.row, col: ref.col, rows: numRows, cols: numCols, key: 'Tab', shift: e.shiftKey });
+        if (next) navigateTo(next.row, next.col);
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault();
         commitCell(cellRef, '');
-      } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
+      } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
-        setEditingCell(cellRef);
-        if (e.key === '=') {
-          setFormulaSelectMode(true);
-        }
-        setFormulaValue(e.key);
-        setTimeout(() => cellInputRef.current?.focus(), 0);
+        beginCellEdit(cellRef, e.key);
       }
     }
   }
 
   function handleFormulaBarKeyDown(e) {
+    if (e.key === 'Enter' && editingHeader != null) {
+      e.preventDefault();
+      const col = editingHeader;
+      commitHeader(col, formulaValue);
+      setHeaderFocus(null);
+      if (numRows > 0) navigateTo(0, col);
+      return;
+    }
     if (e.key === 'Enter' && selectedCell) {
       e.preventDefault();
-      // Auto-close open parenthesis
       let finalVal = formulaValue;
       if (formulaSelectMode) {
         const openCount = (finalVal.match(/\(/g) || []).length;
         const closeCount = (finalVal.match(/\)/g) || []).length;
-        if (openCount > closeCount) {
-          finalVal += ')'.repeat(openCount - closeCount);
-        }
+        if (openCount > closeCount) finalVal += ')'.repeat(openCount - closeCount);
       }
-      commitCell(selectedCell, finalVal);
+      const cellRef = selectedCell;
+      commitCell(cellRef, finalVal);
+      moveAfterCellEdit(cellRef, 'Enter', e.shiftKey);
+    } else if (e.key === 'Tab' && (editingCell || editingHeader != null)) {
+      e.preventDefault();
+      if (editingHeader != null) finishHeaderKey(editingHeader, 'Tab', e.shiftKey);
+      else {
+        const cellRef = editingCell;
+        ignoreBlurRef.current = true;
+        commitCell(cellRef, formulaValue);
+        moveAfterCellEdit(cellRef, 'Tab', e.shiftKey);
+      }
     } else if (e.key === 'Escape') {
+      e.preventDefault();
+      ignoreBlurRef.current = true;
       setFormulaSelectMode(false);
       setFormulaSelStart(null);
-      const cell = cells[selectedCell];
-      setFormulaValue(cell?.formula || cell?.value || '');
+      if (editingHeader != null) {
+        setFormulaValue(headers[editingHeader] || '');
+        setEditingHeader(null);
+      } else {
+        const cell = cells[selectedCell];
+        setFormulaValue(cell?.formula || cell?.value || '');
+        setEditingCell(null);
+      }
       formulaInputRef.current?.blur();
     }
   }
@@ -457,15 +517,85 @@ export default function SpreadsheetEditor({ data, onChange, readOnly = false, on
   }
 
   function handleFormulaBarFocus() {
-    if (selectedCell) {
+    if (headerFocus != null) {
+      editingRef.current = true;
+      setEditingHeader(headerFocus);
+    } else if (selectedCell) {
+      editingRef.current = true;
       setEditingCell(selectedCell);
     }
   }
 
-  function handleHeaderChange(colIndex, value) {
-    const newHeaders = { ...headers, [colIndex]: value };
+  function leaveEditSurface(event, commit) {
+    if (ignoreBlurRef.current) { ignoreBlurRef.current = false; return; }
+    if (!blurShouldCommit(event.relatedTarget)) return;
+    commit();
+  }
+
+  function commitHeader(colIndex, rawValue) {
+    const newHeaders = { ...headers };
+    const trimmed = (rawValue || '').trim();
+    if (!trimmed) delete newHeaders[colIndex];
+    else newHeaders[colIndex] = trimmed;
     setHeaders(newHeaders);
+    setEditingHeader(null);
+    editingRef.current = false;
     triggerSave(cells, newHeaders, numCols, numRows);
+  }
+
+  function beginHeaderEdit(colIndex, value) {
+    if (readOnly) return;
+    editingRef.current = true;
+    setHeaderFocus(colIndex);
+    setEditingCell(null);
+    setEditingHeader(colIndex);
+    setSelectedCell(null);
+    setFormulaSelectMode(false);
+    setFormulaValue(value);
+    setSelection({ startRow: 0, startCol: colIndex, endRow: numRows - 1, endCol: colIndex });
+  }
+
+  function finishHeaderKey(colIndex, key, shift) {
+    ignoreBlurRef.current = true;
+    commitHeader(colIndex, formulaValue);
+    const next = nextAfterHeader({ col: colIndex, cols: numCols, rows: numRows, key, shift });
+    if (!next) return;
+    if (next.kind === 'header') beginHeaderEdit(next.col, headers[next.col] || '');
+    else {
+      setHeaderFocus(null);
+      navigateTo(next.row, next.col);
+    }
+  }
+
+  function handleHeaderKeyDown(event, colIndex) {
+    if (readOnly) return;
+    if (editingHeader === colIndex) {
+      if (event.key === 'Enter') { event.preventDefault(); finishHeaderKey(colIndex, 'Enter', event.shiftKey); }
+      else if (event.key === 'Tab') { event.preventDefault(); finishHeaderKey(colIndex, 'Tab', event.shiftKey); }
+      else if (event.key === 'Escape') {
+        event.preventDefault();
+        ignoreBlurRef.current = true;
+        setEditingHeader(null);
+        editingRef.current = false;
+        setFormulaValue(headers[colIndex] || '');
+      }
+      return;
+    }
+    if (event.key === 'Enter' || event.key === 'F2') {
+      event.preventDefault();
+      beginHeaderEdit(colIndex, headers[colIndex] || '');
+    } else if (event.key === 'Tab') {
+      event.preventDefault();
+      const next = nextAfterHeader({ col: colIndex, cols: numCols, rows: numRows, key: 'Tab', shift: event.shiftKey });
+      if (next?.kind === 'header') beginHeaderEdit(next.col, headers[next.col] || '');
+    } else if ((event.key === 'Delete' || event.key === 'Backspace')) {
+      event.preventDefault();
+      commitHeader(colIndex, '');
+      setFormulaValue('');
+    } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      beginHeaderEdit(colIndex, event.key);
+    }
   }
 
   function addColumn() {
@@ -1068,6 +1198,8 @@ export default function SpreadsheetEditor({ data, onChange, readOnly = false, on
       const ref = getColLetter(0) + (ri + 1);
       setSelectedCell(ref);
     }
+    setHeaderFocus(null);
+    setEditingHeader(null);
     setEditingCell(null);
   }
 
@@ -1287,23 +1419,22 @@ export default function SpreadsheetEditor({ data, onChange, readOnly = false, on
 
       {/* Formula Bar */}
       <div className="formula-bar">
-        <span className="cell-ref">{selectedCell || '-'}</span>
+        <span className="cell-ref">{editingHeader != null || headerFocus != null ? getColLetter(editingHeader ?? headerFocus) : (selectedCell || '-')}</span>
         <FunctionSquare size={14} className="formula-icon" />
         <input
           ref={formulaInputRef}
-          className={`formula-input ${formulaSelectMode ? 'formula-input--selecting' : ''}`}
+          className={`formula-input spreadsheet-edit-surface ${formulaSelectMode ? 'formula-input--selecting' : ''}`}
           value={formulaValue}
           onChange={handleFormulaBarChange}
           onKeyDown={handleFormulaBarKeyDown}
           onFocus={handleFormulaBarFocus}
-          onBlur={() => {
-            if (selectedCell && editingCell && !formulaSelectMode) {
-              commitCell(selectedCell, formulaValue);
-            }
-          }}
+          onBlur={event => leaveEditSurface(event, () => {
+            if (editingHeader != null) commitHeader(editingHeader, formulaValue);
+            else if (selectedCell && editingCell && !formulaSelectMode) commitCell(selectedCell, formulaValue);
+          })}
           placeholder="נוסחה או ערך... (=SUM, =AVERAGE, =MEDIAN...)"
-          disabled={readOnly || !selectedCell}
-          dir="ltr"
+          disabled={readOnly || (!selectedCell && headerFocus == null)}
+          dir={editDir(formulaValue)}
         />
         {formulaSelectMode && (
           <button className="formula-confirm-btn" onClick={() => { if (selectedCell) commitCell(selectedCell, formulaValue); }}>
@@ -1321,13 +1452,39 @@ export default function SpreadsheetEditor({ data, onChange, readOnly = false, on
               {Array.from({ length: numCols }, (_, ci) => (
                 <th
                   key={ci}
-                  className={`col-header${ci < freezeCol ? ' col-header--frozen' : ''}${ci === freezeCol - 1 ? ' col-header--freeze-border' : ''}`}
+                  data-header={ci}
+                  tabIndex={headerFocus === ci ? 0 : -1}
+                  className={`col-header${ci < freezeCol ? ' col-header--frozen' : ''}${ci === freezeCol - 1 ? ' col-header--freeze-border' : ''}${headerFocus === ci ? ' col-header--selected' : ''}`}
                   style={{ width: columnWidths[ci] || 100 }}
                   onContextMenu={(e) => handleCellContextMenu(e, -1, ci, 'col')}
-                  onClick={(e) => selectCol(ci, e.shiftKey)}
+                  onClick={(e) => {
+                    if (readOnly) return;
+                    setHeaderFocus(ci);
+                    selectCol(ci, e.shiftKey);
+                    setFormulaValue(headers[ci] || '');
+                    setTimeout(() => {
+                      if (editingRef.current) return;
+                      tableRef.current?.querySelector(`th[data-header="${ci}"]`)?.focus();
+                    }, 0);
+                  }}
+                  onDoubleClick={() => beginHeaderEdit(ci, headers[ci] || '')}
+                  onKeyDown={(e) => handleHeaderKeyDown(e, ci)}
                 >
                   <span className="col-letter">{getColLetter(ci)}</span>
-                  <input value={headers[ci] || ''} onChange={(e) => handleHeaderChange(ci, e.target.value)} placeholder={getColLetter(ci)} disabled={readOnly} onClick={e => e.stopPropagation()} />
+                  {editingHeader === ci ? (
+                    <input
+                      ref={headerInputRef}
+                      className="header-edit spreadsheet-edit-surface"
+                      value={formulaValue}
+                      dir={editDir(formulaValue)}
+                      onChange={(e) => setFormulaValue(e.target.value)}
+                      onKeyDown={(e) => handleHeaderKeyDown(e, ci)}
+                      onClick={e => e.stopPropagation()}
+                      onBlur={event => leaveEditSurface(event, () => commitHeader(ci, formulaValue))}
+                    />
+                  ) : (
+                    <span className="header-label">{headers[ci] || getColLetter(ci)}</span>
+                  )}
                   <div className="col-resize-handle" onMouseDown={(e) => handleColumnResize(ci, e)} />
                 </th>
               ))}
@@ -1399,8 +1556,9 @@ export default function SpreadsheetEditor({ data, onChange, readOnly = false, on
                       {isEditing ? (
                         <input
                           ref={cellInputRef}
-                          className="cell-input"
+                          className="cell-input spreadsheet-edit-surface"
                           value={formulaValue}
+                          dir={editDir(formulaValue)}
                           onChange={(e) => {
                             const val = e.target.value;
                             setFormulaValue(val);
@@ -1413,9 +1571,7 @@ export default function SpreadsheetEditor({ data, onChange, readOnly = false, on
                             }
                           }}
                           onKeyDown={(e) => handleCellKeyDown(e, cellRefStr)}
-                          onBlur={() => { if (!formulaSelectMode) commitCell(cellRefStr, formulaValue); }}
-                          autoFocus
-                          dir="ltr"
+                          onBlur={event => leaveEditSurface(event, () => { if (!formulaSelectMode) commitCell(cellRefStr, formulaValue); })}
                         />
                       ) : (
                         <div

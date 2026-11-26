@@ -19,7 +19,9 @@ import {
   Calendar,
   Users,
   CheckSquare,
+  ClipboardCheck,
   FolderOpen,
+  Sparkles,
   Settings,
   LogOut,
   ChevronRight,
@@ -53,8 +55,10 @@ import './Layout.css';
 // facing a long flat list.
 const NAV_ITEMS = [
   { path: '/', icon: Home, label: 'דשבורד', platformAllowed: true, primary: true },
-  { path: '/tasks', icon: CheckSquare, label: 'המשימות שלי', requiresSchool: true, permission: 'tasks_view', primary: true },
+  { path: '/tasks', icon: CheckSquare, label: 'משימות', requiresSchool: true, permission: 'tasks_view', primary: true },
   { path: '/calendar', icon: Calendar, label: 'לוח שנה', requiresSchool: true, permission: 'calendar_view', primary: true },
+  { path: '/files?kind=attendance', icon: ClipboardCheck, label: 'נוכחות', requiresSchool: true, permission: 'files_view', primary: true },
+  { path: '/zoki', icon: Sparkles, label: 'זוקי', requiresSchool: true, primary: true },
   { path: '/students', icon: GraduationCap, label: 'תלמידים', requiresSchool: true, permission: 'students_view', primary: true },
   { path: '/files', icon: FolderOpen, label: 'קבצים', requiresSchool: true, permission: 'files_view', primary: true },
   { path: '/staff', icon: Users, label: 'אנשי צוות', requiresSchool: true, permission: 'staff_view', group: 'people' },
@@ -309,9 +313,12 @@ export default function Sidebar() {
               <NavLink
                 to={item.path}
                 end={item.path === '/'}
-                className={({ isActive }) =>
-                  `sidebar-link ${isActive ? 'sidebar-link--active' : ''}`
-                }
+                className={({ isActive }) => {
+                  const attendance = location.search.includes('kind=attendance');
+                  const on = item.path.includes('kind=attendance') ? attendance : isActive && !attendance && item.path !== '/zoki';
+                  const zoki = item.path === '/zoki' && location.pathname === '/zoki';
+                  return `sidebar-link ${on || zoki ? 'sidebar-link--active' : ''}`;
+                }}
                 title={collapsed ? item.label : undefined}
                 {...(isNotifications ? {
                   ref: notifBellRef,

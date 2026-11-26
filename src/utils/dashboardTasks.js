@@ -26,6 +26,16 @@ export function sortDashboardTasks(tasks, sortBy = DASHBOARD_TASK_SORTS.PRIORITY
     });
 }
 
+// Personal tasks and the organization tasks already visible to this person (team, shared, or assigned).
+export function dashboardTasks(personal = [], organization = []) {
+  const seen = new Map();
+  for (const task of [...personal, ...organization]) {
+    if (!task?.id) continue;
+    seen.set(`${task._source || task.scope || 'task'}:${task.id}`, task);
+  }
+  return [...seen.values()];
+}
+
 export function dashboardTaskStats(tasks, today) {
   const items = Array.isArray(tasks) ? tasks : [];
   const completed = items.filter(complete).length;

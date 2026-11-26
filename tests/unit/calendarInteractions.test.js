@@ -11,10 +11,10 @@ test('category order is stable and does not mutate snapshots',()=>{
  const rows=[{name:'ב',order:2},{name:'א',order:0},{name:'ג'}];
  assert.deepEqual(sortCalendarCategories(rows).map(r=>r.name),['א','ב','ג']);assert.equal(rows[0].name,'ב');
 });
-test('opening the calendar puts today in the middle of the school week, without a smooth scroll', () => {
+test('opening the calendar puts today\'s week under the header, without a smooth scroll', () => {
   assert.deepEqual([...SCHOOL_WEEK], [0, 1, 2, 3, 4]);
-  assert.equal(todayScrollTop({ scrollTop: 0, cellTop: 800, wrapTop: 100, headHeight: 40, wrapHeight: 600, cellHeight: 48 }), 800 - 100 - 40 - (600 - 40 - 48) / 2);
-  assert.equal(todayScrollTop({ scrollTop: 0, cellTop: 10, wrapTop: 0, headHeight: 40, wrapHeight: 600, cellHeight: 40 }), 0);
+  assert.equal(todayScrollTop({ scrollTop: 0, cellTop: 800, wrapTop: 100, headHeight: 40 }), 800 - 100 - 40);
+  assert.equal(todayScrollTop({ scrollTop: 0, cellTop: 10, wrapTop: 0, headHeight: 40 }), 0);
 });
 
 test('calendar changes also reach the legacy production rollout',async()=>{

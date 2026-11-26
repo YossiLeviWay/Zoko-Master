@@ -953,6 +953,10 @@
 .class-tags { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.8rem; }
 .class-tags span { padding: 0.16rem 0.45rem; border-radius: 99px; background: var(--color-primary-soft); color: var(--color-primary-text); font-size: 0.7rem; }
 .class-card-actions { padding-top: 0.75rem; border-top: 1px solid var(--color-surface-muted); flex-wrap: wrap; }
+.class-overflow { width: 100%; }
+.class-overflow summary { cursor: pointer; color: #6b4a56; }
+.class-overflow button { display: flex; width: 100%; margin-top: 0.35rem; padding: 0.4rem 0.5rem; border: 0; background: transparent; font: inherit; text-align: start; cursor: pointer; }
+.class-overflow .is-danger { color: #ac2747; }
 .classes-empty,
 .students-empty { grid-column: 1 / -1; }
 

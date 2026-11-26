@@ -11,11 +11,10 @@ export function sortCalendarCategories(rows) {
 // before the grid is shown.
 export const SCHOOL_WEEK = Object.freeze([0, 1, 2, 3, 4]);
 
-// Scroll offset that puts today's cell in the middle of the calendar pane, under the sticky header.
-export function todayScrollTop({ scrollTop = 0, cellTop = 0, wrapTop = 0, headHeight = 0, wrapHeight = 0, cellHeight = 0 } = {}) {
+// Scroll offset that puts today's week flush under the sticky header, as the first row in view.
+export function todayScrollTop({ scrollTop = 0, cellTop = 0, wrapTop = 0, headHeight = 0 } = {}) {
   const cellOffset = scrollTop + cellTop - wrapTop;
-  const centered = cellOffset - headHeight - Math.max(0, (wrapHeight - headHeight - cellHeight) / 2);
-  return Math.max(0, centered);
+  return Math.max(0, cellOffset - headHeight);
 }
 export const DEFAULT_EVENT_TEMPLATES = [
   { id:'math', title:'מבחן במתמטיקה', description:'', color:'#fed7aa' },
