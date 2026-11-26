@@ -52,6 +52,7 @@ export default function EventModal({
     description: event?.description || '',
     time: event?.time || '',
     category: event?.category || category || categories[0],
+    certainty: event?.certainty === 'tentative' ? 'tentative' : 'confirmed',
     color: event?.color || colors[0],
     date: event?.date || (date ? dateKey(date) : '')
   });
@@ -147,6 +148,13 @@ export default function EventModal({
                 onChange={handleChange}
                 dir="ltr"
               />
+            </div>
+            <div className="form-group">
+              <label htmlFor="event-certainty">מצב</label>
+              <select id="event-certainty" name="certainty" value={form.certainty} onChange={handleChange}>
+                <option value="confirmed">סגור</option>
+                <option value="tentative">לא סגור</option>
+              </select>
             </div>
             <div className="form-group">
               <label>קטגוריה</label>

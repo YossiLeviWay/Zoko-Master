@@ -42,7 +42,7 @@ export function readToolText(proposal, context = {}) {
       return true;
     });
     if (!rows.length) return 'אין אירועים בטווח בהקשר שנקרא מהיומן.';
-    return rows.slice(0, 40).map(event => `${event.date} ${event.title || ''}${event.grade ? ` (שכבה ${event.grade})` : ''}${event.category ? ` [${event.category}]` : ''}`).join('\n');
+    return rows.slice(0, 40).map(event => `${event.date} ${event.title || ''}${event.certainty === 'tentative' ? ' (לא סגור)' : ''}${event.grade ? ` (שכבה ${event.grade})` : ''}${event.category ? ` [${event.category}]` : ''}`).join('\n');
   }
   if (proposal?.tool === 'list_my_tasks') {
     const rows = context.tasks || [];

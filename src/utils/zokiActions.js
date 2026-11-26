@@ -78,8 +78,9 @@ const SPECS = {
     const title = text(input.title, 120);
     const date = day(input.date);
     if (title.length < 2 || !date) return { error: 'חסרים כותרת או תאריך לאירוע.' };
-    return { value: { title, date, category: text(input.category, 40) || 'כללי', description: text(input.description, 500), grade: text(input.grade, 20) } };
-  }, fields => [`אירוע גאנט: ${fields.title}`, `תאריך: ${fields.date}`, fields.grade && `שכבה: ${fields.grade}`, fields.category && `קטגוריה: ${fields.category}`]),
+    const certainty = input.certainty === 'tentative' ? 'tentative' : 'confirmed';
+    return { value: { title, date, category: text(input.category, 40) || 'כללי', description: text(input.description, 500), grade: text(input.grade, 20), certainty } };
+  }, fields => [`אירוע גאנט: ${fields.title}`, `תאריך: ${fields.date}`, fields.certainty === 'tentative' ? 'מצב: לא סגור' : 'מצב: סגור', fields.grade && `שכבה: ${fields.grade}`, fields.category && `קטגוריה: ${fields.category}`]),
   create_follow_up: spec(['tasks.create'], true, input => {
     const title = text(input.title, 180);
     const dueDate = day(input.dueDate);
@@ -108,6 +109,40 @@ const SPECS = {
     if (name.length < 2) return { error: 'חסר שם צוות.' };
     return { value: { name, description: text(input.description, 500) } };
   }, fields => [`צוות חדש: ${fields.name}`, fields.description && fields.description]),
+  add_staff: spec(['staff_edit'], true, input => {
+    const fullName = text(input.fullName, 120);
+    const email = String(input.email || '').trim().toLowerCase().slice(0, 120);
+    const role = input.role === 'editor' ? 'editor' : 'viewer';
+    if (fullName.length < 2 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(email)) return { error: 'חסרים שם או דוא״ל תקינים.' };
+    return { value: { fullName, email, role } };
+  }, fields => [`הוספת איש צוות: ${fields.fullName}`, fields.email, `תפקיד: ${fields.role}`, 'נשלחת הזמנה. לא נשמרת סיסמה.']),
+  update_staff: spec(['staff_edit'], true, input => {
+    const userId = id(input.userId);
+    if (!userId) return { error: 'חסר איש צוות.' };
+    const value = { userId };
+    if (input.fullName) value.fullName = text(input.fullName, 120);
+    if (input.phone) value.phone = text(input.phone, 32);
+    if (input.jobTitle) value.jobTitle = text(input.jobTitle, 120);
+    if (!value.fullName && !value.phone && !value.jobTitle) return { error: 'לא נבחר שדה לעדכון.' };
+    return { value };
+  }, fields => [`עדכון איש צוות ${fields.userId}`, fields.fullName && `שם: ${fields.fullName}`, fields.jobTitle && `תפקיד: ${fields.jobTitle}`, fields.phone && `טלפון: ${fields.phone}`]),
+  set_staff_role: spec(['staff_edit'], true, input => {
+    const userId = id(input.userId);
+    const role = input.role === 'editor' ? 'editor' : input.role === 'viewer' ? 'viewer' : '';
+    if (!userId || !role) return { error: 'אפשר לקבוע רק צופה או עורך.' };
+    return { value: { userId, role } };
+  }, fields => [`תפקיד ${fields.userId}: ${fields.role}`]),
+  set_staff_permission: spec(['staff_edit'], true, input => {
+    const userId = id(input.userId);
+    const permission = text(input.permission, 64);
+    if (!userId || !/^[a-z0-9._]{3,64}$/iu.test(permission)) return { error: 'חסרים איש צוות או הרשאה.' };
+    return { value: { userId, permission, granted: input.granted !== false } };
+  }, fields => [`${fields.granted ? 'מתן' : 'הסרת'} ${fields.permission} ל־${fields.userId}`]),
+  deactivate_staff: spec(['staff_edit'], true, input => {
+    const userId = id(input.userId);
+    if (!userId) return { error: 'חסר איש צוות.' };
+    return { value: { userId, active: input.active === true } };
+  }, fields => [fields.active ? `הפעלה מחדש של ${fields.userId}` : `השבתת ${fields.userId}`, 'אין מחיקה.']),
   add_team_members: spec(['teams_edit'], true, input => {
     const teamId = id(input.teamId);
     const memberIds = ids(input.memberIds);
@@ -123,7 +158,9 @@ export function requestKey(tool, fields) {
   return `zoki_${tool}_${hash.toString(16)}`;
 }
 
-export function prepareZokiAction(proposal, { permissions = {}, manager = false } = {}) {
+const STAFF_TOOLS = new Set(['add_staff', 'update_staff', 'set_staff_role', 'set_staff_permission', 'deactivate_staff']);
+
+export function prepareZokiAction(proposal, { permissions = {}, manager = false, actorId = '' } = {}) {
   const tool = proposal?.tool;
   const entry = SPECS[tool];
   if (!entry || !V1_TOOLS[tool]) return null;
@@ -132,14 +169,18 @@ export function prepareZokiAction(proposal, { permissions = {}, manager = false 
   const teacherChange = tool === 'update_class' && parsed.value.teacherId;
   const assignsSomeone = (tool === 'create_follow_up' && parsed.value.ownerId) || (tool === 'create_school_task' && parsed.value.assigneeId);
   const canAssign = manager || permissions['tasks.assign'] === true || permissions.tasks_assign === true;
+  const staffChange = STAFF_TOOLS.has(tool);
+  const selfLock = staffChange && parsed.value.userId && parsed.value.userId === actorId && tool !== 'update_staff';
   const allowed = (manager || entry.keys.some(key => permissions[key] === true))
+    && (!staffChange || manager)
+    && !selfLock
     && (!teacherChange || manager || permissions['classes.assignTeacher'] === true || permissions.classes_assign_teacher === true)
     && (!assignsSomeone || canAssign);
   return {
     tool,
     allowed,
     write: entry.write,
-    reason: allowed ? '' : 'אין הרשאה לפעולה הזו.',
+    reason: selfLock ? 'אי אפשר לנעול את עצמך.' : (allowed ? '' : 'אין הרשאה לפעולה הזו.'),
     lines: [...entry.lines(parsed.value), !allowed && 'אין הרשאה לפעולה הזו.'].filter(Boolean),
     fields: parsed.value,
     requestId: requestKey(tool, parsed.value),

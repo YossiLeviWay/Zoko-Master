@@ -26,7 +26,7 @@ export async function createUserProfile(input) {
   });
 
   try {
-    await adminDb.collection('users').doc(authUser.uid).create({
+    const profile = {
       uid: authUser.uid,
       email: input.email,
       fullName: input.fullName,
@@ -44,7 +44,9 @@ export async function createUserProfile(input) {
       accountStatus: 'active',
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
-    });
+    };
+    for (const secret of ['_authPassword', '_pendingPassword', 'password', 'passwordHash']) delete profile[secret];
+    await adminDb.collection('users').doc(authUser.uid).create(profile);
   } catch (error) {
     await adminAuth.deleteUser(authUser.uid).catch(() => undefined);
     throw error;

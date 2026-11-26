@@ -60,13 +60,20 @@ export async function updateStaffHandler(request) {
     await assertReferencesBelongToSchool(input.schoolId, 'teams', input.teamIds);
   }
 
+  if (input.accountStatus === 'disabled') {
+    if (actor.uid === input.userId) throw permissionDenied();
+    if (target.data.role === 'principal') {
+      const principals = await adminDb.collection('users').where('role', '==', 'principal').where('schoolId', '==', input.schoolId).limit(2).get();
+      if (principals.docs.filter(item => item.id !== input.userId).length === 0) throw permissionDenied();
+    }
+  }
   if (input.email && !target.auth) throw permissionDenied();
   const authUpdate = {};
   if (input.email && input.email !== target.auth?.email) authUpdate.email = input.email;
   if (target.auth && input.fullName && input.fullName !== target.auth.displayName) authUpdate.displayName = input.fullName;
   if (Object.keys(authUpdate).length > 0) await adminAuth.updateUser(input.userId, authUpdate);
 
-  const allowedFields = ['fullName', 'email', 'phone', 'jobTitle', 'customRoleIds', 'teamIds', 'permissions'];
+  const allowedFields = ['fullName', 'email', 'phone', 'jobTitle', 'customRoleIds', 'teamIds', 'permissions', 'accountStatus'];
   const update = Object.fromEntries(
     allowedFields.filter(field => input[field] !== undefined).map(field => [field, input[field]]),
   );
@@ -114,6 +121,11 @@ export async function setRoleHandler(request) {
   requireSchoolManager(actor, input.schoolId);
   const target = await requireTargetInSchool(actor, input.userId, input.schoolId);
   ensurePrincipalCanGrantRole(actor, input.role);
+  if (actor.uid === input.userId) throw permissionDenied();
+  if (target.data.role === 'principal' && input.role !== 'principal') {
+    const principals = await adminDb.collection('users').where('role', '==', 'principal').where('schoolId', '==', input.schoolId).limit(2).get();
+    if (principals.docs.filter(item => item.id !== input.userId).length === 0) throw permissionDenied();
+  }
   await enforceRateLimit({ uid: actor.uid, action: 'setUserRole', limit: 15 });
 
   const currentlyGlobal = target.auth.customClaims?.global_admin === true;

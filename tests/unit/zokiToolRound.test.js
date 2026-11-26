@@ -2,11 +2,32 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildClaudeRequest } from '../../worker/src/claude.js';
 import { managerCapabilityKeys, PROPOSAL_LINE, offeredCapabilityKeys, runClaudeRounds } from '../../worker/src/zokiToolRound.js';
-import { clientActionFromProposals, settleWorkerTurn } from '../../src/services/zokiWorkerProvider.js';
+import { clientActionFromProposals, settleWorkerTurn, visibleZokiAnswer } from '../../src/services/zokiWorkerProvider.js';
 import { prepareZokiAction } from '../../src/utils/zokiActions.js';
+import { runZokiAction } from '../../src/services/zokiActionRunner.js';
 import { roleAgentProfile } from '../../functions/src/roleAgents.js';
 
 const profile = roleAgentProfile('secretary');
+
+test('the chat bubble never shows a tool name next to the confirm card', () => {
+  const shown = visibleZokiAnswer('הכנתי הצעה לאישור\nהצעה (עדיין לא ניתנת לאישור כאן): create_task', true);
+  assert.equal(shown, 'הנה מה שיישמר.');
+  assert.equal(shown.includes('create_task'), false);
+});
+
+test('a saved personal task can be undone', async () => {
+  const card = prepareZokiAction({ tool: 'create_personal_task', input: { title: 'בדיקת זוקי' } }, { manager: true });
+  const deleted = [];
+  const saved = await runZokiAction(card, { schoolId: 'school1', actor: { uid: 'u1' }, manager: true }, {
+    createPersonalTask: async () => ({ id: 'quick_1' }),
+  });
+  assert.equal(saved.undo.tool, 'undo_created');
+  const undone = await runZokiAction(saved.undo, { schoolId: 'school1', actor: { uid: 'u1' }, manager: true }, {
+    deleteTask: async input => { deleted.push(input.task.id); },
+  });
+  assert.equal(undone.saved, true);
+  assert.deepEqual(deleted, ['quick_1']);
+});
 
 test('a tool_use-only write becomes a proposal line and the provider does not throw', async () => {
   const seen = [];

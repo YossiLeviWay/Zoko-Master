@@ -95,7 +95,7 @@ export function buildPersonalSnapshot({ uid, user = {}, teams = [], classes = []
       if (!span || event.status === 'archived' || span.end < today || span.start > horizon || !visible(event)) return [];
       const grade = text(event.audience?.grade || event.grade || '', 20);
       const subject = text(event.audience?.subject || '', 40);
-      return [{ date: span.start, end: span.end === span.start ? '' : span.end, title: text(event.title || event.name, 100), category: text(event.category, 40), grade, subject }];
+      return [{ date: span.start, end: span.end === span.start ? '' : span.end, title: text(event.title || event.name, 100), category: text(event.category, 40), grade, subject, ...(event.certainty === 'tentative' ? { certainty: 'tentative' } : {}) }];
     }).filter(event => event.title).sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title, 'he')).slice(0, 40),
     holidays: holidays.filter(item => typeof item.startDate === 'string' && (item.endDate || item.startDate) >= today && item.startDate <= holidayHorizon)
       .sort((a, b) => a.startDate.localeCompare(b.startDate)).slice(0, 3).map(item => ({ from: item.startDate, to: item.endDate || item.startDate, title: text(item.name || item.title, 80) })).filter(item => item.title),
@@ -127,7 +127,7 @@ export function snapshotText(snapshot, now = new Date()) {
     : 'בגאנט ובלוח השנה בשבועיים הקרובים: אין אירוע בטווח. זו לא בעיית הרשאה, ואין להמציא אירוע.');
   for (const event of snapshot.events || []) {
     const when = event.end ? `${shortDate(event.date)}–${shortDate(event.end)}` : shortDate(event.date);
-    const about = [event.grade && `שכבה ${event.grade}`, event.subject, event.category].filter(Boolean).join(', ');
+    const about = [event.certainty === 'tentative' && 'לא סגור', event.grade && `שכבה ${event.grade}`, event.subject, event.category].filter(Boolean).join(', ');
     lines.push(`- ${when} ${event.title}${about ? ` (${about})` : ''}`);
   }
   if (snapshot.holidays?.length) lines.push(`חופשות קרובות: ${snapshot.holidays.map(item => `${item.title} (${shortDate(item.from)}${item.to !== item.from ? `–${shortDate(item.to)}` : ''})`).join(', ')}.`);

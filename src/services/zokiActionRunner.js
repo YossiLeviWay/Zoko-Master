@@ -2,9 +2,11 @@ import { calendarDateFields } from '../utils/calendarInteractions.js';
 import { releaseActionWrite, reserveActionWrite, summarizeAttendance } from '../utils/zokiActions.js';
 
 const denied = text => ({ saved: false, text });
+const undoOf = (card, tool, fields) => ({ tool, allowed: true, write: true, fields, lines: ['ביטול הפעולה'], requestId: `${card.requestId}_undo` });
+const undoCreated = (card, kind, id) => (id ? undoOf(card, 'undo_created', { kind, id }) : null);
 
 async function defaultDeps() {
-  const [{ collection, doc, getDoc, getDocs, query, where, addDoc }, { db }, attendance, classes, paths, tasks, teams] = await Promise.all([
+  const [{ collection, doc, getDoc, getDocs, query, where, addDoc, deleteDoc, updateDoc, arrayRemove }, { db }, attendance, classes, paths, tasks, teams, staffApi] = await Promise.all([
     import('firebase/firestore'),
     import('../firebase.js'),
     import('./firestore/attendanceRepository.js'),
@@ -12,6 +14,7 @@ async function defaultDeps() {
     import('./firestore/paths.js'),
     import('./firestore/taskRepository.js'),
     import('./firestore/teamRepository.js'),
+    import('./adminUserService.js'),
   ]);
   const { saveAttendanceCell } = attendance;
   const { createClass, updateClass } = classes;
@@ -30,6 +33,19 @@ async function defaultDeps() {
     updateTaskAssignee,
     createSchoolTeam,
     addSchoolTeamMembers,
+    createStaff: input => staffApi.createStaffUser(input),
+    updateStaff: input => staffApi.updateStaffUser(input),
+    setStaffRole: input => staffApi.setUserRole(input),
+    deleteTask: input => tasks.deleteTask(input),
+    deleteEvent: (schoolId, id) => deleteDoc(doc(db, `events_${schoolId}`, id)),
+    archiveClass: input => classes.setClassArchived(input),
+    deleteTeam: (schoolId, id) => deleteDoc(schoolDoc(db, schoolId, 'teams', id)),
+    removeTeamMembers: (schoolId, teamId, memberIds) => updateDoc(schoolDoc(db, schoolId, 'teams', teamId), { memberIds: arrayRemove(...memberIds) }),
+    revokeStaff: input => staffApi.manageStaffInvitation(input),
+    getStaff: async userId => {
+      const snap = await getDoc(doc(db, 'users', userId));
+      return snap.exists() ? snap.data() : null;
+    },
     addEvent: (schoolId, fields) => addDoc(collection(db, `events_${schoolId}`), fields),
     getTask: async (schoolId, taskId) => {
       const nested = await getDoc(schoolDoc(db, schoolId, 'tasks', taskId));
@@ -109,8 +125,8 @@ async function perform(card, context, io) {
     return { saved: true, text: 'התא נשמר.', undo: { ...card, fields: { ...fields, statusId: previous.primaryStatusId, note: previous.note }, previous: value, requestId: `${card.requestId}_undo` } };
   }
   if (card.tool === 'create_personal_task') {
-    await io.createPersonalTask({ db: io.db, schoolId, user: actor, input: fields, requestId: card.requestId });
-    return { saved: true, text: 'המשימה האישית נשמרה.' };
+    const created = await io.createPersonalTask({ db: io.db, schoolId, user: actor, input: fields, requestId: card.requestId });
+    return { saved: true, text: 'המשימה האישית נשמרה.', undo: undoCreated(card, 'personal_task', created?.id || `quick_${card.requestId}`) };
   }
   if (card.tool === 'create_school_task' || card.tool === 'create_follow_up') {
     const input = card.tool === 'create_follow_up' ? {
@@ -118,9 +134,11 @@ async function perform(card, context, io) {
       description: [`מקור: ${fields.sourceType} ${fields.sourceId}`, fields.nextStep && `הצעד הבא: ${fields.nextStep}`, fields.notes].filter(Boolean).join('\n'),
       assigneeIds: fields.ownerId ? [fields.ownerId] : [], scope: fields.ownerId ? 'assigned' : 'personal',
     } : { title: fields.title, dueDate: fields.dueDate, description: fields.description, assigneeIds: fields.assigneeId ? [fields.assigneeId] : [], teamId: fields.teamId, scope: fields.assigneeId ? 'assigned' : 'team' };
-    if (fields.ownerId || fields.assigneeId) await io.createOrganizationTask({ db: io.db, schoolId, user: actor, input });
-    else await io.createPersonalTask({ db: io.db, schoolId, user: actor, input: { ...input, description: input.description }, requestId: card.requestId });
-    return { saved: true, text: card.tool === 'create_follow_up' ? 'המעקב נשמר.' : 'המשימה נשמרה.' };
+    const created = fields.ownerId || fields.assigneeId
+      ? await io.createOrganizationTask({ db: io.db, schoolId, user: actor, input })
+      : await io.createPersonalTask({ db: io.db, schoolId, user: actor, input: { ...input, description: input.description }, requestId: card.requestId });
+    const kind = fields.ownerId || fields.assigneeId ? 'organization_task' : 'personal_task';
+    return { saved: true, text: card.tool === 'create_follow_up' ? 'המעקב נשמר.' : 'המשימה נשמרה.', undo: undoCreated(card, kind, created?.id || (kind === 'personal_task' ? `quick_${card.requestId}` : '')) };
   }
   if (card.tool === 'update_task_fields') {
     const task = await io.getTask(schoolId, fields.taskId);
@@ -138,29 +156,67 @@ async function perform(card, context, io) {
     const task = await io.getTask(schoolId, fields.taskId);
     if (!task) return denied('המשימה לא נמצאה. לא נשמר דבר.');
     await io.updateTaskAssignee({ db: io.db, schoolId, task, staffId: fields.assigneeId, assigned: fields.assigned, actorId: actor.uid });
-    return { saved: true, text: 'השיוך נשמר.' };
+    return { saved: true, text: 'השיוך נשמר.', undo: undoOf(card, 'set_task_assignee', { ...fields, assigned: !fields.assigned }) };
   }
   if (card.tool === 'create_class') {
-    await io.createClass({ db: io.db, schoolId, actor, input: fields });
-    return { saved: true, text: 'הכיתה נשמרה.' };
+    const classId = await io.createClass({ db: io.db, schoolId, actor, input: fields });
+    return { saved: true, text: 'הכיתה נשמרה.', undo: undoCreated(card, 'class', classId) };
   }
   if (card.tool === 'update_class') {
     const current = { id: fields.classId, name: card.previous?.name || fields.name, academicYear: card.previous?.academicYear || '' };
     await io.updateClass({ db: io.db, schoolId, actor, current, input: { ...current, ...fields } });
-    return { saved: true, text: 'הכיתה עודכנה.' };
+    return { saved: true, text: 'הכיתה עודכנה.', undo: card.previous ? undoOf(card, 'update_class', { classId: fields.classId, ...card.previous }) : null };
   }
   if (card.tool === 'create_team') {
-    await io.createSchoolTeam({ db: io.db, schoolId, actor, name: fields.name, description: fields.description });
-    return { saved: true, text: 'הצוות נשמר.' };
+    const team = await io.createSchoolTeam({ db: io.db, schoolId, actor, name: fields.name, description: fields.description });
+    return { saved: true, text: 'הצוות נשמר.', undo: undoCreated(card, 'team', team?.id) };
   }
   if (card.tool === 'add_team_members') {
     await io.addSchoolTeamMembers({ db: io.db, schoolId, teamId: fields.teamId, memberIds: fields.memberIds });
-    return { saved: true, text: 'החברים נוספו.' };
+    return { saved: true, text: 'החברים נוספו.', undo: undoOf(card, 'remove_team_members', fields) };
+  }
+  if (['add_staff', 'update_staff', 'set_staff_role', 'set_staff_permission', 'deactivate_staff'].includes(card.tool)) {
+    if (!context.manager) return denied('אין הרשאה לנהל סגל. לא נשמר דבר.');
+    if (fields.userId && fields.userId === actor.uid && card.tool !== 'update_staff') return denied('אי אפשר לנעול את עצמך. לא נשמר דבר.');
+    if (card.tool === 'add_staff') {
+      const invite = await io.createStaff({ schoolId, fullName: fields.fullName, email: fields.email, role: fields.role });
+      return { saved: true, text: 'ההזמנה נשמרה. לא נשמרה סיסמה.', undo: undoCreated(card, 'staff_invite', invite?.invitationId) };
+    }
+    if (card.tool === 'update_staff') {
+      const previous = card.previous || await io.getStaff?.(fields.userId);
+      await io.updateStaff({ schoolId, ...fields });
+      return { saved: true, text: 'פרטי איש הצוות נשמרו.', undo: previous ? undoOf(card, 'update_staff', { userId: fields.userId, fullName: previous.fullName, phone: previous.phone, jobTitle: previous.jobTitle, previous }) : null };
+    }
+    if (card.tool === 'set_staff_role') {
+      const previous = card.previousRole || (await io.getStaff?.(fields.userId))?.role;
+      await io.setStaffRole({ schoolId, userId: fields.userId, role: fields.role });
+      return { saved: true, text: 'התפקיד נשמר.', undo: previous && previous !== fields.role ? undoOf(card, 'set_staff_role', { userId: fields.userId, role: previous, previousRole: fields.role }) : null };
+    }
+    if (card.tool === 'set_staff_permission') {
+      await io.updateStaff({ schoolId, userId: fields.userId, permissions: { [fields.permission]: fields.granted } });
+      return { saved: true, text: 'ההרשאה נשמרה.', undo: { ...card, fields: { ...fields, granted: !fields.granted }, requestId: `${card.requestId}_undo` } };
+    }
+    await io.updateStaff({ schoolId, userId: fields.userId, accountStatus: fields.active ? 'active' : 'disabled' });
+    return { saved: true, text: fields.active ? 'איש הצוות הופעל.' : 'איש הצוות הושבת. החשבון לא נמחק.', undo: { ...card, fields: { ...fields, active: !fields.active }, requestId: `${card.requestId}_undo` } };
   }
   if (card.tool === 'create_calendar_event') {
     const dated = calendarDateFields(fields.date);
-    await io.addEvent(schoolId, { ...dated, title: fields.title, category: fields.category, description: fields.description, visibleTo: 'all', audience: fields.grade ? { kind: 'activity', grade: fields.grade, subject: '', roleIds: [] } : null, createdBy: actor.uid });
-    return { saved: true, text: 'האירוע נשמר.' };
+    const event = await io.addEvent(schoolId, { ...dated, title: fields.title, category: fields.category, description: fields.description, certainty: fields.certainty === 'tentative' ? 'tentative' : 'confirmed', visibleTo: 'all', audience: fields.grade ? { kind: 'activity', grade: fields.grade, subject: '', roleIds: [] } : null, createdBy: actor.uid });
+    return { saved: true, text: 'האירוע נשמר.', undo: undoCreated(card, 'event', event?.id) };
+  }
+  if (card.tool === 'remove_team_members') {
+    await io.removeTeamMembers(schoolId, fields.teamId, fields.memberIds);
+    return { saved: true, text: 'הפעולה בוטלה.' };
+  }
+  if (card.tool === 'undo_created') {
+    if (fields.kind === 'personal_task') await io.deleteTask({ db: io.db, schoolId, uid: actor.uid, task: { id: fields.id, _source: 'personal' } });
+    else if (fields.kind === 'organization_task') await io.deleteTask({ db: io.db, schoolId, uid: actor.uid, task: { id: fields.id, _source: 'organization' } });
+    else if (fields.kind === 'event') await io.deleteEvent(schoolId, fields.id);
+    else if (fields.kind === 'class') await io.archiveClass({ db: io.db, schoolId, actor, classItem: { id: fields.id }, archived: true });
+    else if (fields.kind === 'team') await io.deleteTeam(schoolId, fields.id);
+    else if (fields.kind === 'staff_invite') await io.revokeStaff({ schoolId, invitationId: fields.id, action: 'revoke' });
+    else return denied('אי אפשר לבטל את הפעולה הזו.');
+    return { saved: true, text: 'הפעולה בוטלה.' };
   }
   return denied('הפעולה הזו אינה זמינה. לא נשמר דבר.');
 }
