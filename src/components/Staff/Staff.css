@@ -1322,3 +1322,6 @@
 .staff-actions-dialog header{padding:10px 14px}
 .staff-actions-dialog h3{font-size:14px}
 .staff-actions-list button{padding:9px 10px;font-size:14px}
+
+/* The single "ניהול" button needs its natural width, not the 34px icon column. */
+.staff-card-actions:has(.staff-actions-trigger) { display: flex; justify-content: center; }

@@ -1,0 +1,107 @@
+/* Phone layout for the whole app.
+   Page styles load lazily, after this file, so selectors here carry an extra ancestor
+   (html / .app-layout) to win over a page's own rule of the same shape. */
+
+@media (max-width: 768px) {
+  /* iOS zooms the page into any field smaller than 16px and never zooms back. */
+  html input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+  html select,
+  html textarea { font-size: 16px; }
+
+  html, body { overflow-x: hidden; overscroll-behavior-x: none; }
+
+  /* 100vh is taller than the visible screen in mobile Safari; dvh follows the real viewport. */
+  .app-layout .app-main { height: 100dvh; min-height: 100dvh; }
+  .app-layout .sidebar { height: 100dvh; }
+
+  /* ---- Header: the menu button floats at the top corner, so the header keeps that corner free. ---- */
+  .app-layout .app-header { padding-inline-start: 3.9rem; min-height: 56px; }
+  .app-layout .header-right { flex: 1 1 auto; min-width: 0; }
+  .app-layout .header-title { font-size: 1rem; }
+  .app-layout .header-left { flex: 0 0 auto; overflow: visible; }
+  .app-layout .app-header .btn { padding-inline: 0.55rem; }
+  .app-layout .app-header .btn > span,
+  .app-layout .app-header .header-permissions-label { display: none; }
+  /* Pages without the shared header start below the floating menu button. */
+  .app-layout .app-main > :first-child:not(.app-header):not(:has(.app-header)):not(.brain-page) { padding-top: 3.75rem; }
+  .app-layout .brain-page { padding: 0.75rem 0.75rem 5.5rem; }
+  .app-layout .brain-page-header { padding-inline-start: 3.4rem; min-height: 44px; }
+
+  /* ---- Page body: leave room at the bottom for the assistant button. ---- */
+  .app-layout .page-content { padding: 0.75rem 0.75rem 5.5rem; }
+  .app-layout .app-version { left: 4px; bottom: 2px; padding: 1px 4px; font-size: 0.56rem; opacity: 0.75; pointer-events: none; }
+  body:has(.modal-overlay) .zoki-launcher,
+  body:has(.modal-overlay) .app-version,
+  body:has(.sidebar-overlay) .zoki-launcher,
+  body:has(.sidebar-overlay) .app-version { display: none; }
+
+  /* ---- Dialogs open as a sheet from the bottom, full width. ---- */
+  html .modal-overlay { align-items: flex-end; padding: 0; }
+  html .modal-overlay > .modal-content,
+  html .modal-overlay > .modal-content.modal-content--wide,
+  html .modal-overlay > .modal-content.modal-content--fullscreen {
+    width: 100%; max-width: 100%; max-height: 92dvh; margin: 0;
+    border-radius: 18px 18px 0 0; padding-bottom: env(safe-area-inset-bottom);
+  }
+  html .modal-content .form-row { flex-direction: column; }
+  html .modal-content .form-actions { position: sticky; bottom: 0; background: #fff; padding-block: 0.6rem; }
+  html .modal-content .form-actions .btn { flex: 1 1 0; justify-content: center; min-height: 44px; }
+
+  /* ---- Toolbars: controls wrap, search takes a full row, buttons are finger sized. ---- */
+  .app-layout .page-toolbar { flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+  .app-layout .page-toolbar > div { flex-wrap: wrap; min-width: 0; }
+  .app-layout .page-toolbar .search-bar,
+  .app-layout .students-toolbar-search { flex: 1 1 100%; min-width: 0; width: 100%; }
+  .app-layout .search-bar { min-height: 44px; padding-block: 0; }
+  .app-layout .search-bar input { min-height: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
+  .app-layout .page-toolbar .btn,
+  .app-layout .btn { min-height: 40px; font-size: 0.85rem; }
+  .app-layout .btn.btn-sm { min-height: 36px; font-size: 0.8rem; }
+  .app-layout .icon-btn { width: 36px; height: 36px; }
+  .app-layout .segmented-control { max-width: 100%; }
+
+  /* ---- Wide tables scroll sideways inside their own frame, never the page. ---- */
+  .app-layout .data-table-wrap { margin: 0; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 12px; }
+  .app-layout .data-table th, .app-layout .data-table td { white-space: nowrap; }
+  .app-layout .td-actions { flex-direction: row; }
+
+  /* ---- Students ---- */
+  .app-layout .academic-year-toolbar { gap: 0.5rem; padding: 0.65rem; }
+  .app-layout .academic-year-toolbar > svg, .app-layout .academic-year-context { display: none; }
+  .app-layout .academic-year-toolbar select { min-width: 0; width: 100%; }
+  .app-layout .students-bulk-bar { gap: 0.4rem; padding: 0.55rem 0.65rem; }
+  .app-layout .students-bulk-bar .btn:disabled { display: none; }
+  .app-layout .students-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem; }
+  .app-layout .student-card { padding: 0.75rem 0.5rem; min-width: 0; }
+  .app-layout .student-card-name { font-size: 0.9rem; overflow-wrap: anywhere; }
+
+  /* ---- Staff cards ---- */
+  .app-layout .staff-card-actions .staff-actions-trigger { width: auto; height: auto; min-height: 40px; padding: 8px 14px; font-size: 0.85rem; }
+
+  /* ---- Files: an open file takes the whole screen; the folder tree returns when it is closed. ---- */
+  .app-layout .files-layout { min-height: calc(100dvh - 150px); }
+  .app-layout .files-tree-panel { max-height: 38dvh; }
+  .app-layout .files-layout--file-open .files-tree-panel { display: none; }
+  .app-layout .files-viewer-panel { min-width: 0; width: 100%; }
+  .app-layout .tree-folder, .app-layout .tree-file { min-height: 40px; }
+
+  /* ---- Holidays: one religion column per row instead of side by side. ---- */
+  .app-layout .holidays-columns-wrap { overflow: visible; }
+  .app-layout .holidays-columns { grid-template-columns: minmax(0, 1fr) !important; }
+  .app-layout .holidays-source-panel { flex-wrap: wrap; }
+
+  /* ---- Calendar toolbar ---- */
+  .app-layout .gantt-controls { gap: 0.5rem; }
+  .app-layout .gantt-controls .search-bar { flex: 1 1 100%; }
+  .app-layout .gantt-controls-actions { flex-wrap: wrap; width: 100%; }
+
+  /* ---- Assistant window: full screen, safe areas respected, composer never hidden by the keyboard. ---- */
+  html .zoki-window { inset: 0; height: 100dvh; padding-bottom: env(safe-area-inset-bottom); }
+  html .zoki-message { overflow-wrap: anywhere; }
+  html .zoki-message pre, html .zoki-message code { white-space: pre-wrap; word-break: break-word; }
+}
+
+@media (max-width: 380px) {
+  .app-layout .students-grid { grid-template-columns: minmax(0, 1fr); }
+  .app-layout .page-content { padding-inline: 0.5rem; }
+}

@@ -153,7 +153,8 @@ export default function Students() {
   const [filterProgram, setFilterProgram] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [showFilters, setShowFilters] = useState(false);
-  const [viewMode, setViewMode] = useState('table');
+  // A wide table is unreadable on a phone, so phones start in the card view.
+  const [viewMode, setViewMode] = useState(() => (typeof window !== 'undefined' && window.matchMedia?.('(max-width: 768px)').matches ? 'grid' : 'table'));
 
   const canManageYears = isAdmin || (
     permissions['academicYears.manage']

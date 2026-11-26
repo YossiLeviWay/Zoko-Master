@@ -150,6 +150,7 @@ export default function Header({ title, onPermissions }) {
           <button
             onClick={onPermissions}
             title="ניהול הרשאות"
+            aria-label="ניהול הרשאות"
             style={{
               display: 'flex', alignItems: 'center', gap: '0.35rem',
               padding: '0.4rem 0.75rem', borderRadius: 8,
@@ -161,7 +162,7 @@ export default function Header({ title, onPermissions }) {
             onMouseLeave={e => { e.currentTarget.style.background = '#fbf6f5'; e.currentTarget.style.color = '#5f3b49'; e.currentTarget.style.borderColor = '#eadfe2'; }}
           >
             <Shield size={15} />
-            הרשאות
+            <span className="header-permissions-label">הרשאות</span>
           </button>
         )}
         {/* Notification bell */}

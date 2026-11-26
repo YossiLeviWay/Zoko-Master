@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
+import './styles/mobile.css'
 import { cleanLegacyBrowserData } from './utils/browserPrivacy.js'
 import { installCspViolationListener } from './utils/cspViolations.js'
 

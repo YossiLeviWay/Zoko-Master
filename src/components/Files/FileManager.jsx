@@ -1002,7 +1002,7 @@ export default function FileManager() {
       )}
       {showPermissionsPanel && <PagePermissionsPanel feature="files" onClose={() => setShowPermissionsPanel(false)} />}
       <div className="page-content">
-        <div className={`files-layout ${fullscreen ? 'files-layout--fullscreen' : ''}`}>
+        <div className={`files-layout ${fullscreen ? 'files-layout--fullscreen' : ''} ${editingFile ? 'files-layout--file-open' : ''}`}>
           {/* Right panel - File tree */}
           <div className="files-tree-panel">
             <div className="tree-panel-header">

@@ -81,7 +81,8 @@ export default function StaffManagement() {
   const [staffChangeBusy, setStaffChangeBusy] = useState(false);
   const [staffChangeMessage, setStaffChangeMessage] = useState('');
   const [pendingUsers, setPendingUsers] = useState([]);
-  const [viewMode, setViewMode] = useState('table');
+  // A wide table is unreadable on a phone, so phones start in the card view.
+  const [viewMode, setViewMode] = useState(() => (typeof window !== 'undefined' && window.matchMedia?.('(max-width: 768px)').matches ? 'grid' : 'table'));
   const [searchQuery, setSearchQuery] = useState('');
   const [filterRole, setFilterRole] = useState('');
   const [filterSchool, setFilterSchool] = useState('');
