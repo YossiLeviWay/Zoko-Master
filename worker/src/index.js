@@ -1,6 +1,6 @@
 import { TOOL_SCHEMAS, buildClaudeRequest, callClaude, heldCapabilities } from './claude.js';
 import { V1_TOOLS, guardProposals } from './zokiActionTools.js';
-import { offeredCapabilityKeys, runClaudeRounds } from './zokiToolRound.js';
+import { managerCapabilityKeys, offeredCapabilityKeys, runClaudeRounds } from './zokiToolRound.js';
 import { allowedTools } from '../../functions/src/roleAgents.js';
 import { appendLearningLog, buildSchoolContext, claudeLimitFor, dailyLimitFor, dayKey, learningLogLine, looksLikeAction, replyWithStoredMemory, secondsToMidnight, teachingNote, toolSpecs, validatedProposal, withoutMilestoneRetraction } from './zokiTurn.js';
 import { askLocalTiered, buildLocalRequest, localModelConfigured, parseLocalResponse, routeLocalAction, streamLocalTiered } from './localModel.js';
@@ -728,7 +728,8 @@ async function handle(request, env, ctx) {
     // ZOKI_PROVIDER: "local" = school model only, "claude" = Claude only, anything else = Claude first, school model as the fallback.
     const usage = await chargeUsage(env, actor, schoolId);
     const held = heldCapabilities(actor.accessProfile);
-    const offered = offeredCapabilityKeys(held, body.permissionKeys);
+    const serverHeld = actor.manager ? [...new Set([...held, ...managerCapabilityKeys()])] : held;
+    const offered = offeredCapabilityKeys(serverHeld, body.permissionKeys);
     const lastQuestion = [...(body.messages || [])].reverse().find(item => item?.role === 'user')?.content || '';
     const claudeOnly = env.ZOKI_PROVIDER === 'claude';
     const claudeWanted = Boolean(env.ANTHROPIC_API_KEY) && env.ZOKI_PROVIDER !== 'local';

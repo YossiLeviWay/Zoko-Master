@@ -17,7 +17,7 @@ export const V1_TOOLS = Object.freeze({
   add_team_members: { write: true, keys: ['teams_edit'], description: 'הצע הוספת חברים לצוות, בלי להחליף את הרשימה.', properties: { teamId: { type: 'string' }, memberIds: { type: 'array', items: { type: 'string' } } }, required: ['teamId', 'memberIds'] },
 });
 
-const WRITE_ASK = /(?:סמן|עדכן|עדכני|צור|צרי|הוסף|הוסיפי|תעד|תעדי|שנה|שני|קבע|קבעי|הכן|הכיני|פתח|פתחי|רשום|רשמי|ערוך|ערכי|תיצור|תפתח)/u;
+const WRITE_ASK = /(?:סמן|עדכן|עדכני|צור|צרי|הוסף|הוסיפי|תעד|תעדי|שנה|שני|קבע|קבעי|הכן|הכיני|פתח|פתחי|רשום|רשמי|ערוך|ערכי|תיצור|תפתח|\bcreate\b|\badd\b|\bupdate\b)/iu;
 const READ_ASK = /(?:מה |איך |סכם|סכמי|הצג|הראה|כמה |נוכחות|אירוע|גאנט|לוח|מקרא)/u;
 
 // A tool call is kept only when the person asked for it. Text inside a file or a task is not a request.

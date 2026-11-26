@@ -15,6 +15,14 @@ export function knowledgeContext(input) {
   return parts.join('\n').slice(0, CONTEXT_CHARS);
 }
 
+export function clientActionFromProposals(userText, proposals = []) {
+  const direct = proposalFromReply(userText, proposals);
+  if (direct) return direct;
+  const legacy = proposals.find(item => item?.tool === 'create_task' && item.input?.title);
+  if (!legacy) return null;
+  return { tool: 'create_personal_task', input: { title: String(legacy.input.title), dueDate: legacy.input.dueDate || '', description: legacy.input.description || '' } };
+}
+
 export function settleWorkerTurn({ reply, proposals = [] } = {}) {
   if (!String(reply || '').trim() && !proposals.length) throw Object.assign(new Error('agent-unavailable'), { code: 'agent-unavailable' });
   return { reply: String(reply || '').trim() || PROPOSAL_LINE, proposals };
@@ -32,7 +40,7 @@ export class WorkerZokiProvider {
     const { askRoleAgent } = await import('./zokiClaudeService.js');
     const { reply, proposals = [] } = await askRoleAgent({ schoolId: this.schoolId, messages, context: knowledgeContext(input), permissionKeys: input.permissionKeys, onToken: input.onToken });
     const settled = settleWorkerTurn({ reply, proposals });
-    const clientAction = proposalFromReply(input.question, settled.proposals);
+    const clientAction = clientActionFromProposals(input.question, settled.proposals);
     const task = clientAction ? null : settled.proposals.find(item => item?.tool === 'create_task' && item.input?.title);
     const others = settled.proposals.filter(item => item !== task).map(item => `הצעה (עדיין לא ניתנת לאישור כאן): ${item.tool}`);
     const note = teachingNote(input.question);

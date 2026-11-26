@@ -76,7 +76,7 @@ export async function syncPersonalAgentConversation(input) {
   if (input.operation === 'load') {
     const snapshot = await getDocFromServer(ref);
     assertCurrent();
-    return { state: snapshot.data()?.state || null };
+    return { state: snapshot.data()?.state || null, chatEpoch: snapshot.data()?.chatEpoch || 0 };
   }
   const messages = input.state?.messages?.filter(item => !item.error && !item.localOnly).slice(-12).map(item => ({ id: item.id, role: item.role, text: item.text.slice(0, 1500) })) || [];
   assertCurrent();
@@ -85,15 +85,26 @@ export async function syncPersonalAgentConversation(input) {
     return { saved: true };
   }
   if (input.operation === 'fresh') {
-    const current = await getDocFromServer(ref);
-    assertCurrent();
-    const previous = current.data()?.state?.messages || [];
-    const archive = Array.isArray(current.data()?.archive) ? current.data().archive : [];
-    const nextArchive = previous.length ? [...archive, { at: new Date().toISOString(), messages: previous.slice(-12) }].slice(-3) : archive;
-    await setDoc(ref, { state: null, archive: nextArchive });
-    return { saved: true };
+    let chatEpoch = 1;
+    await runTransaction(db, async transaction => {
+      const current = await transaction.get(ref);
+      assertCurrent();
+      const data = current.data() || {};
+      const previous = data.state?.messages || [];
+      const archive = Array.isArray(data.archive) ? data.archive : [];
+      const nextArchive = previous.length ? [...archive, { at: new Date().toISOString(), messages: previous.slice(-12) }].slice(-3) : archive;
+      chatEpoch = (data.chatEpoch || 0) + 1;
+      transaction.set(ref, { state: null, archive: nextArchive, chatEpoch });
+    });
+    return { saved: true, chatEpoch };
   }
-  await setDoc(ref, { state: { messages } }, { merge: true });
+  const chatEpoch = input.chatEpoch || 0;
+  await runTransaction(db, async transaction => {
+    const current = await transaction.get(ref);
+    assertCurrent();
+    if ((current.data()?.chatEpoch || 0) !== chatEpoch) return;
+    transaction.set(ref, { state: { messages }, chatEpoch }, { merge: true });
+  });
   return { saved: true };
 }
 
