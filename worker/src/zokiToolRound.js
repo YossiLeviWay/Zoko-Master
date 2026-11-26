@@ -1,5 +1,11 @@
+import { AGENT_TOOLS } from '../../functions/src/roleAgents.js';
 import { parseClaudeResponse } from './claude.js';
 import { V1_TOOLS } from './zokiActionTools.js';
+
+// A principal's access-profile map is often empty: the role itself holds every tool key.
+export function managerCapabilityKeys() {
+  return [...new Set([...Object.values(AGENT_TOOLS), ...Object.values(V1_TOOLS).flatMap(spec => spec.keys)])];
+}
 
 export const PROPOSAL_LINE = 'הכנתי הצעה לאישור';
 

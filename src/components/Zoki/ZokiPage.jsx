@@ -123,6 +123,7 @@ function ScopedZokiPage({ embedded = false, onMinimize = () => undefined }) {
     ? `conversation:${currentUser.uid}:${schoolId}` : '', [currentUser?.uid, schoolId]);
   const activeConversation = useRef(conversationKey);
   const conversationGeneration = useRef(0);
+  const chatEpoch = useRef(0);
   activeConversation.current = conversationKey;
 
   useEffect(() => {
@@ -150,7 +151,7 @@ function ScopedZokiPage({ embedded = false, onMinimize = () => undefined }) {
       setTaskActionResult(normalized.taskActionResult);
     };
     syncPersonalAgentConversation({ schoolId, expectedUid: currentUser?.uid, operation: 'load' })
-      .then(result => applyState(result?.state))
+      .then(result => { chatEpoch.current = result?.chatEpoch || 0; applyState(result?.state); })
       .catch(() => undefined)
       .finally(() => { if (active) setConversationReady(true); });
     return () => { active = false; conversationGeneration.current = generation + 1; activeConversation.current = null; };
@@ -161,9 +162,10 @@ function ScopedZokiPage({ embedded = false, onMinimize = () => undefined }) {
     const state = { messages: messages.slice(-60), pendingTask, taskActionResult, taskAgentTurn: null };
     if (loading || (!messages.length && !pendingTask && !taskActionResult)) return undefined;
     const generation = conversationGeneration.current;
+    const epoch = chatEpoch.current;
     const timer = window.setTimeout(() => {
-      syncPersonalAgentConversation({ schoolId, expectedUid: currentUser?.uid, operation: 'save', state,
-        isCurrent: () => activeConversation.current === conversationKey && conversationGeneration.current === generation,
+      syncPersonalAgentConversation({ schoolId, expectedUid: currentUser?.uid, operation: 'save', state, chatEpoch: epoch,
+        isCurrent: () => activeConversation.current === conversationKey && conversationGeneration.current === generation && chatEpoch.current === epoch,
       }).catch(() => undefined);
     }, 700);
     return () => window.clearTimeout(timer);
@@ -326,12 +328,16 @@ function ScopedZokiPage({ embedded = false, onMinimize = () => undefined }) {
 
   function startNewConversation() {
     conversationGeneration.current += 1;
+    setMenuOpen(false);
     setLoading(false);
     setQuestion('');
     setMessages([]);
     setPendingTask(null);
     setTaskActionResult(null);
-    if (schoolId) syncPersonalAgentConversation({ schoolId, expectedUid: currentUser?.uid, operation: 'fresh' }).catch(() => undefined);
+    if (!schoolId) return;
+    syncPersonalAgentConversation({ schoolId, expectedUid: currentUser?.uid, operation: 'fresh' })
+      .then(result => { if (result?.chatEpoch) chatEpoch.current = result.chatEpoch; })
+      .catch(() => undefined);
   }
 
   function finishConversation({ minimize = false } = {}) {

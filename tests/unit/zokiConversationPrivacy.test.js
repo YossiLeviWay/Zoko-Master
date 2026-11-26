@@ -16,10 +16,12 @@ export async function getDocFromServer(path) {
   if (path.startsWith('users/')) return { data: () => ({ schoolIds: ['school1','school2'], accountStatus:'active' }) };
   if (path.endsWith('zoki_agent')) return { data: () => ({ questionsPerMinute: 4 }) };
   if (state.delay) await state.delay;
-  return { data: () => ({ state: state.state }) };
+  return { data: () => (state.doc || { state: state.state }) };
 }
 export async function setDoc(path, data) { state.writes.push({path,data}); }
-export const runTransaction = () => { throw new Error('unexpected transaction'); };
+export async function runTransaction(_db, fn) {
+  return fn({ get: path => getDocFromServer(path), set: (path, data, options) => setDoc(path, data, options) });
+}
 export const createZokiProvider = () => { throw new Error('No AI request in privacy tests'); };
 `;
 // Async module loaders work on the project's minimum Node 20 as well as Node 24.
@@ -51,7 +53,7 @@ test('conversation save writes only bounded transcript to Firebase, never browse
     messages: [{ id: '1', role: 'user', text: 'שם תלמיד' }, { id: '2', role: 'zoki', text: 'פרטי ציון', localOnly: true }],
     pendingTask: { title: 'טיוטה' }, taskActionResult: { name: 'שם קובץ' },
   } });
-  assert.deepEqual(memory.writes.at(-1), { path: 'zokiAgents/a/conversations/school1', data: { state: { messages: [{ id: '1', role: 'user', text: 'שם תלמיד' }] } } });
+  assert.deepEqual(memory.writes.at(-1), { path: 'zokiAgents/a/conversations/school1', data: { state: { messages: [{ id: '1', role: 'user', text: 'שם תלמיד' }] }, chatEpoch: 0 } });
   await reserveZokiQuestion('school1');
   await syncPersonalAgentConversation({ schoolId: 'school1', operation: 'end' });
   assert.equal(memory.writes.at(-1).data.state, null);
@@ -59,7 +61,16 @@ test('conversation save writes only bounded transcript to Firebase, never browse
   await syncPersonalAgentConversation({ schoolId: 'school1', expectedUid: 'a', operation: 'fresh' });
   const fresh = memory.writes.at(-1).data;
   assert.equal(fresh.state, null);
+  assert.equal(fresh.chatEpoch, 1);
   assert.equal(fresh.archive.at(-1).messages[0].text, 'שיחה קודמת');
+});
+
+test('a save from the previous chat does not restore it after שיחה חדשה', async () => {
+  memory.doc = { state: null, chatEpoch: 1, archive: [{ messages: [{ text: 'שיחה קודמת' }] }] };
+  const before = memory.writes.length;
+  await syncPersonalAgentConversation({ schoolId: 'school1', expectedUid: 'a', operation: 'save', chatEpoch: 0, state: { messages: [{ id: 'old', role: 'user', text: 'שיחה קודמת' }] } });
+  assert.equal(memory.writes.length, before);
+  memory.doc = null;
 });
 
 test('late server reads are discarded on a school switch', async () => {

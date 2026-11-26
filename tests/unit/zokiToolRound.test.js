@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildClaudeRequest } from '../../worker/src/claude.js';
-import { PROPOSAL_LINE, offeredCapabilityKeys, runClaudeRounds } from '../../worker/src/zokiToolRound.js';
-import { settleWorkerTurn } from '../../src/services/zokiWorkerProvider.js';
+import { managerCapabilityKeys, PROPOSAL_LINE, offeredCapabilityKeys, runClaudeRounds } from '../../worker/src/zokiToolRound.js';
+import { clientActionFromProposals, settleWorkerTurn } from '../../src/services/zokiWorkerProvider.js';
+import { prepareZokiAction } from '../../src/utils/zokiActions.js';
 import { roleAgentProfile } from '../../functions/src/roleAgents.js';
 
 const profile = roleAgentProfile('secretary');
@@ -37,6 +38,27 @@ test('a read tool gets one tool_result round and the answer is the model text', 
   assert.equal(seen[1].messages.at(-1).content[0].type, 'tool_result');
   assert.match(seen[1].messages.at(-1).content[0].content, /התנדבות/);
   assert.equal(turned.reply, 'יש התנדבות ב-1.12.');
+});
+
+test('a principal of school 0Le4ldc5W0MiFc663GwK is offered create tools and the confirm card', () => {
+  const yossi = { role: 'principal', schoolId: '0Le4ldc5W0MiFc663GwK', manager: true, accessProfile: { presetId: 'custom', school: {} } };
+  assert.equal(yossi.schoolId, '0Le4ldc5W0MiFc663GwK');
+  const held = yossi.manager ? [...new Set([...managerCapabilityKeys()])] : [];
+  const offered = offeredCapabilityKeys(held, ['tasks.create', 'calendar.view', 'attendance_view']);
+  const body = buildClaudeRequest({
+    profile: roleAgentProfile('pedagogical_coordinator'),
+    messages: [{ role: 'user', content: 'create task בדיקת זוקי - למחיקה in משימות אישיות due 30.11.2026' }],
+    heldKeys: offered,
+  });
+  const names = body.tools.map(tool => tool.name);
+  assert.equal(names.includes('create_task'), true);
+  assert.equal(names.includes('create_personal_task'), true);
+  const proposals = [{ tool: 'create_personal_task', input: { title: 'בדיקת זוקי - למחיקה', dueDate: '2026-11-30', description: 'משימות אישיות' } }];
+  const action = clientActionFromProposals('create task בדיקת זוקי - למחיקה', proposals);
+  const card = prepareZokiAction(action, { manager: true });
+  assert.equal(card.allowed, true);
+  assert.match(card.lines.join('\n'), /בדיקת זוקי - למחיקה/);
+  assert.equal(card.fields.dueDate, '2026-11-30');
 });
 
 test('permission keys cannot add a tool the server did not grant', () => {
