@@ -1,10 +1,13 @@
 import AccessProfileEditor from '../Access/AccessProfileEditor';
 import { ACCESS_PRESETS, presetProfile } from '../../../functions/src/accessCatalog.js';
 import UserAccessDialog from '../Access/UserAccessDialog';
-import StaffActions, { StaffChangeDialog } from './StaffActions';
+import { StaffChangeDialog } from './StaffActions';
+import { useContextMenu } from '../Common/ContextMenu';
+import StaffManagePanel from './StaffManagePanel';
 import { changeStaffMember } from '../../services/firestore/staffManagementRepository';
 import { schoolJobTitle, staffChangeError, staffSchoolIds } from '../../utils/staffManagement';
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { permissionLabel, permissionScopeLabel } from '../../utils/permissionLabels';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../../firebase';
@@ -69,6 +72,7 @@ const AVATAR_STYLES = [
 
 export default function StaffManagement() {
   const { currentUser, userData, selectedSchool, isPrincipal, isGlobalAdmin, approveUser, rejectUser } = useAuth();
+  const { menuProps, open: openItemMenu } = useContextMenu();
   const [invitationProfile, setInvitationProfile] = useState(() => presetProfile('teacher'));
   const [showPermissionsPanel, setShowPermissionsPanel] = useState(false);
   const navigate = useNavigate();
@@ -105,9 +109,10 @@ export default function StaffManagement() {
 
   const [schools, setSchools] = useState([]);
   const [permissionsUser, setPermissionsUser] = useState(null);
+  const [managedUser, setManagedUser] = useState(null);
   const [showRolesManager, setShowRolesManager] = useState(false);
   const [permissionPreview, setPermissionPreview] = useState(null);
-  const [previewLoadingId, setPreviewLoadingId] = useState('');
+  const [, setPreviewLoadingId] = useState('');
   const [forumRequestUser, setForumRequestUser] = useState(null);
   const [forumRequestForm, setForumRequestForm] = useState({ permissions: ['forum.createThread', 'forum.reply'], reason: '', expiresAt: '' });
   const [customRoles, setCustomRoles] = useState([]);
@@ -117,10 +122,6 @@ export default function StaffManagement() {
   const [joinRequests, setJoinRequests] = useState([]);
   const [joinRequestRoles, setJoinRequestRoles] = useState({});
   const [requestActionId, setRequestActionId] = useState('');
-
-  // Context menu state
-  const [contextMenu, setContextMenu] = useState(null); // { x, y, user }
-  const contextMenuRef = useRef(null);
 
   // Task attachment popup
   const [taskAttachUser, setTaskAttachUser] = useState(null);
@@ -340,12 +341,6 @@ export default function StaffManagement() {
     setStaffChange({ user, schoolId, operation: 'remove', requestId: crypto.randomUUID() });
   }
 
-  function openJobTitle(user) {
-    setStaffChangeMessage('');
-    const title = schoolJobTitle(user, schoolId);
-    setStaffChange({ user, schoolId, operation: 'jobTitle', title, expectedTitle: title, requestId: crypto.randomUUID() });
-  }
-
   async function saveStaffChange(event) {
     event.preventDefault();
     if (staffChangeBusy || !staffChange || staffChange.schoolId !== schoolId) return;
@@ -366,18 +361,11 @@ export default function StaffManagement() {
 
   function memberActions(user) {
     return [
-      { id: 'profile', label: 'כרטיס איש צוות', icon: User, onSelect: () => openProfilePopup(user) },
-      ...(canEditUser(user) ? [
-        ...(!isAdmin ? [{ id: 'jobTitle', label: 'עריכת התפקיד בבית הספר', icon: Briefcase, onSelect: () => openJobTitle(user) }] : []),
-        { id: 'edit', label: 'עריכת פרטים נוספים', icon: Edit3, onSelect: () => openEdit(user) },
-        { id: 'permissions', label: 'הרשאות גישה', icon: Shield, onSelect: () => openPermissions(user) },
-        { id: 'preview', label: 'בדיקת התצוגה של העובד', icon: Eye, onSelect: () => openPermissionPreview(user), disabled: previewLoadingId === user.id },
-      ] : []),
-      ...(canViewLoginActivity ? [{ id: 'activity', label: 'היסטוריית התחברות', icon: History, onSelect: () => openLoginActivity(user) }] : []),
-      ...(isPrincipal() && canEditUser(user) ? [{ id: 'forum', label: 'בקשת גישה לפורום בתי הספר', icon: MessagesSquare, onSelect: () => setForumRequestUser(user) }] : []),
-      { id: 'task', label: 'צירוף למשימה', icon: Briefcase, onSelect: () => handleAttachToTask(user) },
-      { id: 'message', label: 'שליחת הודעה', icon: MessageCircle, onSelect: () => handleSendMessage(user) },
-      ...(canDeleteUser(user) ? [{ id: 'remove', label: isAdmin ? 'מחיקת החשבון מהמערכת' : 'הסרה מהמוסד', icon: Trash2, danger: true, onSelect: () => handleDelete(user) }] : []),
+      { label: 'פתיחת כרטיס', icon: User, onClick: () => setManagedUser(user) },
+      { label: 'שליחת הודעה', icon: MessageCircle, onClick: () => handleSendMessage(user) },
+      { label: 'צירוף למשימה', icon: Briefcase, onClick: () => handleAttachToTask(user) },
+      ...(canViewLoginActivity ? [{ label: 'היסטוריית התחברות', icon: History, onClick: () => openLoginActivity(user) }] : []),
+      ...(canDeleteUser(user) ? [{ separator: true }, { label: isAdmin ? 'מחיקת החשבון' : 'הסרה מהמוסד', icon: Trash2, danger: true, onClick: () => handleDelete(user) }] : []),
     ];
   }
 
@@ -571,17 +559,6 @@ export default function StaffManagement() {
     return `נראה/ת ב-${d.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: '2-digit' })}`;
   }
 
-  // Can the logged-in user edit this staff member?
-  function canEditUser(user) {
-    if (isAdmin) return true;
-    if (!isPrincipal()) return false;
-    // Principal can edit only viewer/editor in their own school (not other principals/admins)
-    const userSchoolIds = staffSchoolIds(user);
-    const inMySchool = userSchoolIds.includes(schoolId);
-    const isHigherRole = ['principal', 'institution_manager', 'global_admin', 'platform_admin'].includes(user.role) || ['principal','institution_manager','global_admin','platform_admin'].includes(user.rolesBySchool?.[schoolId]);
-    return inMySchool && !isHigherRole;
-  }
-
   // Can the logged-in user delete this staff member?
   // Principals can delete editors/viewers in their school; admins can delete anyone
   function canDeleteUser(user) {
@@ -594,38 +571,7 @@ export default function StaffManagement() {
     return inMySchool && !isHigherRole;
   }
 
-  // Context menu handlers
-  function handleContextMenu(e, user) {
-    e.preventDefault();
-    const menuWidth = 200;
-    const menuHeight = 140;
-    let x = e.clientX;
-    let y = e.clientY;
-    if (x + menuWidth > window.innerWidth) x = window.innerWidth - menuWidth - 8;
-    if (y + menuHeight > window.innerHeight) y = window.innerHeight - menuHeight - 8;
-    if (x < 0) x = 8;
-    if (y < 0) y = 8;
-    setContextMenu({ x, y, user });
-  }
-
-  function closeContextMenu() {
-    setContextMenu(null);
-  }
-
-  useEffect(() => {
-    if (!contextMenu) return;
-    function handleClick() { closeContextMenu(); }
-    function handleScroll() { closeContextMenu(); }
-    window.addEventListener('click', handleClick);
-    window.addEventListener('scroll', handleScroll, true);
-    return () => {
-      window.removeEventListener('click', handleClick);
-      window.removeEventListener('scroll', handleScroll, true);
-    };
-  }, [contextMenu]);
-
   function handleSendMessage(user) {
-    closeContextMenu();
     navigate(`/messages?userId=${user.id}`);
   }
 
@@ -696,7 +642,6 @@ export default function StaffManagement() {
   }
 
   async function handleAttachToTask(user) {
-    closeContextMenu();
     setTaskAttachUser(user);
     setTaskListLoading(true);
     try {
@@ -723,7 +668,6 @@ export default function StaffManagement() {
   }
 
   async function openProfilePopup(user) {
-    closeContextMenu();
     setProfileUser(user);
     setProfileLoading(true);
     setProfileTasks([]);
@@ -771,7 +715,6 @@ export default function StaffManagement() {
 
   async function openLoginActivity(user) {
     if (!canViewLoginActivity || !schoolId) return;
-    closeContextMenu();
     setLoginActivityUser(user);
     setLoginActivityEntries([]);
     setLoginActivityError('');
@@ -1016,7 +959,7 @@ export default function StaffManagement() {
             {filteredStaff.map(user => {
               const schoolNames = getUserSchoolNames(user);
               return (
-                <div key={user.id} className="staff-card" onContextMenu={e => handleContextMenu(e, user)}>
+                <div key={user.id} className="staff-card" {...(canManage ? menuProps(() => memberActions(user)) : {})}>
                   <div className="staff-card-avatar-wrap">
                     <div className="staff-card-avatar">{user.fullName?.charAt(0) || '?'}</div>
                     <span className={`staff-online-dot ${isUserOnline(user) ? 'staff-online-dot--online' : ''}`} title={getLastSeenText(user)} />
@@ -1050,7 +993,7 @@ export default function StaffManagement() {
                   )}
                   <p className="staff-card-email">{user.email}</p>
                   {canManage && (
-                    <div className="staff-card-actions"><StaffActions name={user.fullName} actions={memberActions(user)} /></div>
+                    <div className="staff-card-actions"><button type="button" className="staff-manage-open" onClick={event => { const box = event.currentTarget.getBoundingClientRect(); openItemMenu({ x: box.left, y: box.bottom }, memberActions(user)); }}>ניהול</button></div>
                   )}
                 </div>
               );
@@ -1073,7 +1016,7 @@ export default function StaffManagement() {
                 {filteredStaff.map(user => {
                   const schoolNames = getUserSchoolNames(user);
                   return (
-                    <tr key={user.id} onContextMenu={e => handleContextMenu(e, user)}>
+                    <tr key={user.id} {...(canEdit ? menuProps(() => memberActions(user)) : {})}>
                       <td className="td-bold">
                         <div className="td-user">
                           <div className="td-avatar">{user.fullName?.charAt(0)}</div>
@@ -1099,7 +1042,7 @@ export default function StaffManagement() {
                       </td>
                       {canEdit && (
                         <td>
-                          <StaffActions name={user.fullName} actions={memberActions(user)} />
+                          <button type="button" className="btn btn-secondary btn-sm" onClick={event => { const box = event.currentTarget.getBoundingClientRect(); openItemMenu({ x: box.left, y: box.bottom }, memberActions(user)); }}>ניהול</button>
                         </td>
                       )}
                     </tr>
@@ -1571,6 +1514,7 @@ export default function StaffManagement() {
 
         {/* Detailed Permissions Modal */}
         {permissionsUser && <UserAccessDialog user={permissionsUser} schoolId={schoolId} onClose={() => setPermissionsUser(null)} />}
+        {managedUser && <StaffManagePanel user={managedUser} schoolId={schoolId} teams={teams} onClose={() => setManagedUser(null)} onSaved={() => { setManagedUser(null); isAdmin ? loadAllStaff() : loadStaff(); }} onEdit={() => openEdit(managedUser)} onPermissions={() => openPermissions(managedUser)} onPreview={() => openPermissionPreview(managedUser)} onProfile={() => openProfilePopup(managedUser)} />}
 
         </>}
 
@@ -1581,31 +1525,6 @@ export default function StaffManagement() {
         </StaffChangeDialog>}
 
         {/* Context Menu */}
-        {contextMenu && (
-          <div
-            ref={contextMenuRef}
-            className="staff-context-menu"
-            style={{ top: contextMenu.y, left: contextMenu.x }}
-            onClick={e => e.stopPropagation()}
-          >
-            <button className="staff-context-menu-item" onClick={() => handleSendMessage(contextMenu.user)}>
-              <MessageCircle size={15} />
-              <span>שלח הודעה פרטית</span>
-            </button>
-            <button className="staff-context-menu-item" onClick={() => handleAttachToTask(contextMenu.user)}>
-              <Briefcase size={15} />
-              <span>צרף למשימה</span>
-            </button>
-            <button className="staff-context-menu-item" onClick={() => openProfilePopup(contextMenu.user)}>
-              <Eye size={15} />
-              <span>כרטיס אישי</span>
-            </button>
-            {canViewLoginActivity && <button className="staff-context-menu-item" onClick={() => openLoginActivity(contextMenu.user)}>
-              <History size={15} />
-              <span>היסטוריית התחברות</span>
-            </button>}
-          </div>
-        )}
 
         {/* Task Attachment Popup */}
         {taskAttachUser && (
@@ -1788,7 +1707,7 @@ export default function StaffManagement() {
             onClose={() => { setShowRolesManager(false); loadCustomRoles(); }}
           />
         )}
-        {permissionPreview && <div className="modal-overlay" onClick={() => setPermissionPreview(null)}><div className="modal-content modal-content--wide permission-preview-modal" role="dialog" aria-modal="true" aria-label="תצוגה מקדימה כמשתמש" onClick={event => event.stopPropagation()}><div className="permission-preview-banner"><Eye size={18} /><strong>מצב תצוגה מקדימה: כך {permissionPreview.target.fullName || 'המשתמש'} רואה את המערכת</strong><span>קריאה בלבד · אין שינוי בזהות ההתחברות</span><button className="btn btn-secondary btn-sm" onClick={() => setPermissionPreview(null)}>יציאה מתצוגה מקדימה</button></div><div className="modal-form"><section><h4>תפקידים פעילים</h4><div className="staff-profile-tags">{permissionPreview.roles.map(role => <span key={role.id} className="staff-profile-tag staff-profile-tag--role">{role.name || role.id} · {role.scope?.type === 'classes' ? `${role.scope.classIds?.length || role.scope.values?.length || 0} כיתות` : 'כל המוסד'}</span>)}{permissionPreview.roles.length === 0 && <span className="form-hint">אין תפקידים מותאמים.</span>}</div></section><section><h4>פירוט גישה אפקטיבית</h4><div className="permission-preview-list">{permissionPreview.capabilities.map((grant, index) => <div key={`${grant.capability}_${index}`}><strong>{grant.capability}</strong><span>{grant.scope?.type || 'school'}</span><small>{grant.source}</small></div>)}</div></section><div className="students-feedback students-feedback--warning">במצב זה לא מוצגים כפתורי שמירה, מחיקה, הודעה, העלאה או יצירה. session השרת יפוג אוטומטית ב־{new Date(permissionPreview.expiresAt).toLocaleTimeString('he-IL')}.</div></div></div></div>}
+        {permissionPreview && <div className="modal-overlay" onClick={() => setPermissionPreview(null)}><div className="modal-content modal-content--wide permission-preview-modal" role="dialog" aria-modal="true" aria-label="תצוגה מקדימה כמשתמש" onClick={event => event.stopPropagation()}><div className="permission-preview-banner"><Eye size={18} /><strong>מצב תצוגה מקדימה: כך {permissionPreview.target.fullName || 'המשתמש'} רואה את המערכת</strong><span>קריאה בלבד · אין שינוי בזהות ההתחברות</span><button className="btn btn-secondary btn-sm" onClick={() => setPermissionPreview(null)}>יציאה מתצוגה מקדימה</button></div><div className="modal-form"><section><h4>תפקידים פעילים</h4><div className="staff-profile-tags">{permissionPreview.roles.map(role => <span key={role.id} className="staff-profile-tag staff-profile-tag--role">{role.name || role.id} · {role.scope?.type === 'classes' ? `${role.scope.classIds?.length || role.scope.values?.length || 0} כיתות` : 'כל המוסד'}</span>)}{permissionPreview.roles.length === 0 && <span className="form-hint">אין תפקידים מותאמים.</span>}</div></section><section><h4>פירוט גישה אפקטיבית</h4><div className="permission-preview-list">{permissionPreview.capabilities.map((grant, index) => <div key={`${grant.capability}_${index}`}><strong>{permissionLabel(grant.capability)}</strong><span>{permissionScopeLabel(grant.scope)}</span></div>)}</div></section><div className="students-feedback students-feedback--warning">במצב זה לא מוצגים כפתורי שמירה, מחיקה, הודעה, העלאה או יצירה. session השרת יפוג אוטומטית ב־{new Date(permissionPreview.expiresAt).toLocaleTimeString('he-IL')}.</div></div></div></div>}
         {forumRequestUser && <div className="modal-overlay" onClick={() => setForumRequestUser(null)}><div className="modal-content" role="dialog" aria-modal="true" aria-label="בקשת גישה לפורום" onClick={event => event.stopPropagation()}><div className="modal-header"><h3>בקשת גישה לפורום עבור {forumRequestUser.fullName}</h3><button className="modal-close" onClick={() => setForumRequestUser(null)}><X size={18} /></button></div><form className="modal-form" onSubmit={submitForumAccessRequest}><p className="form-hint">הבקשה תמתין לאישור Platform Admin. עד האישור הפורום לא יוצג לאיש הצוות וגם URL ישיר ייחסם.</p>{[['forum.createThread', 'פתיחת דיונים'], ['forum.reply', 'תגובות'], ['forum.editOwnPost', 'עריכת הודעות אישיות'], ['forum.deleteOwnPost', 'מחיקת הודעות אישיות'], ['forum.createFolder', 'יצירת תיקיות'], ['forum.editFolder', 'עריכת תיקיות'], ['forum.lockThread', 'נעילת דיונים']].map(([permission, label]) => <label className="students-inline-check" key={permission}><input type="checkbox" checked={forumRequestForm.permissions.includes(permission)} onChange={() => setForumRequestForm(previous => ({ ...previous, permissions: previous.permissions.includes(permission) ? previous.permissions.filter(item => item !== permission) : [...previous.permissions, permission] }))} /> {label}</label>)}<label className="form-group">סיבה<textarea value={forumRequestForm.reason} onChange={event => setForumRequestForm(previous => ({ ...previous, reason: event.target.value }))} required minLength="5" maxLength="1000" /></label><label className="form-group">תפוגה (אופציונלי)<input type="date" value={forumRequestForm.expiresAt} onChange={event => setForumRequestForm(previous => ({ ...previous, expiresAt: event.target.value }))} /></label><div className="modal-actions"><button className="btn btn-primary" disabled={requestActionId === `forum_${forumRequestUser.id}` || forumRequestForm.permissions.length === 0}>שליחת בקשה</button><button type="button" className="btn btn-secondary" onClick={() => setForumRequestUser(null)}>ביטול</button></div></form></div></div>}
       </div>
     </div>

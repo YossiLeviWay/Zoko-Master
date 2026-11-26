@@ -1,4 +1,5 @@
 import ImportReport from './components/Zoki/ImportReport.jsx';
+import ZokiPage from './components/Zoki/ZokiPage.jsx';
 import PedagogicalMapping from './components/Students/PedagogicalMapping.jsx';
 import TaskWorkspace from './components/Tasks/TaskWorkspaceRoute';
 import { lazy, Suspense, useEffect } from 'react';
@@ -91,6 +92,10 @@ function SchoolRequiredRoute({ children }) {
   return children;
 }
 
+function ZokiRoute() {
+  return <ZokiPage />;
+}
+
 function HomeRoute() {
   const { isPlatformAdmin, isGlobalAdmin, selectedSchool } = useAuth();
   if (isPlatformAdmin()) return <Navigate to="/platform" />;
@@ -160,7 +165,7 @@ export default function App() {
               <Route path="teams" element={<ApprovedRoute><SchoolRequiredRoute><Teams /></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="contacts" element={<ApprovedRoute><SchoolRequiredRoute><ContactsPage /></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="collective-brain" element={<ApprovedRoute><SchoolRequiredRoute><PageErrorBoundary><CollectiveBrainPage /></PageErrorBoundary></SchoolRequiredRoute></ApprovedRoute>} />
-              <Route path="zoki" element={<Navigate to="/" replace />} />
+              <Route path="zoki" element={<ApprovedRoute><SchoolRequiredRoute><PageErrorBoundary><ZokiRoute /></PageErrorBoundary></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="imports" element={<ApprovedRoute><SchoolRequiredRoute><ImportReport /></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="mappings" element={<ApprovedRoute><SchoolRequiredRoute><PedagogicalMapping /></SchoolRequiredRoute></ApprovedRoute>} />
               <Route path="students" element={<ApprovedRoute><SchoolRequiredRoute><Students /></SchoolRequiredRoute></ApprovedRoute>} />

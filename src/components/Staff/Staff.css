@@ -121,14 +121,55 @@
 }
 
 .staff-card-actions {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, 34px);
+  display: flex;
   justify-content: center;
-  gap: 0.35rem;
   width: 100%;
   margin-top: auto;
   padding-top: 0.75rem;
   box-sizing: border-box;
+}
+.staff-manage-open {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid #e3dce0;
+  border-radius: 10px;
+  background: #fff;
+  color: #633b4c;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.staff-manage-open:hover { background: #faf4f6; }
+.staff-manage-dialog[open] {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100vw);
+  height: 100dvh;
+  max-height: 100dvh;
+  margin: 0;
+  margin-inline-start: auto;
+  border: 0;
+  padding: 0;
+  color: #32272c;
+  direction: rtl;
+}
+.staff-manage-dialog::backdrop { background: #231a2840; }
+.staff-manage-body { display: grid; gap: 0.75rem; max-height: calc(100dvh - 148px); overflow: auto; padding: 1rem 1.1rem 1.25rem; }
+.staff-manage-dialog header { display: flex; justify-content: space-between; gap: 0.75rem; align-items: flex-start; padding: 1rem 1.1rem; border-bottom: 1px solid #eee7eb; }
+.staff-manage-dialog h3 { margin: 0.15rem 0; }
+.staff-manage-dialog header button, .staff-manage-actions button { font: inherit; cursor: pointer; }
+.staff-manage-dialog header button { border: 0; background: transparent; }
+.staff-manage-section { display: grid; gap: 0.45rem; }
+.staff-manage-section label, .staff-manage-section select, .staff-manage-section input { font: inherit; }
+.staff-manage-section input, .staff-manage-section select { width: 100%; padding: 0.45rem 0.55rem; border: 1px solid #dfd6dc; border-radius: 8px; }
+.staff-manage-perms details { border-top: 1px solid #f3e8eb; padding-top: 0.45rem; }
+.staff-manage-perms summary { cursor: pointer; font-weight: 700; }
+.staff-perm { display: flex; justify-content: space-between; gap: 0.75rem; align-items: center; padding: 0.28rem 0; font-size: 0.92rem; }
+.staff-manage-actions { display: flex; flex-wrap: wrap; gap: 0.45rem; padding: 0.8rem 1.1rem; border-top: 1px solid #eee7eb; }
+.staff-manage-actions .is-danger { margin-inline-start: auto; color: #ac2747; border-color: #f3c3cf; background: #fff5f7; }
+@media (max-width: 640px) {
+  .staff-manage-dialog { width: 100vw; height: 100dvh; max-height: 100dvh; }
+  .staff-grid { grid-template-columns: 1fr; }
 }
 
 /* Role badges */

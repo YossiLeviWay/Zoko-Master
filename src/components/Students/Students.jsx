@@ -304,7 +304,7 @@ export default function Students() {
   const canTransfer = isAdmin || permissionApplies(['students_transfer_class', 'students.transferClass']);
   const canPromote = isAdmin || permissions['students.promote'] || permissions['classes.promote'];
   const canGraduate = isAdmin || permissions['students.markGraduate'];
-  const canGraduateClass = isAdmin || permissionApplies(['students.graduateClass']);
+  const canGraduateClass = isPrincipal() || isGlobalAdmin();
   const outcomePermissions = {
     view: isAdmin || permissionApplies(['outcomes.view']),
     manageDefinitions: isAdmin || permissionApplies(['outcomes.manageDefinitions']),

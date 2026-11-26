@@ -25,8 +25,8 @@ import {
 import { eventRelevantFor } from '../../../functions/src/eventAudience.js';
 import { milestonesFor } from '../../../functions/src/schoolYearCalendar.js';
 import WidgetSettings from './WidgetSettings.jsx';
-import { MULTI_INSTANCE_TYPES, TASK_VIEW_PRESETS, filterEvents, filterTasks, hasFilters, normalizeConfig, normalizeWidget, tagsInTasks, widgetTitle } from '../../utils/dashboardWidgets';
-import { DASHBOARD_TASK_SORTS, dashboardTaskStats, sortDashboardTasks } from '../../utils/dashboardTasks';
+import { MAX_DASHBOARD_WIDGETS, MULTI_INSTANCE_TYPES, classForLesson, eventsInSpan, filterEvents, filterTasks, hasFilters, normalizeConfig, normalizeWidget, searchDashboardCatalog, tagsInTasks, teacherDashboardWidgets, widgetTitle } from '../../utils/dashboardWidgets';
+import { DASHBOARD_TASK_SORTS, dashboardTaskStats, dashboardTasks, sortDashboardTasks } from '../../utils/dashboardTasks';
 import './Dashboard.css';
 
 const WIDGET_TYPES = {
@@ -39,6 +39,9 @@ const WIDGET_TYPES = {
   upcoming_week: { label: 'השבוע הקרוב', icon: Calendar, defaultSize: 'full' },
   milestones: { label: 'מועדים חשובים', icon: Clock, defaultSize: 'full' },
   staff_tasks: { label: 'משימות שהוסיפו אנשי צוות', icon: UserPlus, defaultSize: 'half' },
+  today_schedule: { label: 'לו״ז היום', icon: Calendar, defaultSize: 'half' },
+  week_schedule: { label: 'לו״ז השבוע', icon: Calendar, defaultSize: 'full' },
+  shortcut: { label: 'קיצור', icon: ArrowUpDown, defaultSize: 'half' },
 };
 
 const DEFAULT_WIDGETS = [
@@ -112,6 +115,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const globalAdmin = isGlobalAdmin();
   const principal = isPrincipal();
+  const teacherHome = !globalAdmin && !principal;
   const [events, setEvents] = useState([]);
   const [staffCount, setStaffCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -132,10 +136,10 @@ export default function Dashboard() {
 
   // Widget management
   const [widgets, setWidgets] = useState(DEFAULT_WIDGETS);
+  const [layoutEdit, setLayoutEdit] = useState(false);
   const [widgetContextMenu, setWidgetContextMenu] = useState(null); // { x, y, widgetIdx }
   const [showAddWidget, setShowAddWidget] = useState(false);
-  const [addWidgetPos, setAddWidgetPos] = useState({ x: 0, y: 0 });
-
+  const [catalogQuery, setCatalogQuery] = useState('');
   // Team activity & file tracking
   const [teamActivity, setTeamActivity] = useState([]);
   const [trackedFiles, setTrackedFiles] = useState([]);
@@ -176,8 +180,10 @@ export default function Dashboard() {
     const savedWidgets = userData?.dashboardPreferences?.widgets;
     if (savedWidgets && Array.isArray(savedWidgets) && savedWidgets.length > 0) {
       setWidgets(savedWidgets.map(normalizeWidget).filter(Boolean));
+    } else if (userData) {
+      setWidgets(teacherHome ? teacherDashboardWidgets() : DEFAULT_WIDGETS);
     }
-  }, [userData?.dashboardPreferences?.widgets]);
+  }, [userData, teacherHome]);
 
   async function saveWidgets(newWidgets) {
     setWidgets(newWidgets);
@@ -232,13 +238,12 @@ export default function Dashboard() {
   }
 
   // `preset` (optional) pre-fills the filters; the settings window opens right away so the person can refine them.
-  function addWidget(type, preset = null) {
-    const config = WIDGET_TYPES[type];
-    if (!config) return;
-    const newWidgets = [...widgets, { type, size: config.defaultSize, config: normalizeConfig(preset || {}) }];
-    saveWidgets(newWidgets);
+  function addCatalogItem(item) {
+    if (!item || widgets.length >= MAX_DASHBOARD_WIDGETS) return;
+    const size = item.size === 'half' || item.type === 'shortcut' || item.type === 'today_schedule' ? 'half' : (WIDGET_TYPES[item.type]?.defaultSize || 'full');
+    saveWidgets([...widgets, { type: item.type, size, config: normalizeConfig({ title: item.type === 'shortcut' ? item.label : '', path: item.path || '' }) }]);
     setShowAddWidget(false);
-    if (preset) setSettingsIdx(newWidgets.length - 1);
+    setCatalogQuery('');
   }
 
   function removeWidget(idx) {
@@ -265,7 +270,6 @@ export default function Dashboard() {
 
   function handleDashboardContextMenu(e) {
     e.preventDefault();
-    setAddWidgetPos({ x: Math.min(e.clientX, window.innerWidth - 220), y: Math.min(e.clientY, window.innerHeight - 300) });
     setShowAddWidget(true);
     setWidgetContextMenu(null);
   }
@@ -424,7 +428,7 @@ export default function Dashboard() {
     if (!selectedSchool || !currentUser?.uid) return;
     let personal = [];
     let assigned = [];
-    const emit = () => setMyTasks([...personal, ...assigned]);
+    const emit = () => setMyTasks(dashboardTasks(personal, assigned));
     const unsubscribePersonal = subscribePersonalTasks({
       db,
       uid: currentUser.uid,
@@ -437,10 +441,7 @@ export default function Dashboard() {
       uid: currentUser.uid,
       schoolId: selectedSchool,
       teamIds: myTeams.filter(team => team.memberIds?.includes(currentUser.uid)).map(team => team.id),
-      onData: tasks => {
-        assigned = tasks.filter(task => task.scope === TASK_SCOPES.ASSIGNED && task.assigneeIds?.includes(currentUser.uid));
-        emit();
-      },
+      onData: tasks => { assigned = tasks; emit(); },
       onError: () => setMyTasks([]),
     });
     return () => {
@@ -897,6 +898,32 @@ export default function Dashboard() {
           </div>
         );
       }
+      case 'shortcut': {
+        const path = normalizeConfig(widget.config).path || '/';
+        const label = widgetTitle(widget, 'פתיחה');
+        return <button type="button" className="btn btn-secondary" onClick={() => navigate(path)}>{label}</button>;
+      }
+      case 'today_schedule':
+      case 'week_schedule': {
+        const span = widget.type === 'week_schedule' ? 'week' : 'today';
+        const rows = eventsInSpan(filteredEvents, localDateKey(), span);
+        if (rows.length === 0) return <p className="section-empty">{span === 'week' ? 'אין אירועים בשבוע הזה' : 'אין אירועים היום'}</p>;
+        return (
+          <div className="event-list">
+            {rows.map(event => {
+              const lessonClass = classForLesson(event, schoolClasses, currentUser?.uid);
+              return (
+              <div key={event.id || `${event.date}-${event.title}`} className="event-card schedule-card">
+                <button type="button" className="event-title" onClick={() => { const d = new Date(`${String(event.date).slice(0, 10)}T00:00:00`); navigate(`/calendar?year=${d.getFullYear()}&month=${d.getMonth()}`); }}>
+                  {String(event.date).slice(8, 10)}/{String(event.date).slice(5, 7)} {event.title}{event.certainty === 'tentative' ? ' · לא סגור' : ''}
+                </button>
+                {span === 'today' && lessonClass && <button type="button" className="btn btn-primary btn-sm teacher-attendance" onClick={() => navigate(`/files?openAttendanceClass=${encodeURIComponent(lessonClass.id)}`)}>נוכחות</button>}
+              </div>
+              );
+            })}
+          </div>
+        );
+      }
       case 'holidays':
         if (filteredHolidays.length === 0) return <p className="section-empty">אין חגים קרובים</p>;
         return (
@@ -1177,56 +1204,36 @@ export default function Dashboard() {
         )}
 
         {/* Stats Grid */}
+        {teacherHome && <h2 className="teacher-home-title">היום שלי</h2>}
         <div className="dashboard-stats">
-          <button type="button" className="stat-card" onClick={() => navigate('/tasks?status=active')} aria-label={`פתיחת ${taskStats.pending} משימות ממתינות`}>
-            <div className="stat-icon stat-icon--tasks">
-              <CheckSquare size={20} />
-            </div>
-            <div className="stat-info">
-              <span className="stat-value">{taskStats.pending}</span>
-              <span className="stat-label">משימות ממתינות</span>
-            </div>
-          </button>
-          <button type="button" className="stat-card" onClick={() => navigate('/tasks?status=done')} aria-label={`פתיחת ${taskStats.completed} משימות שהושלמו`}>
-            <div className="stat-icon stat-icon--completed">
-              <CheckSquare size={20} />
-            </div>
-            <div className="stat-info">
-              <span className="stat-value">{taskStats.completed}</span>
-              <span className="stat-label">משימות שהושלמו</span>
-            </div>
-          </button>
-          <button type="button" className="stat-card" onClick={() => navigate('/tasks?date=overdue')} aria-label={`פתיחת ${taskStats.overdue} משימות באיחור`}>
-            <div className="stat-icon stat-icon--overdue">
-              <Clock size={20} />
-            </div>
-            <div className="stat-info">
-              <span className="stat-value">{taskStats.overdue}</span>
-              <span className="stat-label">משימות באיחור</span>
-            </div>
-          </button>
-          <button type="button" className="stat-card" onClick={() => navigate('/staff')} aria-label={`פתיחת רשימת ${staffCount} אנשי צוות`}>
-            <div className="stat-icon stat-icon--staff">
-              <Users size={20} />
-            </div>
-            <div className="stat-info">
-              <span className="stat-value">{staffCount}</span>
-              <span className="stat-label">אנשי צוות</span>
-            </div>
-          </button>
+          {( !teacherHome || taskStats.pending > 0) && <button type="button" className="stat-card" onClick={() => navigate('/tasks?status=active')} aria-label={`פתיחת ${taskStats.pending} משימות ממתינות`}>
+            <div className="stat-icon stat-icon--tasks"><CheckSquare size={20} /></div>
+            <div className="stat-info"><span className="stat-value">{taskStats.pending}</span><span className="stat-label">משימות ממתינות</span></div>
+          </button>}
+          {!teacherHome && <button type="button" className="stat-card" onClick={() => navigate('/tasks?status=done')} aria-label={`פתיחת ${taskStats.completed} משימות שהושלמו`}>
+            <div className="stat-icon stat-icon--completed"><CheckSquare size={20} /></div>
+            <div className="stat-info"><span className="stat-value">{taskStats.completed}</span><span className="stat-label">משימות שהושלמו</span></div>
+          </button>}
+          {( !teacherHome || taskStats.overdue > 0) && <button type="button" className="stat-card" onClick={() => navigate('/tasks?date=overdue')} aria-label={`פתיחת ${taskStats.overdue} משימות באיחור`}>
+            <div className="stat-icon stat-icon--overdue"><Clock size={20} /></div>
+            <div className="stat-info"><span className="stat-value">{taskStats.overdue}</span><span className="stat-label">משימות באיחור</span></div>
+          </button>}
+          {!teacherHome && <button type="button" className="stat-card" onClick={() => navigate('/staff')} aria-label={`פתיחת רשימת ${staffCount} אנשי צוות`}>
+            <div className="stat-icon stat-icon--staff"><Users size={20} /></div>
+            <div className="stat-info"><span className="stat-value">{staffCount}</span><span className="stat-label">אנשי צוות</span></div>
+          </button>}
         </div>
 
         <div className="dashboard-toolbar">
-          <button type="button" className="btn btn-secondary btn-sm" onClick={event => {
+          <button type="button" className={`btn btn-sm ${layoutEdit ? 'btn-primary' : 'btn-secondary'}`} aria-pressed={layoutEdit} onClick={() => { setLayoutEdit(value => !value); setShowAddWidget(false); setWidgetContextMenu(null); }}>{layoutEdit ? 'סיום עריכה' : 'עריכת הדשבורד'}</button>
+          {layoutEdit && <button type="button" className="btn btn-secondary btn-sm" onClick={event => {
             event.stopPropagation(); // the page closes open menus on any click
-            const box = event.currentTarget.getBoundingClientRect();
-            setAddWidgetPos({ x: Math.max(8, Math.min(box.left, window.innerWidth - 230)), y: box.bottom + 6 });
             setShowAddWidget(true); setWidgetContextMenu(null);
-          }}><PlusCircle size={14} /> הוספת תצוגה</button>
+          }}><PlusCircle size={14} /> הוספת תצוגה</button>}
         </div>
 
         {/* Customizable Widget Grid */}
-        <div className="dashboard-widgets" onContextMenu={handleDashboardContextMenu}>
+        <div className="dashboard-widgets" onContextMenu={event => layoutEdit && handleDashboardContextMenu(event)}>
           {widgets.map((widget, idx) => {
             const config = WIDGET_TYPES[widget.type];
             if (!config) return null;
@@ -1237,20 +1244,21 @@ export default function Dashboard() {
                 key={`${widget.type}-${idx}`}
                 className="dashboard-section dashboard-widget"
                 style={{ gridColumn }}
-                onContextMenu={(e) => handleWidgetContextMenu(e, idx)}
+                onContextMenu={event => layoutEdit && handleWidgetContextMenu(event, idx)}
               >
                 <div className="section-header">
                   <Icon size={18} />
                   <h2 className="section-title">{widgetTitle(widget, config.label)}</h2>
-                  <div style={{ marginRight: 'auto', display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+                  {layoutEdit && <div style={{ marginRight: 'auto', display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
                     {['my_tasks', 'events', 'milestones'].includes(widget.type) && <button className="widget-size-btn" title="התאמת התצוגה" aria-label={`התאמת התצוגה: ${widgetTitle(widget, config.label)}`} onClick={() => setSettingsIdx(idx)}><SlidersHorizontal size={13} /></button>}
                     <button className="widget-size-btn" title="שנה גודל" onClick={() => resizeWidget(idx, widget.size === 'full' ? 'half' : 'full')}>
                       {widget.size === 'full' ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
                     </button>
+                    <button className="widget-size-btn" title="הזז למעלה" onClick={() => moveWidget(idx, -1)} disabled={idx === 0}><ArrowUpDown size={13} /></button>
                     <button className="widget-size-btn widget-size-btn--danger" title="הסר תצוגה" onClick={() => removeWidget(idx)}>
                       <X size={13} />
                     </button>
-                  </div>
+                  </div>}
                 </div>
                 <div className="section-body">
                   {renderWidgetContent(widget)}
@@ -1261,7 +1269,7 @@ export default function Dashboard() {
           {widgets.length === 0 && (
             <div className="dashboard-empty" style={{ gridColumn: '1 / -1' }}>
               <PlusCircle size={32} style={{ color: '#9b8790' }} />
-              <p>לחץ ימני כדי להוסיף תצוגות לדשבורד</p>
+              <p>עריכת הדשבורד, ואז הוספת תצוגה</p>
             </div>
           )}
         </div>
@@ -1281,30 +1289,22 @@ export default function Dashboard() {
 
         {/* Right-click: Add widget menu */}
         {showAddWidget && (
-          <div className="context-menu" style={{ position: 'fixed', top: addWidgetPos.y, left: addWidgetPos.x, zIndex: 1000 }} onClick={e => e.stopPropagation()}>
-            <div style={{ padding: '0.4rem 0.6rem', fontSize: '0.75rem', fontWeight: 700, color: '#765968', borderBottom: '1px solid #f9f1ef' }}>הוסף תצוגה</div>
-            <div style={{ padding: '0.4rem 0.6rem', fontSize: '0.75rem', fontWeight: 700, color: '#765968' }}>רשימות מוכנות</div>
-            {TASK_VIEW_PRESETS.map(preset => (
-              <button key={preset.id} className="context-menu-item" onClick={() => addWidget('my_tasks', preset.config)}>
-                <CheckSquare size={14} /> {preset.label}
-              </button>
-            ))}
-            <div className="context-menu-divider" />
-            {Object.entries(WIDGET_TYPES).map(([type, config]) => {
-              const Icon = config.icon;
-              const alreadyAdded = !MULTI_INSTANCE_TYPES.includes(type) && widgets.some(w => w.type === type);
-              return (
-                <button
-                  key={type}
-                  className="context-menu-item"
-                  onClick={() => addWidget(type)}
-                  disabled={alreadyAdded}
-                  style={alreadyAdded ? { opacity: 0.4 } : undefined}
-                >
-                  <Icon size={14} /> {config.label} {alreadyAdded ? '✓' : ''}
-                </button>
-              );
-            })}
+          <div className="modal-overlay" onClick={() => setShowAddWidget(false)}>
+            <div className="modal-content staff-manage-dialog" role="dialog" aria-modal="true" aria-label="הוספת תצוגה" onClick={event => event.stopPropagation()} style={{ position: 'relative', height: 'auto', maxHeight: '80dvh', margin: 'auto' }}>
+              <header>
+                <h3>הוספת תצוגה</h3>
+                <button type="button" aria-label="סגירה" onClick={() => setShowAddWidget(false)}>✕</button>
+              </header>
+              <div className="staff-manage-body">
+                <input aria-label="חיפוש תצוגה" placeholder="חיפוש" value={catalogQuery} onChange={event => setCatalogQuery(event.target.value)} />
+                {widgets.length >= MAX_DASHBOARD_WIDGETS && <p>אפשר עד {MAX_DASHBOARD_WIDGETS} תצוגות. הסירו אחת כדי להוסיף.</p>}
+                {searchDashboardCatalog(catalogQuery).map(item => (
+                  <button key={`${item.group}-${item.label}`} type="button" className="staff-perm" disabled={widgets.length >= MAX_DASHBOARD_WIDGETS || (!MULTI_INSTANCE_TYPES.includes(item.type) && item.type !== 'shortcut' && widgets.some(widget => widget.type === item.type))} onClick={() => addCatalogItem(item)}>
+                    <span><strong>{item.label}</strong><br /><small>{item.group} · {item.description}</small></span>
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         )}
 

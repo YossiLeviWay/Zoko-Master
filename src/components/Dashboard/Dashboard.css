@@ -744,6 +744,11 @@
 .dashboard-widget:hover {
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
 }
+.schedule-card{display:flex;align-items:center;justify-content:space-between;gap:.5rem;width:100%;text-align:start}
+.schedule-card .event-title{border:0;background:transparent;font:inherit;cursor:pointer;text-align:start}
+.teacher-attendance{min-height:40px}
+.teacher-home-title{margin:.2rem 0 .4rem;font-size:1.15rem}
+.dashboard-toolbar{display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.75rem}
 
 .widget-size-btn {
   width: 24px;
