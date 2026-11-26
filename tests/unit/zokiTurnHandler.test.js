@@ -15,7 +15,7 @@ function environment(over = {}) {
 
 // Routes every outbound call to a fake; records what the model service and the counter received.
 function fakes({ count = 1, route = { tool: null }, tasksCreate = true, claude = 'ok', brain = true, personal = null, persistPersonal = false } = {}) {
-  const seen = { model: [], commits: 0, claude: [], brainWrites: 0, personal, personalWrites: [] };
+  const seen = { model: [], commits: 0, claude: [], brainWrites: 0, personal, personalWrites: [], queries: [] };
   // What Firestore would hold for this user. A masked update on a missing document does not create it.
   let brainDoc = personal ? { profile: str(JSON.stringify(personal)), snapshot: str(JSON.stringify({ at: new Date().toISOString(), name: 'דנה', jobTitle: 'מזכירה', openTasks: 0 })) } : null;
   const applyPersonalWrite = write => {
@@ -49,6 +49,16 @@ function fakes({ count = 1, route = { tool: null }, tasksCreate = true, claude =
     if (url.includes('/documents/zokiPersonalBrain/')) return brainDoc ? Response.json({ fields: brainDoc }) : new Response('{}', { status: 404 });
     if (url.endsWith('/documents/tasks_s1?pageSize=1000')) return Response.json({ documents: [{ name: 'x/tasks_s1/k1', fields: { title: str('להזמין אוטובוס לטיול'), dueDate: str('2020-01-01'), status: str('open'), assigneeIds: { arrayValue: { values: [str('u1')] } } } }] });
     if (url.includes('/documents/schoolBrain/')) return new Response('{}', { status: 404 });
+    if (url.includes(':runQuery')) {
+      seen.queries.push(body);
+      const collection = body.structuredQuery?.from?.[0]?.collectionId || '';
+      if (collection !== 'events' && !String(collection).startsWith('events_')) return Response.json([]);
+      const soon = new Date(Date.now() + 5 * 86400000).toISOString().slice(0, 10);
+      const old = Array.from({ length: 50 }, (_, index) => ({ document: { name: `x/events_s1/old${index}`, fields: { title: str(`אירוע ישן ${index}`), date: str('2020-01-01'), year: { integerValue: '2020' }, month: { integerValue: '0' } } } }));
+      const live = { document: { name: 'x/events_s1/vol', fields: { title: str('התנדבות בגן חינוך מיוחד'), date: str(soon), endDate: str(soon), visibleTo: str('all'), audience: map({ grade: str('י׳'), kind: str('activity') }) } } };
+      const stamped = { document: { name: 'x/events_s1/stamp', fields: { title: str('אירוע חותמת'), date: { timestampValue: `${soon}T09:00:00Z` }, visibleTo: str('all') } } };
+      return Response.json([...old, live, stamped]);
+    }
     // Any other collection read (used to build a brain from school data) is simply empty.
     if (url.includes('/documents/')) return Response.json({});
     if (url.startsWith('https://model.example.com/api/chat')) {
@@ -113,6 +123,18 @@ test('past the daily limit the request is refused with a retry time', async () =
 });
 
 const claudeEnv = over => environment({ ZOKI_PROVIDER: 'claude-first', ANTHROPIC_API_KEY: 'sk', ...over });
+
+test('gantt events are queried by date, so fifty old events are not the calendar', async () => {
+  const seen = fakes();
+  await turn([{ role: 'user', content: 'מה יש בגאנט השבוע לשכבת י׳?' }], claudeEnv());
+  const dateQuery = seen.queries.find(query => JSON.stringify(query).includes('GREATER_THAN_OR_EQUAL') && JSON.stringify(query.structuredQuery?.orderBy || '').includes('date'));
+  assert.ok(dateQuery, 'the event read is a date-bounded query');
+  assert.ok(JSON.stringify(dateQuery).includes(new Date().toISOString().slice(0, 10)));
+  const system = JSON.stringify(seen.claude[0].system);
+  assert.ok(system.includes('התנדבות בגן חינוך מיוחד'));
+  assert.ok(system.includes('י׳'));
+  assert.ok(!system.includes('אירוע ישן'));
+});
 
 test('Claude answers first, with Haiku and the school context', async () => {
   const seen = fakes();
@@ -253,7 +275,8 @@ test('three live turns keep the user\'s own words, and the next turn is prompted
     return body;
   };
   await ask(BULLETS);
-  await ask(MEETING);
+  const meetingReply = await ask(MEETING);
+  assert.match(meetingReply.reply, new RegExp(`נשמר כלשונו: ${MEETING_VERBATIM.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}`));
   await ask('מה יש בגאנט השבוע לשכבת י׳?');
   const stored = JSON.parse(seen.personalWrites.at(-1).update.fields.profile.stringValue);
   assert.equal(stored.turns, 3);
@@ -268,6 +291,12 @@ test('three live turns keep the user\'s own words, and the next turn is prompted
   assert.ok(next.includes('תשובות קצרות בנקודות'));
   assert.ok(next.includes('הכנה למבחן מחצית'));
   assert.ok(next.includes(MEETING_VERBATIM));
+  const screen = await (await worker.fetch(new Request('https://w.example.com/v1/zoki/personal-brain?schoolId=s1', { headers: { authorization: 'Bearer t' } }), env)).json();
+  const shown = JSON.stringify(screen.profile) + screen.snapshot;
+  assert.ok(shown.includes('תשובות קצרות בנקודות'));
+  assert.ok(shown.includes('הכנה למבחן מחצית'));
+  assert.ok(shown.includes(MEETING_VERBATIM));
+  assert.equal(screen.profile.preferences.some(item => item.includes('תשובות קצרות בנקודות')), true);
 });
 
 test('a user reads and clears only their own personal brain', async () => {

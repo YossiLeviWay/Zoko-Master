@@ -2,6 +2,9 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import { cleanLegacyBrowserData } from './utils/browserPrivacy.js'
+import { installCspViolationListener } from './utils/cspViolations.js'
+
+installCspViolationListener();
 
 cleanLegacyBrowserData();
 const redirect = new URLSearchParams(window.location.hash.slice(1)).get('spa-route')

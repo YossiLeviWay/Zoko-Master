@@ -7,6 +7,7 @@
 // Everything here is pure (no network), so it is unit-tested. The brain belongs to its user only:
 // it is never added to the school brain and never shown to a manager.
 import { sanitizeInstitutionalText } from './brain.js';
+import { eventSpan } from './ganttEvents.js';
 import { teachingNote } from './zokiTurn.js';
 
 export const MOODS = Object.freeze(['רגוע', 'נלהב', 'עמוס', 'לחוץ', 'מתוסכל', 'מודאג', 'עייף', 'מהוסס']);
@@ -76,12 +77,7 @@ export function buildPersonalSnapshot({ uid, user = {}, teams = [], classes = []
     .sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999'));
   const seesAllEvents = manager === true || ['principal', 'institution_manager', 'global_admin'].includes(user.role);
   const visible = event => seesAllEvents || !event.visibleTo || event.visibleTo === 'all' || (Array.isArray(event.visibleTo) && event.visibleTo.some(id => teamIds.has(id)));
-  const spanOf = event => {
-    const start = String(event.date || event.startDate || '').slice(0, 10);
-    const end = String(event.endDate || start).slice(0, 10);
-    if (!/^\d{4}-\d{2}-\d{2}$/u.test(start)) return null;
-    return { start, end: /^\d{4}-\d{2}-\d{2}$/u.test(end) ? end : start };
-  };
+  const spanOf = event => eventSpan(event);
   return {
     name: text(user.fullName, 80),
     jobTitle: text(user.jobTitle || user.roleName, 80),
@@ -99,7 +95,7 @@ export function buildPersonalSnapshot({ uid, user = {}, teams = [], classes = []
       if (!span || event.status === 'archived' || span.end < today || span.start > horizon || !visible(event)) return [];
       const grade = text(event.audience?.grade || event.grade || '', 20);
       const subject = text(event.audience?.subject || '', 40);
-      return [{ date: span.start, end: span.end === span.start ? '' : span.end, title: text(event.title, 100), category: text(event.category, 40), grade, subject }];
+      return [{ date: span.start, end: span.end === span.start ? '' : span.end, title: text(event.title || event.name, 100), category: text(event.category, 40), grade, subject }];
     }).filter(event => event.title).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 12),
     holidays: holidays.filter(item => typeof item.startDate === 'string' && (item.endDate || item.startDate) >= today && item.startDate <= holidayHorizon)
       .sort((a, b) => a.startDate.localeCompare(b.startDate)).slice(0, 3).map(item => ({ from: item.startDate, to: item.endDate || item.startDate, title: text(item.name || item.title, 80) })).filter(item => item.title),
@@ -163,21 +159,28 @@ export const PERSONAL_GUIDANCE = [
   '- אל תצטט את ההקשר הזה ואל תאמר "אני רואה ברשומות". אל תמציא פרטים שאינם כתובים בו. הוא חסוי: אינו משותף עם אנשי צוות אחרים או עם ההנהלה.',
 ].join('\n');
 
-export function buildPersonalContext({ snapshot = null, profile = null, maxChars = 2600, now = new Date() } = {}) {
-  const parts = [snapshotText(snapshot, now), profileText(profile)].filter(Boolean);
-  if (!parts.length) return '';
-  return `${PERSONAL_GUIDANCE}\n\n${parts.join('\n\n')}`.slice(0, maxChars);
+export function buildPersonalContext({ snapshot = null, profile = null, maxChars = 4200, now = new Date() } = {}) {
+  const learned = profileText(profile);
+  const picture = snapshotText(snapshot, now);
+  if (!learned && !picture) return '';
+  // The learned profile is the part the next answer has to follow. A long task list must not
+  // push it past the end of the prompt, which is what a single slice of [snapshot, profile] did.
+  const head = [PERSONAL_GUIDANCE, learned].filter(Boolean).join('\n\n');
+  const room = Math.max(0, maxChars - head.length - 2);
+  const clipped = picture ? picture.slice(0, room) : '';
+  return [head, clipped].filter(Boolean).join('\n\n').slice(0, maxChars);
 }
 
 // A short form for the small local model, whose context window is tight: no guidance block.
 export function compactPersonalContext({ snapshot = null, profile = null, maxChars = 900, now = new Date() } = {}) {
   const lines = [];
-  if (snapshot) lines.push(snapshotText({ ...snapshot, tasks: (snapshot.tasks || []).slice(0, 4), events: (snapshot.events || []).slice(0, 3), holidays: [] }, now));
   if (profile && !profileIsEmpty(profile)) {
     if (profile.preferences.length) lines.push(`העדפות: ${profile.preferences.slice(-3).join('; ')}.`);
+    if (profile.facts.length) lines.push(`עובדות: ${profile.facts.slice(-2).join('; ')}.`);
     if (profile.focus.length) lines.push(`מעסיק אותו/ה עכשיו: ${profile.focus.slice(-2).map(item => item.text).join('; ')}.`);
     if (profile.mood) lines.push(`נשמע/ה לאחרונה ${profile.mood.tone}: התאם את הטון.`);
   }
+  if (snapshot) lines.push(snapshotText({ ...snapshot, tasks: (snapshot.tasks || []).slice(0, 4), events: (snapshot.events || []).slice(0, 3), holidays: [] }, now));
   const body = lines.filter(Boolean).join('\n');
   return body ? `הקשר אישי של המשתמש (חסוי, לשימושך בלבד):\n${body}`.slice(0, maxChars) : '';
 }

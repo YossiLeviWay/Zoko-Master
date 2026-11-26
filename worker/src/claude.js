@@ -44,7 +44,7 @@ export function buildClaudeRequest({ profile, messages, heldKeys = [], model = D
       { type: 'text', text: profile.systemPrompt, cache_control: { type: 'ephemeral' } },
       ...(context ? [{ type: 'text', text: `הקשר מוסדי (מצומצם, ללא פרטים מזהים):\n${cleanText(context, 6000)}` }] : []),
       // Who the user is, what is on their plate and what Zoki learned about them: this is what makes the answer theirs.
-      ...(personal ? [{ type: 'text', text: `הקשר אישי של המשתמש (חסוי):\n${cleanText(personal, 3000)}` }] : []),
+      ...(personal ? [{ type: 'text', text: `הקשר אישי של המשתמש (חסוי):\n${cleanText(personal, 5000)}` }] : []),
     ],
     messages: history,
     tools: tools.map(name => ({ name, description: TOOL_SCHEMAS[name].description,

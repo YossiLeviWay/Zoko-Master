@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { buildClaudeRequest } from '../../worker/src/claude.js';
+import { eventSpan } from '../../worker/src/ganttEvents.js';
 import {
   buildPersonalContext, buildPersonalSnapshot, buildReflectionRequest, compactPersonalContext, emptyProfile,
   parseReflection, profileIsEmpty, sanitizeProfile, snapshotText,
@@ -100,4 +102,36 @@ test('a reflection updates the profile; a broken one changes nothing', () => {
   for (const broken of [{ content: [{ type: 'text', text: 'אין לי מה להוסיף' }] }, { content: [{ type: 'text', text: '{not json}' }] }, {}, { content: [{ type: 'text', text: '[1,2]' }] }]) {
     assert.deepEqual(parseReflection(broken, before, now), before);
   }
+});
+
+test('a long task list does not push the learned profile out of the next prompt', () => {
+  const meeting = 'אצלי ישיבות הנהלה בנויות כך שכל בעל תפקיד מציג 2 דקות ומעלה רעיון אחד לשיפור, ולא עדכונים.';
+  const profile = sanitizeProfile({
+    preferences: ['אני מעדיף תשובות קצרות בנקודות'],
+    facts: [meeting],
+    focus: [{ text: 'השבוע אני עסוק בהכנה למבחן מחצית', since: now.toISOString() }],
+    turns: 4,
+  }, now);
+  const snapshot = buildPersonalSnapshot({
+    ...school,
+    now,
+    tasks: Array.from({ length: 10 }, (_, index) => ({ id: `t${index}`, title: `משימה ארוכה מספר ${index} ${'פרטים '.repeat(30)}`, dueDate: '2026-12-01', assigneeIds: ['u1'], status: 'open' })),
+    events: [{ id: 'g', title: 'התנדבות', date: '2026-12-01', endDate: '2026-12-02', visibleTo: 'all', audience: { grade: 'י׳' } }],
+  });
+  const personal = buildPersonalContext({ snapshot, profile, now });
+  assert.ok(personal.includes('תשובות קצרות בנקודות') && personal.includes(meeting));
+  if (personal.includes('משימה ארוכה')) assert.ok(personal.indexOf('תשובות קצרות בנקודות') < personal.indexOf('משימה ארוכה'));
+  const request = buildClaudeRequest({ profile: { systemPrompt: 'זוקי', tools: [] }, messages: [{ role: 'user', content: 'מה כדאי לי לעשות קודם השבוע?' }], personal });
+  const system = JSON.stringify(request.system);
+  assert.ok(system.includes('תשובות קצרות בנקודות') && system.includes(meeting) && system.includes('הכנה למבחן מחצית'));
+});
+
+test('a gantt row is dated from a string, a timestamp, or year/month/day', () => {
+  assert.deepEqual(eventSpan({ date: '2026-12-01', endDate: '2026-12-02' }), { start: '2026-12-01', end: '2026-12-02' });
+  assert.equal(eventSpan({ date: { timestampValue: '2026-12-01T09:00:00Z' } }).start, '2026-12-01');
+  assert.equal(eventSpan({ startDate: '2026-12-01' }).start, '2026-12-01');
+  assert.equal(eventSpan({ year: 2026, month: 11, day: 1 }).start, '2026-12-01');
+  const old = Array.from({ length: 50 }, (_, index) => ({ id: `o${index}`, title: `אירוע ישן ${index}`, date: '2020-01-01' }));
+  const snapshot = buildPersonalSnapshot({ ...school, now, events: [...old, { id: 'g', title: 'התנדבות', date: '2026-12-01', visibleTo: 'all', audience: { grade: 'י׳' } }] });
+  assert.deepEqual(snapshot.events.map(event => event.title), ['התנדבות']);
 });
