@@ -100,3 +100,11 @@
 .zoki-window .zoki-chat { grid-template-rows: minmax(0, 1fr) auto; min-height: 0; }
 .zoki-window .zoki-messages { min-height: 0; }
 .zoki-window .zoki-composer { flex-shrink: 0; }
+
+.zoki-personal-brain { display: grid; gap: .6rem; margin-block: 1rem; padding: 1rem; border: 1px solid #eadde2; border-radius: 16px; background: #fffaf8; }
+.zoki-personal-brain dl { display: grid; gap: .35rem; margin: 0; }
+.zoki-personal-brain dt { color: #765f69; font-size: .78rem; font-weight: 700; }
+.zoki-personal-brain dd { margin: 0 0 .4rem; font-size: .9rem; line-height: 1.55; }
+.zoki-personal-brain ul { margin: 0; padding-inline-start: 1.1rem; }
+.zoki-personal-brain pre { margin: .5rem 0 0; white-space: pre-wrap; font: inherit; font-size: .82rem; color: #4d5b69; }
+.zoki-personal-brain summary { cursor: pointer; color: #765f69; font-size: .8rem; font-weight: 700; }

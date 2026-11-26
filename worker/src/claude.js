@@ -32,7 +32,7 @@ export function boundedMessages(messages = []) {
     .reduce((out, item) => (out.length === 0 && item.role !== 'user' ? out : [...out, item]), []);
 }
 
-export function buildClaudeRequest({ profile, messages, heldKeys = [], model = DEFAULT_MODEL, context = '' }) {
+export function buildClaudeRequest({ profile, messages, heldKeys = [], model = DEFAULT_MODEL, context = '', personal = '' }) {
   const tools = allowedTools(profile, heldKeys);
   const history = boundedMessages(messages);
   if (!history.length) throw new Error('invalid-input');
@@ -43,6 +43,8 @@ export function buildClaudeRequest({ profile, messages, heldKeys = [], model = D
     system: [
       { type: 'text', text: profile.systemPrompt, cache_control: { type: 'ephemeral' } },
       ...(context ? [{ type: 'text', text: `הקשר מוסדי (מצומצם, ללא פרטים מזהים):\n${cleanText(context, 6000)}` }] : []),
+      // Who the user is, what is on their plate and what Zoki learned about them: this is what makes the answer theirs.
+      ...(personal ? [{ type: 'text', text: `הקשר אישי של המשתמש (חסוי):\n${cleanText(personal, 3000)}` }] : []),
     ],
     messages: history,
     tools: tools.map(name => ({ name, description: TOOL_SCHEMAS[name].description,

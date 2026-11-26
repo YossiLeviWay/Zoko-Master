@@ -70,6 +70,8 @@ service cloud.firestore {
     match /zokiUsage/{usageId} { allow read, write: if false; }
     // The institutional brain, its versions and the learning log are read and written only by the Worker.
     match /schoolBrain/{schoolId}/{document=**} { allow read, write: if false; }
+    // Zoki's personal brain of each user: Worker only. Its owner reads and clears it through the Worker.
+    match /zokiPersonalBrain/{brainId} { allow read, write: if false; }
     match /zokiAgents/{agentId} {
       allow read: if activeUser() && request.auth.uid == agentId;
       allow create, update: if activeUser() && request.auth.uid == agentId

@@ -12,6 +12,7 @@ import {
   sanitizeInstitutionalText,
   upsertApprovedPattern,
 } from './brain.js';
+import { SNAPSHOT_TTL_MS, buildPersonalContext, buildPersonalSnapshot, buildReflectionRequest, compactPersonalContext, emptyProfile, parseReflection, profileIsEmpty, sanitizeProfile, snapshotText } from './personalBrain.js';
 
 const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), {
   status,
@@ -366,7 +367,10 @@ async function actorContext(request, env, schoolId) {
   const schools = new Set([...(data.schoolIds || []), data.schoolId].filter(Boolean));
   if (!schools.has(schoolId) || ['disabled', 'pending', 'deleting'].includes(data.accountStatus)) throw new Error('permission-denied');
   const schoolRole = data.rolesBySchool?.[schoolId] || data.role || 'viewer';
-  return { ...actor, fullName: data.fullName || 'איש צוות', role: schoolRole, accessProfile: data.accessProfilesBySchool?.[schoolId] || null, manager: ['principal', 'institution_manager'].includes(schoolRole) };
+  const jobTitle = data.jobTitlesBySchool?.[schoolId] || data.jobTitle || data.roleName || '';
+  return { ...actor, fullName: data.fullName || 'איש צוות', role: schoolRole, accessProfile: data.accessProfilesBySchool?.[schoolId] || null, manager: ['principal', 'institution_manager'].includes(schoolRole),
+    // Shown to Zoki as "who is in front of you"; never trusted for permissions.
+    person: { fullName: data.fullName || '', jobTitle, role: schoolRole, responsibilityAreas: data.responsibilityAreas || [], subjects: data.subjects || [] } };
 }
 
 async function geminiJson(env, prompt) {
@@ -476,6 +480,67 @@ async function firstBrain(env, schoolId) {
   return { markdown };
 }
 
+// ---- Personal brain: one document per user and school (zokiPersonalBrain/{uid}__{schoolId}) ----
+// Written only with the Worker's admin credentials and denied to every client in firestore.rules.
+// Its owner reads and clears it through the Worker; nobody else, managers included, can reach it.
+const personalBrainPath = (uid, schoolId) => `zokiPersonalBrain/${encodeURIComponent(`${uid}__${schoolId}`)}`;
+const adminReady = env => Boolean(env.FIREBASE_CLIENT_EMAIL && env.FIREBASE_PRIVATE_KEY);
+const parseJson = value => { try { return JSON.parse(value); } catch { return null; } };
+
+async function liveSnapshot(env, actor, schoolId) {
+  const token = await adminToken(env);
+  const [modernTeams, legacyTeams, modernClasses, legacyClasses, modernTasks, legacyTasks, modernEvents, legacyEvents, modernHolidays, legacyHolidays] = await Promise.all([
+    `schools/${schoolId}/teams`, `teams_${schoolId}`, `schools/${schoolId}/classes`, `classes_${schoolId}`, `schools/${schoolId}/tasks`, `tasks_${schoolId}`,
+    `schools/${schoolId}/events`, `events_${schoolId}`, `schools/${schoolId}/holidays`, `holidays_${schoolId}`,
+  ].map(path => adminDocuments(env, token, path)));
+  const merge = (...sets) => [...new Map(sets.flat().map(item => [item.id, item])).values()];
+  return buildPersonalSnapshot({
+    uid: actor.uid, user: actor.person, teams: merge(modernTeams, legacyTeams), classes: merge(modernClasses, legacyClasses),
+    tasks: merge(modernTasks, legacyTasks), events: merge(modernEvents, legacyEvents), holidays: merge(modernHolidays, legacyHolidays),
+  });
+}
+
+// Returns { profile, snapshot }. A failure here must never fail the answer: Zoki then simply answers without the personal layer.
+async function personalBrainFor(env, actor, schoolId, { refresh = true } = {}) {
+  if (!adminReady(env)) return { profile: emptyProfile(), snapshot: null };
+  try {
+    const stored = fieldsOf(await adminGet(env, personalBrainPath(actor.uid, schoolId)));
+    const profile = sanitizeProfile(parseJson(stored.profile));
+    let snapshot = parseJson(stored.snapshot);
+    const fresh = snapshot?.at && Date.now() - Date.parse(snapshot.at) < SNAPSHOT_TTL_MS;
+    if (refresh && !fresh) {
+      snapshot = await liveSnapshot(env, actor, schoolId);
+      await adminCommit(env, [{ ...adminWrite(env, personalBrainPath(actor.uid, schoolId), { uid: actor.uid, schoolId, snapshot: JSON.stringify(snapshot) }), updateMask: { fieldPaths: ['uid', 'schoolId', 'snapshot'] } }]).catch(() => {});
+    }
+    return { profile, snapshot };
+  } catch { return { profile: emptyProfile(), snapshot: null }; }
+}
+
+const saveProfile = (env, actor, schoolId, profile) => adminCommit(env, [{
+  ...adminWrite(env, personalBrainPath(actor.uid, schoolId), { uid: actor.uid, schoolId, profile: JSON.stringify(profile), updatedAt: new Date().toISOString() }),
+  updateMask: { fieldPaths: ['uid', 'schoolId', 'profile', 'updatedAt'] },
+}]);
+
+// The user's own "Zoki learns about me" switch (zokiAgents/{uid}.learningEnabled, on unless they turned it off).
+async function learningEnabled(request, env, actor) {
+  try { return plainValue((await firestore(request, env, `zokiAgents/${actor.uid}`)).fields?.learningEnabled || { booleanValue: true }) !== false; }
+  catch { return true; }
+}
+
+// After the answer is on its way, Zoki rereads the exchange and updates what it knows about this user.
+async function reflectOnTurn(request, env, actor, schoolId, { profile, messages, reply }) {
+  try {
+    if (!adminReady(env) || !env.ANTHROPIC_API_KEY) return;
+    const lastUser = [...(messages || [])].reverse().find(item => item?.role === 'user')?.content || '';
+    if (String(lastUser).trim().length < 8) return;
+    if (!(await learningEnabled(request, env, actor))) return;
+    const payload = buildReflectionRequest({ profile, messages, reply, role: actor.person?.jobTitle || actor.role, model: env.CLAUDE_MODEL || 'claude-haiku-5-5' });
+    if (!payload) return;
+    const next = parseReflection(await callClaude(env, payload), profile);
+    await saveProfile(env, actor, schoolId, next);
+  } catch { /* learning is best effort and never affects the answer */ }
+}
+
 // School knowledge for this turn: the institutional brain, without student data unless the user may see it.
 async function schoolContextFor(request, env, schoolId, actor, query, held) {
   const [brain, memories] = await Promise.all([
@@ -486,7 +551,7 @@ async function schoolContextFor(request, env, schoolId, actor, query, held) {
   return buildSchoolContext({ markdown: brain.markdown, query, canSeeStudents, memories });
 }
 
-async function handle(request, env) {
+async function handle(request, env, ctx) {
   const url = new URL(request.url);
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors(request, env) });
   if (request.method === 'GET' && url.pathname === '/health') return json({ ok: true });
@@ -508,18 +573,28 @@ async function handle(request, env) {
     const claudeWanted = Boolean(env.ANTHROPIC_API_KEY) && env.ZOKI_PROVIDER !== 'local';
     // Past the user's own Claude allowance (or when Claude is down or out of credit) the answer comes from the school model.
     const claudeAllowed = claudeWanted && (claudeOnly || usage.used <= claudeLimitFor(actor.role, env));
-    const context = await schoolContextFor(request, env, schoolId, actor, lastQuestion, held);
+    const [schoolContext, personal] = await Promise.all([
+      schoolContextFor(request, env, schoolId, actor, lastQuestion, held),
+      personalBrainFor(env, actor, schoolId),
+    ]);
     if (claudeAllowed) {
       try {
-        const merged = [context, body.context].filter(Boolean).join('\n\n');
-        const result = parseClaudeResponse(await callClaude(env, buildClaudeRequest({ profile, messages: body.messages, context: merged, heldKeys: held, model: env.CLAUDE_MODEL || 'claude-haiku-5-5' })));
-        if (result.reply || result.proposals.length) return json({ ...result, agent: profile.name, provider: 'claude' }, 200, cors(request, env));
+        const merged = [schoolContext, body.context].filter(Boolean).join('\n\n');
+        const result = parseClaudeResponse(await callClaude(env, buildClaudeRequest({ profile, messages: body.messages, context: merged, personal: buildPersonalContext(personal), heldKeys: held, model: env.CLAUDE_MODEL || 'claude-haiku-5-5' })));
+        if (result.reply || result.proposals.length) {
+          // Learning runs after the answer was produced and never delays it.
+          const learning = reflectOnTurn(request, env, actor, schoolId, { profile: personal.profile, messages: body.messages, reply: result.reply });
+          if (ctx?.waitUntil) ctx.waitUntil(learning); else await learning;
+          return json({ ...result, agent: profile.name, provider: 'claude' }, 200, cors(request, env));
+        }
       } catch (error) {
         if (claudeOnly || !localModelConfigured(env)) throw error;
         console.warn('claude-fallback', String(error?.message || '').slice(0, 60));
       }
     }
     if (localModelConfigured(env) && !claudeOnly) {
+      // The school model has a small context window: the personal layer goes first, in its short form.
+      const context = [compactPersonalContext(personal), schoolContext].filter(Boolean).join('\n\n');
       const payload = buildLocalRequest({ messages: body.messages, context });
       // An instruction becomes a proposal the user approves; a question streams straight from the model.
       const tools = toolSpecs(allowedTools(profile, held), TOOL_SCHEMAS);
@@ -538,6 +613,16 @@ async function handle(request, env) {
       return json({ ...parseLocalResponse(await askLocalTiered(env, payload)), agent: profile.name }, 200, cors(request, env));
     }
     throw new Error('agent-not-configured');
+  }
+  // What Zoki knows about the person asking. Only ever the caller's own brain: there is no way to name another user.
+  if (url.pathname === '/v1/zoki/personal-brain' && request.method === 'GET') {
+    const personal = await personalBrainFor(env, actor, schoolId);
+    return json({ profile: personal.profile, empty: profileIsEmpty(personal.profile), snapshot: snapshotText(personal.snapshot), learningEnabled: await learningEnabled(request, env, actor) }, 200, cors(request, env));
+  }
+  if (url.pathname === '/v1/zoki/personal-brain/clear' && request.method === 'POST') {
+    if (!adminReady(env)) throw new Error('agent-not-configured');
+    await saveProfile(env, actor, schoolId, emptyProfile());
+    return json({ ok: true }, 200, cors(request, env));
   }
   if (url.pathname === '/v1/task-agent/draft' && request.method === 'POST') {
     const { markdown } = await readBrain(env, schoolId);
@@ -593,8 +678,8 @@ async function handle(request, env) {
 }
 
 export default {
-  async fetch(request, env) {
-    try { return await handle(request, env); }
+  async fetch(request, env, ctx) {
+    try { return await handle(request, env, ctx); }
     catch (error) {
       const code = error?.message || 'internal-error';
       // Path and error code only: never request bodies, tokens or school data.

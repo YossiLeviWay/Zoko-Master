@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { zokiRequest } from '../../services/zokiAgentService.js';
+import { clearPersonalBrain, isZokiClaudeConfigured, readPersonalBrain } from '../../services/zokiClaudeService.js';
 
 export default function ZokiPersonalSettings({ schoolId, manager = false, onClose }) {
   const [profile, setProfile] = useState(null);
@@ -7,6 +8,21 @@ export default function ZokiPersonalSettings({ schoolId, manager = false, onClos
   const [preference, setPreference] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  // The personal brain lives behind the Worker; null = not loaded (or not available on this setup).
+  const [brain, setBrain] = useState(null);
+  useEffect(() => {
+    if (!isZokiClaudeConfigured()) return undefined;
+    let active = true;
+    readPersonalBrain(schoolId).then(data => { if (active) setBrain(data); }).catch(() => undefined);
+    return () => { active = false; };
+  }, [schoolId]);
+  async function forgetBrain() {
+    if (!window.confirm('למחוק את כל מה שזוקי למד עליך במוסד הזה? לא ניתן לשחזר.')) return;
+    setBusy(true); setMessage('');
+    try { await clearPersonalBrain(schoolId); setBrain(await readPersonalBrain(schoolId)); setMessage('המוח האישי נמחק.'); }
+    catch { setMessage('המחיקה לא הצליחה. נסו שוב.'); }
+    finally { setBusy(false); }
+  }
   useEffect(() => {
     let active = true;
     Promise.all([zokiRequest('profile', schoolId, null, 'GET'), manager ? zokiRequest('admin/settings', schoolId, null, 'GET') : Promise.resolve(null)])
@@ -42,6 +58,20 @@ export default function ZokiPersonalSettings({ schoolId, manager = false, onClos
       {profile && <>
         <label><input type="checkbox" checked={profile.learningEnabled} disabled={busy} onChange={event => change({ operation: 'learning', enabled: event.target.checked })} /> זוקי לומד ושומר זיכרון אוטומטית</label>
         <label>העדפות אישיות בכל המוסדות<textarea maxLength={600} value={preference} onChange={event => setPreference(event.target.value)} /></label><button disabled={busy} onClick={() => change({ operation: 'preferences', content: preference })}>שמירת העדפות</button>
+        {brain && <section className="zoki-personal-brain">
+          <h3>המוח האישי שלי</h3>
+          <p>כך זוקי מכיר אותך: מה שלמד מהשיחות איתך, ומה שעולה מהתפקיד, מהצוותים, מהמשימות ומלוח השנה שלך. המידע גלוי רק לך. גם הנהלת המוסד אינה יכולה לראות אותו.</p>
+          {brain.empty ? <p><em>זוקי עוד לא למד עליך דבר. זה יתמלא אחרי כמה שיחות{brain.learningEnabled ? '' : ' (הלמידה האוטומטית כבויה כרגע)'}.</em></p> : <dl>
+            {brain.profile.summary && <><dt>בקצרה</dt><dd>{brain.profile.summary}</dd></>}
+            {brain.profile.facts.length > 0 && <><dt>מה סיפרת על עצמך</dt><dd><ul>{brain.profile.facts.map(item => <li key={item}>{item}</li>)}</ul></dd></>}
+            {brain.profile.preferences.length > 0 && <><dt>איך נוח לך לקבל תשובות</dt><dd><ul>{brain.profile.preferences.map(item => <li key={item}>{item}</li>)}</ul></dd></>}
+            {brain.profile.focus.length > 0 && <><dt>מה מעסיק אותך עכשיו</dt><dd><ul>{brain.profile.focus.map(item => <li key={item.text}>{item.text}</li>)}</ul></dd></>}
+            {brain.profile.insights.length > 0 && <><dt>מה זוקי הסיק על הדרך לעזור לך</dt><dd><ul>{brain.profile.insights.map(item => <li key={item}>{item}</li>)}</ul></dd></>}
+            {brain.profile.mood && <><dt>איך נשמעת בשיחות האחרונות</dt><dd>{brain.profile.mood.tone}{brain.profile.mood.note ? ` · ${brain.profile.mood.note}` : ''} <small>(נמחק מעצמו אחרי שבוע)</small></dd></>}
+          </dl>}
+          {brain.snapshot && <details><summary>תמונת המצב שזוקי רואה עכשיו</summary><pre>{brain.snapshot}</pre></details>}
+          {!brain.empty && <button disabled={busy} onClick={forgetBrain}>מחיקת המוח האישי</button>}
+        </section>}
         <h3>זיכרונות מהמוסד הנוכחי</h3>
         <p>מידע מוסדי נשאר בהקשר המוסד. זיכרונות מוצגים רק כל עוד יש לך הרשאה למקורות שלהם.</p>
         {profile.memories.map(memory => <article key={`${memory.id}:${memory.updatedAt}`} className="zoki-knowledge-card"><textarea aria-label="תוכן הזיכרון" maxLength={600} defaultValue={memory.content} id={`memory-${memory.id}`} /><small>{memory.type} · {new Date(memory.updatedAt).toLocaleDateString('he-IL')}</small><button disabled={busy} onClick={() => change({ operation: 'edit', id: memory.id, content: document.getElementById(`memory-${memory.id}`).value })}>שמירה</button><button disabled={busy} onClick={() => change({ operation: 'delete', id: memory.id })}>מחיקה</button></article>)}

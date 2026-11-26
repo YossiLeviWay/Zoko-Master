@@ -68,6 +68,11 @@ few menus and little text, high contrast, mobile friendly, and a beginner-teache
 - **Brain in Firestore (no GitHub App needed):** the institutional brain, its versions (`schoolBrain/{id}/versions`) and the learning log live in Firestore, written only with the Worker's
   Firebase service account (`FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`) and denied to clients in `firestore.rules`. A school with no brain gets one built from its data on first use; the daily cron
   refreshes schools listed in var `ZOKI_SCHOOL_IDS`. Version ids are timestamps (restore takes one). The old GitHub-backed code and `SCHOOL_REPOSITORIES` are gone.
+- **Personal brain per user (`worker/src/personalBrain.js`):** every turn the Worker adds a personal layer for the caller: a live snapshot (role, teams, classes, own open
+  tasks, the next two weeks of their calendar; built with admin reads, cached 10 min) and a learned profile (summary, facts, preferences, current focus, insights, recent mood).
+  After a Claude answer a second Haiku call ("reflection", `ctx.waitUntil`) rewrites the profile; it is skipped when the user turned learning off (`zokiAgents/{uid}.learningEnabled`),
+  past the Claude allowance, or on the school-model path. Stored in `zokiPersonalBrain/{uid}__{schoolId}` (Worker only, denied in `firestore.rules`); the owner reads and clears it via
+  GET `/v1/zoki/personal-brain` and POST `/v1/zoki/personal-brain/clear` (shown in "מה זוקי זוכר עליי"). Never visible to managers, never merged into the school brain. Needs `wrangler deploy`.
 - **Bugs found and fixed this round:** App Check JWT signature was parsed as JSON in the Worker (`decodeJwtPart`), `functions/`
   dependencies missing in the Firebase workflow, CSP meta tag lacked `*.workers.dev`.
 - **In progress:** answer streaming (merged), a fast small model with automatic escalation to the strong one on timeout (Mac session

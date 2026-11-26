@@ -14,8 +14,8 @@ function environment(over = {}) {
 }
 
 // Routes every outbound call to a fake; records what the model service and the counter received.
-function fakes({ count = 1, route = { tool: null }, tasksCreate = true, claude = 'ok', brain = true } = {}) {
-  const seen = { model: [], commits: 0, claude: [], brainWrites: 0 };
+function fakes({ count = 1, route = { tool: null }, tasksCreate = true, claude = 'ok', brain = true, personal = null } = {}) {
+  const seen = { model: [], commits: 0, claude: [], brainWrites: 0, personal, personalWrites: [] };
   globalThis.fetch = async (input, init = {}) => {
     const url = String(input);
     let body = {};
@@ -25,8 +25,10 @@ function fakes({ count = 1, route = { tool: null }, tasksCreate = true, claude =
       accessProfilesBySchool: map({ s1: map({ presetId: str('secretary'), school: map({ 'tasks.create': { booleanValue: tasksCreate } }) }) }) } });
     if (url.includes('/documents/zokiAgents/')) return new Response('{}', { status: 404 });
     if (url.includes('oauth2.googleapis.com')) return Response.json({ access_token: 'adm' });
-    if (url.includes(':commit')) { seen.commits += 1; if (String(init.body).includes('schoolBrain')) seen.brainWrites += 1; return Response.json({ writeResults: [{ transformResults: [{ integerValue: String(count) }] }] }); }
+    if (url.includes(':commit')) { seen.commits += 1; if (String(init.body).includes('zokiPersonalBrain')) seen.personalWrites.push(body.writes[0]); if (String(init.body).includes('schoolBrain')) seen.brainWrites += 1; return Response.json({ writeResults: [{ transformResults: [{ integerValue: String(count) }] }] }); }
     if (url.endsWith('/documents/schoolBrain/s1')) return brain ? Response.json({ fields: { markdown: str('# מוח\n\n## סגל\n\nדנה\n\n## תלמידים והקשרים לימודיים\n\n| נועה לוי | ז1 |\n'), version: str('1') } }) : new Response('{}', { status: 404 });
+    if (url.includes('/documents/zokiPersonalBrain/')) return seen.personal ? Response.json({ fields: { profile: str(JSON.stringify(seen.personal)), snapshot: str(JSON.stringify({ at: new Date().toISOString(), name: 'דנה', jobTitle: 'מזכירה', openTasks: 0 })) } }) : new Response('{}', { status: 404 });
+    if (url.endsWith('/documents/tasks_s1?pageSize=1000')) return Response.json({ documents: [{ name: 'x/tasks_s1/k1', fields: { title: str('להזמין אוטובוס לטיול'), dueDate: str('2020-01-01'), status: str('open'), assigneeIds: { arrayValue: { values: [str('u1')] } } } }] });
     if (url.includes('/documents/schoolBrain/')) return new Response('{}', { status: 404 });
     // Any other collection read (used to build a brain from school data) is simply empty.
     if (url.includes('/documents/')) return Response.json({});
@@ -39,6 +41,7 @@ function fakes({ count = 1, route = { tool: null }, tasksCreate = true, claude =
       seen.claude.push(body);
       if (claude === 'down') return new Response('{}', { status: 529 });
       if (claude === 'credit') return new Response('{}', { status: 429 });
+      if (JSON.stringify(body.system).includes('מנגנון הזיכרון')) return Response.json({ content: [{ type: 'text', text: '{"summary":"שואלת על סדרי עדיפויות","focus":["הטיול השנתי"],"mood":null}' }] });
       return Response.json({ content: [{ type: 'text', text: 'תשובת קלוד' }], stop_reason: 'end_turn', usage: {} });
     }
     throw new Error(`unexpected fetch ${url}`);
@@ -121,4 +124,36 @@ test('a school with no brain yet gets one built and saved the first time it is n
   const response = await turn([{ role: 'user', content: 'כמה כיתות יש?' }], environment());
   assert.equal(response.status, 200);
   assert.equal(seen.brainWrites, 1);
+});
+
+test('the answer is personal: the user\'s own tasks and what Zoki learned reach the model, and Zoki learns from the turn', async () => {
+  const seen = fakes();
+  await turn([{ role: 'user', content: 'מה הכי דחוף לי השבוע?' }], claudeEnv());
+  const system = JSON.stringify(seen.claude[0].system);
+  assert.ok(system.includes('להזמין אוטובוס לטיול') && system.includes('באיחור'));
+  // The second Claude call is the reflection; its result is stored as this user's profile only.
+  assert.equal(seen.claude.length, 2);
+  const stored = seen.personalWrites.find(write => write.update.fields.profile);
+  assert.ok(stored.update.name.endsWith('/zokiPersonalBrain/u1__s1'));
+  assert.deepEqual([JSON.parse(stored.update.fields.profile.stringValue).turns, JSON.parse(stored.update.fields.profile.stringValue).focus[0].text], [1, 'הטיול השנתי']);
+
+  const known = fakes({ personal: { preferences: ['תשובות קצרות בנקודות'], mood: { tone: 'עמוס', note: 'שבוע מבחנים', at: new Date().toISOString() } } });
+  await turn([{ role: 'user', content: 'מה הכי דחוף לי השבוע?' }], claudeEnv());
+  assert.ok(JSON.stringify(known.claude[0].system).includes('תשובות קצרות בנקודות'));
+  const local = fakes({ personal: { preferences: ['תשובות קצרות בנקודות'] } });
+  await turn([{ role: 'user', content: 'מה הכי דחוף לי השבוע?' }], environment());
+  assert.ok(local.model[0].context.includes('תשובות קצרות בנקודות'));
+  assert.equal(local.claude.length, 0);
+});
+
+test('a user reads and clears only their own personal brain', async () => {
+  const seen = fakes({ personal: { summary: 'מזכירה ותיקה' } });
+  const call = (path, method) => worker.fetch(new Request(`https://w.example.com${path}${method === 'GET' ? '?schoolId=s1' : ''}`, { method, headers: { authorization: 'Bearer t', 'content-type': 'application/json' }, ...(method === 'POST' ? { body: JSON.stringify({ schoolId: 's1', uid: 'someone-else' }) } : {}) }), environment());
+  const read = await (await call('/v1/zoki/personal-brain', 'GET')).json();
+  assert.equal(read.profile.summary, 'מזכירה ותיקה');
+  assert.equal(read.empty, false);
+  assert.equal((await call('/v1/zoki/personal-brain/clear', 'POST')).status, 200);
+  const cleared = seen.personalWrites.at(-1);
+  assert.ok(cleared.update.name.endsWith('/zokiPersonalBrain/u1__s1'));
+  assert.equal(JSON.parse(cleared.update.fields.profile.stringValue).summary, '');
 });
