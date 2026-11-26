@@ -322,6 +322,16 @@ function ScopedZokiPage({ embedded = false, onMinimize = () => undefined }) {
     return firstName ? `היי ${firstName}, איך אפשר לעזור?` : 'היי, איך אפשר לעזור?';
   }, [userData?.fullName]);
 
+  function startNewConversation() {
+    conversationGeneration.current += 1;
+    setLoading(false);
+    setQuestion('');
+    setMessages([]);
+    setPendingTask(null);
+    setTaskActionResult(null);
+    if (schoolId) syncPersonalAgentConversation({ schoolId, expectedUid: currentUser?.uid, operation: 'fresh' }).catch(() => undefined);
+  }
+
   function finishConversation({ minimize = false } = {}) {
     conversationGeneration.current++;
     setLoading(false);
@@ -1077,6 +1087,7 @@ function ScopedZokiPage({ embedded = false, onMinimize = () => undefined }) {
             {menuOpen && <ul className="zoki-menu-list" role="menu" onClick={() => setMenuOpen(false)}>
               {isZokiAgentConfigured && <li role="none"><button role="menuitem" type="button" onClick={() => setPersonalOpen(true)}>הזיכרון שלי</button></li>}
               {canManage && <li role="none"><button role="menuitem" type="button" onClick={() => setBrainOpen(true)}><Settings2 size={15} /> הגדרות העוזר</button></li>}
+              {messages.length > 0 && <li role="none"><button role="menuitem" type="button" onClick={() => startNewConversation()}>שיחה חדשה</button></li>}
               {messages.length > 0 && <li role="none"><button role="menuitem" type="button" className="is-danger" onClick={() => finishConversation()}><CircleStop size={15} /> סיום ומחיקת השיחה</button></li>}
             </ul>}
           </div>

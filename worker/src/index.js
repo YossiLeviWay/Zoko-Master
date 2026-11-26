@@ -12,7 +12,7 @@ import {
   sanitizeInstitutionalText,
   upsertApprovedPattern,
 } from './brain.js';
-import { ganttStructuredQueries } from './ganttEvents.js';
+import { eventFieldSample, firestoreParent, ganttStructuredQueries } from './ganttEvents.js';
 import { SNAPSHOT_TTL_MS, buildPersonalContext, buildPersonalSnapshot, buildReflectionRequest, compactPersonalContext, emptyProfile, mergeLearnedProfile, profileIsEmpty, profileText, sanitizeProfile, snapshotText } from './personalBrain.js';
 
 const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), {
@@ -241,11 +241,11 @@ async function cleanupExpiredInbox(env) {
   return { deleted: names.length };
 }
 
-async function adminDocuments(env, token, path, pages = 1) {
+async function adminDocuments(env, token, path, pages = 1, pageSize = 1000) {
   const rows = [];
   let pageToken = '';
   for (let page = 0; page < pages; page += 1) {
-    const response = await fetch(`https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/${path}?pageSize=1000${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`, {
+    const response = await fetch(`https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/${path}?pageSize=${pageSize}${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`, {
       headers: { authorization: `Bearer ${token}` },
     });
     if (!response.ok) {
@@ -263,38 +263,51 @@ async function adminDocuments(env, token, path, pages = 1) {
   return rows;
 }
 
-// runQuery, not a bare list. A list of events_${schoolId} comes back oldest-document-first,
-// and the first page (the live log showed 50) never reaches a date two weeks ahead.
-async function adminQuery(env, token, parent, structuredQuery) {
-  const root = documentsUrl(env);
-  const response = await fetch(`${root}:runQuery`, {
+// The calendar screen reads events_${schoolId} with where('year') and where('month').
+// runQuery's parent is a resource name. Passing the https URL matches nothing (legacy 0).
+async function adminQuery(env, token, parent, structuredQuery, label = '') {
+  const collectionId = structuredQuery.from?.[0]?.collectionId || parent || 'root';
+  const parentResource = firestoreParent(env.FIREBASE_PROJECT_ID, parent);
+  const response = await fetch(`${documentsUrl(env)}:runQuery`, {
     method: 'POST',
     headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ parent: `${root}${parent ? `/${parent}` : ''}`, structuredQuery }),
+    body: JSON.stringify({ parent: parentResource, structuredQuery }),
   });
   if (!response.ok) {
-    console.log('zoki-firestore-query-failed', structuredQuery.from?.[0]?.collectionId || parent || 'root', response.status);
+    const detail = await response.text().catch(() => '');
+    console.log('zoki-event-query', collectionId, label, response.status, 0, 'none', detail.replace(/\s+/gu, ' ').slice(0, 120));
     return [];
   }
   const rows = await response.json();
-  return (Array.isArray(rows) ? rows : []).filter(row => row.document).map(row => ({
+  const docs = (Array.isArray(rows) ? rows : []).filter(row => row.document).map(row => ({
     id: row.document.name.split('/').pop(),
     ...Object.fromEntries(Object.entries(row.document.fields || {}).map(([key, value]) => [key, plainValue(value)])),
   }));
+  console.log('zoki-event-query', collectionId, label, response.status, docs.length, eventFieldSample(docs[0]));
+  return docs;
 }
 
 async function eventsFor(env, token, schoolId) {
   const { queries } = ganttStructuredQueries(new Date());
+  // The gantt UI reads and writes only events_${schoolId}. schools/${id}/events is kept as a second look.
   const places = [{ parent: '', id: `events_${schoolId}`, kind: 'legacy' }, { parent: `schools/${schoolId}`, id: 'events', kind: 'nested' }];
+  console.log('zoki-event-paths', places.map(place => place.parent ? `${place.parent}/${place.id}` : place.id).join(' '));
   const found = await Promise.all(places.map(async place => {
-    const batches = await Promise.all(queries.map(query => adminQuery(env, token, place.parent, { ...query.structuredQuery, from: [{ collectionId: place.id }] }).catch(error => {
-      console.log('zoki-event-query-failed', place.id, query.label, String(error?.message || error).slice(0, 80));
+    const batches = await Promise.all(queries.map(query => adminQuery(env, token, place.parent, { ...query.structuredQuery, from: [{ collectionId: place.id }] }, query.label).catch(error => {
+      console.log('zoki-event-query', place.id, query.label, 'failed', 0, 'none', String(error?.message || error).slice(0, 80));
       return [];
     })));
     return { kind: place.kind, rows: batches.flat() };
   }));
-  const legacy = [...new Map(found.find(item => item.kind === 'legacy').rows.map(item => [item.id, item])).values()];
+  let legacy = [...new Map(found.find(item => item.kind === 'legacy').rows.map(item => [item.id, item])).values()];
   const nested = [...new Map(found.find(item => item.kind === 'nested').rows.map(item => [item.id, item])).values()];
+  // A date or year/month query that does not match the stored type returns nothing. Read a bounded
+  // slice of the same collection the screen uses and let the snapshot filter the window in code.
+  if (!legacy.length) {
+    const scanned = await adminDocuments(env, token, `events_${schoolId}`, 8, 300);
+    console.log('zoki-events-fallback', `events_${schoolId}`, scanned.length, eventFieldSample(scanned[0]));
+    legacy = scanned;
+  }
   return { legacy, nested };
 }
 

@@ -32,7 +32,9 @@ export function ganttStructuredQueries(now = new Date()) {
       limit: 100,
     },
   });
-  const byMonth = window.months.map(({ year, month }) => ({
+  // The calendar screen writes year and month with the JS client, which stores whole numbers
+  // as integers. A double is queried too, because a type mismatch returns no rows at all.
+  const byMonth = window.months.flatMap(({ year, month }) => [{
     label: `year-month:${year}-${month}`,
     structuredQuery: {
       where: { compositeFilter: { op: 'AND', filters: [
@@ -41,11 +43,33 @@ export function ganttStructuredQueries(now = new Date()) {
       ] } },
       limit: 200,
     },
-  }));
+  }, {
+    label: `year-month-double:${year}-${month}`,
+    structuredQuery: {
+      where: { compositeFilter: { op: 'AND', filters: [
+        compare('year', 'EQUAL', { doubleValue: year }),
+        compare('month', 'EQUAL', { doubleValue: month }),
+      ] } },
+      limit: 200,
+    },
+  }]);
   return {
     window,
     queries: [...byMonth, range('date', 'string'), range('startDate', 'string'), range('date', 'timestamp')],
   };
+}
+
+// runQuery's parent is a resource name. A full https URL matches nothing and the log shows 0 rows.
+export function firestoreParent(projectId, path = '') {
+  const root = `projects/${projectId}/databases/(default)/documents`;
+  return path ? `${root}/${path}` : root;
+}
+
+export function eventFieldSample(event) {
+  if (!event) return 'none';
+  const kind = value => (value == null ? 'empty' : Array.isArray(value) ? 'array' : typeof value === 'object' ? 'map' : typeof value);
+  const keys = Object.keys(event).filter(key => key !== 'id').sort().join(',');
+  return `keys ${keys} date:${kind(event.date)} year:${kind(event.year)} month:${kind(event.month)} endDate:${kind(event.endDate)}`;
 }
 
 const dayText = value => {
