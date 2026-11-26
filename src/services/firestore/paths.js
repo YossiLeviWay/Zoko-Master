@@ -19,6 +19,7 @@ const RESOURCE_CONFIG = Object.freeze({
   folders: { legacy: 'folders' },
   teams: { legacy: 'teams' },
   events: { legacy: 'events' },
+  replyRequests: { legacy: 'replyRequests', nested: 'replyRequests', defaultMode: 'nested' },
   holidays: { legacy: 'holidays' },
   categories: { legacy: 'categories' },
   roles: { legacy: 'roles', nested: 'roleDefinitions' },

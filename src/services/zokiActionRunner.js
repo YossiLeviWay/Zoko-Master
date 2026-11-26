@@ -1,10 +1,10 @@
 import { calendarDateFields } from '../utils/calendarInteractions.js';
-import { releaseActionWrite, reserveActionWrite, summarizeAttendance } from '../utils/zokiActions.js';
+import { unansweredSummary, releaseActionWrite, reserveActionWrite, summarizeAttendance } from '../utils/zokiActions.js';
 
 const denied = text => ({ saved: false, text });
 
 async function defaultDeps() {
-  const [{ collection, doc, getDoc, getDocs, query, where, addDoc }, { db }, attendance, classes, paths, tasks, teams] = await Promise.all([
+  const [{ collection, doc, getDoc, getDocs, query, where, addDoc }, { db }, attendance, classes, paths, tasks, teams, replies] = await Promise.all([
     import('firebase/firestore'),
     import('../firebase.js'),
     import('./firestore/attendanceRepository.js'),
@@ -12,6 +12,7 @@ async function defaultDeps() {
     import('./firestore/paths.js'),
     import('./firestore/taskRepository.js'),
     import('./firestore/teamRepository.js'),
+    import('./firestore/replyRequestRepository.js'),
   ]);
   const { saveAttendanceCell } = attendance;
   const { createClass, updateClass } = classes;
@@ -30,6 +31,8 @@ async function defaultDeps() {
     updateTaskAssignee,
     createSchoolTeam,
     addSchoolTeamMembers,
+    createReplyRequest: input => replies.createReplyRequest({ db, ...input }),
+    listReplyRequests: input => replies.listOpenReplyRequests({ db, ...input }),
     addEvent: (schoolId, fields) => addDoc(collection(db, `events_${schoolId}`), fields),
     getTask: async (schoolId, taskId) => {
       const nested = await getDoc(schoolDoc(db, schoolId, 'tasks', taskId));
@@ -156,6 +159,14 @@ async function perform(card, context, io) {
   if (card.tool === 'add_team_members') {
     await io.addSchoolTeamMembers({ db: io.db, schoolId, teamId: fields.teamId, memberIds: fields.memberIds });
     return { saved: true, text: 'החברים נוספו.' };
+  }
+  if (card.tool === 'request_reply') {
+    const result = await io.createReplyRequest({ schoolId, actor, input: fields });
+    return { saved: true, text: result?.notified === false ? 'בקשת העדכון נשמרה. הפעמון יציג אותה כשההתראות זמינות.' : 'בקשת העדכון נשמרה.' };
+  }
+  if (card.tool === 'list_unanswered_replies') {
+    const rows = await io.listReplyRequests({ schoolId, actor });
+    return { saved: false, text: unansweredSummary(rows) };
   }
   if (card.tool === 'create_calendar_event') {
     const dated = calendarDateFields(fields.date);
