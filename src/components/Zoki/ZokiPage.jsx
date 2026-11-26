@@ -374,7 +374,7 @@ function ScopedZokiPage({ embedded = false, onMinimize = () => undefined }) {
     const card = undo ? message.clientAction?.undo : message.clientAction;
     if (!card?.allowed || message.actionStatus === 'executing') return;
     patchMessage(message.id, { actionStatus: 'executing', actionError: '' });
-    const outcome = await runZokiAction(card, { schoolId, actor: { uid: currentUser.uid, fullName: userData?.fullName || '' } });
+    const outcome = await runZokiAction(card, { schoolId, manager: canManage, actor: { uid: currentUser.uid, fullName: userData?.fullName || '' } });
     const failed = card.write && !outcome.saved;
     patchMessage(message.id, {
       actionStatus: failed ? 'failed' : 'executed',
@@ -455,7 +455,7 @@ function ScopedZokiPage({ embedded = false, onMinimize = () => undefined }) {
         }, result.answer);
         return;
       }
-      const clientAction = result.clientAction ? prepareZokiAction(result.clientAction, { permissions, manager: canManage }) : null;
+      const clientAction = result.clientAction ? prepareZokiAction(result.clientAction, { permissions, manager: canManage, actorId: currentUser.uid }) : null;
       setMessages(previous => [...previous, {
         id: `zoki_${Date.now()}`, role: 'zoki', text: result.answer + (result.memoryStatus === 'saved' ? '\n\nנשמר עדכון בזיכרון האישי. אפשר לערוך או למחוק אותו ב״הזיכרון שלי״.' : result.memoryStatus === 'failed' ? '\n\nעדכון הזיכרון לא נשמר; התשובה זמינה.' : ''),
         sources: result.sources || [], followUpQuestion: '', actionProposal: null, clientAction,

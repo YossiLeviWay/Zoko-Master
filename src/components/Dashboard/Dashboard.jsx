@@ -888,7 +888,7 @@ export default function Dashboard() {
                   <span className="event-month">{new Date(event.date + 'T00:00:00').toLocaleDateString('he-IL', { month: 'short' })}</span>
                 </div>
                 <div className="event-details">
-                  <span className="event-title">{event.title}</span>
+                  <span className="event-title">{event.title}{event.certainty === 'tentative' ? ' · לא סגור' : ''}</span>
                   {event.category && <span className="event-category">{event.category}</span>}
                   <span className="event-countdown">{getDaysUntil(event.date)}</span>
                 </div>
@@ -1012,7 +1012,7 @@ export default function Dashboard() {
                   <span className="event-month">{new Date(event.date + 'T00:00:00').toLocaleDateString('he-IL', { month: 'short' })}</span>
                 </div>
                 <div className="event-details">
-                  <span className="event-title">{event.title}</span>
+                  <span className="event-title">{event.title}{event.certainty === 'tentative' ? ' · לא סגור' : ''}</span>
                   {event.category && <span className="event-category">{event.category}</span>}
                   <span className="event-countdown">{getDaysUntil(event.date)}</span>
                 </div>
@@ -1408,7 +1408,7 @@ export default function Dashboard() {
                         </span>
                       </div>
                       <div className="event-details">
-                        <span className="event-title">{event.title}</span>
+                        <span className="event-title">{event.title}{event.certainty === 'tentative' ? ' · לא סגור' : ''}</span>
                         {event.category && (
                           <span className="event-category">{event.category}</span>
                         )}
@@ -1576,7 +1576,7 @@ export default function Dashboard() {
                       </span>
                     </div>
                     <div className="event-details">
-                      <span className="event-title">{event.title}</span>
+                      <span className="event-title">{event.title}{event.certainty === 'tentative' ? ' · לא סגור' : ''}</span>
                       <span className="event-category" style={{ background: '#fbf6f5', color: '#870335' }}>
                         {event.schoolName}
                       </span>

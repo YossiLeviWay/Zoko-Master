@@ -766,13 +766,13 @@ export default function GanttChart() {
                               onDragStart={event=>{event.stopPropagation();setTooltip(null);event.dataTransfer.setData('application/x-zoko-calendar',JSON.stringify({eventId:ev.id}));event.dataTransfer.effectAllowed='move';}}
                               onKeyDown={event=>{if(event.key==='Enter')handleEventClick(event,ev);if(event.key==='ContextMenu'||(event.shiftKey&&event.key==='F10'))openMenu(event,date,cat,ev);}}
                               onContextMenu={event=>openMenu(event,date,cat,ev)}
-                              className={`gantt-event ${searchQuery.trim() ? (ev._searchMatch ? 'gantt-event--highlight' : 'gantt-event--dim') : ''}`}
+                              className={`gantt-event ${ev.certainty === 'tentative' ? 'gantt-event--tentative' : ''} ${searchQuery.trim() ? (ev._searchMatch ? 'gantt-event--highlight' : 'gantt-event--dim') : ''}`}
                               style={{ '--event-color': ev.color || PASTEL_COLORS[0] }}
                               onClick={e => handleEventClick(e, ev)}
                               onMouseEnter={e => handleMouseEnter(e, ev)}
                               onMouseLeave={handleMouseLeave}
                             >
-                              {canEditCalendar && <button className="calendar-touch-grip" type="button" aria-label={`גרירת ${ev.title}`} {...touchHandle({eventId:ev.id})}>⠿</button>}{ev.title}
+                              {canEditCalendar && <button className="calendar-touch-grip" type="button" aria-label={`גרירת ${ev.title}`} {...touchHandle({eventId:ev.id})}>⠿</button>}{ev.certainty === 'tentative' && <span className="gantt-event-tag">לא סגור</span>}{ev.title}
                             </div>
                           ))}
                           {isLastVisible && (

@@ -35,6 +35,7 @@ export const updateStaffSchema = z.object({
   customRoleIds: z.array(id).max(50).optional(),
   teamIds: z.array(id).max(50).optional(),
   permissions: permissions.optional(),
+  accountStatus: z.enum(['active', 'disabled']).optional(),
 }).strict();
 
 export const deleteStaffSchema = z.object({

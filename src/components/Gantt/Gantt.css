@@ -1017,6 +1017,8 @@
 .gantt-event{background:#fff;border:1px solid #dbe3eb;border-inline-start:3px solid var(--event-color,#f4512c);color:var(--color-text);font-weight:600}
 .gantt-event:hover{filter:none;transform:none;background:#f8fafc}
 .gantt-event--highlight{box-shadow:0 0 0 2px var(--color-primary);transform:none}
+.gantt-event--tentative{border-style:dashed}
+.gantt-event-tag{display:inline-block;margin-inline-end:.3rem;padding:0 .3rem;border-radius:999px;background:#fff7ed;color:#9a3412;font-size:.68rem;font-weight:700}
 
 /* Event audience ("who is this for") */
 .event-audience { margin: .25rem 0 .75rem; padding: .6rem .75rem; border: 1px solid var(--color-border); border-radius: 12px; }
