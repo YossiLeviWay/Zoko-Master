@@ -505,7 +505,7 @@ async function liveSnapshot(env, actor, schoolId) {
   ].map(path => adminDocuments(env, token, path)));
   const merge = (...sets) => [...new Map(sets.flat().map(item => [item.id, item])).values()];
   return buildPersonalSnapshot({
-    uid: actor.uid, user: actor.person, teams: merge(modernTeams, legacyTeams), classes: merge(modernClasses, legacyClasses),
+    uid: actor.uid, user: actor.person, manager: actor.manager, teams: merge(modernTeams, legacyTeams), classes: merge(modernClasses, legacyClasses),
     tasks: merge(modernTasks, legacyTasks), events: merge(modernEvents, legacyEvents), holidays: merge(modernHolidays, legacyHolidays),
   });
 }

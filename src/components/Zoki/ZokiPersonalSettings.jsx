@@ -78,7 +78,9 @@ export default function ZokiPersonalSettings({ schoolId, manager = false, onClos
         {profile.nextOffset !== null && <button disabled={busy} onClick={more}>עוד זיכרונות</button>}
         <button disabled={busy} onClick={() => { if (window.confirm('למחוק את כל הזיכרונות מהמוסד הנוכחי?')) change({ operation: 'clear' }); }}>מחיקת זיכרונות המוסד</button>
       </>}
-      <p>השיחה נעזרת ב‑Gemini. בשירות החינמי Google עשויה להשתמש בתוכן לשיפור מוצריה.</p>
+      <p>{import.meta.env.VITE_ZOKI_PROVIDER === 'worker'
+        ? 'התשובות נכתבות על ידי זוקי. כש־Claude זמין הוא עונה, ואם אינו זמין עונה המודל של בית הספר. אין להזין שמות תלמידים, מספרי זהות או מידע רפואי.'
+        : 'השיחה נעזרת ב‑Gemini. בשירות החינמי Google עשויה להשתמש בתוכן לשיפור מוצריה.'}</p>
       <p role="status">{message || (!profile ? 'טוען…' : '')}</p>
     </div>
   </aside></div>;
