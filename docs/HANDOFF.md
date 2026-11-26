@@ -59,12 +59,15 @@ few menus and little text, high contrast, mobile friendly, and a beginner-teache
   (2) sends school-ai a bounded `context` = the institutional brain (students section removed unless `students.view`/manager) + the user's own memories,
   (3) for instructions ("צור/פתח/הוסף...") calls school-ai `mode:"route"` and returns a validated `proposals[]` limited to the user's allowed tools;
   the browser maps `create_task` into the existing approval flow, other tools are shown as text only (no approval UI yet),
-  (4) appends shared-knowledge events to `LEARNING_LOG.md` in the school's brain repo (GET `/v1/task-agent/learning-log`, managers only).
+  (4) appends shared-knowledge events to the learning log in Firestore (`schoolBrain/{schoolId}/meta/learningLog`; GET `/v1/task-agent/learning-log`, managers only).
   "זכור ש..." is saved as the user's own memory only; it never becomes shared knowledge without manager approval.
   school-ai accepts `context`/`tools` only from a trusted caller (API key or loopback). Speed: gemma3:4b stays loaded, DictaLM is released after 3 min
   (`STRONG_KEEP_ALIVE`), `NUM_CTX=3072`; gemma3:1b was tested and is too inaccurate for Hebrew answers.
 - **Claude first (Haiku 5.5):** `ZOKI_PROVIDER=claude-first` (default). The Worker asks Claude (`CLAUDE_MODEL`, default Haiku 5.5, secret `ANTHROPIC_API_KEY`) with the same school context; on error, no credit,
   or when the user passed their Claude allowance (`ZOKI_CLAUDE_LIMITS`, default principal 100 / staff 25 / viewer 10 per day) the school model answers. `local` = school model only, `claude` = Claude only.
+- **Brain in Firestore (no GitHub App needed):** the institutional brain, its versions (`schoolBrain/{id}/versions`) and the learning log live in Firestore, written only with the Worker's
+  Firebase service account (`FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`) and denied to clients in `firestore.rules`. A school with no brain gets one built from its data on first use; the daily cron
+  refreshes schools listed in var `ZOKI_SCHOOL_IDS`. Version ids are timestamps (restore takes one). The old GitHub-backed code and `SCHOOL_REPOSITORIES` are gone.
 - **Bugs found and fixed this round:** App Check JWT signature was parsed as JSON in the Worker (`decodeJwtPart`), `functions/`
   dependencies missing in the Firebase workflow, CSP meta tag lacked `*.workers.dev`.
 - **In progress:** answer streaming (merged), a fast small model with automatic escalation to the strong one on timeout (Mac session

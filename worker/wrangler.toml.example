@@ -7,6 +7,7 @@ crons = ["15 2 * * *"]
 
 [vars]
 ZOKI_PROVIDER = "claude-first"
+ZOKI_SCHOOL_IDS = "your-school-id"
 CLAUDE_MODEL = "claude-haiku-5-5"
 ALLOWED_ORIGINS = "https://eduflow-pro-12a90.web.app,https://yossileviway.github.io,http://localhost:5173"
 GEMINI_MODEL = "gemini-flash-latest"
@@ -21,10 +22,7 @@ GEMINI_MODEL = "gemini-flash-latest"
 # FIREBASE_APP_IDS  (comma-separated Firebase app IDs)
 # FIREBASE_CLIENT_EMAIL
 # FIREBASE_PRIVATE_KEY
-# GITHUB_APP_ID
-# GITHUB_APP_PRIVATE_KEY
-# GITHUB_INSTALLATION_ID
-# SCHOOL_REPOSITORIES  (JSON: {"schoolId":"owner/private-repo"})
+# var ZOKI_SCHOOL_IDS (comma separated school ids whose brain is synced daily; the brain lives in Firestore schoolBrain/{schoolId})
 # Local model (Ollama, e.g. DictaLM) — Worker-only, never exposed to the browser:
 # var ZOKI_PROVIDER = "claude-first" (default: Claude, then the school model on failure/over allowance) | "claude" (only Claude) | "local" (only the school model)
 # optional vars: ZOKI_CLAUDE_LIMITS / ZOKI_DAILY_LIMITS (JSON per role) for per-user allowances

@@ -10,13 +10,12 @@ const map = fields => ({ mapValue: { fields } });
 
 function environment(over = {}) {
   return { ZOKI_PROVIDER: 'local', LOCAL_MODEL_URL: 'https://model.example.com', LOCAL_MODEL_TOKEN: 'k', FIREBASE_WEB_API_KEY: 'w', FIREBASE_PROJECT_ID: 'p',
-    FIREBASE_CLIENT_EMAIL: 'svc@p.iam', FIREBASE_PRIVATE_KEY: pem, GITHUB_APP_ID: '1', GITHUB_APP_PRIVATE_KEY: pem, GITHUB_INSTALLATION_ID: '2',
-    SCHOOL_REPOSITORIES: '{"s1":"o/r"}', ...over };
+    FIREBASE_CLIENT_EMAIL: 'svc@p.iam', FIREBASE_PRIVATE_KEY: pem, ZOKI_SCHOOL_IDS: 's1', ...over };
 }
 
 // Routes every outbound call to a fake; records what the model service and the counter received.
-function fakes({ count = 1, route = { tool: null }, tasksCreate = true, claude = 'ok' } = {}) {
-  const seen = { model: [], commits: 0, claude: [] };
+function fakes({ count = 1, route = { tool: null }, tasksCreate = true, claude = 'ok', brain = true } = {}) {
+  const seen = { model: [], commits: 0, claude: [], brainWrites: 0 };
   globalThis.fetch = async (input, init = {}) => {
     const url = String(input);
     let body = {};
@@ -26,9 +25,11 @@ function fakes({ count = 1, route = { tool: null }, tasksCreate = true, claude =
       accessProfilesBySchool: map({ s1: map({ presetId: str('secretary'), school: map({ 'tasks.create': { booleanValue: tasksCreate } }) }) }) } });
     if (url.includes('/documents/zokiAgents/')) return new Response('{}', { status: 404 });
     if (url.includes('oauth2.googleapis.com')) return Response.json({ access_token: 'adm' });
-    if (url.includes(':commit')) { seen.commits += 1; return Response.json({ writeResults: [{ transformResults: [{ integerValue: String(count) }] }] }); }
-    if (url.includes('/access_tokens')) return Response.json({ token: 'gh' });
-    if (url.includes('/contents/school-brain.md')) return new Response('# מוח\n\n## סגל\n\nדנה\n\n## תלמידים והקשרים לימודיים\n\n| נועה לוי | ז1 |\n', { headers: { etag: '"x"' } });
+    if (url.includes(':commit')) { seen.commits += 1; if (String(init.body).includes('schoolBrain')) seen.brainWrites += 1; return Response.json({ writeResults: [{ transformResults: [{ integerValue: String(count) }] }] }); }
+    if (url.endsWith('/documents/schoolBrain/s1')) return brain ? Response.json({ fields: { markdown: str('# מוח\n\n## סגל\n\nדנה\n\n## תלמידים והקשרים לימודיים\n\n| נועה לוי | ז1 |\n'), version: str('1') } }) : new Response('{}', { status: 404 });
+    if (url.includes('/documents/schoolBrain/')) return new Response('{}', { status: 404 });
+    // Any other collection read (used to build a brain from school data) is simply empty.
+    if (url.includes('/documents/')) return Response.json({});
     if (url.startsWith('https://model.example.com/api/chat')) {
       seen.model.push(body);
       if (body.mode === 'route') return Response.json(route);
@@ -113,4 +114,11 @@ test('without a Claude key, or when forced local, Claude is never called', async
   seen = fakes();
   await turn([{ role: 'user', content: 'שלום' }], claudeEnv({ ZOKI_PROVIDER: 'local' }));
   assert.equal(seen.claude.length, 0);
+});
+
+test('a school with no brain yet gets one built and saved the first time it is needed', async () => {
+  const seen = fakes({ brain: false });
+  const response = await turn([{ role: 'user', content: 'כמה כיתות יש?' }], environment());
+  assert.equal(response.status, 200);
+  assert.equal(seen.brainWrites, 1);
 });

@@ -53,75 +53,72 @@ async function signedJwt({ issuer, subject = '', audience = '', privateKey, life
   return `${header}.${payload}.${base64Url(signature)}`;
 }
 
-async function githubToken(env) {
-  const jwt = await signedJwt({ issuer: env.GITHUB_APP_ID, privateKey: env.GITHUB_APP_PRIVATE_KEY });
-  const response = await fetch(`https://api.github.com/app/installations/${env.GITHUB_INSTALLATION_ID}/access_tokens`, {
-    method: 'POST',
-    headers: { authorization: `Bearer ${jwt}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'zoko-task-agent' },
-  });
-  if (!response.ok) throw new Error('github-auth-failed');
-  return (await response.json()).token;
+// ---- The institutional brain lives in Firestore (schoolBrain/{schoolId}), written only by the Worker's admin credentials ----
+// Clients cannot read or write it (see firestore.rules); managers reach it only through the Worker endpoints below.
+const BRAIN_LIMIT_BYTES = 900000;
+let cachedAdmin = { token: '', expiresAt: 0 };
+
+async function adminToken(env) {
+  if (cachedAdmin.expiresAt > Date.now() + 60000) return cachedAdmin.token;
+  cachedAdmin = { token: await firebaseAdminToken(env), expiresAt: Date.now() + 3000000 };
+  return cachedAdmin.token;
 }
 
-function repositoryFor(env, schoolId) {
-  const repositories = JSON.parse(env.SCHOOL_REPOSITORIES || '{}');
-  const repository = repositories[schoolId];
-  if (!repository || !/^[\w.-]+\/[\w.-]+$/u.test(repository)) throw new Error('school-repository-not-configured');
-  return repository;
-}
+const brainPath = schoolId => `schoolBrain/${encodeURIComponent(schoolId)}`;
+const documentsUrl = env => `https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents`;
+const fieldsOf = document => Object.fromEntries(Object.entries(document?.fields || {}).map(([key, value]) => [key, plainValue(value)]));
 
-async function readBrain(env, schoolId) {
-  const token = await githubToken(env);
-  const repository = repositoryFor(env, schoolId);
-  const response = await fetch(`https://api.github.com/repos/${repository}/contents/school-brain.md`, {
-    headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github.raw+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'zoko-task-agent' },
-  });
-  if (response.status === 404) return { markdown: createSchoolBrain({ school: { id: schoolId }, patterns: [] }), sha: '' };
+async function adminGet(env, path) {
+  const response = await fetch(`${documentsUrl(env)}/${path}`, { headers: { authorization: `Bearer ${await adminToken(env)}` } });
+  if (response.status === 404) return null;
   if (!response.ok) throw new Error('brain-read-failed');
-  const sha = response.headers.get('etag')?.replaceAll('"', '') || '';
-  return { markdown: await response.text(), sha };
-}
-
-async function githubFileMetadata(env, schoolId, token) {
-  const repository = repositoryFor(env, schoolId);
-  const response = await fetch(`https://api.github.com/repos/${repository}/contents/school-brain.md`, {
-    headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'zoko-task-agent' },
-  });
-  if (response.status === 404) return { repository, sha: '' };
-  if (!response.ok) throw new Error('brain-metadata-failed');
-  return { repository, sha: (await response.json()).sha || '' };
-}
-
-async function writeBrain(env, schoolId, markdown, message) {
-  const token = await githubToken(env);
-  const { repository, sha } = await githubFileMetadata(env, schoolId, token);
-  const response = await fetch(`https://api.github.com/repos/${repository}/contents/school-brain.md`, {
-    method: 'PUT',
-    headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'content-type': 'application/json', 'x-github-api-version': '2022-11-28', 'user-agent': 'zoko-task-agent' },
-    body: JSON.stringify({ message, content: btoa(unescape(encodeURIComponent(markdown))), ...(sha ? { sha } : {}) }),
-  });
-  if (!response.ok) throw new Error(response.status === 409 ? 'brain-conflict' : 'brain-write-failed');
   return response.json();
 }
 
-async function brainHistory(env, schoolId) {
-  const token = await githubToken(env);
-  const repository = repositoryFor(env, schoolId);
-  const response = await fetch(`https://api.github.com/repos/${repository}/commits?path=school-brain.md&per_page=30`, {
-    headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'zoko-task-agent' },
+async function adminCommit(env, writes) {
+  const response = await fetch(`${documentsUrl(env)}:commit`, {
+    method: 'POST', headers: { authorization: `Bearer ${await adminToken(env)}`, 'content-type': 'application/json' }, body: JSON.stringify({ writes }),
   });
-  if (!response.ok) throw new Error('brain-history-failed');
-  return (await response.json()).map(item => ({ sha: item.sha, message: item.commit?.message || '', author: item.commit?.author?.name || '', date: item.commit?.author?.date || '' }));
+  if (!response.ok) throw new Error('brain-write-failed');
 }
 
-async function restoreBrain(env, schoolId, sha) {
-  const token = await githubToken(env);
-  const repository = repositoryFor(env, schoolId);
-  const response = await fetch(`https://api.github.com/repos/${repository}/contents/school-brain.md?ref=${encodeURIComponent(sha)}`, {
-    headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github.raw+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'zoko-task-agent' },
+const adminWrite = (env, path, fields) => ({
+  update: { name: `projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/${path}`, fields: Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, firestoreValue(value)])) },
+});
+
+// Returns { markdown, sha, exists }. A school with no brain yet gets an empty one (exists:false).
+async function readBrain(env, schoolId) {
+  const document = await adminGet(env, brainPath(schoolId));
+  if (!document) return { markdown: createSchoolBrain({ school: { id: schoolId }, patterns: [] }), sha: '', exists: false };
+  const fields = fieldsOf(document);
+  return { markdown: String(fields.markdown || ''), sha: String(fields.version || ''), exists: true };
+}
+
+// Saves the current brain and keeps this text as a version, in one atomic commit.
+async function writeBrain(env, schoolId, markdown, message, author = '') {
+  if (new TextEncoder().encode(markdown).length > BRAIN_LIMIT_BYTES) throw new Error('brain-too-large');
+  const version = `${Date.now()}`;
+  const at = new Date().toISOString();
+  await adminCommit(env, [
+    adminWrite(env, brainPath(schoolId), { schoolId, markdown, version, updatedAt: at }),
+    adminWrite(env, `${brainPath(schoolId)}/versions/${version}`, { markdown, message: String(message).slice(0, 200), author: String(author).slice(0, 120), createdAt: at }),
+  ]);
+  return { commit: { sha: version } };
+}
+
+async function brainHistory(env, schoolId) {
+  const response = await fetch(`${documentsUrl(env)}/${brainPath(schoolId)}/versions?pageSize=30&orderBy=${encodeURIComponent('createdAt desc')}`, { headers: { authorization: `Bearer ${await adminToken(env)}` } });
+  if (!response.ok) throw new Error('brain-history-failed');
+  return ((await response.json()).documents || []).map(document => {
+    const fields = fieldsOf(document);
+    return { sha: document.name.split('/').pop(), message: fields.message || '', author: fields.author || '', date: fields.createdAt || '' };
   });
-  if (!response.ok) throw new Error('brain-restore-source-failed');
-  return writeBrain(env, schoolId, await response.text(), `Restore institutional brain from ${sha.slice(0, 12)}`);
+}
+
+async function restoreBrain(env, schoolId, version, author = '') {
+  const document = await adminGet(env, `${brainPath(schoolId)}/versions/${encodeURIComponent(version)}`);
+  if (!document) throw new Error('brain-restore-source-failed');
+  return writeBrain(env, schoolId, String(fieldsOf(document).markdown || ''), `Restore institutional brain from ${String(version).slice(0, 12)}`, author);
 }
 
 async function actorFromToken(request, env) {
@@ -309,9 +306,12 @@ async function dailySchoolSnapshot(env, token, schoolId) {
   };
 }
 
+// Schools whose brain is synced every day: ZOKI_SCHOOL_IDS (comma separated).
+const configuredSchoolIds = env => String(env.ZOKI_SCHOOL_IDS || '').split(',').map(item => item.trim()).filter(Boolean);
+
 async function syncConfiguredSchools(env) {
   if (!env.FIREBASE_CLIENT_EMAIL || !env.FIREBASE_PRIVATE_KEY) return { synced: 0 };
-  const schoolIds = Object.keys(JSON.parse(env.SCHOOL_REPOSITORIES || '{}'));
+  const schoolIds = configuredSchoolIds(env);
   const token = await firebaseAdminToken(env);
   let synced = 0;
   for (const schoolId of schoolIds) {
@@ -442,27 +442,18 @@ async function chargeUsage(env, actor, schoolId) {
   return { used, limit };
 }
 
-// ---- LEARNING_LOG.md: what Zoki learned or changed in shared school knowledge, next to the brain file ----
-const LOG_PATH = 'LEARNING_LOG.md';
+// ---- Learning log: what Zoki learned or changed in shared school knowledge (schoolBrain/{schoolId}/meta/learningLog) ----
+const LOG_DOCUMENT = schoolId => `${brainPath(schoolId)}/meta/learningLog`;
 async function readLearningLog(env, schoolId) {
-  const token = await githubToken(env);
-  const repository = repositoryFor(env, schoolId);
-  const response = await fetch(`https://api.github.com/repos/${repository}/contents/${LOG_PATH}`, { headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'zoko-task-agent' } });
-  if (response.status === 404) return { text: '', sha: '', token, repository };
-  if (!response.ok) throw new Error('learning-log-read-failed');
-  const file = await response.json();
-  return { text: decodeURIComponent(escape(atob(String(file.content || '').replace(/\n/gu, '')))), sha: file.sha || '', token, repository };
+  const document = await adminGet(env, LOG_DOCUMENT(schoolId));
+  return { text: document ? String(fieldsOf(document).text || '') : '' };
 }
 
 // Never fails the operation that is being logged.
 async function logLearning(env, schoolId, entry) {
   try {
-    const { text, sha, token, repository } = await readLearningLog(env, schoolId);
-    const next = appendLearningLog(text, learningLogLine(entry));
-    await fetch(`https://api.github.com/repos/${repository}/contents/${LOG_PATH}`, {
-      method: 'PUT', headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'content-type': 'application/json', 'x-github-api-version': '2022-11-28', 'user-agent': 'zoko-task-agent' },
-      body: JSON.stringify({ message: `Learning log: ${String(entry.kind).slice(0, 40)}`, content: btoa(unescape(encodeURIComponent(next))), ...(sha ? { sha } : {}) }),
-    });
+    const { text } = await readLearningLog(env, schoolId);
+    await adminCommit(env, [adminWrite(env, LOG_DOCUMENT(schoolId), { text: appendLearningLog(text, learningLogLine(entry)), updatedAt: new Date().toISOString() })]);
   } catch { /* logging is best effort */ }
 }
 
@@ -474,10 +465,21 @@ async function personalMemories(request, env, actor, schoolId) {
   } catch { return []; }
 }
 
+// A school that has no brain yet gets one built from its current data the first time it is needed.
+async function firstBrain(env, schoolId) {
+  if (!env.FIREBASE_CLIENT_EMAIL || !env.FIREBASE_PRIVATE_KEY) return { markdown: '' };
+  const current = await readBrain(env, schoolId);
+  if (current.exists) return current;
+  const snapshot = await dailySchoolSnapshot(env, await adminToken(env), schoolId);
+  const markdown = createSchoolBrain({ ...snapshot, generatedAt: new Date().toISOString() });
+  await writeBrain(env, schoolId, markdown, 'Initial institutional knowledge', 'system').catch(() => {});
+  return { markdown };
+}
+
 // School knowledge for this turn: the institutional brain, without student data unless the user may see it.
 async function schoolContextFor(request, env, schoolId, actor, query, held) {
   const [brain, memories] = await Promise.all([
-    readBrain(env, schoolId).catch(() => ({ markdown: '' })),
+    firstBrain(env, schoolId).catch(() => ({ markdown: '' })),
     personalMemories(request, env, actor, schoolId),
   ]);
   const canSeeStudents = actor.manager || held.includes('students.view');
@@ -563,7 +565,7 @@ async function handle(request, env) {
     const pattern = { ...body.pattern, id: body.pattern?.id || await fingerprint(body.pattern?.canonicalIntent || body.pattern?.name) };
     const { markdown } = await readBrain(env, schoolId);
     const next = upsertApprovedPattern(markdown, pattern);
-    const result = await writeBrain(env, schoolId, next, `Approve task pattern: ${sanitizeInstitutionalText(pattern.name, 80) || pattern.id}`);
+    const result = await writeBrain(env, schoolId, next, `Approve task pattern: ${sanitizeInstitutionalText(pattern.name, 80) || pattern.id}`, actor.fullName);
     await deleteSources(request, env, schoolId, body.sourceIds);
     await logLearning(env, schoolId, { kind: 'דפוס אושר', actor: actor.fullName, summary: pattern.name || pattern.canonicalIntent });
     return json({ ok: true, commitSha: result.commit?.sha || '' }, 200, cors(request, env));
@@ -577,13 +579,13 @@ async function handle(request, env) {
     const current = await readBrain(env, schoolId);
     const generated = createSchoolBrain({ ...(body.snapshot || {}), school: { ...(body.snapshot?.school || {}), id: schoolId }, generatedAt: new Date().toISOString() });
     const markdown = preserveApprovedPatterns(current.markdown, generated);
-    const result = await writeBrain(env, schoolId, markdown, 'Sync institutional knowledge');
+    const result = await writeBrain(env, schoolId, markdown, 'Sync institutional knowledge', actor.fullName);
     await logLearning(env, schoolId, { kind: 'סנכרון ידע', actor: actor.fullName, summary: 'ידע בית הספר עודכן מהנתונים הנוכחיים' });
     return json({ ok: true, commitSha: result.commit?.sha || '' }, 200, cors(request, env));
   }
   if (url.pathname === '/v1/task-agent/brain/restore' && request.method === 'POST') {
-    if (!/^[a-f0-9]{40}$/u.test(body.sha || '')) throw new Error('invalid-version');
-    const result = await restoreBrain(env, schoolId, body.sha);
+    if (!/^\d{10,16}$/u.test(body.sha || '')) throw new Error('invalid-version');
+    const result = await restoreBrain(env, schoolId, body.sha, actor.fullName);
     await logLearning(env, schoolId, { kind: 'שחזור ידע', actor: actor.fullName, summary: `שוחזרה גרסה ${body.sha.slice(0, 8)}` });
     return json({ ok: true, commitSha: result.commit?.sha || '' }, 200, cors(request, env));
   }
