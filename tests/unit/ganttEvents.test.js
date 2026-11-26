@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { eventFieldSample, firestoreParent, ganttStructuredQueries, ganttWindow } from '../../worker/src/ganttEvents.js';
+import { eventFieldSample, eventPageContinues, eventScanQuery, firestoreParent, ganttStructuredQueries, ganttWindow } from '../../worker/src/ganttEvents.js';
 import { buildPersonalSnapshot } from '../../worker/src/personalBrain.js';
 
 test('gantt queries bound the date instead of taking the oldest page', () => {
@@ -25,6 +25,17 @@ test('gantt queries bound the date instead of taking the oldest page', () => {
   assert.equal(firestoreParent('eduflow'), 'projects/eduflow/databases/(default)/documents');
   assert.equal(firestoreParent('eduflow', 'schools/s1'), 'projects/eduflow/databases/(default)/documents/schools/s1');
   assert.equal(firestoreParent('eduflow').startsWith('https://'), false);
+  const first = eventScanQuery('events_0Le4ldc5W0MiFc663GwK');
+  assert.deepEqual(first, {
+    from: [{ collectionId: 'events_0Le4ldc5W0MiFc663GwK' }],
+    orderBy: [{ field: { fieldPath: '__name__' }, direction: 'ASCENDING' }],
+    limit: 300,
+  });
+  const second = eventScanQuery('events_0Le4ldc5W0MiFc663GwK', 'projects/p/databases/(default)/documents/events_0Le4ldc5W0MiFc663GwK/h049');
+  assert.equal(second.startAt.before, false);
+  assert.equal(second.startAt.values[0].referenceValue.endsWith('/h049'), true);
+  assert.equal(eventPageContinues(50), true);
+  assert.equal(eventPageContinues(1), false);
 });
 
 test('a document shaped like the calendar screen is kept when it overlaps 1–2 December', () => {

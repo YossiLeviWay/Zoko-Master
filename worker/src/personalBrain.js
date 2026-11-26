@@ -96,7 +96,7 @@ export function buildPersonalSnapshot({ uid, user = {}, teams = [], classes = []
       const grade = text(event.audience?.grade || event.grade || '', 20);
       const subject = text(event.audience?.subject || '', 40);
       return [{ date: span.start, end: span.end === span.start ? '' : span.end, title: text(event.title || event.name, 100), category: text(event.category, 40), grade, subject }];
-    }).filter(event => event.title).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 12),
+    }).filter(event => event.title).sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title, 'he')).slice(0, 40),
     holidays: holidays.filter(item => typeof item.startDate === 'string' && (item.endDate || item.startDate) >= today && item.startDate <= holidayHorizon)
       .sort((a, b) => a.startDate.localeCompare(b.startDate)).slice(0, 3).map(item => ({ from: item.startDate, to: item.endDate || item.startDate, title: text(item.name || item.title, 80) })).filter(item => item.title),
     at: now.toISOString(),

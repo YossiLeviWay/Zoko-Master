@@ -12,7 +12,7 @@ import {
   sanitizeInstitutionalText,
   upsertApprovedPattern,
 } from './brain.js';
-import { eventFieldSample, firestoreParent, ganttStructuredQueries } from './ganttEvents.js';
+import { EVENT_PAGE_CAP, eventPageContinues, eventRawFieldSample, eventScanQuery, firestoreParent } from './ganttEvents.js';
 import { SNAPSHOT_TTL_MS, buildPersonalContext, buildPersonalSnapshot, buildReflectionRequest, compactPersonalContext, emptyProfile, mergeLearnedProfile, profileIsEmpty, profileText, sanitizeProfile, snapshotText } from './personalBrain.js';
 
 const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), {
@@ -263,51 +263,50 @@ async function adminDocuments(env, token, path, pages = 1, pageSize = 1000) {
   return rows;
 }
 
-// The calendar screen reads events_${schoolId} with where('year') and where('month').
-// runQuery's parent is a resource name. Passing the https URL matches nothing (legacy 0).
-async function adminQuery(env, token, parent, structuredQuery, label = '') {
-  const collectionId = structuredQuery.from?.[0]?.collectionId || parent || 'root';
+// The calendar screen (GanttChart, route /calendar) reads events_${schoolId} with
+// where('year') and where('month'). Those filters came back empty in production while a bare
+// list returned only the first 50 holiday-sync rows and then stopped. Walk the same collection
+// by document name and keep every page until a short page arrives.
+async function scanEventCollection(env, token, collectionId, parent = '') {
   const parentResource = firestoreParent(env.FIREBASE_PROJECT_ID, parent);
-  const response = await fetch(`${documentsUrl(env)}:runQuery`, {
-    method: 'POST',
-    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ parent: parentResource, structuredQuery }),
-  });
-  if (!response.ok) {
-    const detail = await response.text().catch(() => '');
-    console.log('zoki-event-query', collectionId, label, response.status, 0, 'none', detail.replace(/\s+/gu, ' ').slice(0, 120));
-    return [];
+  const rows = [];
+  let after = '';
+  for (let page = 0; page < EVENT_PAGE_CAP; page += 1) {
+    const structuredQuery = eventScanQuery(collectionId, after);
+    const response = await fetch(`${documentsUrl(env)}:runQuery`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ parent: parentResource, structuredQuery }),
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      console.log('zoki-event-page', collectionId, page + 1, 0, 'http', response.status, detail.replace(/\s+/gu, ' ').slice(0, 120));
+      break;
+    }
+    const body = await response.json();
+    const documents = (Array.isArray(body) ? body : []).map(item => item.document).filter(Boolean);
+    const fresh = documents.filter(document => document.name !== after);
+    const docs = fresh.map(document => ({
+      id: document.name.split('/').pop(),
+      _name: document.name,
+      ...Object.fromEntries(Object.entries(document.fields || {}).map(([key, value]) => [key, plainValue(value)])),
+    }));
+    console.log('zoki-event-page', collectionId, page + 1, documents.length, eventPageContinues(documents.length) ? 'more' : 'end', eventRawFieldSample(fresh[0]?.fields));
+    rows.push(...docs);
+    const lastName = fresh.at(-1)?.name || '';
+    const more = eventPageContinues(documents.length) && lastName && lastName !== after;
+    if (more && page === EVENT_PAGE_CAP - 1) console.log('zoki-event-page-cap', collectionId, rows.length);
+    if (!more) break;
+    after = lastName;
   }
-  const rows = await response.json();
-  const docs = (Array.isArray(rows) ? rows : []).filter(row => row.document).map(row => ({
-    id: row.document.name.split('/').pop(),
-    ...Object.fromEntries(Object.entries(row.document.fields || {}).map(([key, value]) => [key, plainValue(value)])),
-  }));
-  console.log('zoki-event-query', collectionId, label, response.status, docs.length, eventFieldSample(docs[0]));
-  return docs;
+  return rows;
 }
 
 async function eventsFor(env, token, schoolId) {
-  const { queries } = ganttStructuredQueries(new Date());
-  // The gantt UI reads and writes only events_${schoolId}. schools/${id}/events is kept as a second look.
-  const places = [{ parent: '', id: `events_${schoolId}`, kind: 'legacy' }, { parent: `schools/${schoolId}`, id: 'events', kind: 'nested' }];
-  console.log('zoki-event-paths', places.map(place => place.parent ? `${place.parent}/${place.id}` : place.id).join(' '));
-  const found = await Promise.all(places.map(async place => {
-    const batches = await Promise.all(queries.map(query => adminQuery(env, token, place.parent, { ...query.structuredQuery, from: [{ collectionId: place.id }] }, query.label).catch(error => {
-      console.log('zoki-event-query', place.id, query.label, 'failed', 0, 'none', String(error?.message || error).slice(0, 80));
-      return [];
-    })));
-    return { kind: place.kind, rows: batches.flat() };
-  }));
-  let legacy = [...new Map(found.find(item => item.kind === 'legacy').rows.map(item => [item.id, item])).values()];
-  const nested = [...new Map(found.find(item => item.kind === 'nested').rows.map(item => [item.id, item])).values()];
-  // A date or year/month query that does not match the stored type returns nothing. Read a bounded
-  // slice of the same collection the screen uses and let the snapshot filter the window in code.
-  if (!legacy.length) {
-    const scanned = await adminDocuments(env, token, `events_${schoolId}`, 8, 300);
-    console.log('zoki-events-fallback', `events_${schoolId}`, scanned.length, eventFieldSample(scanned[0]));
-    legacy = scanned;
-  }
+  const legacyId = `events_${schoolId}`;
+  console.log('zoki-event-paths', legacyId, `schools/${schoolId}/events`);
+  const legacy = await scanEventCollection(env, token, legacyId);
+  const nested = legacy.length ? [] : await scanEventCollection(env, token, 'events', `schools/${schoolId}`);
   return { legacy, nested };
 }
 
