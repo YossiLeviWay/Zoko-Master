@@ -23,6 +23,15 @@ export function clientActionFromProposals(userText, proposals = []) {
   return { tool: 'create_personal_task', input: { title: String(legacy.input.title), dueDate: legacy.input.dueDate || '', description: legacy.input.description || '' } };
 }
 
+export function visibleZokiAnswer(reply, hasCard) {
+  if (hasCard) return 'הנה מה שיישמר.';
+  const cleaned = String(reply || '')
+    .replace(/הצעה \(עדיין לא ניתנת לאישור כאן\):[^\n]*/gu, '')
+    .replace(/הכנתי הצעה לאישור/gu, '')
+    .trim();
+  return cleaned || 'הנה מה שיישמר.';
+}
+
 export function settleWorkerTurn({ reply, proposals = [] } = {}) {
   if (!String(reply || '').trim() && !proposals.length) throw Object.assign(new Error('agent-unavailable'), { code: 'agent-unavailable' });
   return { reply: String(reply || '').trim() || PROPOSAL_LINE, proposals };
@@ -42,10 +51,9 @@ export class WorkerZokiProvider {
     const settled = settleWorkerTurn({ reply, proposals });
     const clientAction = clientActionFromProposals(input.question, settled.proposals);
     const task = clientAction ? null : settled.proposals.find(item => item?.tool === 'create_task' && item.input?.title);
-    const others = settled.proposals.filter(item => item !== task).map(item => `הצעה (עדיין לא ניתנת לאישור כאן): ${item.tool}`);
     const note = teachingNote(input.question);
     return {
-      answer: replyWithStoredMemory([settled.reply, ...others].join('\n'), note),
+      answer: replyWithStoredMemory(visibleZokiAnswer(settled.reply, Boolean(clientAction)), note),
       actionIntent: task ? 'create_task' : 'none',
       actionRequest: task ? [task.input.title, task.input.description].filter(Boolean).join('. ') : '',
       actionTargetType: 'none', actionTargetLabel: '', staffRoleDraft: null,
