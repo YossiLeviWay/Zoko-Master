@@ -3,6 +3,7 @@
 // institutional knowledge the user may see and may return an action PROPOSAL, which only enters the
 // existing approval flow; nothing is executed from here.
 import { proposalFromReply } from '../utils/zokiActions.js';
+import { PROPOSAL_LINE } from '../../worker/src/zokiToolRound.js';
 import { replyWithStoredMemory, teachingNote } from '../../worker/src/zokiTurn.js';
 
 const CONTEXT_CHARS = 5500;
@@ -12,6 +13,11 @@ export function knowledgeContext(input) {
   for (const entry of input.knowledge || []) parts.push(`- ${entry.title}: ${JSON.stringify(entry).slice(0, 900)}`);
   if (input.upcomingMilestones) parts.push(typeof input.upcomingMilestones === 'string' ? input.upcomingMilestones : JSON.stringify(input.upcomingMilestones));
   return parts.join('\n').slice(0, CONTEXT_CHARS);
+}
+
+export function settleWorkerTurn({ reply, proposals = [] } = {}) {
+  if (!String(reply || '').trim() && !proposals.length) throw Object.assign(new Error('agent-unavailable'), { code: 'agent-unavailable' });
+  return { reply: String(reply || '').trim() || PROPOSAL_LINE, proposals };
 }
 
 export class WorkerZokiProvider {
@@ -25,13 +31,13 @@ export class WorkerZokiProvider {
     // Loaded on demand so importing this module never initialises Firebase.
     const { askRoleAgent } = await import('./zokiClaudeService.js');
     const { reply, proposals = [] } = await askRoleAgent({ schoolId: this.schoolId, messages, context: knowledgeContext(input), permissionKeys: input.permissionKeys, onToken: input.onToken });
-    if (!reply) throw Object.assign(new Error('agent-unavailable'), { code: 'agent-unavailable' });
-    const clientAction = proposalFromReply(input.question, proposals);
-    const task = clientAction ? null : proposals.find(item => item?.tool === 'create_task' && item.input?.title);
-    const others = proposals.filter(item => item !== task).map(item => `הצעה (עדיין לא ניתנת לאישור כאן): ${item.tool}`);
+    const settled = settleWorkerTurn({ reply, proposals });
+    const clientAction = proposalFromReply(input.question, settled.proposals);
+    const task = clientAction ? null : settled.proposals.find(item => item?.tool === 'create_task' && item.input?.title);
+    const others = settled.proposals.filter(item => item !== task).map(item => `הצעה (עדיין לא ניתנת לאישור כאן): ${item.tool}`);
     const note = teachingNote(input.question);
     return {
-      answer: replyWithStoredMemory([reply, ...others].join('\n'), note),
+      answer: replyWithStoredMemory([settled.reply, ...others].join('\n'), note),
       actionIntent: task ? 'create_task' : 'none',
       actionRequest: task ? [task.input.title, task.input.description].filter(Boolean).join('. ') : '',
       actionTargetType: 'none', actionTargetLabel: '', staffRoleDraft: null,
