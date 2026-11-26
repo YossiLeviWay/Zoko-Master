@@ -28,6 +28,7 @@
 .zoki-message--user > div { color: white; background: #870335; border-bottom-left-radius: 5px; }
 .zoki-message--zoki > div { border-bottom-right-radius: 5px; }
 .zoki-message.is-error > div { color: #8f1f30; background: #fff0f1; }
+.zoki-error-detail { display: block; margin-top: .35rem; font-size: .72rem; line-height: 1.35; color: #6b4a52; overflow-wrap: anywhere; }
 .zoki-message footer { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; margin-top: .65rem; padding-top: .6rem; border-top: 1px solid rgba(90, 51, 66, .12); }
 .zoki-message footer span, .zoki-message footer button { display: inline-flex; align-items: center; gap: .25rem; font-size: .76rem; }
 .zoki-message footer button, .zoki-follow-up { border: 0; border-radius: 7px; padding: .28rem .5rem; background: #fff; color: #870335; cursor: pointer; font: inherit; }

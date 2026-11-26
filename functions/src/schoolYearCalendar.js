@@ -125,5 +125,5 @@ export function remindersText({ today, roleId = '', limit = 6 } = {}) {
   const list = milestonesFor({ today, roleId }).slice(0, limit).map(entry => entry.state === 'active'
     ? `• ${entry.text} (עד ${entry.to.split('-').reverse().join('.')}${entry.mandatory ? ', מועד מחייב' : ''})`
     : `• בעוד ${entry.startsInDays} ימים: ${entry.text}`);
-  return list.length ? `אבני דרך קרובות לתפקיד (תשפ״ז):\n${list.join('\n')}` : '';
+  return list.length ? `אבני דרך קרובות של התפקיד בלבד (תשפ״ז). אלה אינן אירועים בגאנט ואין לאשר או להכחיש אותן כאירועי לוח:\n${list.join('\n')}` : '';
 }

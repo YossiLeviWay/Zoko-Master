@@ -12,7 +12,7 @@ import {
   sanitizeInstitutionalText,
   upsertApprovedPattern,
 } from './brain.js';
-import { SNAPSHOT_TTL_MS, buildPersonalContext, buildPersonalSnapshot, buildReflectionRequest, compactPersonalContext, emptyProfile, parseReflection, profileIsEmpty, sanitizeProfile, snapshotText } from './personalBrain.js';
+import { SNAPSHOT_TTL_MS, buildPersonalContext, buildPersonalSnapshot, buildReflectionRequest, compactPersonalContext, emptyProfile, mergeLearnedProfile, profileIsEmpty, sanitizeProfile, snapshotText } from './personalBrain.js';
 
 const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), {
   status,
@@ -240,15 +240,26 @@ async function cleanupExpiredInbox(env) {
   return { deleted: names.length };
 }
 
-async function adminDocuments(env, token, path) {
-  const response = await fetch(`https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/${path}?pageSize=1000`, {
-    headers: { authorization: `Bearer ${token}` },
-  });
-  if (!response.ok) return [];
-  return ((await response.json()).documents || []).map(document => ({
-    id: document.name.split('/').pop(),
-    ...Object.fromEntries(Object.entries(document.fields || {}).map(([key, value]) => [key, plainValue(value)])),
-  }));
+async function adminDocuments(env, token, path, pages = 1) {
+  const rows = [];
+  let pageToken = '';
+  for (let page = 0; page < pages; page += 1) {
+    const response = await fetch(`https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/${path}?pageSize=1000${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) {
+      console.log('zoki-firestore-list-failed', String(path).slice(0, 80), response.status);
+      break;
+    }
+    const body = await response.json();
+    rows.push(...(body.documents || []).map(document => ({
+      id: document.name.split('/').pop(),
+      ...Object.fromEntries(Object.entries(document.fields || {}).map(([key, value]) => [key, plainValue(value)])),
+    })));
+    pageToken = body.nextPageToken || '';
+    if (!pageToken) break;
+  }
+  return rows;
 }
 
 async function dailySchoolSnapshot(env, token, schoolId) {
@@ -502,12 +513,15 @@ async function liveSnapshot(env, actor, schoolId) {
   const [modernTeams, legacyTeams, modernClasses, legacyClasses, modernTasks, legacyTasks, modernEvents, legacyEvents, modernHolidays, legacyHolidays] = await Promise.all([
     `schools/${schoolId}/teams`, `teams_${schoolId}`, `schools/${schoolId}/classes`, `classes_${schoolId}`, `schools/${schoolId}/tasks`, `tasks_${schoolId}`,
     `schools/${schoolId}/events`, `events_${schoolId}`, `schools/${schoolId}/holidays`, `holidays_${schoolId}`,
-  ].map(path => adminDocuments(env, token, path)));
+  ].map(path => adminDocuments(env, token, path, /events/u.test(path) ? 5 : 1)));
   const merge = (...sets) => [...new Map(sets.flat().map(item => [item.id, item])).values()];
-  return buildPersonalSnapshot({
+  const events = merge(modernEvents, legacyEvents);
+  const snapshot = buildPersonalSnapshot({
     uid: actor.uid, user: actor.person, manager: actor.manager, teams: merge(modernTeams, legacyTeams), classes: merge(modernClasses, legacyClasses),
-    tasks: merge(modernTasks, legacyTasks), events: merge(modernEvents, legacyEvents), holidays: merge(modernHolidays, legacyHolidays),
+    tasks: merge(modernTasks, legacyTasks), events, holidays: merge(modernHolidays, legacyHolidays),
   });
+  console.log('zoki-snapshot-events', 'nested', modernEvents.length, 'legacy', legacyEvents.length, 'kept', snapshot.events.length);
+  return snapshot;
 }
 
 // A masked update fails when the document does not exist yet, so the first write creates it whole.
@@ -593,24 +607,27 @@ async function reflectOnTurn(request, env, actor, schoolId, { profile, snapshot,
       console.log('zoki-reflection-skip', 'learning-off');
       return;
     }
-    const payload = buildReflectionRequest({ profile, messages, reply, role: actor.person?.jobTitle || actor.role, model: env.CLAUDE_MODEL || 'claude-haiku-5-5' });
-    if (!payload) {
+    // Read again here. The profile from the start of the turn can still be the previous
+    // conversation, and a model rewrite must not throw away what this user just said.
+    const latest = fieldsOf(await adminGet(env, personalBrainPath(actor.uid, schoolId)));
+    const base = sanitizeProfile(parseJson(latest.profile) || profile);
+    const keptSnapshot = parseJson(latest.snapshot) || snapshot;
+    if (!buildReflectionRequest({ profile: base, messages, reply, role: actor.person?.jobTitle || actor.role, model: 'm' })) {
       console.log('zoki-reflection-skip', 'no-user-text');
       return;
     }
-    console.log('zoki-reflection-start');
-    let response;
+    console.log('zoki-reflection-start', base.turns);
+    let response = null;
     try {
-      response = await callClaude(env, payload);
+      response = await callClaude(env, buildReflectionRequest({ profile: base, messages, reply, role: actor.person?.jobTitle || actor.role, model: env.CLAUDE_MODEL || 'claude-haiku-5-5' }));
     } catch (error) {
       console.log('zoki-reflection-claude-failed', String(error?.message || error).slice(0, 160));
       console.error('zoki-reflection-claude-failed', String(error?.message || error).slice(0, 160));
-      return;
     }
-    const next = parseReflection(response, profile);
+    const next = mergeLearnedProfile(base, response, messages);
     try {
-      await saveProfile(env, actor, schoolId, next, snapshot);
-      console.log('zoki-reflection-saved', profileIsEmpty(next) ? 'empty' : 'profile', next.turns);
+      await saveProfile(env, actor, schoolId, next, keptSnapshot);
+      console.log('zoki-reflection-saved', profileIsEmpty(next) ? 'empty' : 'profile', next.turns, next.preferences.length, next.focus.length, next.facts.length);
     } catch (error) {
       console.log('zoki-reflection-save-failed', String(error?.message || error).slice(0, 160));
       console.error('zoki-reflection-save-failed', String(error?.message || error).slice(0, 160));
@@ -664,10 +681,14 @@ async function handle(request, env, ctx) {
         if (result.reply || result.proposals.length) {
           // The switch is read now; the Claude reflection itself runs after the answer is on its way.
           const learningOn = await learningEnabled(request, env, actor);
-          const learning = reflectOnTurn(request, env, actor, schoolId, {
+          // Do not call reflectOnTurn before waitUntil. Starting it now opens the Claude
+          // request during this turn, and the runtime then holds the answer until that call ends.
+          const learn = () => reflectOnTurn(request, env, actor, schoolId, {
             profile: personal.profile, snapshot: personal.snapshot, messages: body.messages, reply: result.reply, learningOn,
           });
-          if (ctx?.waitUntil) ctx.waitUntil(learning); else await learning;
+          console.log('zoki-reflection-scheduled');
+          if (ctx?.waitUntil) ctx.waitUntil(Promise.resolve().then(learn));
+          else await learn();
           return json({ ...result, agent: profile.name, provider: 'claude' }, 200, cors(request, env));
         }
       } catch (error) {

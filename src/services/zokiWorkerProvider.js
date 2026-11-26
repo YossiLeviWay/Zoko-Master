@@ -2,14 +2,14 @@
 // The browser sends the conversation plus vetted regulation/milestone text. The Worker adds the
 // institutional knowledge the user may see and may return an action PROPOSAL, which only enters the
 // existing approval flow; nothing is executed from here.
-import { replyWithoutFalseSave, teachingNote } from '../../worker/src/zokiTurn.js';
+import { replyWithStoredMemory, teachingNote } from '../../worker/src/zokiTurn.js';
 
 const CONTEXT_CHARS = 5500;
 
 export function knowledgeContext(input) {
   const parts = [];
   for (const entry of input.knowledge || []) parts.push(`- ${entry.title}: ${JSON.stringify(entry).slice(0, 900)}`);
-  if (input.upcomingMilestones) parts.push(`תאריכים קרובים:\n${typeof input.upcomingMilestones === 'string' ? input.upcomingMilestones : JSON.stringify(input.upcomingMilestones)}`);
+  if (input.upcomingMilestones) parts.push(typeof input.upcomingMilestones === 'string' ? input.upcomingMilestones : JSON.stringify(input.upcomingMilestones));
   return parts.join('\n').slice(0, CONTEXT_CHARS);
 }
 
@@ -30,7 +30,7 @@ export class WorkerZokiProvider {
     const others = proposals.filter(item => item !== task).map(item => `הצעה (עדיין לא ניתנת לאישור כאן): ${item.tool}`);
     const note = teachingNote(input.question);
     return {
-      answer: replyWithoutFalseSave([reply, ...others].join('\n'), Boolean(note)),
+      answer: replyWithStoredMemory([reply, ...others].join('\n'), note),
       actionIntent: task ? 'create_task' : 'none',
       actionRequest: task ? [task.input.title, task.input.description].filter(Boolean).join('. ') : '',
       actionTargetType: 'none', actionTargetLabel: '', staffRoleDraft: null,
