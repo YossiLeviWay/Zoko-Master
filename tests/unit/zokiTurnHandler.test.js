@@ -84,6 +84,7 @@ function fakes({ count = 1, route = { tool: null }, tasksCreate = true, claude =
         }
         return Response.json({ content: [{ type: 'text', text: '{"summary":"שואלת על סדרי עדיפויות","focus":["הטיול השנתי"],"mood":null}' }] });
       }
+      if (claude === 'proposal-only') return Response.json({ stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't1', name: 'create_personal_task', input: { title: 'בדיקה' } }] });
       return Response.json({ content: [{ type: 'text', text: 'תשובת קלוד' }], stop_reason: 'end_turn', usage: {} });
     }
     throw new Error(`unexpected fetch ${url}`);
@@ -125,6 +126,20 @@ test('past the daily limit the request is refused with a retry time', async () =
 });
 
 const claudeEnv = over => environment({ ZOKI_PROVIDER: 'claude-first', ANTHROPIC_API_KEY: 'sk', ...over });
+
+test('a tool-only Claude answer is still a reply, and client permission keys do not add tools', async () => {
+  const seen = fakes({ claude: 'proposal-only' });
+  const response = await worker.fetch(new Request('https://w.example.com/v1/zoki/turn', {
+    method: 'POST', headers: { authorization: 'Bearer t', 'content-type': 'application/json' },
+    body: JSON.stringify({ schoolId: 's1', permissionKeys: ['attendance_view', 'tasks.create'], messages: [{ role: 'user', content: 'צור משימה לבדיקה' }] }),
+  }), claudeEnv());
+  assert.equal(response.status, 200);
+  const out = await response.json();
+  assert.equal(out.reply.includes('הכנתי הצעה לאישור'), true);
+  const names = seen.claude[0].tools.map(tool => tool.name);
+  assert.equal(names.includes('read_attendance'), false);
+  assert.equal(names.includes('create_personal_task'), true);
+});
 
 test('the gantt scan turns the page after a 50-row holiday page', async () => {
   const seen = fakes();

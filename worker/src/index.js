@@ -1,5 +1,6 @@
-import { TOOL_SCHEMAS, buildClaudeRequest, callClaude, heldCapabilities, parseClaudeResponse } from './claude.js';
+import { TOOL_SCHEMAS, buildClaudeRequest, callClaude, heldCapabilities } from './claude.js';
 import { V1_TOOLS, guardProposals } from './zokiActionTools.js';
+import { offeredCapabilityKeys, runClaudeRounds } from './zokiToolRound.js';
 import { allowedTools } from '../../functions/src/roleAgents.js';
 import { appendLearningLog, buildSchoolContext, claudeLimitFor, dailyLimitFor, dayKey, learningLogLine, looksLikeAction, replyWithStoredMemory, secondsToMidnight, teachingNote, toolSpecs, validatedProposal, withoutMilestoneRetraction } from './zokiTurn.js';
 import { askLocalTiered, buildLocalRequest, localModelConfigured, parseLocalResponse, routeLocalAction, streamLocalTiered } from './localModel.js';
@@ -727,8 +728,7 @@ async function handle(request, env, ctx) {
     // ZOKI_PROVIDER: "local" = school model only, "claude" = Claude only, anything else = Claude first, school model as the fallback.
     const usage = await chargeUsage(env, actor, schoolId);
     const held = heldCapabilities(actor.accessProfile);
-    const claimed = Array.isArray(body.permissionKeys) ? body.permissionKeys.filter(key => typeof key === 'string' && key.length < 64) : [];
-    const offered = [...new Set([...held, ...claimed])];
+    const offered = offeredCapabilityKeys(held, body.permissionKeys);
     const lastQuestion = [...(body.messages || [])].reverse().find(item => item?.role === 'user')?.content || '';
     const claudeOnly = env.ZOKI_PROVIDER === 'claude';
     const claudeWanted = Boolean(env.ANTHROPIC_API_KEY) && env.ZOKI_PROVIDER !== 'local';
@@ -741,8 +741,14 @@ async function handle(request, env, ctx) {
     if (claudeAllowed) {
       try {
         const merged = [schoolContext, body.context].filter(Boolean).join('\n\n');
-        const parsed = parseClaudeResponse(await callClaude(env, buildClaudeRequest({ profile, messages: body.messages, context: merged, personal: buildPersonalContext(personal), heldKeys: offered, model: env.CLAUDE_MODEL || 'claude-haiku-5-5' })));
-        parsed.proposals = [...parsed.proposals.filter(item => !V1_TOOLS[item.tool]), ...guardProposals(lastQuestion, parsed.proposals)];
+        const claudeRequest = buildClaudeRequest({ profile, messages: body.messages, context: merged, personal: buildPersonalContext(personal), heldKeys: offered, model: env.CLAUDE_MODEL || 'claude-haiku-5-5' });
+        const turned = await runClaudeRounds({
+          request: claudeRequest,
+          call: payload => callClaude(env, payload),
+          context: { events: personal.snapshot?.events || [], tasks: personal.snapshot?.tasks || [] },
+        });
+        turned.proposals = [...turned.proposals.filter(item => !V1_TOOLS[item.tool]), ...guardProposals(lastQuestion, turned.proposals)];
+        const parsed = turned;
         const note = teachingNote(lastQuestion);
         const reply = replyWithStoredMemory(withoutMilestoneRetraction(parsed.reply, body.context || ''), note);
         const result = { ...parsed, reply };
@@ -754,6 +760,7 @@ async function handle(request, env, ctx) {
           const learn = () => reflectOnTurn(request, env, actor, schoolId, {
             profile: personal.profile, snapshot: personal.snapshot, messages: body.messages, reply: result.reply, learningOn,
           });
+          console.log('zoki-turn-result', String(result.reply || '').length, (result.proposals || []).map(item => item.tool).join(',') || '-');
           console.log('zoki-reflection-scheduled');
           if (ctx?.waitUntil) ctx.waitUntil(Promise.resolve().then(learn));
           else await learn();
