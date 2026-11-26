@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { TOOL_SCHEMAS } from '../../worker/src/claude.js';
 import { buildLocalRequest } from '../../worker/src/localModel.js';
-import { appendLearningLog, buildSchoolContext, dailyLimitFor, dayKey, learningLogLine, looksLikeAction, secondsToMidnight, stripStudentSection, teachingNote, toolSpecs, validatedProposal } from '../../worker/src/zokiTurn.js';
+import { appendLearningLog, buildSchoolContext, claudeLimitFor, dailyLimitFor, dayKey, learningLogLine, looksLikeAction, secondsToMidnight, stripStudentSection, teachingNote, toolSpecs, validatedProposal } from '../../worker/src/zokiTurn.js';
 
 test('daily limits depend on the role and can be overridden', () => {
   assert.equal(dailyLimitFor('principal'), 300);
@@ -62,4 +62,11 @@ test('the learning log appends dated lines and stays bounded', () => {
   assert.ok(log.startsWith('# יומן למידה של זוקי'));
   assert.ok(log.length <= 5000 + 200);
   assert.ok(log.trimEnd().endsWith('399'));
+});
+
+test('each role has its own Claude allowance, below its daily limit', () => {
+  assert.equal(claudeLimitFor('teacher'), 25);
+  assert.equal(claudeLimitFor('principal'), 100);
+  assert.equal(claudeLimitFor('teacher', { ZOKI_CLAUDE_LIMITS: '{"teacher":0}' }), 0);
+  assert.ok(claudeLimitFor('teacher') < dailyLimitFor('teacher'));
 });
