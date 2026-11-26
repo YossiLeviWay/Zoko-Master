@@ -3,6 +3,7 @@
 import { getToken } from 'firebase/app-check';
 import { appCheck, auth } from '../firebase.js';
 import { readTokenStream } from '../utils/tokenStream.js';
+import { formatCspViolation, latestCspViolation } from '../utils/cspViolations.js';
 import { ZOKI_TURN_TIMEOUT_MS, classifyWorkerFetchError, workerCallContext, workerFailure } from '../utils/zokiWorkerError.js';
 
 export const zokiClaudeEndpoint = () => (import.meta.env.VITE_ZOKI_WORKER_URL || '').replace(/\/$/, '');
@@ -47,7 +48,8 @@ export async function askRoleAgent({ schoolId, messages, context = '', signal, o
   try {
     response = await fetch(`${zokiClaudeEndpoint()}/v1/zoki/turn`, { method: 'POST', headers, body: payload, signal: signal || timeout });
   } catch (error) {
-    throw classifyWorkerFetchError(error, where);
+    const csp = formatCspViolation(latestCspViolation());
+    throw classifyWorkerFetchError(error, [where, csp].filter(Boolean).join(' | '));
   }
   if (response.ok && onToken && /text\/event-stream/u.test(response.headers.get('content-type') || '')) return readTokenStream(response, onToken);
   const body = await response.json().catch(() => ({}));

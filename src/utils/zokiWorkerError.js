@@ -1,3 +1,5 @@
+import { formatCspViolation, latestCspViolation } from './cspViolations.js';
+
 // Turns a failure on the way to the Worker into a stable code plus the browser's own
 // error name and message. The screen shows that line; the console keeps the same text.
 export const ZOKI_TURN_TIMEOUT_MS = 120000;
@@ -38,5 +40,7 @@ export function visibleWorkerDiagnostic(error, build = buildId()) {
   const message = String(error?.message || '').replace(/\s+/gu, ' ').slice(0, 160);
   const base = error?.detail || `${stage} | ${name}: ${message}`;
   const withBuild = build && !String(base).includes('build ') ? `${base} | build ${build}` : base;
-  return String(withBuild).slice(0, 320);
+  const csp = formatCspViolation(latestCspViolation());
+  const withCsp = csp && !String(withBuild).includes(csp) ? `${withBuild} | ${csp}` : withBuild;
+  return String(withCsp).slice(0, 400);
 }

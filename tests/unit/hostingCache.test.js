@@ -13,6 +13,9 @@ test('index.html is not cached, hashed assets stay immutable, and no service wor
   assert.ok(sources.indexOf('**/*.@(js|css)') < sources.indexOf('/unregister-sw.js'));
   assert.ok(sources.indexOf('**/*.@(js|css)') < sources.indexOf('/index.html'));
   const html = readFileSync(new URL('../../index.html', import.meta.url), 'utf8');
+  const policy = source => hosting.headers.filter(rule => rule.source === source).at(-1)?.headers.find(header => header.key === 'Content-Security-Policy')?.value || '';
+  assert.match(policy('**'), /https:\/\/zoko-task-agent\.yossi-levi019\.workers\.dev/u);
+  assert.match(html, /https:\/\/zoko-task-agent\.yossi-levi019\.workers\.dev/u);
   assert.match(html, /unregister-sw\.js/u);
   assert.match(html, /zoko-build/u);
   assert.doesNotMatch(html, /serviceWorker\.register/u);
