@@ -32,6 +32,7 @@ import { offlineAnswer } from '../../services/zokiOfflineAnswer.js';
 import { webGpuAvailable } from '../../services/zokiLocalModel.js';
 import { prepareZokiAction } from '../../utils/zokiActions.js';
 import { runZokiAction } from '../../services/zokiActionRunner.js';
+import { labelCard, resolveZokiProposal } from '../../services/zokiNameResolver.js';
 
 const STARTERS = [
   'מה המשימות הפתוחות שלי?',
@@ -459,9 +460,17 @@ function ScopedZokiPage({ embedded = false, onMinimize = () => undefined }) {
         }, result.answer);
         return;
       }
-      const clientAction = result.clientAction ? prepareZokiAction(result.clientAction, { permissions, manager: canManage, actorId: currentUser.uid }) : null;
+      // Names in the proposal (a class, a person, a task) become record ids here, so nobody is asked for an id.
+      let clientAction = null;
+      let unresolved = '';
+      if (result.clientAction) {
+        const resolved = await resolveZokiProposal(result.clientAction, { schoolId }).catch(() => ({ error: 'לא הצלחתי לקרוא את הרשומות כדי לזהות את השם. נסו שוב.' }));
+        if (resolved.error) unresolved = resolved.error;
+        else clientAction = labelCard(prepareZokiAction(resolved.proposal, { permissions, manager: canManage, actorId: currentUser.uid }), resolved.labels);
+        if (activeConversation.current !== submittedConversation || conversationGeneration.current !== submittedGeneration) return;
+      }
       setMessages(previous => [...previous, {
-        id: `zoki_${Date.now()}`, role: 'zoki', text: result.answer + (result.memoryStatus === 'saved' ? '\n\nנשמר עדכון בזיכרון האישי. אפשר לערוך או למחוק אותו ב״הזיכרון שלי״.' : result.memoryStatus === 'failed' ? '\n\nעדכון הזיכרון לא נשמר; התשובה זמינה.' : ''),
+        id: `zoki_${Date.now()}`, role: 'zoki', text: (unresolved || result.answer) + (result.memoryStatus === 'saved' ? '\n\nנשמר עדכון בזיכרון האישי. אפשר לערוך או למחוק אותו ב״הזיכרון שלי״.' : result.memoryStatus === 'failed' ? '\n\nעדכון הזיכרון לא נשמר; התשובה זמינה.' : ''),
         sources: result.sources || [], followUpQuestion: '', actionProposal: null, clientAction,
       }]);
     } catch (error) {

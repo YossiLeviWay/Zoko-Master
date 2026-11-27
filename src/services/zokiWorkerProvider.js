@@ -15,8 +15,8 @@ export function knowledgeContext(input) {
   return parts.join('\n').slice(0, CONTEXT_CHARS);
 }
 
-export function clientActionFromProposals(userText, proposals = []) {
-  const direct = proposalFromReply(userText, proposals);
+export function clientActionFromProposals(userText, proposals = [], earlierText = '') {
+  const direct = proposalFromReply(userText, proposals, earlierText);
   if (direct) return direct;
   const legacy = proposals.find(item => item?.tool === 'create_task' && item.input?.title);
   if (!legacy) return null;
@@ -49,7 +49,8 @@ export class WorkerZokiProvider {
     const { askRoleAgent } = await import('./zokiClaudeService.js');
     const { reply, proposals = [] } = await askRoleAgent({ schoolId: this.schoolId, messages, context: knowledgeContext(input), permissionKeys: input.permissionKeys, onToken: input.onToken });
     const settled = settleWorkerTurn({ reply, proposals });
-    const clientAction = clientActionFromProposals(input.question, settled.proposals);
+    const earlier = [...(input.history || [])].reverse().find(item => item.role === 'user')?.text || '';
+    const clientAction = clientActionFromProposals(input.question, settled.proposals, earlier);
     const task = clientAction ? null : settled.proposals.find(item => item?.tool === 'create_task' && item.input?.title);
     const note = teachingNote(input.question);
     return {

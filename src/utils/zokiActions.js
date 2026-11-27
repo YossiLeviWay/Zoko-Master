@@ -196,8 +196,8 @@ export function prepareZokiAction(proposal, { permissions = {}, manager = false,
   };
 }
 
-export function proposalFromReply(userText, proposals = []) {
-  const [proposal] = guardProposals(userText, proposals);
+export function proposalFromReply(userText, proposals = [], earlierText = '') {
+  const [proposal] = guardProposals(userText, proposals, earlierText);
   return proposal || null;
 }
 

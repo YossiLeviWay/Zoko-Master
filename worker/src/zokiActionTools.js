@@ -1,5 +1,22 @@
 // Tools the Worker may PROPOSE. The browser confirms and writes. Document text is not a user turn.
-export const V1_TOOLS = Object.freeze({
+// People do not know record ids. Every id field has a name twin (className, staffName, taskTitle...);
+// the browser, which reads the school's records with the user's own permissions, turns the name into the id.
+export const NAME_FIELDS = Object.freeze({
+  classId: 'className', taskId: 'taskTitle', assigneeId: 'assigneeName', ownerId: 'ownerName', teamId: 'teamName',
+  userId: 'staffName', teacherId: 'teacherName', studentId: 'studentName', memberIds: 'memberNames', statusId: 'statusLabel', fileId: 'className',
+});
+const NAME_HINT = ' אפשר לזהות לפי שם (שדות שמסתיימים ב־Name / Title / Label) במקום מזהה. אין לבקש מהמשתמש מזהה.';
+function withNames(tools) {
+  return Object.fromEntries(Object.entries(tools).map(([name, spec]) => {
+    const twins = Object.keys(spec.properties).filter(key => NAME_FIELDS[key]);
+    if (!twins.length) return [name, spec];
+    const properties = { ...spec.properties };
+    for (const key of twins) properties[NAME_FIELDS[key]] ||= key === 'memberIds' ? { type: 'array', items: { type: 'string' } } : { type: 'string' };
+    return [name, { ...spec, description: spec.description + NAME_HINT, properties, required: (spec.required || []).filter(key => !NAME_FIELDS[key]) }];
+  }));
+}
+
+export const V1_TOOLS = Object.freeze(withNames({
   create_personal_task: { write: true, keys: ['tasks.create'], description: 'הצע משימה אישית. לא שומר כלום.', properties: { title: { type: 'string' }, dueDate: { type: 'string' }, description: { type: 'string' } }, required: ['title'] },
   create_school_task: { write: true, keys: ['tasks.create'], description: 'הצע משימת מוסד לאדם אחד או לצוות. לא שומר כלום.', properties: { title: { type: 'string' }, dueDate: { type: 'string' }, description: { type: 'string' }, assigneeId: { type: 'string' }, teamId: { type: 'string' } }, required: ['title'] },
   update_task_fields: { write: true, keys: ['tasks.editAll', 'tasks.create'], description: 'הצע עדכון כותרת, תיאור או תאריך של משימה אחת.', properties: { taskId: { type: 'string' }, title: { type: 'string' }, description: { type: 'string' }, dueDate: { type: 'string' } }, required: ['taskId'] },
@@ -21,15 +38,17 @@ export const V1_TOOLS = Object.freeze({
   set_staff_permission: { write: true, keys: ['staff_edit'], description: 'הצע מתן או הסרה של הרשאה אחת.', properties: { userId: { type: 'string' }, permission: { type: 'string' }, granted: { type: 'boolean' } }, required: ['userId', 'permission'] },
   deactivate_staff: { write: true, keys: ['staff_edit'], description: 'הצע השבתה או הפעלה. אין מחיקת משתמש.', properties: { userId: { type: 'string' }, active: { type: 'boolean' } }, required: ['userId'] },
   set_dashboard_layout: { write: true, keys: ['tasks.viewOwn'], description: 'הצע שינוי סידור הדשבורד של המשתמש עצמו בלבד: הוספה, הסרה, הזזה או גודל.', properties: { op: { type: 'string', enum: ['add', 'remove', 'move', 'resize'] }, type: { type: 'string' }, path: { type: 'string' }, size: { type: 'string', enum: ['half', 'full'] }, index: { type: 'number' }, direction: { type: 'string', enum: ['up', 'down'] } }, required: ['op'] },
-});
+}));
 
 const WRITE_ASK = /(?:סמן|עדכן|עדכני|צור|צרי|הוסף|הוסיפי|תעד|תעדי|שנה|שני|קבע|קבעי|הכן|הכיני|פתח|פתחי|רשום|רשמי|ערוך|ערכי|תיצור|תפתח|\bcreate\b|\badd\b|\bupdate\b)/iu;
 const READ_ASK = /(?:מה |איך |סכם|סכמי|הצג|הראה|כמה |נוכחות|אירוע|גאנט|לוח|מקרא)/u;
 
 // A tool call is kept only when the person asked for it. Text inside a file or a task is not a request.
-export function guardProposals(userText, proposals = []) {
+// `earlierText` is the user's previous message: an answer to Zoki's clarifying question
+// ("the class is called X") continues the request that came before it.
+export function guardProposals(userText, proposals = [], earlierText = '') {
   const text = String(userText || '');
-  const write = WRITE_ASK.test(text);
+  const write = WRITE_ASK.test(text) || WRITE_ASK.test(String(earlierText || ''));
   const read = write || READ_ASK.test(text);
   return proposals.filter(item => {
     const spec = V1_TOOLS[item?.tool];

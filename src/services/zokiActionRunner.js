@@ -53,6 +53,10 @@ async function defaultDeps() {
       return snap.exists() ? snap.data() : null;
     },
     addEvent: (schoolId, fields) => addDoc(collection(db, `events_${schoolId}`), fields),
+    getClass: async (schoolId, classId) => {
+      const snap = await getDoc(schoolDoc(db, schoolId, 'classes', classId));
+      return snap.exists() ? snap.data() : null;
+    },
     getTask: async (schoolId, taskId) => {
       const nested = await getDoc(schoolDoc(db, schoolId, 'tasks', taskId));
       if (nested.exists()) return { id: nested.id, ...nested.data(), _source: 'organization' };
@@ -169,9 +173,14 @@ async function perform(card, context, io) {
     return { saved: true, text: 'הכיתה נשמרה.', undo: undoCreated(card, 'class', classId) };
   }
   if (card.tool === 'update_class') {
-    const current = { id: fields.classId, name: card.previous?.name || fields.name, academicYear: card.previous?.academicYear || '' };
-    await io.updateClass({ db: io.db, schoolId, actor, current, input: { ...current, ...fields } });
-    return { saved: true, text: 'הכיתה עודכנה.', undo: card.previous ? undoOf(card, 'update_class', { classId: fields.classId, ...card.previous }) : null };
+    // The whole class record is the base of the update: only the fields that were asked for change.
+    const existing = io.getClass ? await io.getClass(schoolId, fields.classId) : null;
+    if (io.getClass && !existing) return denied('הכיתה לא נמצאה. לא נשמר דבר.');
+    const base = existing || { name: card.previous?.name || fields.name, academicYear: card.previous?.academicYear || '' };
+    const { classId, ...changes } = fields;
+    await io.updateClass({ db: io.db, schoolId, actor, current: { id: classId, ...base }, input: { ...base, ...changes } });
+    const before = existing ? { name: existing.name, gradeLevel: existing.gradeLevel || '', teacherId: existing.teacherId || '' } : card.previous;
+    return { saved: true, text: 'הכיתה עודכנה.', undo: before ? undoOf(card, 'update_class', { classId, ...before }) : null };
   }
   if (card.tool === 'create_team') {
     const team = await io.createSchoolTeam({ db: io.db, schoolId, actor, name: fields.name, description: fields.description });

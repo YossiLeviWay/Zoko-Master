@@ -731,6 +731,7 @@ async function handle(request, env, ctx) {
     const serverHeld = actor.manager ? [...new Set([...held, ...managerCapabilityKeys()])] : held;
     const offered = offeredCapabilityKeys(serverHeld, body.permissionKeys);
     const lastQuestion = [...(body.messages || [])].reverse().find(item => item?.role === 'user')?.content || '';
+    const earlierQuestion = [...(body.messages || [])].reverse().filter(item => item?.role === 'user')[1]?.content || '';
     const claudeOnly = env.ZOKI_PROVIDER === 'claude';
     const claudeWanted = Boolean(env.ANTHROPIC_API_KEY) && env.ZOKI_PROVIDER !== 'local';
     // Past the user's own Claude allowance (or when Claude is down or out of credit) the answer comes from the school model.
@@ -748,7 +749,7 @@ async function handle(request, env, ctx) {
           call: payload => callClaude(env, payload),
           context: { events: personal.snapshot?.events || [], tasks: personal.snapshot?.tasks || [] },
         });
-        turned.proposals = [...turned.proposals.filter(item => !V1_TOOLS[item.tool]), ...guardProposals(lastQuestion, turned.proposals)];
+        turned.proposals = [...turned.proposals.filter(item => !V1_TOOLS[item.tool]), ...guardProposals(lastQuestion, turned.proposals, earlierQuestion)];
         const parsed = turned;
         const note = teachingNote(lastQuestion);
         const reply = replyWithStoredMemory(withoutMilestoneRetraction(parsed.reply, body.context || ''), note);
