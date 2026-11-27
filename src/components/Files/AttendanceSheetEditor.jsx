@@ -56,6 +56,9 @@ export default function AttendanceSheetEditor({ file, schoolId, actor, permissio
   const [students, setStudents] = useState([]);
   const [enrollments, setEnrollments] = useState([]);
   const [brush, setBrush] = useState('');
+  // Phones get a one-day view: a list of students with large status buttons instead of the wide grid.
+  const [dayMode, setDayMode] = useState(() => typeof window !== 'undefined' && Boolean(window.matchMedia?.('(max-width: 768px)').matches));
+  const [dayKey, setDayKey] = useState('');
   const [addOpen, setAddOpen] = useState(false);
   const [addForm, setAddForm] = useState({ firstName: '', lastName: '', parentPhone: '' });
   const [adding, setAdding] = useState(false);
@@ -128,6 +131,41 @@ export default function AttendanceSheetEditor({ file, schoolId, actor, permissio
   const visibleMembers = members.filter(member => member.included !== false && (!search.trim() || memberName(member)?.toLowerCase().includes(search.trim().toLowerCase())));
   const pageCount = Math.max(1, Math.ceil(days.length / PAGE_SIZE));
   const visibleDays = days.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+  const openDays = days.filter(day => !day.blocked);
+  const dayIndex = Math.max(0, openDays.findIndex(day => day.dateKey === dayKey));
+  const currentDay = openDays[dayIndex] || null;
+  useEffect(() => {
+    if (dayKey || !days.length) return;
+    const open = days.filter(day => !day.blocked);
+    const today = todayDateKey();
+    // Today's column, or the nearest earlier school day (on a weekend: the last day that was taught).
+    const target = open.find(day => day.dateKey === today) || [...open].reverse().find(day => day.dateKey < today) || open[0];
+    if (target) setDayKey(target.dateKey);
+  }, [days, dayKey]);
+
+  async function markStatus(member, day, statusId) {
+    if (!canEdit || !day) return;
+    const record = recordByCell.get(`${member.studentId}:${day.dateKey}`);
+    setSaveState('saving');
+    setError('');
+    try {
+      await saveAttendanceCell({
+        db, schoolId, file, actor, studentId: member.studentId, dateKey: day.dateKey,
+        value: { primaryStatusId: record?.primaryStatusId === statusId ? '' : statusId, actionIds: record?.actionIds || [], note: record?.note || '' },
+      });
+      setSaveState('saved');
+    } catch {
+      setSaveState('error');
+      setError('השינוי לא נשמר. בדקו את החיבור וההרשאות ונסו שוב.');
+    }
+  }
+
+  function openDetails(member, day) {
+    const record = recordByCell.get(`${member.studentId}:${day.dateKey}`);
+    setActiveCell({ member, day, record });
+    setDraft({ primaryStatusId: record?.primaryStatusId || '', actionIds: record?.actionIds || [], note: record?.note || '' });
+  }
 
   async function quickMark(member, day, record) {
     setSaveState('saving');
@@ -336,6 +374,31 @@ export default function AttendanceSheetEditor({ file, schoolId, actor, permissio
         </aside>
       )}
 
+      <div className="attendance-view-switch" role="group" aria-label="אופן הצגה">
+        <button type="button" className={`btn btn-sm ${dayMode ? 'btn-primary' : 'btn-secondary'}`} aria-pressed={dayMode} onClick={() => setDayMode(true)}>יום אחד</button>
+        <button type="button" className={`btn btn-sm ${!dayMode ? 'btn-primary' : 'btn-secondary'}`} aria-pressed={!dayMode} onClick={() => setDayMode(false)}>טבלה מלאה</button>
+      </div>
+      {dayMode ? (
+        <section className="attendance-day" aria-label="נוכחות ליום אחד">
+          {currentDay ? <>
+            <header className="attendance-day-head">
+              <button type="button" className="icon-btn" disabled={dayIndex <= 0} onClick={() => setDayKey(openDays[dayIndex - 1].dateKey)} aria-label="היום הקודם"><ChevronRight size={18} /></button>
+              <div><strong>{new Intl.DateTimeFormat('he-IL', { weekday: 'long' }).format(new Date(`${currentDay.dateKey}T12:00:00`))} {formatDate(currentDay.dateKey).short}</strong>{currentDay.dateKey === todayDateKey() && <span>היום</span>}</div>
+              <button type="button" className="icon-btn" disabled={dayIndex >= openDays.length - 1} onClick={() => setDayKey(openDays[dayIndex + 1].dateKey)} aria-label="היום הבא"><ChevronLeft size={18} /></button>
+            </header>
+            {canEdit && presentStatus && <button type="button" className="btn btn-secondary attendance-day-all" onClick={() => markAllPresent(currentDay)}><Check size={16} /> כולם נוכחים</button>}
+            <ul className="attendance-day-list">{visibleMembers.map(member => {
+              const record = recordByCell.get(`${member.studentId}:${currentDay.dateKey}`);
+              const status = memberStatus(member);
+              return <li key={member.studentId} className={status !== 'active' ? 'is-inactive' : ''}>
+                <button type="button" className="attendance-day-name" onClick={() => openDetails(member, currentDay)} title="הערה ופעולות נוספות"><strong>{memberName(member)}</strong>{status !== 'active' && <small>{STATUS_LABELS[status] || ''}</small>}{(record?.note || record?.actionIds?.length > 0) && <small>יש הערה</small>}</button>
+                <div className="attendance-day-statuses">{statusItems.map(item => <button key={item.id} type="button" disabled={!canEdit} aria-pressed={record?.primaryStatusId === item.id} style={{ '--legend-color': item.color }} className={record?.primaryStatusId === item.id ? 'is-on' : ''} onClick={() => markStatus(member, currentDay, item.id)}>{item.label}</button>)}</div>
+              </li>;
+            })}</ul>
+            {visibleMembers.length === 0 && <div className="attendance-empty">אין תלמידים להצגה.</div>}
+          </> : <div className="attendance-empty">אין ימי לימוד בגיליון הזה.</div>}
+        </section>
+      ) : <>
       <div className="attendance-grid-wrap">
         <table className="attendance-grid">
           <thead><tr><th className="attendance-student-column">תלמיד</th>{visibleDays.map(day => { const formatted = formatDate(day.dateKey); return <th key={day.id} className={`${day.dateKey === todayDateKey() ? 'today' : ''} ${day.blocked ? 'blocked' : ''}`}><span>{formatted.weekday}</span><strong>{formatted.short}</strong>{canEdit && !day.blocked && <button onClick={() => markAllPresent(day)} title="סימון כל הכיתה כנוכחת" aria-label={`סימון כל הכיתה כנוכחת ב-${day.dateKey}`}><Check size={11} /></button>}</th>; })}<th className="attendance-summary-column">סיכום</th></tr></thead>
@@ -357,6 +420,7 @@ export default function AttendanceSheetEditor({ file, schoolId, actor, permissio
         {presentStatus && todayDay && <button type="button" className="attendance-quickbar-all" onClick={() => markAllPresent(todayDay)}>כולם נוכחים היום</button>}
         {brush && <small>לחצו על תא כדי לסמן. לחצו שוב על הסטטוס לסיום.</small>}
       </div>}
+      </>}
 
       {addOpen && <div className="attendance-cell-overlay" onClick={() => setAddOpen(false)}>
         <form className="attendance-cell-dialog" role="dialog" aria-modal="true" aria-label="הוספת תלמיד" onClick={event => event.stopPropagation()} onSubmit={addStudent}>

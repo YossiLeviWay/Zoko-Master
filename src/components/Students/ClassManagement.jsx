@@ -1,5 +1,5 @@
 import { ClassPedagogicalMappings } from './PedagogicalMapping.jsx';
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { useContextMenu } from '../Common/ContextMenu';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -113,12 +113,31 @@ export default function ClassManagement({
     return counts;
   }, [students]);
 
-  const visible = classes.filter(item => {
+  // A class whose students have all graduated is a graduates' class, shown apart from the current classes.
+  const graduatedCounts = useMemo(() => {
+    const counts = new Map();
+    students.forEach(student => {
+      if (!student.classId) return;
+      const entry = counts.get(student.classId) || { graduated: 0, other: 0 };
+      if (student.status === 'graduated') entry.graduated += 1; else entry.other += 1;
+      counts.set(student.classId, entry);
+    });
+    return counts;
+  }, [students]);
+  const isGraduatesClass = item => {
+    const entry = graduatedCounts.get(item.id);
+    return Boolean(item.graduatedAt) || Boolean(entry && entry.graduated > 0 && entry.other === 0);
+  };
+
+  const matching = classes.filter(item => {
     if (!showArchived && item.status === CLASS_STATUS.ARCHIVED) return false;
     if (!search.trim()) return true;
     const needle = search.trim().toLowerCase();
     return [item.name, item.gradeLevel, item.academicYear].some(value => String(value || '').toLowerCase().includes(needle));
   });
+  const currentClasses = matching.filter(item => !isGraduatesClass(item));
+  const graduateClasses = matching.filter(isGraduatesClass);
+  const visible = [...currentClasses, ...graduateClasses];
 
   function openCreate() {
     setEditing(null);
@@ -228,20 +247,23 @@ export default function ClassManagement({
       {error && <div className="students-feedback students-feedback--error" role="alert">{error}</div>}
 
       <div className="classes-grid">
-        {visible.map(item => (
-          <article key={item.id} className={`class-card ${item.status === CLASS_STATUS.ARCHIVED ? 'class-card--archived' : ''}`} {...menuProps(() => classActions(item))}>
+        {visible.map((item, index) => (
+          <Fragment key={item.id}>
+          {graduateClasses.length > 0 && index === 0 && currentClasses.length > 0 && <h3 className="classes-group-title">כיתות פעילות <small>{currentClasses.length}</small></h3>}
+          {graduateClasses.length > 0 && index === currentClasses.length && <h3 className="classes-group-title classes-group-title--graduates"><GraduationCap size={17} /> כיתות בוגרים <small>{graduateClasses.length}</small></h3>}
+          <article className={`class-card ${item.status === CLASS_STATUS.ARCHIVED ? 'class-card--archived' : ''} ${isGraduatesClass(item) ? 'class-card--graduates' : ''}`} {...menuProps(() => classActions(item))}>
             <div className="class-card-header">
               <div>
                 <h3>{item.name}</h3>
                 <p>{item.gradeLevel || 'ללא שכבה'} · {item.academicYearLabel || item.academicYear}{item.academicYearRange ? ` (${item.academicYearRange})` : ''}</p>
               </div>
-              <span className={`class-status class-status--${item.status || CLASS_STATUS.ACTIVE}`}>
-                {item.status === CLASS_STATUS.ARCHIVED ? 'ארכיון' : 'פעילה'}
+              <span className={`class-status class-status--${isGraduatesClass(item) && item.status !== CLASS_STATUS.ARCHIVED ? 'graduates' : item.status || CLASS_STATUS.ACTIVE}`}>
+                {item.status === CLASS_STATUS.ARCHIVED ? 'ארכיון' : isGraduatesClass(item) ? 'בוגרים' : 'פעילה'}
               </span>
             </div>
             <div className="class-card-details">
               <span><UserRound size={14} /> {teacherName(item.teacherId)}</span>
-              <span><Users size={14} /> {studentCounts.get(item.id) || 0} תלמידים</span>
+              <span><Users size={14} /> {studentCounts.get(item.id) || 0} {isGraduatesClass(item) ? 'בוגרים' : 'תלמידים'}</span>
               <span><CalendarDays size={14} /> {(item.studyDays || []).map(day => STUDY_DAYS.find(value => value.id === day)?.label).filter(Boolean).join(', ') || 'לא הוגדרו ימים'}</span>
             </div>
             {(item.trackIds || []).length > 0 && (
@@ -275,6 +297,7 @@ export default function ClassManagement({
               </details>}
             </div>
           </article>
+          </Fragment>
         ))}
         {visible.length === 0 && (
           <div className="empty-state classes-empty"><School size={42} className="empty-icon" /><p>אין כיתות להצגה.</p>{canCreate && <button className="btn btn-primary" onClick={openCreate}>יצירת כיתה ראשונה</button>}</div>

@@ -205,3 +205,35 @@
 /* Keep the bar clear of the floating Zoki button in the bottom corner. */
 .attendance-quickbar { padding-left: 5.5rem; }
 @media (max-width: 768px) { .attendance-quickbar { padding-left: .7rem; padding-bottom: 4.2rem; } }
+
+/* One-day view (the default on phones): students down the page, one tap per student. */
+.attendance-view-switch { display: flex; gap: .4rem; margin: .6rem 0; }
+.attendance-day { display: grid; gap: .6rem; }
+.attendance-day-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .5rem .6rem; border: 1px solid var(--color-border); border-radius: 12px; background: #fff; position: sticky; top: 0; z-index: 2; }
+.attendance-day-head > div { display: flex; align-items: center; gap: .5rem; font-size: 1rem; }
+.attendance-day-head span { padding: .1rem .5rem; border-radius: 99px; background: var(--color-primary-soft); color: var(--color-primary); font-size: .72rem; font-weight: 700; }
+.attendance-day-all { width: 100%; }
+.attendance-day-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .5rem; }
+.attendance-day-list li { display: grid; gap: .45rem; padding: .65rem .7rem; border: 1px solid var(--color-border); border-radius: 12px; background: #fff; }
+.attendance-day-list li.is-inactive { opacity: .6; }
+.attendance-day-name { display: flex; align-items: baseline; gap: .5rem; padding: 0; border: 0; background: transparent; color: var(--color-text); font: inherit; text-align: start; cursor: pointer; }
+.attendance-day-name strong { font-size: .95rem; }
+.attendance-day-name small { color: var(--color-text-muted); font-size: .72rem; }
+.attendance-day-statuses { display: flex; flex-wrap: wrap; gap: .35rem; }
+.attendance-day-statuses button { flex: 1 1 4.5rem; min-height: 44px; padding: .35rem .5rem; border: 1.5px solid var(--legend-color, var(--color-border)); border-radius: 10px; background: #fff; color: var(--color-text); font: inherit; font-size: .85rem; font-weight: 650; cursor: pointer; }
+.attendance-day-statuses button.is-on { background: var(--legend-color, var(--color-primary)); color: #fff; }
+.attendance-day-statuses button:disabled { cursor: default; opacity: .7; }
+@media (min-width: 769px) { .attendance-day { max-width: 720px; } }
+
+/* The attendance entry screen: one large button per class sheet. */
+.files-layout--attendance .files-tree-panel { display: none; }
+.attendance-home { padding: 1rem; }
+.attendance-home h3 { margin: 0; font-size: 1.1rem; }
+.attendance-home > p { margin: .25rem 0 .9rem; color: var(--color-text-muted); font-size: .85rem; }
+.attendance-home-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .65rem; }
+.attendance-home-card { display: flex; align-items: center; gap: .75rem; min-height: 68px; padding: .8rem 1rem; border: 1px solid var(--color-border); border-radius: 14px; background: #fff; color: var(--color-text); font: inherit; text-align: start; cursor: pointer; box-shadow: 0 2px 8px rgb(15 23 42 / 5%); }
+.attendance-home-card:hover, .attendance-home-card:focus-visible { border-color: var(--color-primary); background: var(--color-primary-soft); outline: none; }
+.attendance-home-card svg { color: var(--color-primary); flex-shrink: 0; }
+.attendance-home-card span { display: grid; gap: .15rem; min-width: 0; }
+.attendance-home-card strong { font-size: .98rem; overflow-wrap: anywhere; }
+.attendance-home-card small { color: var(--color-text-muted); font-size: .74rem; direction: ltr; text-align: end; }

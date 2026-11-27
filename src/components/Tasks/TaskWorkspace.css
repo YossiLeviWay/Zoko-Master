@@ -6,8 +6,24 @@
 
 .tw-grip{touch-action:none}
 
-.tw-free-note{font-size:13px;color:#52606d;margin:0 0 12px}.tw-free-note button{color:var(--color-primary);background:none;border:0;text-decoration:underline;cursor:pointer}
 
 .tw-page,.tw-dialog{font-family:inherit}.tw-page .tw-main{padding:24px}.tw-head h1{font-size:24px;letter-spacing:normal}.tw-lane{border-radius:16px;box-shadow:0 2px 8px #172b4d06}.tw-page .tw-eyebrow{display:none}.tw-page>header button{font-family:inherit}
 
 @media(max-width:767px){.tw-page .tw-main{padding:18px 14px}}
+
+/* Controls follow the app's shared button system (see .btn in styles/atid-brand.css). */
+.tw-page .tw-head>button,.tw-page .tw-toolbar>button,.tw-dialog footer button,.tw-dialog form>button,.tw-page .tw-main>button{min-height:var(--control-height);padding:.62rem 1.15rem;border:1px solid var(--color-border);border-radius:var(--control-radius);background:var(--color-surface-raised);color:var(--color-primary-text);font-size:.84rem;font-weight:700;line-height:1.2;box-shadow:var(--control-shadow);transition:background-color .15s ease,border-color .15s ease,color .15s ease,transform .15s ease}
+.tw-page .tw-head>button:hover:not(:disabled),.tw-page .tw-toolbar>button:hover:not(:disabled),.tw-dialog footer button:hover:not(:disabled){border-color:var(--color-accent-border);background:var(--color-surface-muted);transform:translateY(-1px)}
+.tw-page .tw-head>button.tw-primary,.tw-dialog footer button.tw-primary{border-color:var(--color-primary);background:var(--color-primary);color:#fff}
+.tw-page .tw-head>button.tw-primary:hover:not(:disabled),.tw-dialog footer button.tw-primary:hover:not(:disabled){border-color:var(--color-primary-hover);background:var(--color-primary-hover);color:#fff}
+.tw-dialog footer button.tw-danger{border-color:#fecaca;background:#fff7f7;color:#b42318;margin-inline-start:auto}
+.tw-dialog footer{flex-wrap:wrap}
+.tw-page .tw-search{min-height:var(--control-height);padding:0 .8rem;border-radius:var(--control-radius);box-sizing:border-box;font-size:.84rem}
+.tw-page .tw-segment,.tw-page .tw-filters{padding:.25rem;gap:.25rem;border:1px solid var(--color-accent-soft);border-radius:var(--control-radius);background:var(--color-surface-raised)}
+.tw-page .tw-segment button,.tw-page .tw-filters button{min-height:calc(var(--control-height) - .6rem);padding:.4rem .85rem;border:1px solid transparent;border-radius:var(--control-radius-small);background:transparent;color:var(--color-primary-text);font-size:.82rem;font-weight:650}
+.tw-page .tw-segment button:hover,.tw-page .tw-filters button:hover{background:var(--color-primary-soft)}
+.tw-page .tw-segment button[aria-pressed=true],.tw-page .tw-filters button[aria-pressed=true]{border-color:var(--color-primary);background:var(--color-primary);color:#fff;box-shadow:0 1px 3px rgb(135 3 53 / 22%)}
+.tw-page .tw-toolbar>.tw-quiet{font-size:.82rem!important}
+.tw-page .tw-arrows button{width:var(--control-height);min-height:var(--control-height);padding:0;border-radius:var(--control-radius);color:var(--color-primary-text)}
+.tw-page .tw-toolbar select,.tw-page .tw-mobile-picker{min-height:var(--control-height);border-radius:var(--control-radius);font-size:.84rem}
+.tw-assign{margin:0}.tw-assign p{margin:0 0 .4rem;font-size:.8rem;color:var(--tw-muted)}

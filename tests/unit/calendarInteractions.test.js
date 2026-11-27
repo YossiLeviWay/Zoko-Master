@@ -36,3 +36,13 @@ test('Zoki chat window no longer offers a Codex engine picker', async () => {
  const snapshot=JSON.parse(await readFile('scripts/simple-access-legacy.json','utf8'));
  assert.match(snapshot['src/components/Gantt/GanttChart.jsx'],/className="calendar-workspace"/);
 });
+
+test('the calendar stands on the next shown school day when today is hidden', async () => {
+ const { nextVisibleDate } = await import('../../src/utils/calendarInteractions.js');
+ const key = date => `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+ assert.equal(key(nextVisibleDate(new Date(2026, 10, 26), [0, 1, 2, 3, 4])), '2026-11-26'); // Thursday stays
+ assert.equal(key(nextVisibleDate(new Date(2026, 10, 27), [0, 1, 2, 3, 4])), '2026-11-29'); // Friday -> Sunday
+ assert.equal(key(nextVisibleDate(new Date(2026, 10, 28), [0, 1, 2, 3, 4])), '2026-11-29'); // Saturday -> Sunday
+ assert.equal(key(nextVisibleDate(new Date(2026, 9, 31), [0, 1, 2, 3, 4])), '2026-11-1'); // crosses the month
+ assert.equal(key(nextVisibleDate(new Date(2026, 10, 27), [])), '2026-11-29'); // no saved days: school week
+});

@@ -870,6 +870,11 @@ export default function FileManager() {
   const unpinnedFolders = sortedFolders.filter(f => !f.pinnedBy?.includes(uid));
 
   const attendanceOnly = searchParams.get('kind') === 'attendance';
+  // The "נוכחות" entry shows the sheets themselves, one large button per class, with no folder tree.
+  const attendanceSheets = attendanceOnly
+    ? files.filter(f => f.fileType === 'attendance' && f.status !== 'archived').filter(userCanOpenFile)
+      .sort((a, b) => String(a.className || a.name || '').localeCompare(String(b.className || b.name || ''), 'he'))
+    : [];
   function getFilesForFolder(folderId) {
     return files
       .filter(f => attendanceOnly ? f.fileType === 'attendance' : f.folderId === folderId)
@@ -994,7 +999,7 @@ export default function FileManager() {
 
   return (
     <div className="page">
-      <Header title="קבצים ותיקיות" onPermissions={() => setShowPermissionsPanel(true)} />
+      <Header title={attendanceOnly ? 'נוכחות' : 'קבצים ותיקיות'} onPermissions={() => setShowPermissionsPanel(true)} />
       {attendanceMessage && (
         <div className="attendance-feedback attendance-feedback--success" role="status">
           {attendanceMessage}
@@ -1002,7 +1007,7 @@ export default function FileManager() {
       )}
       {showPermissionsPanel && <PagePermissionsPanel feature="files" onClose={() => setShowPermissionsPanel(false)} />}
       <div className="page-content">
-        <div className={`files-layout ${fullscreen ? 'files-layout--fullscreen' : ''} ${editingFile ? 'files-layout--file-open' : ''}`}>
+        <div className={`files-layout ${fullscreen ? 'files-layout--fullscreen' : ''} ${editingFile ? 'files-layout--file-open' : ''} ${attendanceOnly ? 'files-layout--attendance' : ''}`}>
           {/* Right panel - File tree */}
           <div className="files-tree-panel">
             <div className="tree-panel-header">
@@ -1282,6 +1287,20 @@ export default function FileManager() {
                   </div>
                 )}
                 </div>
+              </div>
+            ) : attendanceOnly ? (
+              <div className="file-viewer-content attendance-home">
+                <h3>נוכחות</h3>
+                <p>בחרו כיתה כדי לסמן נוכחות.</p>
+                <div className="attendance-home-list">
+                  {attendanceSheets.map(sheet => (
+                    <button type="button" key={sheet.id} className="attendance-home-card" onClick={() => openFile(sheet)}>
+                      <ClipboardCheck size={22} aria-hidden="true" />
+                      <span><strong>{sheet.className || sheet.name}</strong>{sheet.dateRange?.start && <small>{sheet.dateRange.start} – {sheet.dateRange.end}</small>}</span>
+                    </button>
+                  ))}
+                </div>
+                {attendanceSheets.length === 0 && <div className="empty-state"><ClipboardCheck size={36} className="empty-icon" /><p>עדיין אין גיליונות נוכחות. יוצרים גיליון מדף הכיתות, בכפתור ״נוכחות״ של הכיתה.</p></div>}
               </div>
             ) : selectedFolder ? (
               <div className="file-viewer-content">

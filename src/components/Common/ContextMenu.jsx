@@ -41,6 +41,9 @@ export function ContextMenuProvider({ children }) {
     onPointerDown: event => {
       if (event.pointerType === 'mouse') return;
       if (event.target.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+      // A menu area inside another menu area: only the innermost one answers a long press.
+      if (event.nativeEvent.menuClaimed) return;
+      event.nativeEvent.menuClaimed = true;
       const point = { x: event.clientX, y: event.clientY };
       const timer = window.setTimeout(() => open(point, getItems()), 480);
       const stop = () => window.clearTimeout(timer);

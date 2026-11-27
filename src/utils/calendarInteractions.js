@@ -21,3 +21,12 @@ export const DEFAULT_EVENT_TEMPLATES = [
   { id:'english', title:'מבחן באנגלית', description:'', color:'#bae6fd' },
   { id:'mock', title:'מתכונת', description:'', color:'#bbf7d0' },
 ];
+
+// The date the calendar should stand on: the given day when its weekday is shown, otherwise the
+// next shown day (Friday or Saturday in a Sunday-Thursday calendar -> the coming Sunday).
+export function nextVisibleDate(date = new Date(), visibleDays = SCHOOL_WEEK) {
+  const shown = Array.isArray(visibleDays) && visibleDays.length ? visibleDays : SCHOOL_WEEK;
+  const result = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  for (let step = 0; step < 7 && !shown.includes(result.getDay()); step += 1) result.setDate(result.getDate() + 1);
+  return result;
+}

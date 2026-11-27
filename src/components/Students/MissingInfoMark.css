@@ -1,1 +1,3 @@
-.missing-info { display: inline-flex; align-items: center; margin-inline-start: .35rem; color: #b45309; vertical-align: middle; cursor: help; }
+.missing-info { display: inline-flex; align-items: center; margin-inline-start: .35rem; color: var(--color-text-faint, #9aa3ad); vertical-align: middle; cursor: help; }
+.students-missing-note { display: flex; align-items: center; gap: .4rem; margin: 0 0 .6rem; font-size: .8rem; color: var(--color-text-muted); }
+.students-missing-note svg { color: var(--color-text-faint, #9aa3ad); flex-shrink: 0; }

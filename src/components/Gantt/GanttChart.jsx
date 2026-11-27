@@ -18,7 +18,7 @@ import Header from '../Layout/Header';
 import CategoryManager from './CategoryManager';
 import CalendarDialog from './CalendarDialog';
 import EventBank from './EventBank';
-import { calendarDateFields, SCHOOL_WEEK, sortCalendarCategories, DEFAULT_EVENT_TEMPLATES, todayScrollTop } from '../../utils/calendarInteractions';
+import { calendarDateFields, SCHOOL_WEEK, sortCalendarCategories, DEFAULT_EVENT_TEMPLATES, todayScrollTop, nextVisibleDate } from '../../utils/calendarInteractions';
 import EventModal from './EventModal';
 import YearlyOverview from './YearlyOverview';
 import PagePermissionsPanel from '../Shared/PagePermissionsPanel';
@@ -191,7 +191,8 @@ export default function GanttChart() {
   }, [schoolId, setActiveAcademicYear]);
 
   function handleToday() {
-    const today = new Date();
+    // On a day the calendar does not show (Friday/Saturday) "today" means the next school day.
+    const today = nextVisibleDate(new Date(), visibleDays);
     setYear(today.getFullYear());
     setMonth(today.getMonth());
     setSelectedDate(today);
@@ -206,9 +207,11 @@ export default function GanttChart() {
     const wrap = tableRef.current;
     const cell = todayCellRef.current;
     if (!pendingTodayNavigation) { setRevealed(true); return; }
-    // Today is outside the school week (Friday/Saturday): show the week as it is, without scrolling.
     if (!cell || !wrap) {
-      if (wrap && !visibleDays.includes(new Date().getDay())) { setPendingTodayNavigation(false); setRevealed(true); }
+      // The day to stand on is in another month (for example Saturday the 31st -> Sunday the 1st): show that month.
+      const focus = nextVisibleDate(new Date(), visibleDays);
+      if (wrap && (focus.getMonth() !== month || focus.getFullYear() !== year)) { setYear(focus.getFullYear()); setMonth(focus.getMonth()); }
+      else if (wrap) { setPendingTodayNavigation(false); setRevealed(true); }
       return;
     }
     const head = wrap.querySelector('thead')?.getBoundingClientRect().height || 0;
@@ -561,6 +564,7 @@ export default function GanttChart() {
   for (let y = year - 3; y <= year + 3; y++) years.push(y);
 
   const todayStamp = new Date();
+  const focusDayKey = dateKey(nextVisibleDate(todayStamp, visibleDays));
   const todayKey = `${todayStamp.getFullYear()}-${String(todayStamp.getMonth() + 1).padStart(2, '0')}-${String(todayStamp.getDate()).padStart(2, '0')}`;
   const agendaEvents = events.filter(isEventVisible);
   return (
@@ -717,11 +721,13 @@ export default function GanttChart() {
                     const date = week[di];
                     const isCurrentMonth = date.getMonth() === month;
                     const isToday = dateKey(date) === dateKey(new Date());
+                    // The cell the view stands on: today, or the next shown day when today is hidden.
+                    const isFocusDay = dateKey(date) === focusDayKey;
                     return (
                       <td
                         key={di}
-                        ref={isToday ? todayCellRef : undefined}
-                        tabIndex={isToday ? -1 : undefined}
+                        ref={isFocusDay ? todayCellRef : undefined}
+                        tabIndex={isFocusDay ? -1 : undefined}
                         aria-current={isToday ? 'date' : undefined}
                         aria-selected={selectedDate ? dateKey(selectedDate) === dateKey(date) : undefined}
                         className={`gantt-date-header-cell ${!isCurrentMonth ? 'gantt-cell--dim' : ''} ${isToday ? 'gantt-cell--today' : ''} ${isToday && todayPulse ? 'gantt-cell--today-pulse' : ''} ${selectedDate && dateKey(selectedDate) === dateKey(date) ? 'gantt-cell--selected' : ''}`}
