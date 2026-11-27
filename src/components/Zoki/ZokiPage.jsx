@@ -27,6 +27,9 @@ import ZokiPersonalSettings from './ZokiPersonalSettings.jsx';
 import { isZokiAgentConfigured, zokiRequest, zokiSourcePaths, syncPersonalAgentConversation } from '../../services/zokiAgentService.js';
 import { warmZokiConnection } from '../../services/zokiClaudeService.js';
 import { visibleWorkerDiagnostic } from '../../utils/zokiWorkerError.js';
+import { isWorkerNetworkError } from '../../utils/zokiOffline.js';
+import { offlineAnswer } from '../../services/zokiOfflineAnswer.js';
+import { webGpuAvailable } from '../../services/zokiLocalModel.js';
 import { prepareZokiAction } from '../../utils/zokiActions.js';
 import { runZokiAction } from '../../services/zokiActionRunner.js';
 
@@ -91,6 +94,7 @@ function ScopedZokiPage({ embedded = false, onMinimize = () => undefined }) {
   const [messages, setMessages] = useState([]);
   const [conversationReady, setConversationReady] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [waitLabel, setWaitLabel] = useState('מחפש…');
   const [brainOpen, setBrainOpen] = useState(false);
   const [personalOpen, setPersonalOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -462,8 +466,27 @@ function ScopedZokiPage({ embedded = false, onMinimize = () => undefined }) {
       }]);
     } catch (error) {
       if (activeConversation.current !== submittedConversation || conversationGeneration.current !== submittedGeneration) return;
+      if (isWorkerNetworkError(error)) {
+        if (webGpuAvailable()) setWaitLabel('טוען מודל מקומי…');
+        const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(new Date());
+        const local = await offlineAnswer({
+          question: nextQuestion,
+          today,
+          sources: {
+            events: taskAssistantSchoolContext?.sources?.events,
+            tasks: taskAssistantSchoolContext?.sources?.tasks,
+            classes: taskAssistantSchoolContext?.sources?.classes,
+          },
+        });
+        if (activeConversation.current !== submittedConversation || conversationGeneration.current !== submittedGeneration) return;
+        setMessages(previous => [...dropStream(previous), {
+          id: `offline_${Date.now()}`, role: 'zoki', localOnly: true, localNote: local.note, text: local.answer,
+        }]);
+        return;
+      }
       setMessages(previous => [...dropStream(previous), { id: `error_${Date.now()}`, role: 'zoki', error: true, retryQuestion: nextQuestion, debug: visibleWorkerDiagnostic(error), text: error.code === 'resource-exhausted' ? `הגעת למגבלת השאלות האישית או המשותפת. אפשר לנסות שוב בעוד ${error.retryAfter || 60} שניות.` : errorMessage(error) }]);
     } finally {
+      setWaitLabel('מחפש…');
       if (activeConversation.current === submittedConversation && conversationGeneration.current === submittedGeneration) setLoading(false);
     }
   }
@@ -1125,7 +1148,7 @@ function ScopedZokiPage({ embedded = false, onMinimize = () => undefined }) {
           {messages.length === 0 && <div className="zoki-empty"><img src={zokiAvatar} alt="" /><h2>במה אפשר לעזור?</h2><div>{STARTERS.map(starter => <button type="button" key={starter} onClick={() => submitQuestion(starter)}>{starter}</button>)}</div></div>}
           {messages.map(message => <article key={message.id} className={`zoki-message zoki-message--${message.role}${message.error ? ' is-error' : ''}`}>
             {message.role === 'zoki' && <img src={zokiAvatar} alt="" />}
-            <div>{['assistant', 'zoki'].includes(message.role) ? <ZokiText text={message.text} sources={message.sources} /> : <p>{message.text}</p>}{message.followUpQuestion && <button type="button" className="zoki-follow-up" onClick={() => setQuestion(message.followUpQuestion)}>{message.followUpQuestion}</button>}
+            <div>{message.localNote && <p className="zoki-offline-note">{message.localNote}</p>}{['assistant', 'zoki'].includes(message.role) ? <ZokiText text={message.text} sources={message.sources} /> : <p>{message.text}</p>}{message.followUpQuestion && <button type="button" className="zoki-follow-up" onClick={() => setQuestion(message.followUpQuestion)}>{message.followUpQuestion}</button>}
               {message.error && message.retryQuestion && <div><button type="button" className="btn btn-link" disabled={loading} onClick={() => submitQuestion(message.retryQuestion)}>ניסיון נוסף עם AI</button><button type="button" className="btn btn-link" disabled={loading} onClick={() => searchLocally(message.retryQuestion)}>חיפוש מקומי ללא AI</button></div>}
               {message.error && <small className="zoki-error-detail" dir="ltr">{message.debug || visibleWorkerDiagnostic(message)}</small>}
               {message.clientAction && <section className={`zoki-inline-action ${message.actionStatus === 'executed' ? 'is-complete' : ''}`}><header><ShieldCheck size={14} /><strong>{message.actionStatus === 'executed' ? (message.clientAction.write ? 'נשמר' : 'הנתונים') : 'אישור לפני שמירה'}</strong></header>{message.clientAction.lines.map(line => <p key={line}>{line}</p>)}{message.clientAction.resultText && <p>{message.clientAction.resultText}</p>}{message.actionStatus !== 'executed' && message.actionStatus !== 'cancelled' && message.clientAction.allowed && <footer><button type="button" disabled={message.actionStatus === 'executing'} onClick={() => confirmClientAction(message)}><CheckCircle2 size={14} /> {message.actionStatus === 'executing' ? 'מבצע…' : message.clientAction.write ? 'אישור ושמירה' : 'הצגת הנתונים'}</button><button type="button" disabled={message.actionStatus === 'executing'} onClick={() => patchMessage(message.id, { actionStatus: 'cancelled' })}>ביטול</button></footer>}{message.actionStatus === 'executed' && message.clientAction.undo && <footer><button type="button" onClick={() => confirmClientAction(message, true)}>ביטול פעולה</button></footer>}{message.actionStatus === 'cancelled' && <small>הפעולה בוטלה ולא נשמר שינוי.</small>}{message.actionError && <small className="is-error">{message.actionError}</small>}</section>}
@@ -1160,7 +1183,7 @@ function ScopedZokiPage({ embedded = false, onMinimize = () => undefined }) {
           {taskActionResult?.ok && <div className="zoki-task-result is-success" role="status"><CheckCircle2 size={20} /><div><strong>המשימה נוצרה בהצלחה</strong><span>היא נשמרה פעם אחת בלבד.</span></div><button type="button" className="btn btn-secondary btn-sm" onClick={() => navigate(taskActionResult.route)}>פתיחת המשימה</button></div>}
           {taskActionResult && !taskActionResult.ok && <div className="zoki-task-result is-error" role="alert"><ShieldCheck size={20} /><span>{taskActionResult.message}</span></div>}
           {pendingTask && <article className="zoki-task-confirmation"><header><span><ShieldCheck size={15} /> ממתין לאישור</span><h3>{pendingTask.proposal.title || 'משימה חדשה'}</h3></header><p>{pendingTask.proposal.description || 'ללא תיאור נוסף.'}</p><dl><div><dt>עדיפות</dt><dd>{pendingTask.proposal.priority === 'high' ? 'גבוהה' : pendingTask.proposal.priority === 'low' ? 'נמוכה' : 'רגילה'}</dd></div><div><dt>תאריך יעד</dt><dd>{pendingTask.action?.dueDate || 'לא נקבע'}</dd></div><div><dt>סוג</dt><dd>{pendingTask.action?.scope === 'assigned' ? 'משימה מוקצית' : pendingTask.action?.scope === 'team' ? 'משימת צוות' : pendingTask.action?.scope === 'personal' ? 'משימה אישית' : 'נדרשים פרטים נוספים'}</dd></div></dl><footer>{pendingTask.action && <button type="button" className="btn btn-primary" disabled={executingTask} onClick={confirmTaskCreation}><CheckCircle2 size={16} /> {executingTask ? 'יוצר…' : 'אישור ויצירת המשימה'}</button>}<button type="button" className="btn btn-secondary" onClick={editTaskProposal}><Pencil size={16} /> עריכת הפרטים</button><button type="button" className="btn btn-link" onClick={() => setPendingTask(null)}>ביטול</button></footer>{!pendingTask.action && <small>כדי להקצות לאדם או לצוות, יש לבחור יעד מדויק בטופס המלא.</small>}</article>}
-          {loading && !messages.some(message => message.streaming) && <article className="zoki-message zoki-message--zoki"><img src={zokiAvatar} alt="" /><div><p>מחפש…</p><div className="zoki-thinking"><span /><span /><span /></div></div></article>}
+          {loading && !messages.some(message => message.streaming) && <article className="zoki-message zoki-message--zoki"><img src={zokiAvatar} alt="" /><div><p>{waitLabel}</p><div className="zoki-thinking"><span /><span /><span /></div></div></article>}
           <div ref={endRef} />
         </div>
         <form className="zoki-composer" onSubmit={event => { event.preventDefault(); submitQuestion(); }}><textarea id="zoki-question" aria-label="כתיבה לעוזר" value={question} onChange={event => setQuestion(event.target.value)} maxLength={2000} rows={2} placeholder="כתבו כאן…" onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submitQuestion(); } }} /><button type="submit" disabled={loading || question.trim().length < 2} aria-label="שליחה"><Send size={19} /></button></form>

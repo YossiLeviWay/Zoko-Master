@@ -27,6 +27,7 @@
 .zoki-message--user { margin-right: auto; }
 .zoki-message--user > div { color: white; background: #870335; border-bottom-left-radius: 5px; }
 .zoki-message--zoki > div { border-bottom-right-radius: 5px; }
+.zoki-offline-note { margin: 0 0 .45rem; padding: .35rem .55rem; border-radius: 8px; background: #f6efe8; color: #6a3b28; font-size: .82rem; line-height: 1.35; }
 .zoki-message.is-error > div { color: #8f1f30; background: #fff0f1; }
 .zoki-error-detail { display: block; margin-top: .35rem; font-size: .72rem; line-height: 1.35; color: #6b4a52; overflow-wrap: anywhere; }
 .zoki-message footer { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; margin-top: .65rem; padding-top: .6rem; border-top: 1px solid rgba(90, 51, 66, .12); }
