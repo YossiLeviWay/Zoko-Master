@@ -61,3 +61,32 @@ test('people are found by name, and an unknown or ambiguous name is explained in
   const members = await resolveZokiProposal({ tool: 'add_team_members', input: { teamId: 'x', memberNames: ['שירן'] } }, { schoolId: 's1' }, { ...loaders, teams: async () => [{ id: 'x', label: 'צוות טיולים', data: {} }] });
   assert.deepEqual(members.proposal.input.memberIds, ['u2']);
 });
+
+test('a class roster is a browser-side read: offered, kept for the browser, and listed by class or grade', async () => {
+  const { isReadTool } = await import('../../worker/src/zokiToolRound.js');
+  const { buildClaudeRequest } = await import('../../worker/src/claude.js');
+  assert.equal(isReadTool('list_class_students'), false);
+  assert.equal(isReadTool('read_calendar'), true);
+  const ask = [{ tool: 'list_class_students', input: { gradeLevel: 'י״ב' } }];
+  assert.equal(guardProposals('רשימה שמית לכיתה י״ב', ask).length, 1);
+  const request = buildClaudeRequest({ profile: { systemPrompt: 'x', tools: [] }, messages: [{ role: 'user', content: 'רשימה' }], heldKeys: ['students.view'] });
+  assert.ok(request.tools.some(tool => tool.name === 'list_class_students'));
+  assert.ok(!request.tools.some(tool => tool.name === 'read_students'));
+
+  const graded = [{ id: 'c1', label: 'הכיתה של יעקב', data: { gradeLevel: 'י"ב' } }];
+  const resolved = await resolveZokiProposal({ tool: 'list_class_students', input: { className: 'י״ב' } }, { schoolId: 's1' }, { ...loaders, classes: async () => graded });
+  assert.equal(resolved.proposal.input.gradeLevel, 'י״ב');
+  assert.equal(resolved.proposal.input.classId, undefined);
+  const byName = await resolveZokiProposal({ tool: 'list_class_students', input: { className: 'יעקב' } }, { schoolId: 's1' }, { ...loaders, classes: async () => graded });
+  assert.equal(byName.proposal.input.classId, 'c1');
+
+  const card = prepareZokiAction(resolved.proposal, { manager: true, actorId: 'boss' });
+  assert.equal(card.allowed, true);
+  assert.equal(card.write, false);
+  const io = { listClassStudents: async () => [{ className: 'הכיתה של יעקב', gradeLevel: 'י״ב', students: ['אליה לב', 'נתן דדשב'] }] };
+  const outcome = await runZokiAction(card, { schoolId: 's1', manager: true, actor: { uid: 'boss' } }, io);
+  assert.match(outcome.text, /הכיתה של יעקב/u);
+  assert.match(outcome.text, /1\. אליה לב\n2\. נתן דדשב/u);
+  const empty = await runZokiAction(card, { schoolId: 's1', manager: true, actor: { uid: 'boss' } }, { listClassStudents: async () => [] });
+  assert.match(empty.text, /לא מצאתי כיתות בשכבה/u);
+});

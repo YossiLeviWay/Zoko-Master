@@ -70,6 +70,16 @@ export async function resolveZokiProposal(proposal, { schoolId }, loaders) {
   const list = kind => { if (!cache.has(kind)) cache.set(kind, load[kind]()); return cache.get(kind); };
   const labels = {};
 
+  // "י״ב" may be a class name or a whole grade: when no class carries that name, list the grade.
+  if (proposal?.tool === 'list_class_students' && !input.classId && input.className) {
+    const gradeKey = value => String(value || '').replace(/[^\p{L}\p{N}]/gu, '');
+    const records = await list('classes');
+    if (matchByName(records, input.className).error && records.some(item => gradeKey(item.data.gradeLevel) === gradeKey(input.className))) {
+      input.gradeLevel = input.className;
+      delete input.className;
+    }
+  }
+
   for (const [idKey, kind] of Object.entries(KIND)) {
     const nameKey = NAME_FIELDS[idKey];
     if (idKey === 'memberIds') {

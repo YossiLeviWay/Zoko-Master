@@ -28,6 +28,8 @@ export const V1_TOOLS = Object.freeze(withNames({
   read_calendar: { write: false, keys: ['calendar.view', 'calendar_view'], description: 'הצע לקרוא אירועי גאנט בטווח תאריכים.', properties: { from: { type: 'string' }, to: { type: 'string' }, grade: { type: 'string' } }, required: ['from', 'to'] },
   create_calendar_event: { write: true, keys: ['calendar.create', 'calendar.edit', 'calendar_edit'], description: 'הצע יצירת אירוע אחד בגאנט. certainty confirmed כברירת מחדל, tentative הוא לא סגור.', properties: { title: { type: 'string' }, date: { type: 'string' }, category: { type: 'string' }, description: { type: 'string' }, grade: { type: 'string' }, certainty: { type: 'string', enum: ['confirmed', 'tentative'] } }, required: ['title', 'date'] },
   create_follow_up: { write: true, keys: ['tasks.create'], description: 'הצע מעקב (פולו-אפ) למשימה או לאירוע: סטטוס, אחראי, תאריך, צעד הבא, הערות.', properties: { title: { type: 'string' }, sourceType: { type: 'string', enum: ['task', 'event'] }, sourceId: { type: 'string' }, status: { type: 'string' }, ownerId: { type: 'string' }, dueDate: { type: 'string' }, nextStep: { type: 'string' }, notes: { type: 'string' } }, required: ['title', 'dueDate'] },
+  // Student names stay in the browser: the list is shown to the user and is never sent back to the model.
+  list_class_students: { write: false, client: true, keys: ['students.view', 'students_view', 'classes.update', 'classes_update'], description: 'הצג למשתמש רשימה שמית של תלמידי כיתה (לפי שם הכיתה) או של שכבה שלמה (gradeLevel, למשל י״ב). בלי שדות: כל הכיתות. הרשימה מוצגת במסך המשתמש בלבד ואינה חוזרת אליך. זה הכלי לכל בקשה לרשימת תלמידים או לשאלה מי לומד בכיתה.', properties: { classId: { type: 'string' }, gradeLevel: { type: 'string' } } },
   create_class: { write: true, keys: ['classes.create', 'classes_create'], description: 'הצע יצירת כיתה אחת.', properties: { name: { type: 'string' }, gradeLevel: { type: 'string' }, academicYear: { type: 'string' } }, required: ['name'] },
   update_class: { write: true, keys: ['classes.update', 'classes_update'], description: 'הצע עדכון שם, שכבה או מחנך של כיתה אחת.', properties: { classId: { type: 'string' }, name: { type: 'string' }, gradeLevel: { type: 'string' }, teacherId: { type: 'string' } }, required: ['classId'] },
   create_team: { write: true, keys: ['teams_edit'], description: 'הצע יצירת צוות אחד.', properties: { name: { type: 'string' }, description: { type: 'string' } }, required: ['name'] },
@@ -41,7 +43,7 @@ export const V1_TOOLS = Object.freeze(withNames({
 }));
 
 const WRITE_ASK = /(?:סמן|עדכן|עדכני|צור|צרי|הוסף|הוסיפי|תעד|תעדי|שנה|שני|קבע|קבעי|הכן|הכיני|פתח|פתחי|רשום|רשמי|ערוך|ערכי|תיצור|תפתח|\bcreate\b|\badd\b|\bupdate\b)/iu;
-const READ_ASK = /(?:מה |איך |סכם|סכמי|הצג|הראה|כמה |נוכחות|אירוע|גאנט|לוח|מקרא)/u;
+const READ_ASK = /(?:מה |מי |איך |סכם|סכמי|הצג|הראה|כמה |נוכחות|אירוע|גאנט|לוח|מקרא|רשימ|תלמיד|כיתה|כיתות|שכב)/u;
 
 // A tool call is kept only when the person asked for it. Text inside a file or a task is not a request.
 // `earlierText` is the user's previous message: an answer to Zoki's clarifying question

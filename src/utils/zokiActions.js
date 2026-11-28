@@ -89,6 +89,8 @@ const SPECS = {
     const status = ['todo', 'in_progress', 'done'].includes(input.status) ? input.status : 'todo';
     return { value: { title, dueDate, status, ownerId: id(input.ownerId), sourceType: input.sourceType === 'event' ? 'event' : 'task', sourceId: id(input.sourceId), nextStep: text(input.nextStep, 500), notes: text(input.notes, 2000) } };
   }, fields => [`מעקב: ${fields.title}`, `סטטוס: ${fields.status}`, fields.ownerId && `אחראי: ${fields.ownerId}`, `תאריך: ${fields.dueDate}`, fields.nextStep && `הצעד הבא: ${fields.nextStep}`, fields.notes && `הערות: ${fields.notes}`]),
+  list_class_students: spec(['students.view', 'students_view', 'classes.update', 'classes_update'], false, input => ({ value: { classId: id(input.classId), gradeLevel: text(input.gradeLevel, 20) } }),
+    fields => [fields.classId ? `רשימה שמית: ${fields.classId}` : fields.gradeLevel ? `רשימה שמית לשכבה ${fields.gradeLevel}` : 'רשימה שמית של כל הכיתות']),
   create_class: spec(['classes.create', 'classes_create'], true, input => {
     const name = text(input.name, 80);
     if (name.length < 2) return { error: 'חסר שם כיתה.' };

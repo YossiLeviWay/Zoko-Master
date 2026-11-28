@@ -10,13 +10,14 @@ export function managerCapabilityKeys() {
 export const PROPOSAL_LINE = 'הכנתי הצעה לאישור';
 
 const READ_NAMES = new Set([
-  'list_my_tasks', 'read_calendar', 'read_attendance', 'read_class_grades', 'read_students', 'list_unanswered_replies',
+  'list_my_tasks', 'read_calendar', 'read_attendance', 'read_class_grades', 'list_unanswered_replies',
 ]);
 
 export function isReadTool(name) {
   if (READ_NAMES.has(name)) return true;
   const spec = V1_TOOLS[name];
-  return Boolean(spec && spec.write === false);
+  // A client read is carried out in the browser, so it travels there like a proposal.
+  return Boolean(spec && spec.write === false && !spec.client);
 }
 
 // Client permission keys may only narrow the server set. They never add a tool.

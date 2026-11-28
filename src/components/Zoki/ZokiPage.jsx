@@ -463,14 +463,21 @@ function ScopedZokiPage({ embedded = false, onMinimize = () => undefined }) {
       // Names in the proposal (a class, a person, a task) become record ids here, so nobody is asked for an id.
       let clientAction = null;
       let unresolved = '';
+      let localList = '';
       if (result.clientAction) {
         const resolved = await resolveZokiProposal(result.clientAction, { schoolId }).catch(() => ({ error: 'לא הצלחתי לקרוא את הרשומות כדי לזהות את השם. נסו שוב.' }));
         if (resolved.error) unresolved = resolved.error;
         else clientAction = labelCard(prepareZokiAction(resolved.proposal, { permissions, manager: canManage, actorId: currentUser.uid }), resolved.labels);
+        // A list is read and shown right away, in the browser only. It is kept out of what is sent to the model.
+        if (clientAction?.allowed && clientAction.tool === 'list_class_students') {
+          const outcome = await runZokiAction(clientAction, { schoolId, manager: canManage, actor: { uid: currentUser.uid, fullName: userData?.fullName || '' } });
+          localList = outcome.text;
+          clientAction = null;
+        }
         if (activeConversation.current !== submittedConversation || conversationGeneration.current !== submittedGeneration) return;
       }
       setMessages(previous => [...previous, {
-        id: `zoki_${Date.now()}`, role: 'zoki', text: (unresolved || result.answer) + (result.memoryStatus === 'saved' ? '\n\nנשמר עדכון בזיכרון האישי. אפשר לערוך או למחוק אותו ב״הזיכרון שלי״.' : result.memoryStatus === 'failed' ? '\n\nעדכון הזיכרון לא נשמר; התשובה זמינה.' : ''),
+        id: `zoki_${Date.now()}`, role: 'zoki', localOnly: Boolean(localList), text: (localList || unresolved || result.answer) + (result.memoryStatus === 'saved' ? '\n\nנשמר עדכון בזיכרון האישי. אפשר לערוך או למחוק אותו ב״הזיכרון שלי״.' : result.memoryStatus === 'failed' ? '\n\nעדכון הזיכרון לא נשמר; התשובה זמינה.' : ''),
         sources: result.sources || [], followUpQuestion: '', actionProposal: null, clientAction,
       }]);
     } catch (error) {

@@ -53,6 +53,36 @@ async function defaultDeps() {
       return snap.exists() ? snap.data() : null;
     },
     addEvent: (schoolId, fields) => addDoc(collection(db, `events_${schoolId}`), fields),
+    listClassStudents: async ({ schoolId, classId, gradeLevel }) => {
+      const gradeKey = value => String(value || '').replace(/[^\p{L}\p{N}]/gu, '');
+      const [classSnap, studentSnap, enrollSnap] = await Promise.all([getDocs(schoolCollection(db, schoolId, 'classes')), getDocs(schoolCollection(db, schoolId, 'students')), getDocs(schoolCollection(db, schoolId, 'studentEnrollments')).catch(() => ({ docs: [] }))]);
+      const wanted = classSnap.docs.map(item => ({ id: item.id, ...item.data() }))
+        .filter(item => item.status !== 'archived')
+        .filter(item => (classId ? item.id === classId : !gradeLevel || gradeKey(item.gradeLevel) === gradeKey(gradeLevel)))
+        .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'he'));
+      const students = studentSnap.docs.map(item => ({ id: item.id, ...item.data() })).filter(item => !item.status || item.status === 'active');
+      // The yearly enrolment is what the classes screen counts; the student card's own class is the fallback.
+      const enrolled = new Map();
+      for (const item of enrollSnap.docs.map(row => row.data())) {
+        if (item.enrollmentStatus && item.enrollmentStatus !== 'active') continue;
+        if (item.classId && item.studentId) enrolled.set(`${item.classId}|${item.studentId}`, item.displayName || '');
+      }
+      const nameOf = student => student.fullName || [student.firstName, student.lastName].filter(Boolean).join(' ');
+      const roster = classItem => {
+        const names = new Map(students.filter(student => student.classId === classItem.id).map(student => [student.id, nameOf(student)]));
+        for (const [key, displayName] of enrolled) {
+          const [enrolledClass, studentId] = key.split('|');
+          if (enrolledClass !== classItem.id || names.has(studentId)) continue;
+          const card = students.find(student => student.id === studentId);
+          names.set(studentId, card ? nameOf(card) : displayName);
+        }
+        return [...names.values()].filter(Boolean).sort((a, b) => a.localeCompare(b, 'he'));
+      };
+      return wanted.map(item => ({
+        className: item.name || 'כיתה', gradeLevel: item.gradeLevel || '',
+        students: roster(item),
+      }));
+    },
     getClass: async (schoolId, classId) => {
       const snap = await getDoc(schoolDoc(db, schoolId, 'classes', classId));
       return snap.exists() ? snap.data() : null;
@@ -119,6 +149,12 @@ async function perform(card, context, io) {
   if (card.tool === 'read_attendance') {
     const data = await io.readAttendance({ schoolId, ...fields });
     return { saved: false, text: summarizeAttendance({ studentName: fields.studentName, from: fields.from, to: fields.to, ...data }) };
+  }
+  if (card.tool === 'list_class_students') {
+    const groups = await io.listClassStudents({ schoolId, ...fields });
+    if (!groups.length) return { saved: false, text: fields.gradeLevel ? `לא מצאתי כיתות בשכבה ${fields.gradeLevel}.` : 'לא מצאתי כיתות להצגה.' };
+    const text = groups.map(group => [`**${group.className}**${group.gradeLevel ? ` · ${group.gradeLevel}` : ''} · ${group.students.length} תלמידים`, ...group.students.map((name, index) => `${index + 1}. ${name}`), group.students.length ? '' : 'אין תלמידים רשומים בכיתה.'].filter(Boolean).join('\n')).join('\n\n');
+    return { saved: false, text };
   }
   if (card.tool === 'read_calendar') {
     const events = await io.readEvents({ schoolId, ...fields });
